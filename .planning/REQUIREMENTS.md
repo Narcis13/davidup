@@ -133,59 +133,59 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RNDR-01 | TBD | Pending |
-| RNDR-02 | TBD | Pending |
-| RNDR-03 | TBD | Pending |
-| RNDR-04 | TBD | Pending |
-| RNDR-05 | TBD | Pending |
-| RNDR-06 | TBD | Pending |
-| RNDR-07 | TBD | Pending |
-| RNDR-08 | TBD | Pending |
-| RNDR-09 | TBD | Pending |
-| RNDR-10 | TBD | Pending |
-| RNDR-11 | TBD | Pending |
-| ANIM-01 | TBD | Pending |
-| ANIM-02 | TBD | Pending |
-| ANIM-03 | TBD | Pending |
-| ANIM-04 | TBD | Pending |
-| ANIM-05 | TBD | Pending |
-| SCEN-01 | TBD | Pending |
-| SCEN-02 | TBD | Pending |
-| SCEN-03 | TBD | Pending |
-| SCEN-04 | TBD | Pending |
-| AUDI-01 | TBD | Pending |
-| AUDI-02 | TBD | Pending |
-| AUDI-03 | TBD | Pending |
-| AUDI-04 | TBD | Pending |
-| API-01 | TBD | Pending |
-| API-02 | TBD | Pending |
-| API-03 | TBD | Pending |
-| API-04 | TBD | Pending |
-| API-05 | TBD | Pending |
-| API-06 | TBD | Pending |
-| API-07 | TBD | Pending |
-| TMPL-01 | TBD | Pending |
-| TMPL-02 | TBD | Pending |
-| TMPL-03 | TBD | Pending |
-| TMPL-04 | TBD | Pending |
-| TMPL-05 | TBD | Pending |
-| TMPL-06 | TBD | Pending |
-| TMPL-07 | TBD | Pending |
-| ASST-01 | TBD | Pending |
-| ASST-02 | TBD | Pending |
-| ASST-03 | TBD | Pending |
-| ASST-04 | TBD | Pending |
-| OUTP-01 | TBD | Pending |
-| OUTP-02 | TBD | Pending |
-| OUTP-03 | TBD | Pending |
-| OUTP-04 | TBD | Pending |
-| OUTP-05 | TBD | Pending |
+| RNDR-01 | Phase 2 | Pending |
+| RNDR-02 | Phase 2 | Pending |
+| RNDR-03 | Phase 2 | Pending |
+| RNDR-04 | Phase 2 | Pending |
+| RNDR-05 | Phase 2 | Pending |
+| RNDR-06 | Phase 2 | Pending |
+| RNDR-07 | Phase 2 | Pending |
+| RNDR-08 | Phase 2 | Pending |
+| RNDR-09 | Phase 2 | Pending |
+| RNDR-10 | Phase 2 | Pending |
+| RNDR-11 | Phase 2 | Pending |
+| ANIM-01 | Phase 3 | Pending |
+| ANIM-02 | Phase 3 | Pending |
+| ANIM-03 | Phase 3 | Pending |
+| ANIM-04 | Phase 3 | Pending |
+| ANIM-05 | Phase 3 | Pending |
+| SCEN-01 | Phase 3 | Pending |
+| SCEN-02 | Phase 3 | Pending |
+| SCEN-03 | Phase 3 | Pending |
+| SCEN-04 | Phase 3 | Pending |
+| AUDI-01 | Phase 4 | Pending |
+| AUDI-02 | Phase 4 | Pending |
+| AUDI-03 | Phase 4 | Pending |
+| AUDI-04 | Phase 4 | Pending |
+| API-01 | Phase 5 | Pending |
+| API-02 | Phase 5 | Pending |
+| API-03 | Phase 5 | Pending |
+| API-04 | Phase 5 | Pending |
+| API-05 | Phase 5 | Pending |
+| API-06 | Phase 5 | Pending |
+| API-07 | Phase 5 | Pending |
+| TMPL-01 | Phase 6 | Pending |
+| TMPL-02 | Phase 6 | Pending |
+| TMPL-03 | Phase 6 | Pending |
+| TMPL-04 | Phase 6 | Pending |
+| TMPL-05 | Phase 6 | Pending |
+| TMPL-06 | Phase 6 | Pending |
+| TMPL-07 | Phase 6 | Pending |
+| ASST-01 | Phase 5 | Pending |
+| ASST-02 | Phase 5 | Pending |
+| ASST-03 | Phase 5 | Pending |
+| ASST-04 | Phase 5 | Pending |
+| OUTP-01 | Phase 1 | Pending |
+| OUTP-02 | Phase 1 | Pending |
+| OUTP-03 | Phase 1 | Pending |
+| OUTP-04 | Phase 1 | Pending |
+| OUTP-05 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 40 total
-- Mapped to phases: 0
-- Unmapped: 40 ⚠️
+- Mapped to phases: 40
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-24*
-*Last updated: 2026-01-24 after initial definition*
+*Last updated: 2026-01-24 after roadmap creation*
