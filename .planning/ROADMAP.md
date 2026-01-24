@@ -24,8 +24,8 @@
 **Plans:** 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project setup with TypeScript, Zod, and limits configuration
-- [ ] 01-02-PLAN.md — Video spec schema validation (TDD)
+- [x] 01-01-PLAN.md — Project setup with TypeScript, Zod, and limits configuration
+- [x] 01-02-PLAN.md — Video spec schema validation (TDD)
 
 **Requirements:**
 - OUTP-01: System outputs MP4 video with H.264 encoding
@@ -170,7 +170,7 @@ Plans:
 
 | Phase | Status | Plans |
 |-------|--------|-------|
-| 1 - Foundation | In Progress | 0/2 |
+| 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Pending | 0/0 |
 | 3 - Animation & Timeline | Pending | 0/0 |
 | 4 - Video Output | Pending | 0/0 |
