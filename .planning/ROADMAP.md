@@ -21,6 +21,12 @@
 
 **Goal:** JSON specifications can be validated with detailed error feedback and output parameters configured
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Project setup with TypeScript, Zod, and limits configuration
+- [ ] 01-02-PLAN.md — Video spec schema validation (TDD)
+
 **Requirements:**
 - OUTP-01: System outputs MP4 video with H.264 encoding
 - OUTP-02: User can configure output dimensions (up to 1920x1920)
@@ -164,7 +170,7 @@
 
 | Phase | Status | Plans |
 |-------|--------|-------|
-| 1 - Foundation | Pending | 0/0 |
+| 1 - Foundation | In Progress | 0/2 |
 | 2 - Core Rendering | Pending | 0/0 |
 | 3 - Animation & Timeline | Pending | 0/0 |
 | 4 - Video Output | Pending | 0/0 |
@@ -173,4 +179,4 @@
 
 ---
 *Roadmap created: 2026-01-24*
-*Last updated: 2026-01-24*
+*Last updated: 2026-01-25*
