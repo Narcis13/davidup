@@ -164,18 +164,21 @@ Wave 4 (depends on Wave 3):
 
 **Goal:** External developers can authenticate, submit render jobs, poll status, receive webhooks, and manage assets
 
-**Plans:** 5 plans in 3 waves
+**Plans:** 6 plans in 4 waves
 
 Wave 1 (parallel):
-- [ ] 05-01-PLAN.md — API foundation (Hono setup, types, error handler, health check)
-- [ ] 05-02-PLAN.md — Job store and queue services (TDD)
+- [x] 05-01-PLAN.md — API foundation (Hono setup, types, error handler, health check)
+- [x] 05-02-PLAN.md — Job store and queue services (TDD)
 
 Wave 2 (depends on Wave 1):
-- [ ] 05-03-PLAN.md — Authentication and rate limiting middleware
+- [x] 05-03-PLAN.md — Authentication and rate limiting middleware
 
 Wave 3 (parallel, depends on Wave 2):
-- [ ] 05-04-PLAN.md — Render routes (POST /render, GET /render/:jobId, webhooks)
-- [ ] 05-05-PLAN.md — Asset routes (POST /assets, local storage)
+- [x] 05-04-PLAN.md — Render routes (POST /render, GET /render/:jobId, webhooks)
+- [x] 05-05-PLAN.md — Asset routes (POST /assets, local storage)
+
+Wave 4 (gap closure):
+- [ ] 05-06-PLAN.md — Download endpoint (GET /download/:jobId)
 
 **Requirements:**
 - API-01: Developer can authenticate with API key in Authorization header
@@ -232,9 +235,9 @@ Wave 3 (parallel, depends on Wave 2):
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | Planned | 0/5 |
+| 5 - API Layer | Gap Closure | 5/6 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ---
 *Roadmap created: 2026-01-24*
-*Last updated: 2026-01-26 (Phase 5 planned)*
+*Last updated: 2026-01-26 (Phase 5 gap closure plan added)*
