@@ -8,16 +8,16 @@
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 5 In Progress - Auth & Rate Limiting complete
+**Current focus:** Phase 5 In Progress - Asset Upload complete
 
 ## Current Position
 
 Phase: 5 of 6 (API Layer)
-Plan: 3 of 5 in phase (05-03 complete)
-Status: In progress
-Last activity: 2026-01-25 - Completed 05-03-PLAN.md (Auth & Rate Limiting)
+Plan: 5 of 5 in phase (05-05 complete)
+Status: Phase complete
+Last activity: 2026-01-25 - Completed 05-05-PLAN.md (Asset Upload)
 
-Progress: [##############------] 70% (Phase 5: 3/5 plans)
+Progress: [####################] 100% (Phase 5: 5/5 plans)
 
 ## Progress
 
@@ -27,7 +27,7 @@ Progress: [##############------] 70% (Phase 5: 3/5 plans)
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | In progress | 3/5 |
+| 5 - API Layer | Complete | 5/5 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ## Requirements Coverage
@@ -62,13 +62,15 @@ Progress: [##############------] 70% (Phase 5: 3/5 plans)
 - 2026-01-25: Completed 05-01-PLAN.md (API Foundation)
 - 2026-01-25: Completed 05-02-PLAN.md (Job Store & Queue Services)
 - 2026-01-25: Completed 05-03-PLAN.md (Auth & Rate Limiting)
+- 2026-01-25: Completed 05-04-PLAN.md (Render Routes)
+- 2026-01-25: Completed 05-05-PLAN.md (Asset Upload)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 05-03-PLAN.md (Auth & Rate Limiting)
+Stopped at: Completed 05-05-PLAN.md (Asset Upload)
 Resume file: None
-Next action: Execute 05-04-PLAN.md (Render Routes)
+Next action: Execute Phase 6 - AI Integration
 
 ## Accumulated Context
 
@@ -145,6 +147,9 @@ Next action: Execute 05-04-PLAN.md (Render Routes)
 | Rate limiter uses draft-6 headers | Separate headers easier to parse than draft-7 combined | 05-03 |
 | Pre-create rate limiter instances | Maintain state across requests | 05-03 |
 | Rate limit by userId not IP | Per-user limits regardless of IP address | 05-03 |
+| 50MB max file size via bodyLimit | Industry standard for media uploads | 05-05 |
+| UUID-based asset IDs | Prevents filename collisions, secure | 05-05 |
+| Local ./uploads directory | Simple for MVP, can swap to S3 later | 05-05 |
 
 ### Technical Debt
 (None yet)
@@ -192,7 +197,12 @@ Next action: Execute 05-04-PLAN.md (Render Routes)
 - ApiKeyStore loads keys from GAMEMOTION_API_KEYS env var (format: key1:user1:free,key2:user2:pro)
 - Default test key: test-api-key (user: test-user, plan: free)
 - All middleware and services exported from src/api/index.ts
+- AssetStore: save (validates type/size), get (metadata), getPath, delete
+- Asset types: image/png, image/jpeg, image/webp, audio/mpeg, audio/wav, audio/mp3
+- POST /assets returns asset_id for reference in render specs
+- Assets stored locally in ./uploads directory
+- Routes barrel export from src/api/routes/index.ts
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (05-03 Auth & Rate Limiting)*
+*Last updated: 2026-01-25 (05-05 Asset Upload)*
