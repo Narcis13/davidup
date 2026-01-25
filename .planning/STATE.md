@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 4 of 6 (Video Output)
-Plan: 1 of 4 in phase (04-01 complete)
+Plan: 2 of 4 in phase (04-02 complete)
 Status: In Progress
-Last activity: 2026-01-25 - Completed 04-01-PLAN.md (Video Encoding Foundation)
+Last activity: 2026-01-25 - Completed 04-02-PLAN.md (Video Encoder)
 
-Progress: [####------] 40% (Phase 4: 1/4 plans)
+Progress: [#####-----] 50% (Phase 4: 2/4 plans)
 
 ## Progress
 
@@ -26,7 +26,7 @@ Progress: [####------] 40% (Phase 4: 1/4 plans)
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
-| 4 - Video Output | In Progress | 1/4 |
+| 4 - Video Output | In Progress | 2/4 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
 
@@ -56,13 +56,14 @@ Progress: [####------] 40% (Phase 4: 1/4 plans)
 - 2026-01-25: Completed 03-05-PLAN.md (Animation Presets)
 - 2026-01-25: Completed 03-07-PLAN.md (Animated Frame Generator)
 - 2026-01-25: Completed 04-01-PLAN.md (Video Encoding Foundation)
+- 2026-01-25: Completed 04-02-PLAN.md (Video Encoder)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 04-01-PLAN.md (Video Encoding Foundation)
+Stopped at: Completed 04-02-PLAN.md (Video Encoder)
 Resume file: None
-Next action: Execute 04-02-PLAN.md (Video Encoder)
+Next action: Execute 04-03-PLAN.md (Audio Processor)
 
 ## Accumulated Context
 
@@ -118,6 +119,10 @@ Next action: Execute 04-02-PLAN.md (Video Encoder)
 | createRequire for ffmpeg-static | ESM/CJS interop for bundled FFmpeg binary | 04-01 |
 | Auto-include FFmpeg flags | -hide_banner -loglevel error to reduce noise | 04-01 |
 | AudioConfigSchema strict mode | Reject unknown fields, match existing patterns | 04-01 |
+| rgba input, yuv420p output | @napi-rs/canvas to browser/QuickTime compatibility | 04-02 |
+| Default CRF 23, preset medium | Industry standard balance quality/speed | 04-02 |
+| movflags +faststart | Web streaming optimization, moov atom at start | 04-02 |
+| EventEmitter for encoder events | Standard Node.js pattern for progress/complete | 04-02 |
 
 ### Technical Debt
 (None yet)
@@ -142,7 +147,11 @@ Next action: Execute 04-02-PLAN.md (Video Encoder)
 - spawnFFmpeg() returns { process, stdin, finished } for Promise-based FFmpeg control
 - FFmpeg stdin piping: use stdin='pipe' option, write frames, call stdin.end()
 - AudioConfigSchema: volume 0-1, fadeIn/fadeOut in seconds
+- VideoEncoder lifecycle: construct -> start() -> writeFrame()* -> finish()
+- Backpressure: check write() return, await drain if false
+- stdin.end() required for FFmpeg to finalize output file
+- Encoder module exports via src/encoder/index.ts
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (04-01 Video Encoding Foundation)*
+*Last updated: 2026-01-25 (04-02 Video Encoder)*
