@@ -15,3 +15,6 @@ export * from './validators/index.js';
 
 // Errors
 export * from './errors/index.js';
+
+// Render
+export * from './render/index.js';
