@@ -29,14 +29,17 @@ function parseZodIssues(issues: ZodError['issues']): Record<string, string[]> {
 
 /**
  * Global error handler for Hono app.
- * - HTTPException: Returns its response directly
+ * - HTTPException: Returns JSON with error message and status
  * - ZodError: Returns 400 with fieldErrors
  * - Generic Error: Logs and returns 500
  */
 export const errorHandler: ErrorHandler = (error: Error, c: Context) => {
-  // HTTPException from hono/http-exception - return its response
+  // HTTPException from hono/http-exception - convert to JSON
   if (error instanceof HTTPException) {
-    return error.getResponse();
+    const response: ErrorResponse = {
+      error: error.message,
+    };
+    return c.json(response, error.status);
   }
 
   // ZodError from validation - return 400 with field-specific errors
