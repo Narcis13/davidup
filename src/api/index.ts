@@ -1,24 +1,16 @@
 /**
  * API module entry point.
- * Exports the Hono app, types, and middleware for external use.
+ * Exports the Hono app, types, middleware, and services for external use.
  */
 
-// App instance
+// App and server
 export { app } from './app.js';
 
-// All API types
-export type {
-  Job,
-  JobStatus,
-  JobResult,
-  RenderRequest,
-  ApiKey,
-  PlanTier,
-  RenderResponse,
-  ErrorResponse,
-  HealthResponse,
-  VideoSpec,
-} from './types.js';
+// Types
+export * from './types.js';
 
 // Middleware
-export { errorHandler } from './middleware/error-handler.js';
+export * from './middleware/index.js';
+
+// Services
+export * from './services/index.js';
