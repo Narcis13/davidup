@@ -1,12 +1,20 @@
 /**
  * Animation module exports.
- * Provides easing functions and animation utilities.
+ * Provides easing functions, interpolation, and animation engine.
  *
  * @module animation
  */
 
 // Types
-export type { EasingFunction, EasingName } from './types.js';
+export type {
+  EasingFunction,
+  EasingName,
+  Keyframe,
+  PropertyAnimation,
+  AnimationPreset,
+  AnimationPresetType,
+  AnimatedElementProps,
+} from './types.js';
 
 // Easing functions
 export {
@@ -26,3 +34,10 @@ export {
   EASING_FUNCTIONS,
   getEasingFunction,
 } from './easing.js';
+
+// Interpolation
+export { interpolate } from './interpolate.js';
+export type { InterpolateOptions } from './interpolate.js';
+
+// Animation engine
+export { getAnimatedValue, getAnimatedElement } from './animation-engine.js';
