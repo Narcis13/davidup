@@ -13,18 +13,18 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 2 of 6 (Core Rendering)
-Plan: 3 of 6 in phase (02-01, 02-02, 02-03 complete)
+Plan: 4 of 6 in phase (02-01, 02-02, 02-03, 02-05 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 02-03-PLAN.md (Text Renderer)
+Last activity: 2026-01-25 - Completed 02-05-PLAN.md (Shape Renderer)
 
-Progress: [####--] ~50%
+Progress: [####--] ~55%
 
 ## Progress
 
 | Phase | Status | Plans |
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
-| 2 - Core Rendering | In Progress | 3/6 |
+| 2 - Core Rendering | In Progress | 4/6 |
 | 3 - Animation & Timeline | Pending | 0/0 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
@@ -45,13 +45,14 @@ Progress: [####--] ~50%
 - 2026-01-25: Completed 02-02-PLAN.md (Element Schemas - text, image, shape, scene)
 - 2026-01-25: Completed 02-01-PLAN.md (Rendering Infrastructure with @napi-rs/canvas)
 - 2026-01-25: Completed 02-03-PLAN.md (Text Renderer with TDD)
+- 2026-01-25: Completed 02-05-PLAN.md (Shape Renderer with TDD)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 02-03-PLAN.md
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
-Next action: Execute remaining Phase 2 plans (02-04 through 02-06)
+Next action: Execute remaining Phase 2 plans (02-04, 02-06)
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Next action: Execute remaining Phase 2 plans (02-04 through 02-06)
 | Stroke before fill for text | Creates proper outline effect | 02-03 |
 | Shadow reset after render | Prevents bleeding to next element | 02-03 |
 | Word-boundary wrapping only | Preserves readability, long words exceed maxWidth | 02-03 |
+| Circle (x,y) as center | Matches canvas arc() convention | 02-05 |
+| Ellipse (x,y) as top-left | Consistent with rectangle bounding box | 02-05 |
+| Gradient diagonal length | Ensures full coverage regardless of angle | 02-05 |
 
 ### Technical Debt
 (None yet)
@@ -87,4 +91,4 @@ Next action: Execute remaining Phase 2 plans (02-04 through 02-06)
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (02-03 complete)*
+*Last updated: 2026-01-25 (02-05 complete)*
