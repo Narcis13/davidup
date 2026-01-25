@@ -33,3 +33,6 @@ export {
   type AnimationPreset,
   type Transition,
 } from './animation.js';
+
+// Audio schemas
+export { AudioConfigSchema, type AudioConfig } from './audio.js';
