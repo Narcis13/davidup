@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 3 of 6 (Animation & Timeline) - COMPLETE
+**Current phase:** 4 of 6 (Video Output) - In Progress
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 3 Complete - Ready for Phase 4 (Video Output)
+**Current focus:** Phase 4 (Video Output) - FFmpeg encoding and audio processing
 
 ## Current Position
 
-Phase: 3 of 6 (Animation & Timeline)
-Plan: 7 of 7 in phase (03-01 through 03-07 complete)
-Status: Phase Complete
-Last activity: 2026-01-25 - Completed 03-07-PLAN.md (Animated Frame Generator)
+Phase: 4 of 6 (Video Output)
+Plan: 1 of 4 in phase (04-01 complete)
+Status: In Progress
+Last activity: 2026-01-25 - Completed 04-01-PLAN.md (Video Encoding Foundation)
 
-Progress: [##########] 100% (Phase 3)
+Progress: [####------] 40% (Phase 4: 1/4 plans)
 
 ## Progress
 
@@ -26,7 +26,7 @@ Progress: [##########] 100% (Phase 3)
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
-| 4 - Video Output | Pending | 0/0 |
+| 4 - Video Output | In Progress | 1/4 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
 
@@ -55,13 +55,14 @@ Progress: [##########] 100% (Phase 3)
 - 2026-01-25: Completed 03-06-PLAN.md (Scene Transitions)
 - 2026-01-25: Completed 03-05-PLAN.md (Animation Presets)
 - 2026-01-25: Completed 03-07-PLAN.md (Animated Frame Generator)
+- 2026-01-25: Completed 04-01-PLAN.md (Video Encoding Foundation)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-07-PLAN.md (Phase 3 Complete)
+Stopped at: Completed 04-01-PLAN.md (Video Encoding Foundation)
 Resume file: None
-Next action: Begin Phase 4 (Video Output) - research and planning
+Next action: Execute 04-02-PLAN.md (Video Encoder)
 
 ## Accumulated Context
 
@@ -114,6 +115,9 @@ Next action: Begin Phase 4 (Video Output) - research and planning
 | AnimatedScene standalone type | Zod union types incompatible with extends | 03-07 |
 | Type assertion for Timeline | AnimatedScene to SceneWithTransition via unknown | 03-07 |
 | Selective animation exports | Avoid naming conflicts with schema types | 03-07 |
+| createRequire for ffmpeg-static | ESM/CJS interop for bundled FFmpeg binary | 04-01 |
+| Auto-include FFmpeg flags | -hide_banner -loglevel error to reduce noise | 04-01 |
+| AudioConfigSchema strict mode | Reject unknown fields, match existing patterns | 04-01 |
 
 ### Technical Debt
 (None yet)
@@ -135,7 +139,10 @@ Next action: Begin Phase 4 (Video Output) - research and planning
 - AnimatedFrameGenerator.generateAllFrames() yields Buffer for each frame
 - createAnimatedRenderer() factory provides ready-to-use animated renderer
 - All Phase 3 exports available from main index (src/index.ts)
+- spawnFFmpeg() returns { process, stdin, finished } for Promise-based FFmpeg control
+- FFmpeg stdin piping: use stdin='pipe' option, write frames, call stdin.end()
+- AudioConfigSchema: volume 0-1, fadeIn/fadeOut in seconds
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-07 Animated Frame Generator - Phase 3 Complete)*
+*Last updated: 2026-01-25 (04-01 Video Encoding Foundation)*
