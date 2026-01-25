@@ -160,37 +160,213 @@ export class AnimatedFrameGenerator {
     }
   }
 
-  // Private methods implemented in Task 2...
-  private renderSceneFrame(_sceneInfo: SceneInfo): Buffer {
-    // Implemented in Task 2
-    throw new Error('Not implemented');
+  /**
+   * Render a single scene frame (not in transition).
+   */
+  private renderSceneFrame(sceneInfo: SceneInfo): Buffer {
+    const scene = sceneInfo.scene as unknown as AnimatedScene;
+    const { localFrame } = sceneInfo;
+
+    // Fill background
+    this.ctx.fillStyle = scene.background ?? '#000000';
+    this.ctx.fillRect(0, 0, this.config.width, this.config.height);
+
+    // Render each element with animations applied
+    for (const element of scene.elements) {
+      const animatedElement = this.resolveAnimatedElement(
+        element,
+        localFrame,
+        this.config.fps
+      );
+      if (animatedElement) {
+        this.renderElement(animatedElement);
+      }
+    }
+
+    return Buffer.from(this.canvas.data());
   }
 
-  private renderTransitionFrame(_sceneInfo: SceneInfo): Buffer {
-    // Implemented in Task 2
-    throw new Error('Not implemented');
+  /**
+   * Render a transition frame between two scenes.
+   */
+  private renderTransitionFrame(sceneInfo: SceneInfo): Buffer {
+    const { transition } = sceneInfo;
+    if (!transition) {
+      return this.renderSceneFrame(sceneInfo);
+    }
+
+    // Render "from" scene (current scene without transition flag)
+    const fromSceneInfo: SceneInfo = {
+      ...sceneInfo,
+      inTransition: false,
+      transition: undefined,
+    };
+    const fromBuffer = this.renderSceneFrame(fromSceneInfo);
+
+    // Render "to" scene (next scene at frame 0)
+    const toSceneInfo: SceneInfo = {
+      scene: transition.to,
+      sceneIndex: sceneInfo.sceneIndex + 1,
+      localFrame: 0,
+      globalFrame: sceneInfo.globalFrame,
+      inTransition: false,
+    };
+    const toBuffer = this.renderSceneFrame(toSceneInfo);
+
+    // Composite using transition effect
+    return renderTransition({
+      fromBuffer,
+      toBuffer,
+      width: this.config.width,
+      height: this.config.height,
+      progress: transition.easedProgress,
+      type: transition.type,
+      direction: transition.direction,
+    });
   }
 
+  /**
+   * Resolve an animated element's properties for a specific frame.
+   * Returns null if the element is not visible at this frame.
+   *
+   * CRITICAL: Converts schema time (seconds) to frame numbers.
+   */
   private resolveAnimatedElement(
-    _element: AnimatedElement,
-    _localFrame: number,
-    _fps: number
+    element: AnimatedElement,
+    localFrame: number,
+    fps: number
   ): BaseElement | null {
-    // Implemented in Task 2
-    throw new Error('Not implemented');
+    const localTime = localFrame / fps;
+    const startTime = element.startTime ?? 0;
+    const endTime = element.endTime ?? Infinity;
+
+    // Check visibility bounds
+    if (localTime < startTime || localTime > endTime) {
+      return null;
+    }
+
+    // Calculate element-local frame (time since element appeared)
+    const elementLocalFrame = localFrame - Math.round(startTime * fps);
+
+    // Collect all animations (converted to frame-based)
+    const allAnimations = this.collectAnimations(element, fps);
+
+    // Create a copy of the element to modify
+    const resolved: Record<string, unknown> = { ...element };
+
+    // Apply each animation
+    for (const anim of allAnimations) {
+      if (anim.keyframes.length > 0) {
+        const value = getAnimatedValue(elementLocalFrame, anim.keyframes);
+        // Apply constraints for certain properties
+        if (anim.property === 'opacity') {
+          resolved[anim.property] = Math.max(0, Math.min(1, value));
+        } else if (anim.property === 'scaleX' || anim.property === 'scaleY') {
+          resolved[anim.property] = Math.max(0, value);
+        } else {
+          resolved[anim.property] = value;
+        }
+      }
+    }
+
+    return resolved as unknown as BaseElement;
   }
 
+  /**
+   * Collect all animations for an element, including converted schema keyframes
+   * and generated preset keyframes.
+   *
+   * CRITICAL: Schema keyframes use `time` (seconds), runtime uses `frame` numbers.
+   * Convert time to frames using: frame = Math.round(time * fps)
+   */
   private collectAnimations(
-    _element: AnimatedElement,
-    _fps: number
+    element: AnimatedElement,
+    fps: number
   ): PropertyAnimation[] {
-    // Implemented in Task 2
-    throw new Error('Not implemented');
+    const animations: PropertyAnimation[] = [];
+
+    // Convert time-based keyframes from schema to frame-based for runtime
+    if (element.animations) {
+      for (const anim of element.animations) {
+        animations.push({
+          property: anim.property,
+          keyframes: anim.keyframes.map((kf) => ({
+            // Schema may use `time` in seconds, convert to frame number
+            frame:
+              (kf as { time?: number }).time !== undefined
+                ? Math.round((kf as { time?: number }).time! * fps)
+                : kf.frame,
+            value: kf.value,
+            easing: kf.easing,
+          })),
+        });
+      }
+    }
+
+    // Add enter preset animations (duration in seconds, convert to frames)
+    if (element.enter) {
+      const enterDurationFrames = Math.round(element.enter.duration * fps);
+      const enterAnims = generateEnterKeyframes(
+        {
+          type: element.enter.type,
+          duration: enterDurationFrames,
+          direction: element.enter.direction,
+          distance: element.enter.distance,
+          easing: element.enter.easing,
+        },
+        0, // Start at frame 0 of element's local timeline
+        (element.x as number) ?? 0,
+        (element.y as number) ?? 0
+      );
+      animations.push(...enterAnims);
+    }
+
+    // Add exit preset animations
+    if (element.exit && element.endTime !== undefined) {
+      const exitDurationFrames = Math.round(element.exit.duration * fps);
+      const startTime = element.startTime ?? 0;
+      const visibleDurationFrames = Math.round((element.endTime - startTime) * fps);
+      const exitStartFrame = visibleDurationFrames - exitDurationFrames;
+
+      const exitAnims = generateExitKeyframes(
+        {
+          type: element.exit.type,
+          duration: exitDurationFrames,
+          direction: element.exit.direction,
+          distance: element.exit.distance,
+          easing: element.exit.easing,
+        },
+        exitStartFrame,
+        (element.x as number) ?? 0,
+        (element.y as number) ?? 0
+      );
+      animations.push(...exitAnims);
+    }
+
+    return animations;
   }
 
-  private renderElement(_element: BaseElement): void {
-    // Implemented in Task 2
-    throw new Error('Not implemented');
+  /**
+   * Render a single element with transforms applied.
+   */
+  private renderElement(element: BaseElement): void {
+    this.ctx.save();
+    try {
+      // Apply transforms (position, rotation, scale, opacity)
+      applyTransforms(this.ctx, {
+        x: (element as { x?: number }).x ?? 0,
+        y: (element as { y?: number }).y ?? 0,
+        rotation: (element as { rotation?: number }).rotation ?? 0,
+        scaleX: (element as { scaleX?: number }).scaleX ?? 1,
+        scaleY: (element as { scaleY?: number }).scaleY ?? 1,
+        opacity: (element as { opacity?: number }).opacity ?? 1,
+      });
+
+      // Delegate to the appropriate renderer
+      this.registry.render(this.ctx, element, this.assets);
+    } finally {
+      this.ctx.restore();
+    }
   }
 }
 
