@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ElementSchema, ColorSchema } from './elements.js';
+import { TransitionSchema } from './animation.js';
 
 /**
  * Scene schema containing elements and background.
@@ -20,6 +21,9 @@ export const SceneSchema = z.object({
 
   /** Elements in this scene, rendered in array order (first = back, last = front) */
   elements: z.array(ElementSchema).default([]),
+
+  /** Optional transition effect when entering this scene */
+  transition: TransitionSchema.optional(),
 });
 
 /**
