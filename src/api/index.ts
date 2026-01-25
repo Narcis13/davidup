@@ -14,3 +14,6 @@ export * from './middleware/index.js';
 
 // Services
 export * from './services/index.js';
+
+// Routes
+export * from './routes/index.js';
