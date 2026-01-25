@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { validateVideoSpec } from '../../src/validators/spec-validator.js';
 
+// Helper: minimal valid scene for specs that require scenes
+const minimalScene = { duration: 1, elements: [] };
+
 describe('validateVideoSpec', () => {
   // ===========================================
   // Valid Specs - Should Return Success
@@ -9,7 +12,8 @@ describe('validateVideoSpec', () => {
   describe('valid specs', () => {
     it('should accept valid spec with all fields', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: 30, duration: 60 }
+        output: { width: 1920, height: 1080, fps: 30, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(true);
@@ -23,7 +27,8 @@ describe('validateVideoSpec', () => {
 
     it('should apply default fps (30) when not specified', () => {
       const result = validateVideoSpec({
-        output: { width: 1280, height: 720, duration: 60 }
+        output: { width: 1280, height: 720, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(true);
@@ -34,7 +39,8 @@ describe('validateVideoSpec', () => {
 
     it('should accept minimum valid values (1x1, 1fps, small duration)', () => {
       const result = validateVideoSpec({
-        output: { width: 1, height: 1, fps: 1, duration: 0.001 }
+        output: { width: 1, height: 1, fps: 1, duration: 0.001 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(true);
@@ -48,7 +54,8 @@ describe('validateVideoSpec', () => {
 
     it('should accept maximum valid values (1920x1920, 60fps, 300s)', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1920, fps: 60, duration: 300 }
+        output: { width: 1920, height: 1920, fps: 60, duration: 300 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(true);
@@ -70,7 +77,8 @@ describe('validateVideoSpec', () => {
 
       for (const res of resolutions) {
         const result = validateVideoSpec({
-          output: { ...res, duration: 30 }
+          output: { ...res, duration: 30 },
+          scenes: [minimalScene]
         });
         expect(result.success).toBe(true);
       }
@@ -84,7 +92,8 @@ describe('validateVideoSpec', () => {
   describe('invalid dimensions', () => {
     it('should reject width exceeding 1920', () => {
       const result = validateVideoSpec({
-        output: { width: 2000, height: 1080, duration: 60 }
+        output: { width: 2000, height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -95,7 +104,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject height exceeding 1920', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 2000, duration: 60 }
+        output: { width: 1920, height: 2000, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -106,7 +116,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject width of 0', () => {
       const result = validateVideoSpec({
-        output: { width: 0, height: 1080, duration: 60 }
+        output: { width: 0, height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -117,7 +128,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject negative width', () => {
       const result = validateVideoSpec({
-        output: { width: -100, height: 1080, duration: 60 }
+        output: { width: -100, height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -128,7 +140,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject negative height', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: -100, duration: 60 }
+        output: { width: 1920, height: -100, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -139,7 +152,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject non-integer width', () => {
       const result = validateVideoSpec({
-        output: { width: 1920.5, height: 1080, duration: 60 }
+        output: { width: 1920.5, height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -150,7 +164,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject non-integer height', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080.5, duration: 60 }
+        output: { width: 1920, height: 1080.5, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -167,7 +182,8 @@ describe('validateVideoSpec', () => {
   describe('invalid fps', () => {
     it('should reject fps exceeding 60', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: 120, duration: 60 }
+        output: { width: 1920, height: 1080, fps: 120, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -178,7 +194,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject fps less than 1', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: 0, duration: 60 }
+        output: { width: 1920, height: 1080, fps: 0, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -189,7 +206,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject negative fps', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: -30, duration: 60 }
+        output: { width: 1920, height: 1080, fps: -30, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -200,7 +218,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject non-integer fps', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: 29.97, duration: 60 }
+        output: { width: 1920, height: 1080, fps: 29.97, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -217,7 +236,8 @@ describe('validateVideoSpec', () => {
   describe('invalid duration', () => {
     it('should reject duration exceeding 300 seconds', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, duration: 301 }
+        output: { width: 1920, height: 1080, duration: 301 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -228,7 +248,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject duration of 0', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, duration: 0 }
+        output: { width: 1920, height: 1080, duration: 0 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -239,7 +260,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject negative duration', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, duration: -60 }
+        output: { width: 1920, height: 1080, duration: -60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -256,7 +278,8 @@ describe('validateVideoSpec', () => {
   describe('missing required fields', () => {
     it('should reject missing width', () => {
       const result = validateVideoSpec({
-        output: { height: 1080, duration: 60 }
+        output: { height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -267,7 +290,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject missing height', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, duration: 60 }
+        output: { width: 1920, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -278,7 +302,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject missing duration', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080 }
+        output: { width: 1920, height: 1080 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -288,11 +313,24 @@ describe('validateVideoSpec', () => {
     });
 
     it('should reject missing output object', () => {
-      const result = validateVideoSpec({});
+      const result = validateVideoSpec({
+        scenes: [minimalScene]
+      });
 
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.fieldErrors).toHaveProperty('output');
+      }
+    });
+
+    it('should reject missing scenes array', () => {
+      const result = validateVideoSpec({
+        output: { width: 1920, height: 1080, duration: 60 }
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.fieldErrors).toHaveProperty('scenes');
       }
     });
   });
@@ -304,7 +342,8 @@ describe('validateVideoSpec', () => {
   describe('wrong types', () => {
     it('should reject string instead of number for width', () => {
       const result = validateVideoSpec({
-        output: { width: '1920', height: 1080, duration: 60 }
+        output: { width: '1920', height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -315,7 +354,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject string instead of number for height', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: '1080', duration: 60 }
+        output: { width: 1920, height: '1080', duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -326,7 +366,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject string instead of number for fps', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: '30', duration: 60 }
+        output: { width: 1920, height: 1080, fps: '30', duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -337,7 +378,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject string instead of number for duration', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, duration: '60' }
+        output: { width: 1920, height: 1080, duration: '60' },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -348,7 +390,8 @@ describe('validateVideoSpec', () => {
 
     it('should reject array instead of object for output', () => {
       const result = validateVideoSpec({
-        output: [1920, 1080, 30, 60]
+        output: [1920, 1080, 30, 60],
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -382,7 +425,19 @@ describe('validateVideoSpec', () => {
     });
 
     it('should reject null output', () => {
-      const result = validateVideoSpec({ output: null });
+      const result = validateVideoSpec({ output: null, scenes: [minimalScene] });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.message).toBeTruthy();
+      }
+    });
+
+    it('should reject null scenes', () => {
+      const result = validateVideoSpec({
+        output: { width: 1920, height: 1080, duration: 60 },
+        scenes: null
+      });
 
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -398,7 +453,8 @@ describe('validateVideoSpec', () => {
   describe('multiple errors', () => {
     it('should return all field errors, not just first', () => {
       const result = validateVideoSpec({
-        output: { width: 5000, height: 5000, fps: 120, duration: 500 }
+        output: { width: 5000, height: 5000, fps: 120, duration: 500 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -413,7 +469,8 @@ describe('validateVideoSpec', () => {
 
     it('should return errors for multiple missing required fields', () => {
       const result = validateVideoSpec({
-        output: { width: 1920 }
+        output: { width: 1920 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -432,7 +489,8 @@ describe('validateVideoSpec', () => {
   describe('error message quality', () => {
     it('should provide user-friendly error message for exceeding width', () => {
       const result = validateVideoSpec({
-        output: { width: 2000, height: 1080, duration: 60 }
+        output: { width: 2000, height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -447,7 +505,8 @@ describe('validateVideoSpec', () => {
 
     it('should provide user-friendly error message for exceeding fps', () => {
       const result = validateVideoSpec({
-        output: { width: 1920, height: 1080, fps: 120, duration: 60 }
+        output: { width: 1920, height: 1080, fps: 120, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
@@ -462,7 +521,8 @@ describe('validateVideoSpec', () => {
 
     it('should provide overall error message summarizing issues', () => {
       const result = validateVideoSpec({
-        output: { width: 2000, height: 1080, duration: 60 }
+        output: { width: 2000, height: 1080, duration: 60 },
+        scenes: [minimalScene]
       });
 
       expect(result.success).toBe(false);
