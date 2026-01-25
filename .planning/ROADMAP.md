@@ -47,12 +47,26 @@ Plans:
 
 **Goal:** Static frames can be rendered with text elements (styled, shadowed, wrapped), images (fitted, rounded), and shapes (filled, stroked, gradients)
 
+**Plans:** 6 plans in 3 waves
+
+Wave 1 (parallel):
+- [x] 02-01-PLAN.md — Core infrastructure (@napi-rs/canvas, RendererRegistry, AssetManager, FrameGenerator)
+- [x] 02-02-PLAN.md — Element schemas (TextElement, ImageElement, ShapeElement, Scene)
+
+Wave 2 (parallel, depends on Wave 1):
+- [x] 02-03-PLAN.md — Text renderer (TDD) — RNDR-01 through RNDR-04
+- [x] 02-04-PLAN.md — Image renderer (TDD) — RNDR-06 through RNDR-08
+- [x] 02-05-PLAN.md — Shape renderer (TDD) — RNDR-09 through RNDR-11
+
+Wave 3 (depends on Wave 2):
+- [x] 02-06-PLAN.md — Integration tests and factory function
+
 **Requirements:**
 - RNDR-01: User can add text elements with font family, size, weight, style, color, alignment
 - RNDR-02: User can add text shadow and stroke/outline effects
 - RNDR-03: User can add text background with padding and border radius
 - RNDR-04: User can set text max width for automatic wrapping
-- RNDR-05: User can animate text word-by-word for caption-style reveals
+- RNDR-05: User can animate text word-by-word for caption-style reveals (schema only, animation in Phase 3)
 - RNDR-06: User can add image elements from URLs or uploaded assets
 - RNDR-07: User can set image fit mode (cover, contain, fill)
 - RNDR-08: User can add border radius to images
@@ -171,7 +185,7 @@ Plans:
 | Phase | Status | Plans |
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
-| 2 - Core Rendering | Pending | 0/0 |
+| 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Pending | 0/0 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
