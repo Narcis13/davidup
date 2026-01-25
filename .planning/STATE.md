@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 4 of 6 (Video Output) - Complete
+**Current phase:** 5 of 6 (API Layer) - In Progress
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 4 Complete - Ready for Phase 5 (API Layer)
+**Current focus:** Phase 5 In Progress - API Foundation complete
 
 ## Current Position
 
-Phase: 4 of 6 (Video Output)
-Plan: 4 of 4 in phase (04-04 complete)
-Status: Phase Complete
-Last activity: 2026-01-25 - Completed 04-04-PLAN.md (Render Pipeline Integration)
+Phase: 5 of 6 (API Layer)
+Plan: 1 of 5 in phase (05-01 complete)
+Status: In progress
+Last activity: 2026-01-25 - Completed 05-01-PLAN.md (API Foundation)
 
-Progress: [##########] 100% (Phase 4: 4/4 plans)
+Progress: [##########----------] 50% (Phase 5: 1/5 plans)
 
 ## Progress
 
@@ -27,7 +27,7 @@ Progress: [##########] 100% (Phase 4: 4/4 plans)
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | Pending | 0/0 |
+| 5 - API Layer | In progress | 1/5 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ## Requirements Coverage
@@ -59,13 +59,14 @@ Progress: [##########] 100% (Phase 4: 4/4 plans)
 - 2026-01-25: Completed 04-02-PLAN.md (Video Encoder)
 - 2026-01-25: Completed 04-03-PLAN.md (Audio Processor)
 - 2026-01-25: Completed 04-04-PLAN.md (Render Pipeline Integration)
+- 2026-01-25: Completed 05-01-PLAN.md (API Foundation)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 04-04-PLAN.md (Render Pipeline Integration)
+Stopped at: Completed 05-01-PLAN.md (API Foundation)
 Resume file: None
-Next action: Plan Phase 5 (API Layer)
+Next action: Execute 05-02-PLAN.md (API Authentication)
 
 ## Accumulated Context
 
@@ -131,6 +132,10 @@ Next action: Plan Phase 5 (API Layer)
 | -shortest flag for audio | Truncates audio to match video duration | 04-03 |
 | AAC at 128k bitrate | Standard quality audio for web video | 04-03 |
 | Nullish coalescing for encoder defaults | Object spread overrides defaults with undefined | 04-04 |
+| VideoSpec from types/index.js | Inferred types, not Zod schemas | 05-01 |
+| Permissive CORS for MVP | origin: '*' to simplify development | 05-01 |
+| tsx for TypeScript runtime | Run .ts files directly without build | 05-01 |
+| Hono typed Variables | Context carries userId/plan after auth | 05-01 |
 
 ### Technical Debt
 (None yet)
@@ -166,7 +171,10 @@ Next action: Plan Phase 5 (API Layer)
 - Two-pass encoding for audio: encode to temp file, mux, delete temp
 - Progress callback: { frame, totalFrames, percent, phase }
 - RenderResult: { outputPath, frames, duration, hasAudio }
+- API types exported from src/api/index.ts (Job, RenderRequest, ApiKey, etc.)
+- Error handler: HTTPException returns its response, ZodError returns 400 with fieldErrors
+- npm run dev:api starts API server with tsx on port 3000
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (04-04 Render Pipeline Integration)*
+*Last updated: 2026-01-25 (05-01 API Foundation)*
