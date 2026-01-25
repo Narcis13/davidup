@@ -10,10 +10,16 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["video", "json", "render", "zod"],
+  "keywords": [
+    "video",
+    "json",
+    "render",
+    "zod"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.88",
     "zod": "^3.25.76",
     "zod-validation-error": "^4.0.2"
   },
