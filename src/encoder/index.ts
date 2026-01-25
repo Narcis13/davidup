@@ -1,8 +1,26 @@
 /**
  * Encoder Module
  *
- * Exports FFmpeg utilities and video encoding functionality.
- * AudioProcessor will be added in Plan 03.
+ * Exports FFmpeg utilities, video encoding, and audio processing functionality.
  */
-export { spawnFFmpeg, type FFmpegProcess, type FFmpegProcessOptions } from './ffmpeg-process.js';
-export { VideoEncoder, type VideoEncoderConfig, type VideoEncoderEvents } from './video-encoder.js';
+
+// FFmpeg process utilities
+export {
+  spawnFFmpeg,
+  type FFmpegProcess,
+  type FFmpegProcessOptions
+} from './ffmpeg-process.js';
+
+// Video encoding
+export {
+  VideoEncoder,
+  type VideoEncoderConfig,
+  type VideoEncoderEvents
+} from './video-encoder.js';
+
+// Audio processing
+export {
+  buildAudioFilterChain,
+  muxAudioWithVideo,
+  type MuxAudioOptions
+} from './audio-processor.js';
