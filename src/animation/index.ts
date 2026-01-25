@@ -41,3 +41,14 @@ export type { InterpolateOptions } from './interpolate.js';
 
 // Animation engine
 export { getAnimatedValue, getAnimatedElement } from './animation-engine.js';
+
+// Presets
+export {
+  generateEnterKeyframes,
+  generateExitKeyframes,
+} from './presets.js';
+export type {
+  PresetConfig,
+  PresetType,
+  SlideDirection,
+} from './presets.js';
