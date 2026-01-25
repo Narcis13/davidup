@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-6 complete
+**Current phase:** 3 of 6 (Animation & Timeline) - COMPLETE
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 3: Animation & Timeline
+**Current focus:** Phase 3 Complete - Ready for Phase 4 (Video Output)
 
 ## Current Position
 
 Phase: 3 of 6 (Animation & Timeline)
-Plan: 6 of 7 in phase (03-01 through 03-06 complete)
-Status: In progress
-Last activity: 2026-01-25 - Completed 03-06-PLAN.md (Scene Transitions)
+Plan: 7 of 7 in phase (03-01 through 03-07 complete)
+Status: Phase Complete
+Last activity: 2026-01-25 - Completed 03-07-PLAN.md (Animated Frame Generator)
 
-Progress: [#########] ~86%
+Progress: [##########] 100% (Phase 3)
 
 ## Progress
 
@@ -25,7 +25,7 @@ Progress: [#########] ~86%
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | In Progress | 6/7 |
+| 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
@@ -54,13 +54,14 @@ Progress: [#########] ~86%
 - 2026-01-25: Completed 03-03-PLAN.md (Interpolation & Animation Engine)
 - 2026-01-25: Completed 03-06-PLAN.md (Scene Transitions)
 - 2026-01-25: Completed 03-05-PLAN.md (Animation Presets)
+- 2026-01-25: Completed 03-07-PLAN.md (Animated Frame Generator)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-05-PLAN.md
+Stopped at: Completed 03-07-PLAN.md (Phase 3 Complete)
 Resume file: None
-Next action: Continue Phase 3 (03-07 Animated Frame Generator)
+Next action: Begin Phase 4 (Video Output) - research and planning
 
 ## Accumulated Context
 
@@ -110,6 +111,9 @@ Next action: Continue Phase 3 (03-07 Animated Frame Generator)
 | Enter presets default to easeOut | Fast start, slow end for natural entry | 03-05 |
 | Exit presets default to easeIn | Slow start, fast end for natural exit | 03-05 |
 | Bounce preset uses fixed easing | Always easeOutBounce/easeInBounce | 03-05 |
+| AnimatedScene standalone type | Zod union types incompatible with extends | 03-07 |
+| Type assertion for Timeline | AnimatedScene to SceneWithTransition via unknown | 03-07 |
+| Selective animation exports | Avoid naming conflicts with schema types | 03-07 |
 
 ### Technical Debt
 (None yet)
@@ -128,7 +132,10 @@ Next action: Continue Phase 3 (03-07 Animated Frame Generator)
 - renderTransition() composites two frame buffers with fade/slide/zoom effects
 - ImageData must be imported from @napi-rs/canvas, not used globally
 - generateEnterKeyframes/generateExitKeyframes return PropertyAnimation[] for preset animations
+- AnimatedFrameGenerator.generateAllFrames() yields Buffer for each frame
+- createAnimatedRenderer() factory provides ready-to-use animated renderer
+- All Phase 3 exports available from main index (src/index.ts)
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-05 Animation Presets)*
+*Last updated: 2026-01-25 (03-07 Animated Frame Generator - Phase 3 Complete)*
