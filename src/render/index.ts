@@ -9,5 +9,8 @@ export {
 export { AssetManager } from './asset-manager.js';
 export { applyTransforms, type TransformProps } from './transforms.js';
 
+// Factory function
+export { createRenderer, type CreateRendererOptions, type RendererInstance } from './create-renderer.js';
+
 // Element renderers
 export { TextRenderer, ImageRenderer, ShapeRenderer } from './renderers/index.js';
