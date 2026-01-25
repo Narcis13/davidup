@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 5 of 6 (API Layer)
-Plan: 1 of 5 in phase (05-01 complete)
+Plan: 2 of 5 in phase (05-02 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 05-01-PLAN.md (API Foundation)
+Last activity: 2026-01-25 - Completed 05-02-PLAN.md (Job Store & Queue Services)
 
-Progress: [##########----------] 50% (Phase 5: 1/5 plans)
+Progress: [############--------] 60% (Phase 5: 2/5 plans)
 
 ## Progress
 
@@ -27,7 +27,7 @@ Progress: [##########----------] 50% (Phase 5: 1/5 plans)
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | In progress | 1/5 |
+| 5 - API Layer | In progress | 2/5 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ## Requirements Coverage
@@ -60,13 +60,14 @@ Progress: [##########----------] 50% (Phase 5: 1/5 plans)
 - 2026-01-25: Completed 04-03-PLAN.md (Audio Processor)
 - 2026-01-25: Completed 04-04-PLAN.md (Render Pipeline Integration)
 - 2026-01-25: Completed 05-01-PLAN.md (API Foundation)
+- 2026-01-25: Completed 05-02-PLAN.md (Job Store & Queue Services)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 05-01-PLAN.md (API Foundation)
+Stopped at: Completed 05-02-PLAN.md (Job Store & Queue Services)
 Resume file: None
-Next action: Execute 05-02-PLAN.md (API Authentication)
+Next action: Execute 05-03-PLAN.md (Render Routes)
 
 ## Accumulated Context
 
@@ -136,6 +137,9 @@ Next action: Execute 05-02-PLAN.md (API Authentication)
 | Permissive CORS for MVP | origin: '*' to simplify development | 05-01 |
 | tsx for TypeScript runtime | Run .ts files directly without build | 05-01 |
 | Hono typed Variables | Context carries userId/plan after auth | 05-01 |
+| p-queue concurrency 2 | Balance throughput vs memory for video rendering | 05-02 |
+| 24-hour TTL for jobs | Reasonable retention for download links | 05-02 |
+| EventEmitter for job events | Standard Node.js pattern for async events | 05-02 |
 
 ### Technical Debt
 (None yet)
@@ -174,7 +178,11 @@ Next action: Execute 05-02-PLAN.md (API Authentication)
 - API types exported from src/api/index.ts (Job, RenderRequest, ApiKey, etc.)
 - Error handler: HTTPException returns its response, ZodError returns 400 with fieldErrors
 - npm run dev:api starts API server with tsx on port 3000
+- JobStore: create, get, update, delete, cleanup, size
+- JobQueueService: enqueue, getJob, size, pending, onIdle
+- Job events: job:processing, job:completed, job:failed
+- Mock renderVideo in tests to avoid actual rendering
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (05-01 API Foundation)*
+*Last updated: 2026-01-25 (05-02 Job Store & Queue Services)*
