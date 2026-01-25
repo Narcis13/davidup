@@ -65,3 +65,6 @@ export {
   type TransitionDirection,
   type TransitionRenderOptions,
 } from './timeline/index.js';
+
+// Encoder (Video Output)
+export * from './encoder/index.js';
