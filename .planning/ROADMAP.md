@@ -134,16 +134,16 @@ Wave 4 (depends on Wave 3):
 **Plans:** 4 plans in 4 waves (sequential)
 
 Wave 1:
-- [ ] 04-01-PLAN.md — Dependencies, FFmpeg wrapper, AudioConfigSchema
+- [x] 04-01-PLAN.md — Dependencies, FFmpeg wrapper, AudioConfigSchema
 
 Wave 2 (depends on Wave 1):
-- [ ] 04-02-PLAN.md — VideoEncoder class with frame piping
+- [x] 04-02-PLAN.md — VideoEncoder class with frame piping
 
 Wave 3 (depends on Wave 2):
-- [ ] 04-03-PLAN.md — Audio muxing with volume and fade effects
+- [x] 04-03-PLAN.md — Audio muxing with volume and fade effects
 
 Wave 4 (depends on Wave 3):
-- [ ] 04-04-PLAN.md — renderVideo integration and tests
+- [x] 04-04-PLAN.md — renderVideo integration and tests
 
 **Requirements:**
 - AUDI-01: User can add background audio track to video
@@ -218,10 +218,10 @@ Wave 4 (depends on Wave 3):
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
-| 4 - Video Output | Planned | 0/4 |
+| 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ---
 *Roadmap created: 2026-01-24*
-*Last updated: 2026-01-25 (Phase 4 planned)*
+*Last updated: 2026-01-25 (Phase 4 complete)*

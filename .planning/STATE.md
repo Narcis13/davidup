@@ -8,7 +8,7 @@
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 4 Complete - Ready for Phase 5 (CLI Interface)
+**Current focus:** Phase 4 Complete - Ready for Phase 5 (API Layer)
 
 ## Current Position
 
@@ -65,7 +65,7 @@ Progress: [##########] 100% (Phase 4: 4/4 plans)
 Last session: 2026-01-25
 Stopped at: Completed 04-04-PLAN.md (Render Pipeline Integration)
 Resume file: None
-Next action: Research Phase 5 (CLI Interface)
+Next action: Plan Phase 5 (API Layer)
 
 ## Accumulated Context
 
