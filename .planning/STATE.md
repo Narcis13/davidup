@@ -1,7 +1,7 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-2, 4 complete
+**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-4 complete
 
 ## Project Reference
 
@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 3 of 6 (Animation & Timeline)
-Plan: 4 of 7 in phase (03-01, 03-02, 03-04 complete)
+Plan: 4 of 7 in phase (03-01, 03-02, 03-03, 03-04 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 03-04-PLAN.md (Timeline Implementation)
+Last activity: 2026-01-25 - Completed 03-03-PLAN.md (Interpolation & Animation Engine)
 
-Progress: [########] ~75%
+Progress: [########] ~77%
 
 ## Progress
 
@@ -25,7 +25,7 @@ Progress: [########] ~75%
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | In Progress | 3/7 |
+| 3 - Animation & Timeline | In Progress | 4/7 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
@@ -51,13 +51,14 @@ Progress: [########] ~75%
 - 2026-01-25: Completed 03-02-PLAN.md (Animation Schemas)
 - 2026-01-25: Completed 03-01-PLAN.md (Easing Functions with TDD)
 - 2026-01-25: Completed 03-04-PLAN.md (Timeline Implementation)
+- 2026-01-25: Completed 03-03-PLAN.md (Interpolation & Animation Engine)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-04-PLAN.md
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
-Next action: Continue Phase 3 (03-03 Animation Engine)
+Next action: Continue Phase 3 (03-05 Scene Transitions or 03-06 Word Reveal)
 
 ## Accumulated Context
 
@@ -97,6 +98,10 @@ Next action: Continue Phase 3 (03-03 Animation Engine)
 | Clamp frames to valid range | Robust handling of out-of-bounds input | 03-04 |
 | Default transition easing easeInOut | Smooth default, explicit override available | 03-04 |
 | Last scene ignores transition | No next scene to transition to | 03-04 |
+| Runtime keyframes use frames | Avoids floating-point drift in calculations | 03-03 |
+| Schema keyframes use seconds | User-friendly, fps-independent | 03-03 |
+| Clamp extrapolation default | Prevents unexpected values outside defined range | 03-03 |
+| Easing priority: keyframe > default | Fine-grained control per animation segment | 03-03 |
 
 ### Technical Debt
 (None yet)
@@ -110,7 +115,9 @@ Next action: Continue Phase 3 (03-03 Animation Engine)
 - Mock drawImage() when testing image rendering with mock images
 - createRenderer() provides ready-to-use renderer for Phase 3+
 - Timeline.getSceneAtFrame() returns SceneInfo with all rendering context
+- getAnimatedElement() returns null when element not visible (outside startTime/endTime)
+- interpolate() supports clamp (default) or extend extrapolation
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-04 Timeline Implementation)*
+*Last updated: 2026-01-25 (03-03 Interpolation & Animation Engine)*
