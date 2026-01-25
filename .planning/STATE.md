@@ -13,18 +13,18 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 2 of 6 (Core Rendering)
-Plan: 4 of 6 in phase (02-01, 02-02, 02-03, 02-05 complete)
+Plan: 5 of 6 in phase (02-01, 02-02, 02-03, 02-04, 02-05 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 02-05-PLAN.md (Shape Renderer)
+Last activity: 2026-01-25 - Completed 02-04-PLAN.md (Image Renderer)
 
-Progress: [####--] ~55%
+Progress: [#####-] ~60%
 
 ## Progress
 
 | Phase | Status | Plans |
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
-| 2 - Core Rendering | In Progress | 4/6 |
+| 2 - Core Rendering | In Progress | 5/6 |
 | 3 - Animation & Timeline | Pending | 0/0 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
@@ -46,13 +46,14 @@ Progress: [####--] ~55%
 - 2026-01-25: Completed 02-01-PLAN.md (Rendering Infrastructure with @napi-rs/canvas)
 - 2026-01-25: Completed 02-03-PLAN.md (Text Renderer with TDD)
 - 2026-01-25: Completed 02-05-PLAN.md (Shape Renderer with TDD)
+- 2026-01-25: Completed 02-04-PLAN.md (Image Renderer with TDD)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 02-05-PLAN.md
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
-Next action: Execute remaining Phase 2 plans (02-04, 02-06)
+Next action: Execute remaining Phase 2 plan (02-06)
 
 ## Accumulated Context
 
@@ -78,6 +79,7 @@ Next action: Execute remaining Phase 2 plans (02-04, 02-06)
 | Circle (x,y) as center | Matches canvas arc() convention | 02-05 |
 | Ellipse (x,y) as top-left | Consistent with rectangle bounding box | 02-05 |
 | Gradient diagonal length | Ensures full coverage regardless of angle | 02-05 |
+| Mock drawImage in tests | Mock Image objects lack @napi-rs/canvas internals | 02-04 |
 
 ### Technical Debt
 (None yet)
@@ -88,7 +90,8 @@ Next action: Execute remaining Phase 2 plans (02-04, 02-06)
 ### Notes for Future Plans
 - @napi-rs/canvas save()/restore() doesn't restore fillStyle - only transforms
 - Use canvas.data() for raw RGBA, not toBuffer('raw')
+- Mock drawImage() when testing image rendering with mock images
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (02-05 complete)*
+*Last updated: 2026-01-25 (02-04 complete)*
