@@ -43,13 +43,14 @@ Progress: [###---] ~45%
 - 2026-01-25: Completed 01-02-PLAN.md (Video spec validation with TDD)
 - 2026-01-25: Created Phase 2 plans (02-01 through 02-06) for Core Rendering
 - 2026-01-25: Completed 02-02-PLAN.md (Element Schemas - text, image, shape, scene)
+- 2026-01-25: Completed 02-01-PLAN.md (Rendering Infrastructure with @napi-rs/canvas)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 02-02-PLAN.md
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
-Next action: Execute remaining Phase 2 plans (02-01, 02-03 through 02-06)
+Next action: Execute remaining Phase 2 plans (02-03 through 02-06)
 
 ## Accumulated Context
 
@@ -66,12 +67,19 @@ Next action: Execute remaining Phase 2 plans (02-01, 02-03 through 02-06)
 | BaseShapeElementSchema for union | ZodEffects incompatible with discriminatedUnion | 02-02 |
 | ColorSchema accepts any string | Flexibility for CSS colors, renderer validates | 02-02 |
 | Transform properties optional | Cleaner defaults, explicit when needed | 02-02 |
+| @napi-rs/canvas over node-canvas | Better performance, no native deps needed | 02-01 |
+| canvas.data() for raw pixels | toBuffer('raw') not supported in @napi-rs/canvas | 02-01 |
+| Registry pattern for renderers | Decouples frame generation from element rendering | 02-01 |
 
 ### Technical Debt
 (None yet)
 
 ### Blockers
 (None)
+
+### Notes for Future Plans
+- @napi-rs/canvas save()/restore() doesn't restore fillStyle - only transforms
+- Use canvas.data() for raw RGBA, not toBuffer('raw')
 
 ---
 *State initialized: 2026-01-24*
