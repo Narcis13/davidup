@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 2 of 6 (Core Rendering) - COMPLETE
+**Current phase:** 3 of 6 (Animation & Timeline)
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 2: Core Rendering - COMPLETE
+**Current focus:** Phase 3: Animation & Timeline
 
 ## Current Position
 
-Phase: 2 of 6 (Core Rendering)
-Plan: 6 of 6 in phase (ALL COMPLETE)
-Status: Phase complete
-Last activity: 2026-01-25 - Completed 02-06-PLAN.md (Integration Tests & Factory)
+Phase: 3 of 6 (Animation & Timeline)
+Plan: 2 of 5 in phase
+Status: In progress
+Last activity: 2026-01-25 - Completed 03-02-PLAN.md (Animation Schemas)
 
-Progress: [######--] ~65%
+Progress: [#######-] ~70%
 
 ## Progress
 
@@ -25,7 +25,7 @@ Progress: [######--] ~65%
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | Pending | 0/0 |
+| 3 - Animation & Timeline | In Progress | 2/5 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
@@ -48,13 +48,14 @@ Progress: [######--] ~65%
 - 2026-01-25: Completed 02-05-PLAN.md (Shape Renderer with TDD)
 - 2026-01-25: Completed 02-04-PLAN.md (Image Renderer with TDD)
 - 2026-01-25: Completed 02-06-PLAN.md (Integration Tests & Factory Function)
+- 2026-01-25: Completed 03-02-PLAN.md (Animation Schemas)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed Phase 2 (02-06-PLAN.md)
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
-Next action: Begin Phase 3 (Animation & Timeline)
+Next action: Continue Phase 3 (03-03 Easing Functions)
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Next action: Begin Phase 3 (Animation & Timeline)
 | Factory defaults 1920x1080 | Most common video resolution | 02-06 |
 | Factory returns tuple | All three components needed for typical usage | 02-06 |
 | Fresh instances per call | Allows multiple renderer configurations | 02-06 |
+| 12 easing functions | Covers linear, quad, cubic, bounce, elastic families | 03-02 |
+| Keyframe time >= 0 | Allows t=0 for initial state | 03-02 |
+| Transition on scene optional | Not all scenes need transitions | 03-02 |
 
 ### Technical Debt
 (None yet)
@@ -99,4 +103,4 @@ Next action: Begin Phase 3 (Animation & Timeline)
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (Phase 2 complete)*
+*Last updated: 2026-01-25 (03-02 Animation Schemas)*
