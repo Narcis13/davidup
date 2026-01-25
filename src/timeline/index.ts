@@ -14,3 +14,11 @@ export type {
 
 // Classes
 export { Timeline } from './timeline.js';
+
+// Transitions
+export {
+  renderTransition,
+  type TransitionType,
+  type TransitionDirection,
+  type TransitionRenderOptions,
+} from './transitions.js';
