@@ -1,7 +1,7 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 3 of 6 (Animation & Timeline)
+**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-2 complete
 
 ## Project Reference
 
@@ -13,9 +13,9 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 3 of 6 (Animation & Timeline)
-Plan: 2 of 5 in phase
+Plan: 2 of 7 in phase (03-01 and 03-02 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 03-02-PLAN.md (Animation Schemas)
+Last activity: 2026-01-25 - Completed 03-01-PLAN.md (Easing Functions TDD)
 
 Progress: [#######-] ~70%
 
@@ -25,7 +25,7 @@ Progress: [#######-] ~70%
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | In Progress | 2/5 |
+| 3 - Animation & Timeline | In Progress | 2/7 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
@@ -49,13 +49,14 @@ Progress: [#######-] ~70%
 - 2026-01-25: Completed 02-04-PLAN.md (Image Renderer with TDD)
 - 2026-01-25: Completed 02-06-PLAN.md (Integration Tests & Factory Function)
 - 2026-01-25: Completed 03-02-PLAN.md (Animation Schemas)
+- 2026-01-25: Completed 03-01-PLAN.md (Easing Functions with TDD)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-02-PLAN.md
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
-Next action: Continue Phase 3 (03-03 Easing Functions)
+Next action: Continue Phase 3 (03-03 Timeline Engine)
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Next action: Continue Phase 3 (03-03 Easing Functions)
 | 12 easing functions | Covers linear, quad, cubic, bounce, elastic families | 03-02 |
 | Keyframe time >= 0 | Allows t=0 for initial state | 03-02 |
 | Transition on scene optional | Not all scenes need transitions | 03-02 |
+| Penner equations for easing | Industry standard, mathematically correct | 03-01 |
+| Linear fallback for unknown easing | Graceful degradation, no crashes | 03-01 |
+| EasingFunction pure signature | (t: number) => number for composability | 03-01 |
 
 ### Technical Debt
 (None yet)
@@ -103,4 +107,4 @@ Next action: Continue Phase 3 (03-03 Easing Functions)
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-02 Animation Schemas)*
+*Last updated: 2026-01-25 (03-01 Easing Functions)*
