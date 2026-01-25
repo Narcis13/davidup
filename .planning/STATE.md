@@ -1,7 +1,7 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-4 complete
+**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-6 complete
 
 ## Project Reference
 
@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 3 of 6 (Animation & Timeline)
-Plan: 4 of 7 in phase (03-01, 03-02, 03-03, 03-04 complete)
+Plan: 6 of 7 in phase (03-01 through 03-06 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 03-03-PLAN.md (Interpolation & Animation Engine)
+Last activity: 2026-01-25 - Completed 03-06-PLAN.md (Scene Transitions)
 
-Progress: [########] ~77%
+Progress: [#########] ~86%
 
 ## Progress
 
@@ -25,7 +25,7 @@ Progress: [########] ~77%
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | In Progress | 4/7 |
+| 3 - Animation & Timeline | In Progress | 6/7 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
@@ -52,13 +52,14 @@ Progress: [########] ~77%
 - 2026-01-25: Completed 03-01-PLAN.md (Easing Functions with TDD)
 - 2026-01-25: Completed 03-04-PLAN.md (Timeline Implementation)
 - 2026-01-25: Completed 03-03-PLAN.md (Interpolation & Animation Engine)
+- 2026-01-25: Completed 03-06-PLAN.md (Scene Transitions)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-03-PLAN.md
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
-Next action: Continue Phase 3 (03-05 Scene Transitions or 03-06 Word Reveal)
+Next action: Continue Phase 3 (03-07 Word Reveal)
 
 ## Accumulated Context
 
@@ -102,6 +103,8 @@ Next action: Continue Phase 3 (03-05 Scene Transitions or 03-06 Word Reveal)
 | Schema keyframes use seconds | User-friendly, fps-independent | 03-03 |
 | Clamp extrapolation default | Prevents unexpected values outside defined range | 03-03 |
 | Easing priority: keyframe > default | Fine-grained control per animation segment | 03-03 |
+| Temp canvases for alpha blending | putImageData ignores globalAlpha | 03-06 |
+| Import ImageData from @napi-rs/canvas | Not globally available in Node.js | 03-06 |
 
 ### Technical Debt
 (None yet)
@@ -117,7 +120,9 @@ Next action: Continue Phase 3 (03-05 Scene Transitions or 03-06 Word Reveal)
 - Timeline.getSceneAtFrame() returns SceneInfo with all rendering context
 - getAnimatedElement() returns null when element not visible (outside startTime/endTime)
 - interpolate() supports clamp (default) or extend extrapolation
+- renderTransition() composites two frame buffers with fade/slide/zoom effects
+- ImageData must be imported from @napi-rs/canvas, not used globally
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-03 Interpolation & Animation Engine)*
+*Last updated: 2026-01-25 (03-06 Scene Transitions)*
