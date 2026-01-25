@@ -9,8 +9,18 @@ export {
 export { AssetManager } from './asset-manager.js';
 export { applyTransforms, type TransformProps } from './transforms.js';
 
-// Factory function
+// Factory functions
 export { createRenderer, type CreateRendererOptions, type RendererInstance } from './create-renderer.js';
+export {
+  AnimatedFrameGenerator,
+  createAnimatedRenderer,
+  type AnimatedElement,
+  type AnimatedScene,
+  type AnimatedFrameGeneratorConfig,
+  type AnimationPresetConfig,
+  type AnimationProps,
+  type SceneTransition,
+} from './animated-frame-generator.js';
 
 // Element renderers
 export { TextRenderer, ImageRenderer, ShapeRenderer } from './renderers/index.js';
