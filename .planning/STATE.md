@@ -53,13 +53,14 @@ Progress: [#########] ~86%
 - 2026-01-25: Completed 03-04-PLAN.md (Timeline Implementation)
 - 2026-01-25: Completed 03-03-PLAN.md (Interpolation & Animation Engine)
 - 2026-01-25: Completed 03-06-PLAN.md (Scene Transitions)
+- 2026-01-25: Completed 03-05-PLAN.md (Animation Presets)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-06-PLAN.md
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
-Next action: Continue Phase 3 (03-07 Word Reveal)
+Next action: Continue Phase 3 (03-07 Animated Frame Generator)
 
 ## Accumulated Context
 
@@ -105,6 +106,10 @@ Next action: Continue Phase 3 (03-07 Word Reveal)
 | Easing priority: keyframe > default | Fine-grained control per animation segment | 03-03 |
 | Temp canvases for alpha blending | putImageData ignores globalAlpha | 03-06 |
 | Import ImageData from @napi-rs/canvas | Not globally available in Node.js | 03-06 |
+| Preset duration in frames | Matches runtime keyframe format | 03-05 |
+| Enter presets default to easeOut | Fast start, slow end for natural entry | 03-05 |
+| Exit presets default to easeIn | Slow start, fast end for natural exit | 03-05 |
+| Bounce preset uses fixed easing | Always easeOutBounce/easeInBounce | 03-05 |
 
 ### Technical Debt
 (None yet)
@@ -122,7 +127,8 @@ Next action: Continue Phase 3 (03-07 Word Reveal)
 - interpolate() supports clamp (default) or extend extrapolation
 - renderTransition() composites two frame buffers with fade/slide/zoom effects
 - ImageData must be imported from @napi-rs/canvas, not used globally
+- generateEnterKeyframes/generateExitKeyframes return PropertyAnimation[] for preset animations
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-06 Scene Transitions)*
+*Last updated: 2026-01-25 (03-05 Animation Presets)*
