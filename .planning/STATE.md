@@ -1,7 +1,7 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-25
-**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-2 complete
+**Current phase:** 3 of 6 (Animation & Timeline) - Plans 1-2, 4 complete
 
 ## Project Reference
 
@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 3 of 6 (Animation & Timeline)
-Plan: 2 of 7 in phase (03-01 and 03-02 complete)
+Plan: 4 of 7 in phase (03-01, 03-02, 03-04 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 03-01-PLAN.md (Easing Functions TDD)
+Last activity: 2026-01-25 - Completed 03-04-PLAN.md (Timeline Implementation)
 
-Progress: [#######-] ~70%
+Progress: [########] ~75%
 
 ## Progress
 
@@ -25,7 +25,7 @@ Progress: [#######-] ~70%
 |-------|--------|-------|
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | In Progress | 2/7 |
+| 3 - Animation & Timeline | In Progress | 3/7 |
 | 4 - Video Output | Pending | 0/0 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
@@ -50,13 +50,14 @@ Progress: [#######-] ~70%
 - 2026-01-25: Completed 02-06-PLAN.md (Integration Tests & Factory Function)
 - 2026-01-25: Completed 03-02-PLAN.md (Animation Schemas)
 - 2026-01-25: Completed 03-01-PLAN.md (Easing Functions with TDD)
+- 2026-01-25: Completed 03-04-PLAN.md (Timeline Implementation)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 03-01-PLAN.md
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
-Next action: Continue Phase 3 (03-03 Timeline Engine)
+Next action: Continue Phase 3 (03-03 Animation Engine)
 
 ## Accumulated Context
 
@@ -92,6 +93,10 @@ Next action: Continue Phase 3 (03-03 Timeline Engine)
 | Penner equations for easing | Industry standard, mathematically correct | 03-01 |
 | Linear fallback for unknown easing | Graceful degradation, no crashes | 03-01 |
 | EasingFunction pure signature | (t: number) => number for composability | 03-01 |
+| Pre-calculate sceneFrames array | Avoids floating-point drift during iteration | 03-04 |
+| Clamp frames to valid range | Robust handling of out-of-bounds input | 03-04 |
+| Default transition easing easeInOut | Smooth default, explicit override available | 03-04 |
+| Last scene ignores transition | No next scene to transition to | 03-04 |
 
 ### Technical Debt
 (None yet)
@@ -104,7 +109,8 @@ Next action: Continue Phase 3 (03-03 Timeline Engine)
 - Use canvas.data() for raw RGBA, not toBuffer('raw')
 - Mock drawImage() when testing image rendering with mock images
 - createRenderer() provides ready-to-use renderer for Phase 3+
+- Timeline.getSceneAtFrame() returns SceneInfo with all rendering context
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (03-01 Easing Functions)*
+*Last updated: 2026-01-25 (03-04 Timeline Implementation)*
