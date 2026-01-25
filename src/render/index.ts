@@ -8,3 +8,6 @@ export {
 } from './renderer-registry.js';
 export { AssetManager } from './asset-manager.js';
 export { applyTransforms, type TransformProps } from './transforms.js';
+
+// Element renderers
+export { TextRenderer, ShapeRenderer } from './renderers/index.js';
