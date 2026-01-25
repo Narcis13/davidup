@@ -5,3 +5,5 @@
 export { JobStore } from './job-store.js';
 export { JobQueueService, type RenderJob, type JobQueueOptions } from './job-queue.js';
 export { ApiKeyStore, apiKeyStore } from './api-key-store.js';
+export { AssetStore, assetStore, type StoredAsset, type AssetUploadOptions } from './asset-store.js';
+export { deliverWebhook, type WebhookPayload, type WebhookDeliveryResult } from './webhook.js';

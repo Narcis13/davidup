@@ -7,6 +7,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
+import { authMiddleware } from './middleware/auth.js';
+import { rateLimitMiddleware } from './middleware/rate-limit.js';
+import { assetRoutes, renderRoutes } from './routes/index.js';
 import type { HealthResponse, PlanTier } from './types.js';
 
 /**
@@ -31,7 +34,7 @@ app.use(
     origin: '*', // Permissive for MVP - restrict in production
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Authorization', 'Content-Type'],
-    exposeHeaders: ['X-Request-Id'],
+    exposeHeaders: ['X-Request-Id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'],
     maxAge: 86400, // 24 hours
   })
 );
@@ -50,3 +53,16 @@ app.get('/health', (c) => {
   };
   return c.json(response);
 });
+
+// Protected routes - Render
+app.use('/render/*', authMiddleware);
+app.use('/render/*', rateLimitMiddleware);
+app.route('/render', renderRoutes);
+
+// Protected routes - Assets
+app.use('/assets/*', authMiddleware);
+app.use('/assets/*', rateLimitMiddleware);
+app.route('/assets', assetRoutes);
+
+// 404 handler for undefined routes
+app.notFound((c) => c.json({ error: 'Not found' }, 404));
