@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-24)
 ## Current Position
 
 Phase: 4 of 6 (Video Output)
-Plan: 2 of 4 in phase (04-02 complete)
+Plan: 3 of 4 in phase (04-03 complete)
 Status: In Progress
-Last activity: 2026-01-25 - Completed 04-02-PLAN.md (Video Encoder)
+Last activity: 2026-01-25 - Completed 04-03-PLAN.md (Audio Processor)
 
-Progress: [#####-----] 50% (Phase 4: 2/4 plans)
+Progress: [#######---] 75% (Phase 4: 3/4 plans)
 
 ## Progress
 
@@ -26,7 +26,7 @@ Progress: [#####-----] 50% (Phase 4: 2/4 plans)
 | 1 - Foundation | Complete | 2/2 |
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
-| 4 - Video Output | In Progress | 2/4 |
+| 4 - Video Output | In Progress | 3/4 |
 | 5 - API Layer | Pending | 0/0 |
 | 6 - AI Integration | Pending | 0/0 |
 
@@ -57,13 +57,14 @@ Progress: [#####-----] 50% (Phase 4: 2/4 plans)
 - 2026-01-25: Completed 03-07-PLAN.md (Animated Frame Generator)
 - 2026-01-25: Completed 04-01-PLAN.md (Video Encoding Foundation)
 - 2026-01-25: Completed 04-02-PLAN.md (Video Encoder)
+- 2026-01-25: Completed 04-03-PLAN.md (Audio Processor)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 04-02-PLAN.md (Video Encoder)
+Stopped at: Completed 04-03-PLAN.md (Audio Processor)
 Resume file: None
-Next action: Execute 04-03-PLAN.md (Audio Processor)
+Next action: Execute 04-04-PLAN.md (Render Pipeline)
 
 ## Accumulated Context
 
@@ -123,6 +124,11 @@ Next action: Execute 04-03-PLAN.md (Audio Processor)
 | Default CRF 23, preset medium | Industry standard balance quality/speed | 04-02 |
 | movflags +faststart | Web streaming optimization, moov atom at start | 04-02 |
 | EventEmitter for encoder events | Standard Node.js pattern for progress/complete | 04-02 |
+| Volume filter linear scale | FFmpeg volume=0.5 means half volume | 04-03 |
+| Fade out from video duration | Audio fade must end when video ends | 04-03 |
+| -c:v copy for fast muxing | Avoids re-encoding video when adding audio | 04-03 |
+| -shortest flag for audio | Truncates audio to match video duration | 04-03 |
+| AAC at 128k bitrate | Standard quality audio for web video | 04-03 |
 
 ### Technical Debt
 (None yet)
@@ -151,7 +157,10 @@ Next action: Execute 04-03-PLAN.md (Audio Processor)
 - Backpressure: check write() return, await drain if false
 - stdin.end() required for FFmpeg to finalize output file
 - Encoder module exports via src/encoder/index.ts
+- buildAudioFilterChain() returns FFmpeg -af string or null
+- muxAudioWithVideo() combines silent video with audio (no re-encoding)
+- Audio fade out timing based on video duration, not audio length
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (04-02 Video Encoder)*
+*Last updated: 2026-01-25 (04-03 Audio Processor)*
