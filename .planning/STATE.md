@@ -8,16 +8,16 @@
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 5 In Progress - API Foundation complete
+**Current focus:** Phase 5 In Progress - Auth & Rate Limiting complete
 
 ## Current Position
 
 Phase: 5 of 6 (API Layer)
-Plan: 2 of 5 in phase (05-02 complete)
+Plan: 3 of 5 in phase (05-03 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 05-02-PLAN.md (Job Store & Queue Services)
+Last activity: 2026-01-25 - Completed 05-03-PLAN.md (Auth & Rate Limiting)
 
-Progress: [############--------] 60% (Phase 5: 2/5 plans)
+Progress: [##############------] 70% (Phase 5: 3/5 plans)
 
 ## Progress
 
@@ -27,7 +27,7 @@ Progress: [############--------] 60% (Phase 5: 2/5 plans)
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | In progress | 2/5 |
+| 5 - API Layer | In progress | 3/5 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ## Requirements Coverage
@@ -61,13 +61,14 @@ Progress: [############--------] 60% (Phase 5: 2/5 plans)
 - 2026-01-25: Completed 04-04-PLAN.md (Render Pipeline Integration)
 - 2026-01-25: Completed 05-01-PLAN.md (API Foundation)
 - 2026-01-25: Completed 05-02-PLAN.md (Job Store & Queue Services)
+- 2026-01-25: Completed 05-03-PLAN.md (Auth & Rate Limiting)
 
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 05-02-PLAN.md (Job Store & Queue Services)
+Stopped at: Completed 05-03-PLAN.md (Auth & Rate Limiting)
 Resume file: None
-Next action: Execute 05-03-PLAN.md (Render Routes)
+Next action: Execute 05-04-PLAN.md (Render Routes)
 
 ## Accumulated Context
 
@@ -140,6 +141,10 @@ Next action: Execute 05-03-PLAN.md (Render Routes)
 | p-queue concurrency 2 | Balance throughput vs memory for video rendering | 05-02 |
 | 24-hour TTL for jobs | Reasonable retention for download links | 05-02 |
 | EventEmitter for job events | Standard Node.js pattern for async events | 05-02 |
+| Error handler returns JSON for HTTPException | Consistent API response format | 05-03 |
+| Rate limiter uses draft-6 headers | Separate headers easier to parse than draft-7 combined | 05-03 |
+| Pre-create rate limiter instances | Maintain state across requests | 05-03 |
+| Rate limit by userId not IP | Per-user limits regardless of IP address | 05-03 |
 
 ### Technical Debt
 (None yet)
@@ -176,13 +181,18 @@ Next action: Execute 05-03-PLAN.md (Render Routes)
 - Progress callback: { frame, totalFrames, percent, phase }
 - RenderResult: { outputPath, frames, duration, hasAudio }
 - API types exported from src/api/index.ts (Job, RenderRequest, ApiKey, etc.)
-- Error handler: HTTPException returns its response, ZodError returns 400 with fieldErrors
+- Error handler: HTTPException returns JSON { error: message }, ZodError returns 400 with fieldErrors
 - npm run dev:api starts API server with tsx on port 3000
 - JobStore: create, get, update, delete, cleanup, size
 - JobQueueService: enqueue, getJob, size, pending, onIdle
 - Job events: job:processing, job:completed, job:failed
 - Mock renderVideo in tests to avoid actual rendering
+- authMiddleware sets userId and plan on context for downstream handlers
+- rateLimitMiddleware must be used AFTER authMiddleware (needs plan from context)
+- ApiKeyStore loads keys from GAMEMOTION_API_KEYS env var (format: key1:user1:free,key2:user2:pro)
+- Default test key: test-api-key (user: test-user, plan: free)
+- All middleware and services exported from src/api/index.ts
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (05-02 Job Store & Queue Services)*
+*Last updated: 2026-01-25 (05-03 Auth & Rate Limiting)*
