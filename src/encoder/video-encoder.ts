@@ -32,10 +32,11 @@ export class VideoEncoder extends EventEmitter {
 
   constructor(config: VideoEncoderConfig) {
     super();
+    // Use nullish coalescing to handle explicit undefined values
     this.config = {
-      crf: 23,
-      preset: 'medium',
-      ...config
+      ...config,
+      crf: config.crf ?? 23,
+      preset: config.preset ?? 'medium',
     };
   }
 
