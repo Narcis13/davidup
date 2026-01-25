@@ -8,12 +8,15 @@ describe('ImageRenderer', () => {
   let renderer: ImageRenderer;
   let ctx: SKRSContext2D;
   let assets: AssetManager;
+  let drawImageSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     renderer = new ImageRenderer();
     const canvas = createCanvas(800, 600);
     ctx = canvas.getContext('2d');
     assets = new AssetManager();
+    // Mock drawImage to prevent TypeError with mock images
+    drawImageSpy = vi.spyOn(ctx, 'drawImage').mockImplementation(() => {});
   });
 
   // Helper to create minimal image element
@@ -64,7 +67,6 @@ describe('ImageRenderer', () => {
     it('should call drawImage', () => {
       const mockImage = createMockImage(400, 300);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
       const element = createImageElement();
 
       renderer.render(ctx, element, assets);
@@ -78,7 +80,6 @@ describe('ImageRenderer', () => {
       // Image is wider than target: 800x400 -> 200x200
       const mockImage = createMockImage(800, 400);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         width: 200,
@@ -103,7 +104,6 @@ describe('ImageRenderer', () => {
       // Image is taller than target: 400x800 -> 200x200
       const mockImage = createMockImage(400, 800);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         width: 200,
@@ -123,7 +123,6 @@ describe('ImageRenderer', () => {
       // Wide image: 1000x500 -> 200x200
       const mockImage = createMockImage(1000, 500);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         width: 200,
@@ -146,7 +145,6 @@ describe('ImageRenderer', () => {
       // Wide image: 800x400 -> 200x200
       const mockImage = createMockImage(800, 400);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         width: 200,
@@ -173,7 +171,6 @@ describe('ImageRenderer', () => {
       // Tall image: 400x800 -> 200x200
       const mockImage = createMockImage(400, 800);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         width: 200,
@@ -195,7 +192,6 @@ describe('ImageRenderer', () => {
     it('should stretch to exact dimensions', () => {
       const mockImage = createMockImage(800, 400);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         width: 200,
@@ -286,7 +282,6 @@ describe('ImageRenderer', () => {
     it('should position image at element coordinates', () => {
       const mockImage = createMockImage(400, 300);
       vi.spyOn(assets, 'getImage').mockReturnValue(mockImage);
-      const drawImageSpy = vi.spyOn(ctx, 'drawImage');
 
       const element = createImageElement({
         x: 50,
