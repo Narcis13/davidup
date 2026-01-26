@@ -16,3 +16,8 @@ export {
 } from './ai-client.js';
 export { TemplateStore, templateStore, type TemplateListItem } from './template-store.js';
 export { extractVariables, substituteVariables } from './variable-substitution.js';
+export {
+  TemplateGenerator,
+  templateGenerator,
+  type GenerateResult,
+} from './template-generator.js';
