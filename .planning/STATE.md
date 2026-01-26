@@ -8,16 +8,16 @@
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 6 - Built-in Templates complete
+**Current focus:** Phase 6 - Variable Substitution complete
 
 ## Current Position
 
 Phase: 6 of 6 (AI Integration)
-Plan: 2 of 4 in phase (06-02 complete)
+Plan: 3 of 4 in phase (06-03 complete)
 Status: In progress
-Last activity: 2026-01-26 - Completed 06-02-PLAN.md (Built-in Templates)
+Last activity: 2026-01-26 - Completed 06-03-PLAN.md (Variable Substitution)
 
-Progress: [##########----------] 50% (Phase 6: 2/4 plans)
+Progress: [###############-----] 75% (Phase 6: 3/4 plans)
 
 ## Progress
 
@@ -28,7 +28,7 @@ Progress: [##########----------] 50% (Phase 6: 2/4 plans)
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | In Progress | 2/4 |
+| 6 - AI Integration | In Progress | 3/4 |
 
 ## Requirements Coverage
 
@@ -67,13 +67,14 @@ Progress: [##########----------] 50% (Phase 6: 2/4 plans)
 - 2026-01-26: Completed 05-06-PLAN.md (Download Endpoint)
 - 2026-01-26: Completed 06-01-PLAN.md (AI Client & Schemas)
 - 2026-01-26: Completed 06-02-PLAN.md (Built-in Templates)
+- 2026-01-26: Completed 06-03-PLAN.md (Variable Substitution)
 
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 06-02-PLAN.md (Built-in Templates)
+Stopped at: Completed 06-03-PLAN.md (Variable Substitution)
 Resume file: None
-Next action: Execute 06-03-PLAN.md (Template Instantiation)
+Next action: Execute 06-04-PLAN.md (AI Generation Routes)
 
 ## Accumulated Context
 
@@ -162,6 +163,10 @@ Next action: Execute 06-03-PLAN.md (Template Instantiation)
 | JSON template structure | VideoSpec embedded in template JSON with {{variables}} | 06-02 |
 | ESM import attributes | Use type: json for JSON imports in NodeNext | 06-02 |
 | Template type assertion | Cast BUILT_IN_TEMPLATES via unknown for JSON imports | 06-02 |
+| JSON.stringify for spec traversal | Simple pattern matching across nested objects | 06-03 |
+| Alphanumeric variable names only | Regex \w+ safe for JSON contexts | 06-03 |
+| Escape JSON chars before replace | Prevents JSON.parse failure on special chars | 06-03 |
+| Sorted unique variable output | Deterministic for testing and display | 06-03 |
 
 ### Technical Debt
 (None yet)
@@ -226,7 +231,11 @@ Next action: Execute 06-03-PLAN.md (Template Instantiation)
 - templateStore.list() returns metadata without spec for efficiency
 - templateStore.get(id) returns full template with spec
 - Template variables: text, url, color types with optional default
+- extractVariables(spec) returns sorted unique variable names from VideoSpec
+- substituteVariables(spec, values) replaces {{variables}} with escaped values
+- Variable pattern: {{variableName}} with alphanumeric names only
+- Missing variables left unchanged for partial substitution
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-26 (06-02 Built-in Templates)*
+*Last updated: 2026-01-26 (06-03 Variable Substitution)*
