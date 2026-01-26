@@ -1,0 +1,59 @@
+{
+  "spec": {
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "duration": 3
+    },
+    "scenes": [
+      {
+        "duration": 3,
+        "background": "#1a1a2e",
+        "elements": [
+          {
+            "type": "shape",
+            "shape": "rectangle",
+            "x": 100,
+            "y": 600,
+            "width": 300,
+            "height": 200,
+            "fill": "#e94560",
+            "borderRadius": 20,
+            "animation": {
+              "preset": "slide",
+              "direction": "left"
+            }
+          },
+          {
+            "type": "shape",
+            "shape": "circle",
+            "x": 740,
+            "y": 1200,
+            "radius": 120,
+            "fill": "#0f3460",
+            "animation": {
+              "preset": "bounce"
+            }
+          },
+          {
+            "type": "text",
+            "text": "Welcome!",
+            "x": 540,
+            "y": 400,
+            "font": {
+              "family": "Arial",
+              "size": 72,
+              "weight": 700
+            },
+            "color": "#ffffff",
+            "align": "center",
+            "animation": {
+              "preset": "fade"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
