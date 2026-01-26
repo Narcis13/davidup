@@ -14,3 +14,4 @@ export {
   type OpenRouterRequest,
   type OpenRouterResponse,
 } from './ai-client.js';
+export { TemplateStore, templateStore, type TemplateListItem } from './template-store.js';
