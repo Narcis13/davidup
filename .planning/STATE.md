@@ -8,16 +8,16 @@
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 6 - AI Client & Schemas complete
+**Current focus:** Phase 6 - Built-in Templates complete
 
 ## Current Position
 
 Phase: 6 of 6 (AI Integration)
-Plan: 1 of 4 in phase (06-01 complete)
+Plan: 2 of 4 in phase (06-02 complete)
 Status: In progress
-Last activity: 2026-01-26 - Completed 06-01-PLAN.md (AI Client & Schemas)
+Last activity: 2026-01-26 - Completed 06-02-PLAN.md (Built-in Templates)
 
-Progress: [#####---------------] 25% (Phase 6: 1/4 plans)
+Progress: [##########----------] 50% (Phase 6: 2/4 plans)
 
 ## Progress
 
@@ -28,7 +28,7 @@ Progress: [#####---------------] 25% (Phase 6: 1/4 plans)
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | In Progress | 1/4 |
+| 6 - AI Integration | In Progress | 2/4 |
 
 ## Requirements Coverage
 
@@ -66,13 +66,14 @@ Progress: [#####---------------] 25% (Phase 6: 1/4 plans)
 - 2026-01-25: Completed 05-05-PLAN.md (Asset Upload)
 - 2026-01-26: Completed 05-06-PLAN.md (Download Endpoint)
 - 2026-01-26: Completed 06-01-PLAN.md (AI Client & Schemas)
+- 2026-01-26: Completed 06-02-PLAN.md (Built-in Templates)
 
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 06-01-PLAN.md (AI Client & Schemas)
+Stopped at: Completed 06-02-PLAN.md (Built-in Templates)
 Resume file: None
-Next action: Execute 06-02-PLAN.md (Template Service)
+Next action: Execute 06-03-PLAN.md (Template Instantiation)
 
 ## Accumulated Context
 
@@ -158,6 +159,9 @@ Next action: Execute 06-02-PLAN.md (Template Service)
 | async-retry default import for NodeNext | ESM compatibility with @types/async-retry | 06-01 |
 | DEFAULT_MODEL anthropic/claude-sonnet-4 | Configurable via OPENROUTER_MODEL env | 06-01 |
 | Platform and Style type aliases | Clean API consumer types | 06-01 |
+| JSON template structure | VideoSpec embedded in template JSON with {{variables}} | 06-02 |
+| ESM import attributes | Use type: json for JSON imports in NodeNext | 06-02 |
+| Template type assertion | Cast BUILT_IN_TEMPLATES via unknown for JSON imports | 06-02 |
 
 ### Technical Debt
 (None yet)
@@ -218,7 +222,11 @@ Next action: Execute 06-02-PLAN.md (Template Service)
 - PLATFORM_PRESETS provides dimensions for tiktok/youtube/instagram
 - GenerateRequestSchema validates description (10-1000 chars), platform, style
 - Template types re-exported from src/api/types.ts
+- BUILT_IN_TEMPLATES array has 7 templates (tiktok, youtube, instagram, universal)
+- templateStore.list() returns metadata without spec for efficiency
+- templateStore.get(id) returns full template with spec
+- Template variables: text, url, color types with optional default
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-26 (06-01 AI Client & Schemas)*
+*Last updated: 2026-01-26 (06-02 Built-in Templates)*
