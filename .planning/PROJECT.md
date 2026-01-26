@@ -2,7 +2,7 @@
 
 ## What This Is
 
-GameMotion is a high-performance, JSON-driven video rendering engine that enables programmatic video creation using game engine techniques. It provides a simple REST API where you submit a JSON specification and receive an MP4 file, with AI-powered template generation from natural language descriptions. Built as a single Node.js process with skia-canvas and FFmpeg, it prioritizes simplicity over complex infrastructure.
+GameMotion is a high-performance, JSON-driven video rendering engine that enables programmatic video creation using game engine techniques. It provides a simple REST API where you submit a JSON specification and receive an MP4 file, with AI-powered template generation from natural language descriptions. Built as a single Node.js process with @napi-rs/canvas and FFmpeg, it prioritizes simplicity over complex infrastructure.
 
 ## Core Value
 
@@ -12,20 +12,21 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 
 ### Validated
 
-(None yet — ship to validate)
+- Canvas rendering with text, images, shapes — v0.1
+- Keyframe animation with 12 easing functions — v0.1
+- Enter/exit presets (fade, slide, scale, bounce) — v0.1
+- Scene transitions (fade, slide, zoom) — v0.1
+- H.264 MP4 encoding with FFmpeg — v0.1
+- Audio track with volume and fade controls — v0.1
+- REST API with authentication and rate limiting — v0.1
+- AI template generation from natural language — v0.1
+- Variable substitution in templates — v0.1
+- Asset upload and management — v0.1
+- 7 built-in starter templates — v0.1
 
 ### Active
 
-- [ ] JSON-to-video rendering with text, images, and shapes
-- [ ] Keyframe animation system with easing functions
-- [ ] Animation presets (fade, slide, scale, bounce) for enter/exit
-- [ ] Scene transitions (fade, slide, zoom)
-- [ ] Audio track support with fade in/out
-- [ ] REST API with authentication (API keys)
-- [ ] AI template generation from natural language descriptions
-- [ ] Variable substitution in templates ({{placeholder}} syntax)
-- [ ] Asset management (upload/serve images, audio, fonts)
-- [ ] Built-in starter templates for common video types
+(None — ship to validate next milestone requirements)
 
 ### Out of Scope
 
@@ -37,12 +38,21 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 - Live streaming output — Different product category
 - Redis/BullMQ job queue — p-queue (in-memory) sufficient for MVP
 - Horizontal scaling — Single instance handles MVP load; add later if needed
+- Custom font upload — Remote font URLs or system fonts cover most needs
+- GPU acceleration — Software rendering is fast enough initially
 
 ## Context
 
-**Market opportunity:** Programmatic video generation market growing. Existing solutions (json2video, Remotion) are either expensive at scale or complex to set up. Gap exists for a fast, simple, AI-enhanced solution.
+**Current State:** v0.1 MVP shipped with 6,654 LOC TypeScript. All 40 requirements validated. 577 tests passing.
 
-**Technical approach:** Game engine techniques (immediate mode rendering with skia-canvas) instead of browser-based rendering. Direct frame generation piped to FFmpeg, avoiding DOM overhead and screenshot-based capture.
+**Tech Stack:**
+- Runtime: Node.js 20+ / TypeScript
+- Rendering: @napi-rs/canvas (skia-based)
+- Encoding: FFmpeg (binary)
+- API: Hono framework
+- AI: OpenRouter (Claude Sonnet 4)
+
+**Market opportunity:** Programmatic video generation market growing. Existing solutions (json2video, Remotion) are either expensive at scale or complex to set up. Gap exists for a fast, simple, AI-enhanced solution.
 
 **User personas:**
 1. Content creators (Maya) — Low-medium technical skill, want AI to generate templates from descriptions
@@ -54,16 +64,20 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 
 - **Runtime:** Node.js 20+ / TypeScript — Ecosystem maturity, type safety
 - **Video encoding:** FFmpeg (binary) — Industry standard, no alternatives
-- **AI provider:** OpenRouter — Multi-model access, cost-effective; specific models negotiable
+- **AI provider:** OpenRouter — Multi-model access, cost-effective; specific models configurable
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Single process architecture | Simplicity over scalability; can add Redis/BullMQ later if needed | — Pending |
-| skia-canvas for rendering | GPU-capable, game engine approach, faster than browser-based | — Pending |
-| OpenRouter for AI | Multi-model flexibility, can switch providers easily | — Pending |
-| Both keyframes and presets for v1 | Presets for simplicity, keyframes for power users — both needed | — Pending |
+| Single process architecture | Simplicity over scalability; can add Redis/BullMQ later if needed | Good for MVP |
+| @napi-rs/canvas for rendering | GPU-capable, game engine approach, faster than browser-based | Good |
+| OpenRouter for AI | Multi-model flexibility, can switch providers easily | Good |
+| Both keyframes and presets for v1 | Presets for simplicity, keyframes for power users — both needed | Good |
+| Hono for API framework | Fast, TypeScript-native, lightweight | Good |
+| p-queue for job management | Simple in-memory queue sufficient for MVP | Good for MVP |
+| canvas.data() for raw pixels | toBuffer('raw') not supported in @napi-rs/canvas | Works |
+| FFmpeg for encoding | Industry standard, reliable | Good |
 
 ---
-*Last updated: 2026-01-24 after initialization*
+*Last updated: 2026-01-26 after v0.1 milestone*

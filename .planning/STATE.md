@@ -1,258 +1,74 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-26
-**Current phase:** 6 of 6 (AI Integration) - Complete
+**Current phase:** Milestone complete — Ready for next milestone
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-01-24)
+See: .planning/PROJECT.md (updated 2026-01-26)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Project Complete - All 6 phases finished
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 6 of 6 (AI Integration)
-Plan: 5 of 5 in phase (06-05 complete)
-Status: Complete
-Last activity: 2026-01-26 - Completed 06-05-PLAN.md (Template API Routes)
+Phase: v0.1 complete — all 6 phases shipped
+Plan: None (milestone complete)
+Status: Ready for next milestone
+Last activity: 2026-01-26 — v0.1 milestone archived
 
-Progress: [####################] 100% (Phase 6: 5/5 plans)
+Progress: [####################] 100% (v0.1 complete)
 
-## Progress
+## Shipped Milestones
 
-| Phase | Status | Plans |
-|-------|--------|-------|
-| 1 - Foundation | Complete | 2/2 |
-| 2 - Core Rendering | Complete | 6/6 |
-| 3 - Animation & Timeline | Complete | 7/7 |
-| 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | Complete | 5/5 |
+| Version | Name | Phases | Plans | Shipped |
+|---------|------|--------|-------|---------|
+| v0.1 | MVP | 1-6 | 30 | 2026-01-26 |
 
 ## Requirements Coverage
 
-- Total v1 requirements: 40
-- Mapped to phases: 40
+- v0.1 requirements: 40 total
+- Shipped: 40
 - Coverage: 100%
 
 ## Session Log
 
 - 2026-01-24: Project initialized, roadmap created with 6 phases
-- 2026-01-25: Completed 01-01-PLAN.md (TypeScript project setup with Zod)
-- 2026-01-25: Completed 01-02-PLAN.md (Video spec validation with TDD)
-- 2026-01-25: Created Phase 2 plans (02-01 through 02-06) for Core Rendering
-- 2026-01-25: Completed 02-02-PLAN.md (Element Schemas - text, image, shape, scene)
-- 2026-01-25: Completed 02-01-PLAN.md (Rendering Infrastructure with @napi-rs/canvas)
-- 2026-01-25: Completed 02-03-PLAN.md (Text Renderer with TDD)
-- 2026-01-25: Completed 02-05-PLAN.md (Shape Renderer with TDD)
-- 2026-01-25: Completed 02-04-PLAN.md (Image Renderer with TDD)
-- 2026-01-25: Completed 02-06-PLAN.md (Integration Tests & Factory Function)
-- 2026-01-25: Completed 03-02-PLAN.md (Animation Schemas)
-- 2026-01-25: Completed 03-01-PLAN.md (Easing Functions with TDD)
-- 2026-01-25: Completed 03-04-PLAN.md (Timeline Implementation)
-- 2026-01-25: Completed 03-03-PLAN.md (Interpolation & Animation Engine)
-- 2026-01-25: Completed 03-06-PLAN.md (Scene Transitions)
-- 2026-01-25: Completed 03-05-PLAN.md (Animation Presets)
-- 2026-01-25: Completed 03-07-PLAN.md (Animated Frame Generator)
-- 2026-01-25: Completed 04-01-PLAN.md (Video Encoding Foundation)
-- 2026-01-25: Completed 04-02-PLAN.md (Video Encoder)
-- 2026-01-25: Completed 04-03-PLAN.md (Audio Processor)
-- 2026-01-25: Completed 04-04-PLAN.md (Render Pipeline Integration)
-- 2026-01-25: Completed 05-01-PLAN.md (API Foundation)
-- 2026-01-25: Completed 05-02-PLAN.md (Job Store & Queue Services)
-- 2026-01-25: Completed 05-03-PLAN.md (Auth & Rate Limiting)
-- 2026-01-25: Completed 05-04-PLAN.md (Render Routes)
-- 2026-01-25: Completed 05-05-PLAN.md (Asset Upload)
-- 2026-01-26: Completed 05-06-PLAN.md (Download Endpoint)
-- 2026-01-26: Completed 06-01-PLAN.md (AI Client & Schemas)
-- 2026-01-26: Completed 06-02-PLAN.md (Built-in Templates)
-- 2026-01-26: Completed 06-03-PLAN.md (Variable Substitution)
-- 2026-01-26: Completed 06-04-PLAN.md (Template Generator)
-- 2026-01-26: Completed 06-05-PLAN.md (Template API Routes)
+- 2026-01-25: Completed Phases 1-4 (Foundation, Rendering, Animation, Video Output)
+- 2026-01-25: Completed Phase 5 (API Layer)
+- 2026-01-26: Completed Phase 6 (AI Integration)
+- 2026-01-26: Passed milestone audit (40/40 requirements)
+- 2026-01-26: Archived v0.1 milestone
 
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 06-05-PLAN.md (Template API Routes)
+Stopped at: v0.1 milestone archived
 Resume file: None
-Next action: Project complete - all phases finished
+Next action: `/gsd:new-milestone` to plan next version
 
 ## Accumulated Context
 
-### Key Decisions
+### Key Decisions (see PROJECT.md for full list)
 
-| Decision | Rationale | Phase |
-|----------|-----------|-------|
-| Zod 3.25 (v3) over v4 | Ecosystem compatibility per research | 01-01 |
-| NodeNext module resolution | Native ES module support | 01-01 |
-| VIDEO_LIMITS as const | Type-safe immutable configuration | 01-01 |
-| TDD approach for validation | Ensures complete coverage | 01-02 |
-| Discriminated union results | Type-safe success/failure handling | 01-02 |
-| Field-level error paths | Precise error targeting via dot-notation | 01-02 |
-| BaseShapeElementSchema for union | ZodEffects incompatible with discriminatedUnion | 02-02 |
-| ColorSchema accepts any string | Flexibility for CSS colors, renderer validates | 02-02 |
-| Transform properties optional | Cleaner defaults, explicit when needed | 02-02 |
-| @napi-rs/canvas over node-canvas | Better performance, no native deps needed | 02-01 |
-| canvas.data() for raw pixels | toBuffer('raw') not supported in @napi-rs/canvas | 02-01 |
-| Registry pattern for renderers | Decouples frame generation from element rendering | 02-01 |
-| Stroke before fill for text | Creates proper outline effect | 02-03 |
-| Shadow reset after render | Prevents bleeding to next element | 02-03 |
-| Word-boundary wrapping only | Preserves readability, long words exceed maxWidth | 02-03 |
-| Circle (x,y) as center | Matches canvas arc() convention | 02-05 |
-| Ellipse (x,y) as top-left | Consistent with rectangle bounding box | 02-05 |
-| Gradient diagonal length | Ensures full coverage regardless of angle | 02-05 |
-| Mock drawImage in tests | Mock Image objects lack @napi-rs/canvas internals | 02-04 |
-| Factory defaults 1920x1080 | Most common video resolution | 02-06 |
-| Factory returns tuple | All three components needed for typical usage | 02-06 |
-| Fresh instances per call | Allows multiple renderer configurations | 02-06 |
-| 12 easing functions | Covers linear, quad, cubic, bounce, elastic families | 03-02 |
-| Keyframe time >= 0 | Allows t=0 for initial state | 03-02 |
-| Transition on scene optional | Not all scenes need transitions | 03-02 |
-| Penner equations for easing | Industry standard, mathematically correct | 03-01 |
-| Linear fallback for unknown easing | Graceful degradation, no crashes | 03-01 |
-| EasingFunction pure signature | (t: number) => number for composability | 03-01 |
-| Pre-calculate sceneFrames array | Avoids floating-point drift during iteration | 03-04 |
-| Clamp frames to valid range | Robust handling of out-of-bounds input | 03-04 |
-| Default transition easing easeInOut | Smooth default, explicit override available | 03-04 |
-| Last scene ignores transition | No next scene to transition to | 03-04 |
-| Runtime keyframes use frames | Avoids floating-point drift in calculations | 03-03 |
-| Schema keyframes use seconds | User-friendly, fps-independent | 03-03 |
-| Clamp extrapolation default | Prevents unexpected values outside defined range | 03-03 |
-| Easing priority: keyframe > default | Fine-grained control per animation segment | 03-03 |
-| Temp canvases for alpha blending | putImageData ignores globalAlpha | 03-06 |
-| Import ImageData from @napi-rs/canvas | Not globally available in Node.js | 03-06 |
-| Preset duration in frames | Matches runtime keyframe format | 03-05 |
-| Enter presets default to easeOut | Fast start, slow end for natural entry | 03-05 |
-| Exit presets default to easeIn | Slow start, fast end for natural exit | 03-05 |
-| Bounce preset uses fixed easing | Always easeOutBounce/easeInBounce | 03-05 |
-| AnimatedScene standalone type | Zod union types incompatible with extends | 03-07 |
-| Type assertion for Timeline | AnimatedScene to SceneWithTransition via unknown | 03-07 |
-| Selective animation exports | Avoid naming conflicts with schema types | 03-07 |
-| createRequire for ffmpeg-static | ESM/CJS interop for bundled FFmpeg binary | 04-01 |
-| Auto-include FFmpeg flags | -hide_banner -loglevel error to reduce noise | 04-01 |
-| AudioConfigSchema strict mode | Reject unknown fields, match existing patterns | 04-01 |
-| rgba input, yuv420p output | @napi-rs/canvas to browser/QuickTime compatibility | 04-02 |
-| Default CRF 23, preset medium | Industry standard balance quality/speed | 04-02 |
-| movflags +faststart | Web streaming optimization, moov atom at start | 04-02 |
-| EventEmitter for encoder events | Standard Node.js pattern for progress/complete | 04-02 |
-| Volume filter linear scale | FFmpeg volume=0.5 means half volume | 04-03 |
-| Fade out from video duration | Audio fade must end when video ends | 04-03 |
-| -c:v copy for fast muxing | Avoids re-encoding video when adding audio | 04-03 |
-| -shortest flag for audio | Truncates audio to match video duration | 04-03 |
-| AAC at 128k bitrate | Standard quality audio for web video | 04-03 |
-| Nullish coalescing for encoder defaults | Object spread overrides defaults with undefined | 04-04 |
-| VideoSpec from types/index.js | Inferred types, not Zod schemas | 05-01 |
-| Permissive CORS for MVP | origin: '*' to simplify development | 05-01 |
-| tsx for TypeScript runtime | Run .ts files directly without build | 05-01 |
-| Hono typed Variables | Context carries userId/plan after auth | 05-01 |
-| p-queue concurrency 2 | Balance throughput vs memory for video rendering | 05-02 |
-| 24-hour TTL for jobs | Reasonable retention for download links | 05-02 |
-| EventEmitter for job events | Standard Node.js pattern for async events | 05-02 |
-| Error handler returns JSON for HTTPException | Consistent API response format | 05-03 |
-| Rate limiter uses draft-6 headers | Separate headers easier to parse than draft-7 combined | 05-03 |
-| Pre-create rate limiter instances | Maintain state across requests | 05-03 |
-| Rate limit by userId not IP | Per-user limits regardless of IP address | 05-03 |
-| 50MB max file size via bodyLimit | Industry standard for media uploads | 05-05 |
-| UUID-based asset IDs | Prevents filename collisions, secure | 05-05 |
-| Local ./uploads directory | Simple for MVP, can swap to S3 later | 05-05 |
-| Download routes are public | No auth for shareable URLs | 05-06 |
-| Hono streaming for file serving | Proper file streaming without memory issues | 05-06 |
-| Support .mp4 extension in URL | Strips extension to normalize job ID | 05-06 |
-| async-retry default import for NodeNext | ESM compatibility with @types/async-retry | 06-01 |
-| DEFAULT_MODEL anthropic/claude-sonnet-4 | Configurable via OPENROUTER_MODEL env | 06-01 |
-| Platform and Style type aliases | Clean API consumer types | 06-01 |
-| JSON template structure | VideoSpec embedded in template JSON with {{variables}} | 06-02 |
-| ESM import attributes | Use type: json for JSON imports in NodeNext | 06-02 |
-| Template type assertion | Cast BUILT_IN_TEMPLATES via unknown for JSON imports | 06-02 |
-| JSON.stringify for spec traversal | Simple pattern matching across nested objects | 06-03 |
-| Alphanumeric variable names only | Regex \w+ safe for JSON contexts | 06-03 |
-| Escape JSON chars before replace | Prevents JSON.parse failure on special chars | 06-03 |
-| Sorted unique variable output | Deterministic for testing and display | 06-03 |
-| Mock callOpenRouter in tests | Avoid real API calls, faster tests | 06-04 |
-| Text elements use 'text' field | Per actual schema, not 'content' | 06-04 |
-| VideoSpec requires output.duration | Required field in OutputConfigSchema | 06-04 |
-| Variable type inference from name | url/image in name -> url type, else text | 06-05 |
+Milestone-level decisions now archived. See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 decisions.
 
 ### Technical Debt
-(None yet)
+
+- Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
 
 ### Blockers
+
 (None)
 
-### Notes for Future Plans
+### Notes for Future Milestones
+
 - @napi-rs/canvas save()/restore() doesn't restore fillStyle - only transforms
 - Use canvas.data() for raw RGBA, not toBuffer('raw')
-- Mock drawImage() when testing image rendering with mock images
-- createRenderer() provides ready-to-use renderer for Phase 3+
-- Timeline.getSceneAtFrame() returns SceneInfo with all rendering context
-- getAnimatedElement() returns null when element not visible (outside startTime/endTime)
-- interpolate() supports clamp (default) or extend extrapolation
-- renderTransition() composites two frame buffers with fade/slide/zoom effects
-- ImageData must be imported from @napi-rs/canvas, not used globally
-- generateEnterKeyframes/generateExitKeyframes return PropertyAnimation[] for preset animations
-- AnimatedFrameGenerator.generateAllFrames() yields Buffer for each frame
-- createAnimatedRenderer() factory provides ready-to-use animated renderer
-- All Phase 3 exports available from main index (src/index.ts)
-- spawnFFmpeg() returns { process, stdin, finished } for Promise-based FFmpeg control
 - FFmpeg stdin piping: use stdin='pipe' option, write frames, call stdin.end()
-- AudioConfigSchema: volume 0-1, fadeIn/fadeOut in seconds
-- VideoEncoder lifecycle: construct -> start() -> writeFrame()* -> finish()
-- Backpressure: check write() return, await drain if false
-- stdin.end() required for FFmpeg to finalize output file
-- Encoder module exports via src/encoder/index.ts
-- buildAudioFilterChain() returns FFmpeg -af string or null
-- muxAudioWithVideo() combines silent video with audio (no re-encoding)
-- Audio fade out timing based on video duration, not audio length
-- renderVideo() orchestrates frame generation, encoding, and audio muxing
-- Two-pass encoding for audio: encode to temp file, mux, delete temp
-- Progress callback: { frame, totalFrames, percent, phase }
-- RenderResult: { outputPath, frames, duration, hasAudio }
-- API types exported from src/api/index.ts (Job, RenderRequest, ApiKey, etc.)
-- Error handler: HTTPException returns JSON { error: message }, ZodError returns 400 with fieldErrors
+- All Phase 1-6 exports available from main index (src/index.ts)
 - npm run dev:api starts API server with tsx on port 3000
-- JobStore: create, get, update, delete, cleanup, size
-- JobQueueService: enqueue, getJob, size, pending, onIdle
-- Job events: job:processing, job:completed, job:failed
-- Mock renderVideo in tests to avoid actual rendering
-- authMiddleware sets userId and plan on context for downstream handlers
-- rateLimitMiddleware must be used AFTER authMiddleware (needs plan from context)
-- ApiKeyStore loads keys from GAMEMOTION_API_KEYS env var (format: key1:user1:free,key2:user2:pro)
-- Default test key: test-api-key (user: test-user, plan: free)
-- All middleware and services exported from src/api/index.ts
-- AssetStore: save (validates type/size), get (metadata), getPath, delete
-- Asset types: image/png, image/jpeg, image/webp, audio/mpeg, audio/wav, audio/mp3
-- POST /assets returns asset_id for reference in render specs
-- Assets stored locally in ./uploads directory
-- Routes barrel export from src/api/routes/index.ts
-- GET /download/:jobId streams video files from outputs/ directory
-- Download routes are public (no auth) for shareable URLs
-- Use hono/streaming stream helper for file serving
-- callOpenRouter() returns OpenRouterResponse with choices and usage
-- OpenRouter client bails on 4xx (except 429), retries on 5xx and rate limits
-- PLATFORM_PRESETS provides dimensions for tiktok/youtube/instagram
-- GenerateRequestSchema validates description (10-1000 chars), platform, style
-- Template types re-exported from src/api/types.ts
-- BUILT_IN_TEMPLATES array has 7 templates (tiktok, youtube, instagram, universal)
-- templateStore.list() returns metadata without spec for efficiency
-- templateStore.get(id) returns full template with spec
-- Template variables: text, url, color types with optional default
-- extractVariables(spec) returns sorted unique variable names from VideoSpec
-- substituteVariables(spec, values) replaces {{variables}} with escaped values
-- Variable pattern: {{variableName}} with alphanumeric names only
-- Missing variables left unchanged for partial substitution
-- TemplateGenerator.generate() returns { spec, variables } tuple
-- buildSystemPrompt() includes platform dimensions and style guidelines
-- repairJson() strips markdown code blocks from AI responses
-- autoRepairSpec() handles string-to-number coercion
-- regenerateWithContext() provides one retry with error context
-- templateGenerator singleton available from services barrel
-- POST /generate returns { spec, variables } with variable type metadata
-- GET /templates returns list (no spec), GET /templates/:id returns full spec
-- POST /templates/:id/render substitutes variables and queues render job
-- generateRoutes and templateRoutes exported from routes barrel
-- All /generate/* and /templates/* routes protected by auth/rate-limit
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-26 (06-05 Template API Routes)*
+*Last updated: 2026-01-26 (v0.1 milestone archived)*
