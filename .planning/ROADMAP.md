@@ -208,6 +208,19 @@ Wave 4 (gap closure):
 
 **Goal:** Users can generate valid JSON templates from natural language descriptions and use built-in templates
 
+**Plans:** 5 plans in 3 waves
+
+Wave 1 (parallel):
+- [ ] 06-01-PLAN.md — OpenRouter AI client and template schemas
+- [ ] 06-02-PLAN.md — Built-in templates (7 JSON files) and TemplateStore
+
+Wave 2 (parallel, depends on Wave 1):
+- [ ] 06-03-PLAN.md — Variable substitution service (TDD) — TMPL-04, TMPL-05
+- [ ] 06-04-PLAN.md — Template generator service (AI) — TMPL-01, TMPL-02, TMPL-03
+
+Wave 3 (depends on Wave 2):
+- [ ] 06-05-PLAN.md — API routes (POST /generate, GET /templates, POST /templates/:id/render) — TMPL-06, TMPL-07
+
 **Requirements:**
 - TMPL-01: User can generate JSON template from natural language description
 - TMPL-02: User can specify target platform (TikTok, YouTube, Instagram) in AI generation
@@ -236,8 +249,8 @@ Wave 4 (gap closure):
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | Pending | 0/0 |
+| 6 - AI Integration | Planned | 0/5 |
 
 ---
 *Roadmap created: 2026-01-24*
-*Last updated: 2026-01-26 (Phase 5 complete)*
+*Last updated: 2026-01-26 (Phase 6 planned)*
