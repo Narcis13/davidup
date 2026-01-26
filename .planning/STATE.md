@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-26
-**Current phase:** 6 of 6 (AI Integration) - In Progress
+**Current phase:** 6 of 6 (AI Integration) - Complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 6 - Template Generator complete
+**Current focus:** Project Complete - All 6 phases finished
 
 ## Current Position
 
 Phase: 6 of 6 (AI Integration)
-Plan: 4 of 4 in phase (06-04 complete)
-Status: In progress
-Last activity: 2026-01-26 - Completed 06-04-PLAN.md (Template Generator)
+Plan: 5 of 5 in phase (06-05 complete)
+Status: Complete
+Last activity: 2026-01-26 - Completed 06-05-PLAN.md (Template API Routes)
 
-Progress: [####################] 100% (Phase 6: 4/4 plans)
+Progress: [####################] 100% (Phase 6: 5/5 plans)
 
 ## Progress
 
@@ -28,7 +28,7 @@ Progress: [####################] 100% (Phase 6: 4/4 plans)
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | Complete | 4/4 |
+| 6 - AI Integration | Complete | 5/5 |
 
 ## Requirements Coverage
 
@@ -69,13 +69,14 @@ Progress: [####################] 100% (Phase 6: 4/4 plans)
 - 2026-01-26: Completed 06-02-PLAN.md (Built-in Templates)
 - 2026-01-26: Completed 06-03-PLAN.md (Variable Substitution)
 - 2026-01-26: Completed 06-04-PLAN.md (Template Generator)
+- 2026-01-26: Completed 06-05-PLAN.md (Template API Routes)
 
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 06-04-PLAN.md (Template Generator)
+Stopped at: Completed 06-05-PLAN.md (Template API Routes)
 Resume file: None
-Next action: Execute 06-05-PLAN.md (Template API Routes) or Phase complete
+Next action: Project complete - all phases finished
 
 ## Accumulated Context
 
@@ -171,6 +172,7 @@ Next action: Execute 06-05-PLAN.md (Template API Routes) or Phase complete
 | Mock callOpenRouter in tests | Avoid real API calls, faster tests | 06-04 |
 | Text elements use 'text' field | Per actual schema, not 'content' | 06-04 |
 | VideoSpec requires output.duration | Required field in OutputConfigSchema | 06-04 |
+| Variable type inference from name | url/image in name -> url type, else text | 06-05 |
 
 ### Technical Debt
 (None yet)
@@ -245,7 +247,12 @@ Next action: Execute 06-05-PLAN.md (Template API Routes) or Phase complete
 - autoRepairSpec() handles string-to-number coercion
 - regenerateWithContext() provides one retry with error context
 - templateGenerator singleton available from services barrel
+- POST /generate returns { spec, variables } with variable type metadata
+- GET /templates returns list (no spec), GET /templates/:id returns full spec
+- POST /templates/:id/render substitutes variables and queues render job
+- generateRoutes and templateRoutes exported from routes barrel
+- All /generate/* and /templates/* routes protected by auth/rate-limit
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-26 (06-04 Template Generator)*
+*Last updated: 2026-01-26 (06-05 Template API Routes)*
