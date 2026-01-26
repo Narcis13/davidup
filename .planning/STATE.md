@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
-**Last updated:** 2026-01-25
-**Current phase:** 5 of 6 (API Layer) - In Progress
+**Last updated:** 2026-01-26
+**Current phase:** 5 of 6 (API Layer) - Complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 5 In Progress - Asset Upload complete
+**Current focus:** Phase 5 Complete - Download endpoint added
 
 ## Current Position
 
 Phase: 5 of 6 (API Layer)
-Plan: 5 of 5 in phase (05-05 complete)
+Plan: 6 of 6 in phase (05-06 complete)
 Status: Phase complete
-Last activity: 2026-01-25 - Completed 05-05-PLAN.md (Asset Upload)
+Last activity: 2026-01-26 - Completed 05-06-PLAN.md (Download Endpoint)
 
-Progress: [####################] 100% (Phase 5: 5/5 plans)
+Progress: [####################] 100% (Phase 5: 6/6 plans)
 
 ## Progress
 
@@ -27,7 +27,7 @@ Progress: [####################] 100% (Phase 5: 5/5 plans)
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | Complete | 5/5 |
+| 5 - API Layer | Complete | 6/6 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ## Requirements Coverage
@@ -64,11 +64,12 @@ Progress: [####################] 100% (Phase 5: 5/5 plans)
 - 2026-01-25: Completed 05-03-PLAN.md (Auth & Rate Limiting)
 - 2026-01-25: Completed 05-04-PLAN.md (Render Routes)
 - 2026-01-25: Completed 05-05-PLAN.md (Asset Upload)
+- 2026-01-26: Completed 05-06-PLAN.md (Download Endpoint)
 
 ## Session Continuity
 
-Last session: 2026-01-25
-Stopped at: Completed 05-05-PLAN.md (Asset Upload)
+Last session: 2026-01-26
+Stopped at: Completed 05-06-PLAN.md (Download Endpoint)
 Resume file: None
 Next action: Execute Phase 6 - AI Integration
 
@@ -150,6 +151,9 @@ Next action: Execute Phase 6 - AI Integration
 | 50MB max file size via bodyLimit | Industry standard for media uploads | 05-05 |
 | UUID-based asset IDs | Prevents filename collisions, secure | 05-05 |
 | Local ./uploads directory | Simple for MVP, can swap to S3 later | 05-05 |
+| Download routes are public | No auth for shareable URLs | 05-06 |
+| Hono streaming for file serving | Proper file streaming without memory issues | 05-06 |
+| Support .mp4 extension in URL | Strips extension to normalize job ID | 05-06 |
 
 ### Technical Debt
 (None yet)
@@ -202,7 +206,10 @@ Next action: Execute Phase 6 - AI Integration
 - POST /assets returns asset_id for reference in render specs
 - Assets stored locally in ./uploads directory
 - Routes barrel export from src/api/routes/index.ts
+- GET /download/:jobId streams video files from outputs/ directory
+- Download routes are public (no auth) for shareable URLs
+- Use hono/streaming stream helper for file serving
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-25 (05-05 Asset Upload)*
+*Last updated: 2026-01-26 (05-06 Download Endpoint)*
