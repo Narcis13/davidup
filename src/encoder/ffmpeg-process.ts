@@ -78,16 +78,35 @@ export function spawnFFmpeg(options: FFmpegProcessOptions): FFmpegProcess {
     stdio: [stdin, 'pipe', 'pipe']
   });
 
-  if (onStderr) {
-    ffmpeg.stderr?.on('data', (data: Buffer) => {
-      onStderr(data.toString());
+  // Collect stderr for error reporting
+  let stderrOutput = '';
+  ffmpeg.stderr?.on('data', (data: Buffer) => {
+    const str = data.toString();
+    stderrOutput += str;
+    if (onStderr) {
+      onStderr(str);
+    }
+  });
+
+  // CRITICAL: Handle stdin errors to prevent EPIPE crashes
+  // When ffmpeg exits early, writing to stdin causes EPIPE
+  if (ffmpeg.stdin) {
+    ffmpeg.stdin.on('error', (err: NodeJS.ErrnoException) => {
+      // EPIPE is expected if ffmpeg exits early - don't crash
+      if (err.code !== 'EPIPE') {
+        console.error('FFmpeg stdin error:', err);
+      }
     });
   }
 
   const finished = new Promise<void>((resolve, reject) => {
     ffmpeg.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`FFmpeg exited with code ${code}`));
+      if (code === 0) {
+        resolve();
+      } else {
+        const errorMsg = stderrOutput.trim() || `FFmpeg exited with code ${code}`;
+        reject(new Error(errorMsg));
+      }
     });
     ffmpeg.on('error', reject);
   });

@@ -29,6 +29,7 @@ export class VideoEncoder extends EventEmitter {
   private ffmpeg: FFmpegProcess | null = null;
   private frameCount = 0;
   private readonly config: VideoEncoderConfig;
+  private stdinError: Error | null = null;
 
   constructor(config: VideoEncoderConfig) {
     super();
@@ -76,6 +77,11 @@ export class VideoEncoder extends EventEmitter {
       stdin: 'pipe',
       onStderr: (data) => this.emit('log', data)
     });
+
+    // Track stdin errors so writeFrame can fail gracefully
+    this.ffmpeg.stdin?.on('error', (err) => {
+      this.stdinError = err;
+    });
   }
 
   /**
@@ -88,15 +94,34 @@ export class VideoEncoder extends EventEmitter {
       throw new Error('Encoder not started. Call start() first.');
     }
 
+    // Check if stdin has already errored (e.g., ffmpeg exited early)
+    if (this.stdinError) {
+      throw new Error(`Encoder stdin error: ${this.stdinError.message}`);
+    }
+
+    // Check if stream is still writable
+    if (this.ffmpeg.stdin.writableEnded || this.ffmpeg.stdin.destroyed) {
+      throw new Error('Encoder stdin stream is no longer writable');
+    }
+
     const canWrite = this.ffmpeg.stdin.write(buffer);
     this.frameCount++;
     this.emit('progress', { frame: this.frameCount });
 
     // Handle backpressure - wait for drain before continuing
-    if (!canWrite) {
-      await new Promise<void>(resolve =>
-        this.ffmpeg!.stdin!.once('drain', resolve)
-      );
+    if (!canWrite && !this.ffmpeg.stdin.destroyed) {
+      await new Promise<void>((resolve, reject) => {
+        const onDrain = () => {
+          this.ffmpeg!.stdin!.removeListener('error', onError);
+          resolve();
+        };
+        const onError = (err: Error) => {
+          this.ffmpeg!.stdin!.removeListener('drain', onDrain);
+          reject(err);
+        };
+        this.ffmpeg!.stdin!.once('drain', onDrain);
+        this.ffmpeg!.stdin!.once('error', onError);
+      });
     }
   }
 

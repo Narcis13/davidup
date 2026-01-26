@@ -5,6 +5,8 @@
  * Emits events for job lifecycle: processing, completed, failed.
  */
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import PQueue from 'p-queue';
 import { renderVideo, type RenderResult } from '../../encoder/video-renderer.js';
 import { JobStore } from './job-store.js';
@@ -95,6 +97,9 @@ export class JobQueueService extends EventEmitter {
 
       try {
         const outputPath = `outputs/${renderJob.id}.mp4`;
+
+        // Ensure output directory exists
+        await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
         // Convert VideoSpec scenes to AnimatedScene format
         // The scenes from VideoSpec are compatible with AnimatedScene
