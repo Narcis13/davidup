@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-26
-**Current phase:** 5 of 6 (API Layer) - Complete
+**Current phase:** 6 of 6 (AI Integration) - In Progress
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 5 Complete - Download endpoint added
+**Current focus:** Phase 6 - AI Client & Schemas complete
 
 ## Current Position
 
-Phase: 5 of 6 (API Layer)
-Plan: 6 of 6 in phase (05-06 complete)
-Status: Phase complete
-Last activity: 2026-01-26 - Completed 05-06-PLAN.md (Download Endpoint)
+Phase: 6 of 6 (AI Integration)
+Plan: 1 of 4 in phase (06-01 complete)
+Status: In progress
+Last activity: 2026-01-26 - Completed 06-01-PLAN.md (AI Client & Schemas)
 
-Progress: [####################] 100% (Phase 5: 6/6 plans)
+Progress: [#####---------------] 25% (Phase 6: 1/4 plans)
 
 ## Progress
 
@@ -28,7 +28,7 @@ Progress: [####################] 100% (Phase 5: 6/6 plans)
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | Pending | 0/0 |
+| 6 - AI Integration | In Progress | 1/4 |
 
 ## Requirements Coverage
 
@@ -65,13 +65,14 @@ Progress: [####################] 100% (Phase 5: 6/6 plans)
 - 2026-01-25: Completed 05-04-PLAN.md (Render Routes)
 - 2026-01-25: Completed 05-05-PLAN.md (Asset Upload)
 - 2026-01-26: Completed 05-06-PLAN.md (Download Endpoint)
+- 2026-01-26: Completed 06-01-PLAN.md (AI Client & Schemas)
 
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 05-06-PLAN.md (Download Endpoint)
+Stopped at: Completed 06-01-PLAN.md (AI Client & Schemas)
 Resume file: None
-Next action: Execute Phase 6 - AI Integration
+Next action: Execute 06-02-PLAN.md (Template Service)
 
 ## Accumulated Context
 
@@ -154,6 +155,9 @@ Next action: Execute Phase 6 - AI Integration
 | Download routes are public | No auth for shareable URLs | 05-06 |
 | Hono streaming for file serving | Proper file streaming without memory issues | 05-06 |
 | Support .mp4 extension in URL | Strips extension to normalize job ID | 05-06 |
+| async-retry default import for NodeNext | ESM compatibility with @types/async-retry | 06-01 |
+| DEFAULT_MODEL anthropic/claude-sonnet-4 | Configurable via OPENROUTER_MODEL env | 06-01 |
+| Platform and Style type aliases | Clean API consumer types | 06-01 |
 
 ### Technical Debt
 (None yet)
@@ -209,7 +213,12 @@ Next action: Execute Phase 6 - AI Integration
 - GET /download/:jobId streams video files from outputs/ directory
 - Download routes are public (no auth) for shareable URLs
 - Use hono/streaming stream helper for file serving
+- callOpenRouter() returns OpenRouterResponse with choices and usage
+- OpenRouter client bails on 4xx (except 429), retries on 5xx and rate limits
+- PLATFORM_PRESETS provides dimensions for tiktok/youtube/instagram
+- GenerateRequestSchema validates description (10-1000 chars), platform, style
+- Template types re-exported from src/api/types.ts
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-26 (05-06 Download Endpoint)*
+*Last updated: 2026-01-26 (06-01 AI Client & Schemas)*
