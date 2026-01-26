@@ -36,9 +36,10 @@
             "radius": 150,
             "fill": "#0f3460",
             "enter": {
-              "type": "fade",
+              "type": "bounce",
               "duration": 1.5,
-              "easing": "easeInOut"
+              "direction": "down",
+              "distance": 200
             }
           },
           {
