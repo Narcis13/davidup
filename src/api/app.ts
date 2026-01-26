@@ -9,7 +9,7 @@ import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
-import { assetRoutes, renderRoutes } from './routes/index.js';
+import { assetRoutes, downloadRoutes, renderRoutes } from './routes/index.js';
 import type { HealthResponse, PlanTier } from './types.js';
 
 /**
@@ -63,6 +63,9 @@ app.route('/render', renderRoutes);
 app.use('/assets/*', authMiddleware);
 app.use('/assets/*', rateLimitMiddleware);
 app.route('/assets', assetRoutes);
+
+// Public routes - Download (no auth for shareable URLs)
+app.route('/download', downloadRoutes);
 
 // 404 handler for undefined routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
