@@ -20,36 +20,41 @@
             "height": 200,
             "fill": "#e94560",
             "borderRadius": 20,
-            "animation": {
-              "preset": "slide",
-              "direction": "left"
+            "enter": {
+              "type": "slide",
+              "duration": 1.5,
+              "direction": "left",
+              "distance": 300,
+              "easing": "easeOutCubic"
             }
           },
           {
             "type": "shape",
             "shape": "circle",
-            "x": 740,
+            "x": 540,
             "y": 1200,
-            "radius": 120,
+            "radius": 150,
             "fill": "#0f3460",
-            "animation": {
-              "preset": "bounce"
+            "enter": {
+              "type": "fade",
+              "duration": 1.5,
+              "easing": "easeInOut"
             }
           },
           {
             "type": "text",
             "text": "Welcome!",
             "x": 540,
-            "y": 400,
-            "font": {
-              "family": "Arial",
-              "size": 72,
-              "weight": 700
-            },
+            "y": 300,
+            "fontFamily": "Arial",
+            "fontSize": 72,
+            "fontWeight": 700,
             "color": "#ffffff",
-            "align": "center",
-            "animation": {
-              "preset": "fade"
+            "textAlign": "center",
+            "enter": {
+              "type": "fade",
+              "duration": 1.5,
+              "easing": "easeInOut"
             }
           }
         ]

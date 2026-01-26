@@ -348,21 +348,48 @@ export class AnimatedFrameGenerator {
 
   /**
    * Render a single element with transforms applied.
+   *
+   * NOTE: Position (x, y) is NOT applied via transform - renderers handle their own positioning.
+   * Transforms only apply rotation, scale, and opacity.
+   *
+   * For scale/rotation around element center: translate(-cx,-cy), transform, translate(cx,cy)
+   * This ensures the element's position (cx, cy) maps to screen (cx, cy) regardless of scale.
    */
   private renderElement(element: BaseElement): void {
     this.ctx.save();
     try {
-      // Apply transforms (position, rotation, scale, opacity)
-      applyTransforms(this.ctx, {
-        x: (element as { x?: number }).x ?? 0,
-        y: (element as { y?: number }).y ?? 0,
-        rotation: (element as { rotation?: number }).rotation ?? 0,
-        scaleX: (element as { scaleX?: number }).scaleX ?? 1,
-        scaleY: (element as { scaleY?: number }).scaleY ?? 1,
-        opacity: (element as { opacity?: number }).opacity ?? 1,
-      });
+      const x = (element as { x?: number }).x ?? 0;
+      const y = (element as { y?: number }).y ?? 0;
+      const rotation = (element as { rotation?: number }).rotation ?? 0;
+      const scaleX = (element as { scaleX?: number }).scaleX ?? 1;
+      const scaleY = (element as { scaleY?: number }).scaleY ?? 1;
+      const opacity = (element as { opacity?: number }).opacity ?? 1;
 
-      // Delegate to the appropriate renderer
+      // Apply opacity globally
+      if (opacity !== 1) {
+        this.ctx.globalAlpha = opacity;
+      }
+
+      // For rotation and scale, transform around the element's center position.
+      // Canvas transforms compose in reverse order (last set = first applied).
+      // To transform around (x, y): move to origin → scale/rotate → move back.
+      // In canvas API order: translate(x,y), rotate, scale, translate(-x,-y)
+      if (rotation !== 0 || scaleX !== 1 || scaleY !== 1) {
+        // Step 4 (applied last): Move back to original position
+        this.ctx.translate(x, y);
+        // Step 3: Apply rotation around origin
+        if (rotation !== 0) {
+          this.ctx.rotate((rotation * Math.PI) / 180);
+        }
+        // Step 2: Apply scale around origin
+        if (scaleX !== 1 || scaleY !== 1) {
+          this.ctx.scale(scaleX, scaleY);
+        }
+        // Step 1 (applied first): Move element center to canvas origin
+        this.ctx.translate(-x, -y);
+      }
+
+      // Delegate to the appropriate renderer (which handles its own x, y positioning)
       this.registry.render(this.ctx, element, this.assets);
     } finally {
       this.ctx.restore();

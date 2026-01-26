@@ -1,4 +1,26 @@
 import { z } from 'zod';
+import { AnimationPresetSchema, PropertyAnimationSchema } from './animation.js';
+
+// ============================================================================
+// Animation Properties Schema (shared across all elements)
+// ============================================================================
+
+/**
+ * Animation properties that can be added to any element.
+ * Supports both preset-based animations and custom keyframe animations.
+ */
+const AnimationPropsSchema = z.object({
+  /** Enter animation preset (plays when element appears) */
+  enter: AnimationPresetSchema.optional(),
+  /** Exit animation preset (plays before element disappears) */
+  exit: AnimationPresetSchema.optional(),
+  /** Custom keyframe animations for fine-grained control */
+  animations: z.array(PropertyAnimationSchema).optional(),
+  /** Start time in seconds from scene start (default: 0) */
+  startTime: z.number().min(0).optional(),
+  /** End time in seconds from scene start (default: scene duration) */
+  endTime: z.number().min(0).optional(),
+}).partial();
 
 // ============================================================================
 // Shared Schemas
@@ -112,7 +134,7 @@ export const TextElementSchema = z.object({
   scaleX: z.number().optional(),
   scaleY: z.number().optional(),
   opacity: z.number().min(0).max(1).optional(),
-});
+}).merge(AnimationPropsSchema);
 
 // ============================================================================
 // Image Element Schema (RNDR-06 through RNDR-08)
@@ -149,7 +171,7 @@ export const ImageElementSchema = z.object({
   scaleX: z.number().optional(),
   scaleY: z.number().optional(),
   opacity: z.number().min(0).max(1).optional(),
-});
+}).merge(AnimationPropsSchema);
 
 // ============================================================================
 // Shape Element Schema (RNDR-09 through RNDR-11)
@@ -195,7 +217,7 @@ export const ShapeElementSchema = z.object({
   scaleX: z.number().optional(),
   scaleY: z.number().optional(),
   opacity: z.number().min(0).max(1).optional(),
-}).refine(
+}).merge(AnimationPropsSchema).refine(
   (data) => {
     // Validate shape-specific requirements
     switch (data.shape) {
@@ -252,7 +274,7 @@ const BaseShapeElementSchema = z.object({
   scaleX: z.number().optional(),
   scaleY: z.number().optional(),
   opacity: z.number().min(0).max(1).optional(),
-});
+}).merge(AnimationPropsSchema);
 
 // ============================================================================
 // Discriminated Union
