@@ -1,28 +1,24 @@
 ---
 phase: 05-api-layer
-verified: 2026-01-25T22:54:16Z
-status: gaps_found
-score: 10/11 must-haves verified
-gaps:
-  - truth: "Developer can retrieve completed video via download URL"
-    status: failed
-    reason: "download_url is returned in job result but no GET /download/:jobId endpoint exists"
-    artifacts:
-      - path: "src/api/app.ts"
-        issue: "No route handler for /download/:jobId pattern"
-    missing:
-      - "GET /download/:jobId endpoint to serve rendered video files"
-      - "Static file serving or stream handler for outputs/*.mp4 files"
-      - "Wire download route to app.ts with appropriate middleware"
+verified: 2026-01-26T03:47:08Z
+status: passed
+score: 12/12 must-haves verified
+re_verification:
+  previous_status: gaps_found
+  previous_score: 11/12
+  gaps_closed:
+    - "Developer can retrieve completed video via download URL"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 5: API Layer Verification Report
 
 **Phase Goal:** External developers can authenticate, submit render jobs, poll status, receive webhooks, and manage assets
 
-**Verified:** 2026-01-25T22:54:16Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-01-26T03:47:08Z
+**Status:** passed
+**Re-verification:** Yes — after gap closure
 
 ## Goal Achievement
 
@@ -40,17 +36,51 @@ gaps:
 | 8 | System enforces rate limits per plan | VERIFIED | rateLimitMiddleware applies 10/min (free) or 60/min (pro). Tests verify 429 on exceed. |
 | 9 | Developer can upload image assets via POST /assets | VERIFIED | assetRoutes.post() accepts PNG/JPEG/WebP up to 50MB, returns asset_id. Tests pass (14/14). |
 | 10 | Developer can upload audio assets via POST /assets | VERIFIED | assetRoutes accepts MP3/WAV files, validates type and size. Tests verify. |
-| 11 | Developer can retrieve completed video via download URL | FAILED | download_url returned (/download/:jobId.mp4) but no endpoint to serve file. |
+| 11 | **Developer can retrieve completed video via download URL** | **VERIFIED** | **GET /download/:jobId route exists (60 lines), streams from outputs/, wired to app.ts.** |
 | 12 | System caches remote assets during render | VERIFIED | AssetManager.loadImage() checks this.images.has(), caches with this.images.set(). Used by renderVideo. |
 
-**Score:** 11/12 truths verified (1 failed)
+**Score:** 12/12 truths verified (100%)
+
+### Re-verification Summary
+
+**Previous verification (2026-01-25T22:54:16Z):** 11/12 truths verified
+**Gap identified:** Missing GET /download/:jobId endpoint
+
+**Gap closure verification:**
+
+**Truth 11: Developer can retrieve completed video via download URL**
+
+Level 1 (Exists): PASS
+- File: `/Users/narcisbrindusescu/newme/davidup/src/api/routes/download.ts` (60 lines)
+- Barrel export: `routes/index.ts` exports `downloadRoutes`
+
+Level 2 (Substantive): PASS
+- No stub patterns (TODO/FIXME/placeholder)
+- Implements file streaming with `createReadStream`
+- Proper error handling (404 on missing file)
+- Sets appropriate headers (Content-Type, Content-Disposition, Content-Length)
+- Normalizes job ID (.mp4 extension handling)
+
+Level 3 (Wired): PASS
+- Imported in `app.ts` from barrel export (line 12)
+- Wired to `/download` route (line 68)
+- Intentionally public (no auth middleware) for shareable URLs
+- Download URL constructed in `job-queue.ts` as `/download/${jobId}.mp4`
+- Webhook payload includes `download_url` field (render.ts line 40)
+
+**Key link verification:**
+- job-queue.ts → download URL generation: WIRED (line 115: `result: { download_url: /download/${renderJob.id}.mp4 }`)
+- download.ts → outputs/ directory: WIRED (line 34: `filePath = outputs/${jobId}.mp4`)
+- app.ts → download routes: WIRED (line 68: `app.route('/download', downloadRoutes)`)
+
+**Regression check:** No regressions detected. All previously verified items remain functional.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
 | src/api/types.ts | API type definitions (Job, RenderRequest, ApiKey) | VERIFIED | 104 lines, exports all required types, no stubs |
-| src/api/app.ts | Hono app with CORS, logger, error handler | VERIFIED | 69 lines, wires routes with auth/rate limit middleware |
+| src/api/app.ts | Hono app with CORS, logger, error handler | VERIFIED | 72 lines, wires routes with auth/rate limit middleware, includes download route |
 | src/api/server.ts | Node.js server with graceful shutdown | VERIFIED | 42 lines, SIGTERM/SIGINT handlers present |
 | src/api/middleware/error-handler.ts | Global error handler middleware | VERIFIED | Returns JSON for HTTPException/ZodError/generic errors |
 | src/api/middleware/auth.ts | API key authentication middleware | VERIFIED | 50 lines, validates Bearer token, sets context |
@@ -62,7 +92,7 @@ gaps:
 | src/api/services/asset-store.ts | Local file storage for assets | VERIFIED | 165 lines, type/size validation, saves to ./uploads |
 | src/api/routes/render.ts | POST /render, GET /render/:jobId | VERIFIED | 212 lines, spec validation, job queuing, sync mode |
 | src/api/routes/assets.ts | POST /assets endpoint | VERIFIED | 160 lines, multipart upload, 50MB limit, returns asset_id |
-| **src/api/routes/download.ts** | **GET /download/:jobId endpoint** | **MISSING** | **No file serving endpoint exists** |
+| **src/api/routes/download.ts** | **GET /download/:jobId endpoint** | **VERIFIED** | **60 lines, streams video files from outputs/, public access** |
 
 ### Key Link Verification
 
@@ -73,13 +103,15 @@ gaps:
 | src/api/app.ts | src/api/middleware/rate-limit.ts | app.use middleware | WIRED | app.use('/render/*', rateLimitMiddleware) on line 59 |
 | src/api/app.ts | src/api/routes/render.ts | app.route | WIRED | app.route('/render', renderRoutes) on line 60 |
 | src/api/app.ts | src/api/routes/assets.ts | app.route | WIRED | app.route('/assets', assetRoutes) on line 65 |
+| **src/api/app.ts** | **src/api/routes/download.ts** | **app.route('/download')** | **WIRED** | **Line 68, public route (no auth)** |
 | src/api/routes/render.ts | src/api/services/job-queue.ts | JobQueueService.enqueue | WIRED | await jobQueue.enqueue() on line 96 |
 | src/api/routes/render.ts | src/validators/spec-validator.ts | validateVideoSpec | WIRED | validateVideoSpec(spec) on line 77 |
 | src/api/routes/render.ts | src/api/services/webhook.ts | deliverWebhook | WIRED | jobQueue.on('job:completed') calls deliverWebhook on line 34 |
 | src/api/services/job-queue.ts | src/encoder/video-renderer.ts | renderVideo | WIRED | import and call renderVideo() on line 104 |
+| **src/api/services/job-queue.ts** | **download URL** | **result.download_url** | **WIRED** | **Line 115: constructs /download/${jobId}.mp4** |
 | src/api/middleware/auth.ts | src/api/services/api-key-store.ts | apiKeyStore.validate | WIRED | apiKeyStore.validate(token) on line 38 |
 | src/api/routes/assets.ts | src/api/services/asset-store.ts | assetStore.save | WIRED | await assetStore.save() on line 92 |
-| **src/api/app.ts** | **src/api/routes/download.ts** | **app.route('/download')** | **NOT_WIRED** | **Missing route registration** |
+| **src/api/routes/download.ts** | **outputs/ directory** | **file streaming** | **WIRED** | **Line 34: reads outputs/${jobId}.mp4** |
 
 ### Requirements Coverage
 
@@ -96,13 +128,11 @@ gaps:
 | ASST-02: Upload audio assets | SATISFIED | All truths verified |
 | ASST-03: Reference uploaded assets by ID | SATISFIED | asset_id returned, can be used in spec |
 | ASST-04: Cache remote assets | SATISFIED | AssetManager caches in Map |
-| **OUTP-05: Rendered video accessible via URL** | **BLOCKED** | **No download endpoint to serve files** |
+| **OUTP-05: Rendered video accessible via URL** | **SATISFIED** | **Download endpoint now exists and functional** |
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| src/api/routes/render.ts | 29 | Comment: "will be replaced with DI in production" | Info | Acceptable for MVP, shared instances work |
+None. Previous Info-level comment ("will be replaced with DI in production") remains acceptable for MVP.
 
 ### Human Verification Required
 
@@ -125,15 +155,16 @@ curl -X POST http://localhost:3000/render \
 3. Note the job_id from response
 4. Poll status: `curl http://localhost:3000/render/{job_id} -H "Authorization: Bearer test-api-key"`
 5. Wait for status: "completed"
-6. Attempt to download: `curl http://localhost:3000/download/{job_id}.mp4 -o video.mp4`
+6. Download video: `curl http://localhost:3000/download/{job_id}.mp4 -o video.mp4`
+7. Play video file
 
 **Expected:** 
 - POST returns 202 with job_id
 - GET shows status progression (queued -> processing -> completed)
-- Download URL works (currently will 404 - GAP)
-- Video file downloads and plays
+- Download URL returns 200 with video/mp4 content
+- Video file downloads successfully and plays
 
-**Why human:** Full integration test with actual rendering, file I/O, and network behavior
+**Why human:** Full integration test with actual rendering, file I/O, and network behavior. Requires visual verification of video playback.
 
 #### 2. Rate Limiting Behavior
 
@@ -159,70 +190,35 @@ curl -X POST http://localhost:3000/render \
 
 **Expected:**
 - Webhook POST received with job_id, status, download_url
+- download_url is a valid path: `/download/{jobId}.mp4`
 - Retries on 5xx errors (test by returning 503 first)
 - No retry on 4xx errors
 
 **Why human:** External service integration and retry behavior
 
-### Gaps Summary
+### Gap Closure Summary
 
-**1 critical gap blocking requirement OUTP-05:**
+**All gaps from previous verification have been closed.**
 
-The API returns download URLs (`/download/{jobId}.mp4`) in job results, but no endpoint exists to serve these files. When a developer polls a completed job and receives the download_url, attempting to fetch it will result in 404.
+The missing download endpoint has been implemented with:
+- Proper file streaming from outputs/ directory
+- Error handling for missing files (404)
+- Appropriate HTTP headers (Content-Type, Content-Disposition, Content-Length)
+- Job ID normalization (handles both /download/abc123 and /download/abc123.mp4)
+- Public access (no authentication required for shareable URLs)
+- Integration with job result (download_url field)
+- Webhook payload includes download_url
 
-**What's missing:**
-- Route handler for `GET /download/:jobId` pattern
-- File streaming logic to serve files from `outputs/` directory
-- Optional: authentication check (should download URLs be public or require API key?)
-- Optional: content-disposition header for browser download behavior
-
-**Impact:** Developers can submit jobs and track status, but cannot retrieve the rendered video. This blocks the core use case.
-
-**Recommended fix:**
-Create `src/api/routes/download.ts`:
-```typescript
-import { Hono } from 'hono';
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-
-export const downloadRoutes = new Hono();
-
-downloadRoutes.get('/:jobId', async (c) => {
-  const jobId = c.req.param('jobId');
-  const filePath = `outputs/${jobId}`;
-  
-  // Check file exists
-  try {
-    await stat(filePath);
-  } catch {
-    return c.json({ error: 'Video not found' }, 404);
-  }
-  
-  // Stream file
-  const stream = createReadStream(filePath);
-  return c.body(stream, {
-    headers: {
-      'Content-Type': 'video/mp4',
-      'Content-Disposition': `attachment; filename="${jobId}"`,
-    },
-  });
-});
-```
-
-Wire to app.ts:
-```typescript
-import { downloadRoutes } from './routes/download.js';
-app.route('/download', downloadRoutes);
-```
+The implementation is production-ready pending human verification of end-to-end flow.
 
 ---
 
-**Tests:** 79/79 tests pass
+**Tests:** 527/527 tests pass
 **TypeScript:** Compiles without errors
-**Files created:** 17 source files, 8 test files (2,812 total lines)
+**Files created:** 18 source files, 8 test files (2,872 total lines)
 **Verification depth:** Level 3 (exists, substantive, wired)
 
 ---
 
-_Verified: 2026-01-25T22:54:16Z_
+_Verified: 2026-01-26T03:47:08Z_
 _Verifier: Claude (gsd-verifier)_

@@ -178,7 +178,7 @@ Wave 3 (parallel, depends on Wave 2):
 - [x] 05-05-PLAN.md — Asset routes (POST /assets, local storage)
 
 Wave 4 (gap closure):
-- [ ] 05-06-PLAN.md — Download endpoint (GET /download/:jobId)
+- [x] 05-06-PLAN.md — Download endpoint (GET /download/:jobId)
 
 **Requirements:**
 - API-01: Developer can authenticate with API key in Authorization header
@@ -235,9 +235,9 @@ Wave 4 (gap closure):
 | 2 - Core Rendering | Complete | 6/6 |
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
-| 5 - API Layer | Gap Closure | 5/6 |
+| 5 - API Layer | Complete | 6/6 |
 | 6 - AI Integration | Pending | 0/0 |
 
 ---
 *Roadmap created: 2026-01-24*
-*Last updated: 2026-01-26 (Phase 5 gap closure plan added)*
+*Last updated: 2026-01-26 (Phase 5 complete)*
