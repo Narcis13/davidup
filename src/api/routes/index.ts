@@ -5,3 +5,5 @@
 export { assetRoutes } from './assets.js';
 export { downloadRoutes } from './download.js';
 export { renderRoutes } from './render.js';
+export { generateRoutes } from './generate.js';
+export { templateRoutes } from './templates.js';

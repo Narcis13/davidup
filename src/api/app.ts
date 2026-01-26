@@ -9,7 +9,7 @@ import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
-import { assetRoutes, downloadRoutes, renderRoutes } from './routes/index.js';
+import { assetRoutes, downloadRoutes, renderRoutes, generateRoutes, templateRoutes } from './routes/index.js';
 import type { HealthResponse, PlanTier } from './types.js';
 
 /**
@@ -63,6 +63,16 @@ app.route('/render', renderRoutes);
 app.use('/assets/*', authMiddleware);
 app.use('/assets/*', rateLimitMiddleware);
 app.route('/assets', assetRoutes);
+
+// Protected routes - Generate (AI template generation)
+app.use('/generate/*', authMiddleware);
+app.use('/generate/*', rateLimitMiddleware);
+app.route('/generate', generateRoutes);
+
+// Protected routes - Templates
+app.use('/templates/*', authMiddleware);
+app.use('/templates/*', rateLimitMiddleware);
+app.route('/templates', templateRoutes);
 
 // Public routes - Download (no auth for shareable URLs)
 app.route('/download', downloadRoutes);
