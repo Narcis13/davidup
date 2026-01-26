@@ -4,7 +4,8 @@
  * Provides retry-capable fetch wrapper for OpenRouter API calls
  * with proper error handling and timeout support.
  */
-import * as retry from 'async-retry';
+import asyncRetry from 'async-retry';
+import type { Options as RetryOptions } from 'async-retry';
 
 /**
  * Message format for OpenRouter API
@@ -71,8 +72,8 @@ export async function callOpenRouter(request: OpenRouterRequest): Promise<OpenRo
   const timeout = Number(process.env.OPENROUTER_TIMEOUT) || DEFAULT_TIMEOUT;
   const appUrl = process.env.APP_URL ?? 'https://gamemotion.dev';
 
-  return retry(
-    async (bail) => {
+  return asyncRetry(
+    async (bail: (err: Error) => void) => {
       const response = await fetch(OPENROUTER_API_URL, {
         method: 'POST',
         headers: {

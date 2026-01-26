@@ -36,3 +36,16 @@ export {
 
 // Audio schemas
 export { AudioConfigSchema, type AudioConfig } from './audio.js';
+
+// Template schemas
+export {
+  PLATFORM_PRESETS,
+  GenerateRequestSchema,
+  GenerateResponseSchema,
+  TemplateVariableSchema,
+  BuiltInTemplateSchema,
+  type GenerateRequest,
+  type GenerateResponse,
+  type TemplateVariable,
+  type BuiltInTemplate,
+} from './template.js';

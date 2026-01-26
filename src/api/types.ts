@@ -102,3 +102,23 @@ export interface HealthResponse {
  * Re-export VideoSpec for API consumers
  */
 export type { VideoSpec } from '../types/index.js';
+
+/**
+ * Re-export template types for API consumers
+ */
+export type {
+  GenerateRequest,
+  GenerateResponse,
+  TemplateVariable,
+  BuiltInTemplate,
+} from '../schemas/template.js';
+
+/**
+ * Platform types for template generation
+ */
+export type Platform = 'tiktok' | 'youtube' | 'instagram';
+
+/**
+ * Style types for template generation
+ */
+export type Style = 'energetic' | 'professional' | 'playful';
