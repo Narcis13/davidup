@@ -15,3 +15,4 @@ export {
   type OpenRouterResponse,
 } from './ai-client.js';
 export { TemplateStore, templateStore, type TemplateListItem } from './template-store.js';
+export { extractVariables, substituteVariables } from './variable-substitution.js';
