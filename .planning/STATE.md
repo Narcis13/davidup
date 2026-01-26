@@ -8,16 +8,16 @@
 See: .planning/PROJECT.md (updated 2026-01-24)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** Phase 6 - Variable Substitution complete
+**Current focus:** Phase 6 - Template Generator complete
 
 ## Current Position
 
 Phase: 6 of 6 (AI Integration)
-Plan: 3 of 4 in phase (06-03 complete)
+Plan: 4 of 4 in phase (06-04 complete)
 Status: In progress
-Last activity: 2026-01-26 - Completed 06-03-PLAN.md (Variable Substitution)
+Last activity: 2026-01-26 - Completed 06-04-PLAN.md (Template Generator)
 
-Progress: [###############-----] 75% (Phase 6: 3/4 plans)
+Progress: [####################] 100% (Phase 6: 4/4 plans)
 
 ## Progress
 
@@ -28,7 +28,7 @@ Progress: [###############-----] 75% (Phase 6: 3/4 plans)
 | 3 - Animation & Timeline | Complete | 7/7 |
 | 4 - Video Output | Complete | 4/4 |
 | 5 - API Layer | Complete | 6/6 |
-| 6 - AI Integration | In Progress | 3/4 |
+| 6 - AI Integration | Complete | 4/4 |
 
 ## Requirements Coverage
 
@@ -68,13 +68,14 @@ Progress: [###############-----] 75% (Phase 6: 3/4 plans)
 - 2026-01-26: Completed 06-01-PLAN.md (AI Client & Schemas)
 - 2026-01-26: Completed 06-02-PLAN.md (Built-in Templates)
 - 2026-01-26: Completed 06-03-PLAN.md (Variable Substitution)
+- 2026-01-26: Completed 06-04-PLAN.md (Template Generator)
 
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 06-03-PLAN.md (Variable Substitution)
+Stopped at: Completed 06-04-PLAN.md (Template Generator)
 Resume file: None
-Next action: Execute 06-04-PLAN.md (AI Generation Routes)
+Next action: Execute 06-05-PLAN.md (Template API Routes) or Phase complete
 
 ## Accumulated Context
 
@@ -167,6 +168,9 @@ Next action: Execute 06-04-PLAN.md (AI Generation Routes)
 | Alphanumeric variable names only | Regex \w+ safe for JSON contexts | 06-03 |
 | Escape JSON chars before replace | Prevents JSON.parse failure on special chars | 06-03 |
 | Sorted unique variable output | Deterministic for testing and display | 06-03 |
+| Mock callOpenRouter in tests | Avoid real API calls, faster tests | 06-04 |
+| Text elements use 'text' field | Per actual schema, not 'content' | 06-04 |
+| VideoSpec requires output.duration | Required field in OutputConfigSchema | 06-04 |
 
 ### Technical Debt
 (None yet)
@@ -235,7 +239,13 @@ Next action: Execute 06-04-PLAN.md (AI Generation Routes)
 - substituteVariables(spec, values) replaces {{variables}} with escaped values
 - Variable pattern: {{variableName}} with alphanumeric names only
 - Missing variables left unchanged for partial substitution
+- TemplateGenerator.generate() returns { spec, variables } tuple
+- buildSystemPrompt() includes platform dimensions and style guidelines
+- repairJson() strips markdown code blocks from AI responses
+- autoRepairSpec() handles string-to-number coercion
+- regenerateWithContext() provides one retry with error context
+- templateGenerator singleton available from services barrel
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-26 (06-03 Variable Substitution)*
+*Last updated: 2026-01-26 (06-04 Template Generator)*
