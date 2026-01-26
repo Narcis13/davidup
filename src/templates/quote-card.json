@@ -1,0 +1,104 @@
+{
+  "id": "quote-card",
+  "name": "Quote Card",
+  "description": "Elegant quote display with attribution",
+  "platform": "universal",
+  "style": "professional",
+  "variables": [
+    { "name": "quote", "description": "The quote text", "type": "text" },
+    { "name": "attribution", "description": "Quote attribution (author name)", "type": "text" },
+    { "name": "backgroundColor", "description": "Background color", "type": "color", "default": "#1a1a2e" },
+    { "name": "textColor", "description": "Main text color", "type": "color", "default": "#ffffff" }
+  ],
+  "spec": {
+    "output": {
+      "width": 1080,
+      "height": 1080,
+      "fps": 30,
+      "duration": 5
+    },
+    "scenes": [
+      {
+        "id": "scene-1-quote",
+        "name": "Quote",
+        "duration": 3,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "text",
+            "text": "\"",
+            "x": 100,
+            "y": 350,
+            "fontSize": 200,
+            "fontWeight": 700,
+            "color": "#ffffff20",
+            "textAlign": "left",
+            "fontFamily": "Georgia"
+          },
+          {
+            "type": "text",
+            "text": "{{quote}}",
+            "x": 540,
+            "y": 540,
+            "fontSize": 48,
+            "fontWeight": 500,
+            "fontStyle": "italic",
+            "color": "{{textColor}}",
+            "textAlign": "center",
+            "fontFamily": "Georgia",
+            "maxWidth": 800,
+            "lineHeight": 1.5
+          }
+        ],
+        "transition": {
+          "type": "fade",
+          "duration": 0.5,
+          "easing": "easeInOut"
+        }
+      },
+      {
+        "id": "scene-2-attribution",
+        "name": "Attribution",
+        "duration": 2,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "text",
+            "text": "{{quote}}",
+            "x": 540,
+            "y": 440,
+            "fontSize": 42,
+            "fontWeight": 500,
+            "fontStyle": "italic",
+            "color": "{{textColor}}",
+            "textAlign": "center",
+            "fontFamily": "Georgia",
+            "maxWidth": 800,
+            "lineHeight": 1.5
+          },
+          {
+            "type": "shape",
+            "shape": "rectangle",
+            "x": 440,
+            "y": 620,
+            "width": 200,
+            "height": 3,
+            "fill": "{{textColor}}"
+          },
+          {
+            "type": "text",
+            "text": "{{attribution}}",
+            "x": 540,
+            "y": 700,
+            "fontSize": 32,
+            "fontWeight": 600,
+            "color": "{{textColor}}",
+            "textAlign": "center",
+            "fontFamily": "Inter",
+            "opacity": 0.8
+          }
+        ]
+      }
+    ]
+  }
+}

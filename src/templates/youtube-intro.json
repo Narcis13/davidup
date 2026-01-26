@@ -1,0 +1,88 @@
+{
+  "id": "youtube-intro",
+  "name": "YouTube Intro",
+  "description": "Professional channel intro with logo and tagline",
+  "platform": "youtube",
+  "style": "professional",
+  "variables": [
+    { "name": "channelName", "description": "YouTube channel name", "type": "text" },
+    { "name": "logoUrl", "description": "URL to channel logo image", "type": "url" },
+    { "name": "tagline", "description": "Channel tagline or motto", "type": "text" },
+    { "name": "backgroundColor", "description": "Background color", "type": "color", "default": "#0f0f23" }
+  ],
+  "spec": {
+    "output": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "duration": 5
+    },
+    "scenes": [
+      {
+        "id": "scene-1-logo",
+        "name": "Logo Intro",
+        "duration": 2,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "image",
+            "src": "{{logoUrl}}",
+            "x": 760,
+            "y": 340,
+            "width": 400,
+            "height": 400,
+            "fit": "contain",
+            "borderRadius": 200,
+            "opacity": 1
+          }
+        ],
+        "transition": {
+          "type": "fade",
+          "duration": 0.5,
+          "easing": "easeInOut"
+        }
+      },
+      {
+        "id": "scene-2-name",
+        "name": "Channel Name",
+        "duration": 3,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "image",
+            "src": "{{logoUrl}}",
+            "x": 160,
+            "y": 390,
+            "width": 300,
+            "height": 300,
+            "fit": "contain",
+            "borderRadius": 150
+          },
+          {
+            "type": "text",
+            "text": "{{channelName}}",
+            "x": 560,
+            "y": 480,
+            "fontSize": 96,
+            "fontWeight": 700,
+            "color": "#ffffff",
+            "textAlign": "left",
+            "fontFamily": "Inter"
+          },
+          {
+            "type": "text",
+            "text": "{{tagline}}",
+            "x": 560,
+            "y": 600,
+            "fontSize": 42,
+            "fontWeight": 400,
+            "color": "#aaaaaa",
+            "textAlign": "left",
+            "fontFamily": "Inter",
+            "maxWidth": 1200
+          }
+        ]
+      }
+    ]
+  }
+}

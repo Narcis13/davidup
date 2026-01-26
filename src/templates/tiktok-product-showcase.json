@@ -1,0 +1,169 @@
+{
+  "id": "tiktok-product-showcase",
+  "name": "TikTok Product Showcase",
+  "description": "High-energy product reveal with features and CTA for TikTok",
+  "platform": "tiktok",
+  "style": "energetic",
+  "variables": [
+    { "name": "productName", "description": "Name of the product", "type": "text" },
+    { "name": "tagline", "description": "Short product tagline", "type": "text" },
+    { "name": "productImage", "description": "URL to product image", "type": "url" },
+    { "name": "price", "description": "Product price (e.g. $29.99)", "type": "text" },
+    { "name": "backgroundColor", "description": "Background color", "type": "color", "default": "#1a1a2e" }
+  ],
+  "spec": {
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "duration": 7
+    },
+    "scenes": [
+      {
+        "id": "scene-1-reveal",
+        "name": "Product Reveal",
+        "duration": 2,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "image",
+            "src": "{{productImage}}",
+            "x": 140,
+            "y": 560,
+            "width": 800,
+            "height": 800,
+            "fit": "contain",
+            "borderRadius": 20,
+            "scaleX": 1,
+            "scaleY": 1,
+            "opacity": 1
+          },
+          {
+            "type": "text",
+            "text": "{{productName}}",
+            "x": 540,
+            "y": 1450,
+            "fontSize": 72,
+            "fontWeight": 700,
+            "color": "#ffffff",
+            "textAlign": "center",
+            "fontFamily": "Inter"
+          }
+        ],
+        "transition": {
+          "type": "zoom",
+          "duration": 0.3,
+          "easing": "easeOut"
+        }
+      },
+      {
+        "id": "scene-2-features",
+        "name": "Features",
+        "duration": 3,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "image",
+            "src": "{{productImage}}",
+            "x": 140,
+            "y": 200,
+            "width": 800,
+            "height": 600,
+            "fit": "contain",
+            "borderRadius": 20
+          },
+          {
+            "type": "text",
+            "text": "{{tagline}}",
+            "x": 540,
+            "y": 900,
+            "fontSize": 56,
+            "fontWeight": 600,
+            "color": "#ffffff",
+            "textAlign": "center",
+            "fontFamily": "Inter",
+            "maxWidth": 900
+          },
+          {
+            "type": "shape",
+            "shape": "rectangle",
+            "x": 290,
+            "y": 1050,
+            "width": 500,
+            "height": 100,
+            "fill": "#ff6b6b",
+            "borderRadius": 50
+          },
+          {
+            "type": "text",
+            "text": "{{price}}",
+            "x": 540,
+            "y": 1115,
+            "fontSize": 48,
+            "fontWeight": 700,
+            "color": "#ffffff",
+            "textAlign": "center",
+            "fontFamily": "Inter"
+          }
+        ],
+        "transition": {
+          "type": "slide",
+          "duration": 0.3,
+          "direction": "left",
+          "easing": "easeInOut"
+        }
+      },
+      {
+        "id": "scene-3-cta",
+        "name": "Call to Action",
+        "duration": 2,
+        "background": "{{backgroundColor}}",
+        "elements": [
+          {
+            "type": "text",
+            "text": "{{productName}}",
+            "x": 540,
+            "y": 800,
+            "fontSize": 64,
+            "fontWeight": 700,
+            "color": "#ffffff",
+            "textAlign": "center",
+            "fontFamily": "Inter"
+          },
+          {
+            "type": "shape",
+            "shape": "rectangle",
+            "x": 190,
+            "y": 950,
+            "width": 700,
+            "height": 120,
+            "fill": "#4ecdc4",
+            "borderRadius": 60
+          },
+          {
+            "type": "text",
+            "text": "Shop Now!",
+            "x": 540,
+            "y": 1025,
+            "fontSize": 52,
+            "fontWeight": 700,
+            "color": "#ffffff",
+            "textAlign": "center",
+            "fontFamily": "Inter"
+          },
+          {
+            "type": "text",
+            "text": "Link in bio",
+            "x": 540,
+            "y": 1150,
+            "fontSize": 36,
+            "fontWeight": 400,
+            "color": "#cccccc",
+            "textAlign": "center",
+            "fontFamily": "Inter"
+          }
+        ]
+      }
+    ]
+  }
+}
