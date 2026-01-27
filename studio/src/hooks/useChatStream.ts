@@ -1,10 +1,10 @@
 import { useRef, useCallback } from 'react';
-import { useChatStore, type Message } from '@/stores/chatStore';
+import { useChatStore } from '@/stores/chatStore';
 
 interface SendMessageOptions {
   conversationId: string | null;
   message: string;
-  history: Message[];
+  history: { role: 'user' | 'assistant'; content: string }[];
 }
 
 interface SSEEvent {

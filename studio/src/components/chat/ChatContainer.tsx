@@ -22,14 +22,17 @@ export function ChatContainer() {
     // Add user message to store immediately (optimistic)
     addUserMessage(message);
 
-    // Build history from current messages
-    const history = messages.map((m) => ({ role: m.role, content: m.content }));
+    // Build history from current messages (only role and content needed for API)
+    const history: { role: 'user' | 'assistant'; content: string }[] = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     // Send to backend
     await sendMessage({
       conversationId: conversationId ?? null,
       message,
-      history: history as { role: 'user' | 'assistant'; content: string }[],
+      history,
     });
   };
 
