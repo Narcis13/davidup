@@ -128,6 +128,65 @@ function extractTemplate(content: string): object | null {
  * Accepts a message, calls OpenRouter, and streams the response via SSE.
  * Creates/updates conversation and persists messages in SQLite.
  */
+/**
+ * GET /conversations/:id/messages - Get all messages for a conversation.
+ *
+ * Returns messages ordered by created_at ASC for chronological display.
+ */
+chatRoutes.get('/conversations/:id/messages', async (c) => {
+  const conversationId = c.req.param('id');
+
+  // Verify conversation exists
+  const conversation = db.prepare(`
+    SELECT id FROM conversations WHERE id = ?
+  `).get(conversationId);
+
+  if (!conversation) {
+    return c.json({ error: 'Conversation not found' }, 404);
+  }
+
+  // Get all messages for the conversation
+  const messages = db.prepare(`
+    SELECT id, conversation_id, role, content, created_at
+    FROM messages
+    WHERE conversation_id = ?
+    ORDER BY created_at ASC
+  `).all(conversationId);
+
+  return c.json(messages);
+});
+
+/**
+ * DELETE /conversations/:id - Delete a conversation and all its messages.
+ *
+ * Messages are cascade-deleted due to ON DELETE CASCADE foreign key.
+ */
+chatRoutes.delete('/conversations/:id', async (c) => {
+  const conversationId = c.req.param('id');
+
+  // Verify conversation exists
+  const conversation = db.prepare(`
+    SELECT id FROM conversations WHERE id = ?
+  `).get(conversationId);
+
+  if (!conversation) {
+    return c.json({ error: 'Conversation not found' }, 404);
+  }
+
+  // Delete the conversation (messages cascade automatically)
+  db.prepare(`
+    DELETE FROM conversations WHERE id = ?
+  `).run(conversationId);
+
+  return c.json({ success: true, deletedId: conversationId });
+});
+
+/**
+ * POST /chat - Streaming chat endpoint for AI template generation.
+ *
+ * Accepts a message, calls OpenRouter, and streams the response via SSE.
+ * Creates/updates conversation and persists messages in SQLite.
+ */
 chatRoutes.post('/chat', async (c) => {
   const body = await c.req.json<ChatRequest>();
   const { message, history = [] } = body;

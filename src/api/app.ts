@@ -11,6 +11,7 @@ import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
 import { assetRoutes, downloadRoutes, renderRoutes, generateRoutes, templateRoutes } from './routes/index.js';
 import { studioRoutes } from './routes/studio.js';
+import { chatRoutes } from './routes/chat.js';
 import type { HealthResponse, PlanTier } from './types.js';
 
 /**
@@ -80,6 +81,7 @@ app.route('/download', downloadRoutes);
 
 // Studio routes - no auth for local dev tool
 app.route('/studio', studioRoutes);
+app.route('/studio', chatRoutes);
 
 // 404 handler for undefined routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
