@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 ## Current Position
 
 Phase: 7 of 10 (Project Setup)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-01-27 - Roadmap created for v0.2
+Plan: 1 of 5 in current phase
+Status: In progress
+Last activity: 2026-01-27 - Completed 07-01-PLAN.md (Frontend Scaffold)
 
-Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (v0.2 starting)
+Progress: ██░░░░░░░░░░░░░░░░░░ 5% (v0.2 starting)
 
 ## Shipped Milestones
 
@@ -48,13 +48,14 @@ Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (v0.2 
 - 2026-01-26: Archived v0.1 milestone
 - 2026-01-27: Started v0.2 Studio milestone
 - 2026-01-27: Created v0.2 roadmap (4 phases, 30 requirements)
+- 2026-01-27: Completed 07-01 Frontend Scaffold (Vite + React + Tailwind + shadcn)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Roadmap created, ready to plan Phase 7
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None
-Next action: /gsd:plan-phase 7
+Next action: Execute 07-02-PLAN.md (State Management)
 
 ## Accumulated Context
 
@@ -68,6 +69,12 @@ v0.2 decisions:
 - Data: SQLite with better-sqlite3
 - Dev: Vite proxy to Hono, single `npm run dev` command
 - Prod: Hono serveStatic for built frontend
+
+07-01 decisions:
+- Use 127.0.0.1 instead of localhost for Vite proxy (Node 17+ IPv6 issue)
+- Tailwind v4 with @tailwindcss/vite plugin (no PostCSS config needed)
+- shadcn/ui for component library (flexible, not a heavy dependency)
+- Path alias '@' for src imports
 
 ### Technical Debt
 
@@ -87,4 +94,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (v0.2 roadmap created)*
+*Last updated: 2026-01-27 (07-01 completed)*
