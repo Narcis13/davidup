@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 ## Current Position
 
 Phase: 8 of 10 (Chat Interface)
-Plan: 1 of TBD in current phase
+Plan: 2 of TBD in current phase
 Status: In progress
-Last activity: 2026-01-27 - Completed 08-01-PLAN.md (Streaming Chat API)
+Last activity: 2026-01-27 - Completed 08-02-PLAN.md (Frontend State Management)
 
-Progress: ██████░░░░░░░░░░░░░░ 30% (~2/6 plans complete in v0.2)
+Progress: ███████░░░░░░░░░░░░░ 35% (~3/8 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -52,13 +52,14 @@ Progress: ██████░░░░░░░░░░░░░░ 30% (~2/6
 - 2026-01-27: Completed 07-02 State Management (SQLite + API routes + dev command)
 - 2026-01-27: Phase 7 (Project Setup) complete
 - 2026-01-27: Completed 08-01 Streaming Chat API (SSE endpoint, conversation management)
+- 2026-01-27: Completed 08-02 Frontend State Management (Zustand + TanStack Query + hooks)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Completed 08-01-PLAN.md
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
-Next action: Execute 08-02-PLAN.md
+Next action: Execute 08-03-PLAN.md
 
 ## Accumulated Context
 
@@ -90,6 +91,12 @@ v0.2 decisions:
 - Context limited to last 10 messages to manage token limits
 - JSON extraction supports both pure JSON and markdown code blocks
 
+08-02 decisions:
+- fetch+ReadableStream for SSE (not EventSource - cannot POST)
+- AbortController in ref for request cancellation
+- 5-minute staleTime for TanStack Query cache
+- 100px threshold for scroll bottom detection
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -108,4 +115,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (08-01 complete)*
+*Last updated: 2026-01-27 (08-02 complete)*
