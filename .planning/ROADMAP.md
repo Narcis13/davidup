@@ -15,7 +15,7 @@ v0.2 adds a local development studio UI to GameMotion. The user creates video te
 - Continues from v0.1 (Phases 1-6)
 - v0.2 uses Phases 7-10
 
-- [ ] **Phase 7: Project Setup** - React + Vite + SQLite integrated with Hono API
+- [x] **Phase 7: Project Setup** - React + Vite + SQLite integrated with Hono API
 - [ ] **Phase 8: Chat Interface** - Conversational AI template creation with streaming
 - [ ] **Phase 9: Template Library** - Template CRUD with grid view and persistence
 - [ ] **Phase 10: Video Library & Preview** - Video grid, template linkage, and render-to-player workflow
@@ -35,8 +35,8 @@ v0.2 adds a local development studio UI to GameMotion. The user creates video te
   5. Studio routes (/studio/*) respond on Hono API
 
 Plans:
-- [ ] 07-01-PLAN.md - Scaffold Vite + React + Tailwind frontend with shadcn
-- [ ] 07-02-PLAN.md - SQLite database, studio routes, and single dev command
+- [x] 07-01-PLAN.md - Scaffold Vite + React + Tailwind frontend with shadcn
+- [x] 07-02-PLAN.md - SQLite database, studio routes, and single dev command
 
 ### Phase 8: Chat Interface
 **Goal**: User can create and refine video templates through conversation with AI
@@ -99,7 +99,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Project Setup | 0/2 | Planned | - |
+| 7. Project Setup | 2/2 | Complete | 2026-01-27 |
 | 8. Chat Interface | 0/TBD | Not started | - |
 | 9. Template Library | 0/TBD | Not started | - |
 | 10. Video Library & Preview | 0/TBD | Not started | - |

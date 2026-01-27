@@ -9,11 +9,11 @@ Requirements for GameMotion Studio UI. Each maps to roadmap phases.
 
 ### Project Setup
 
-- [ ] **SETUP-01**: React + Tailwind frontend scaffolded with Vite
-- [ ] **SETUP-02**: Vite proxy configured for Hono API integration
-- [ ] **SETUP-03**: SQLite database initialized for studio data persistence
-- [ ] **SETUP-04**: Studio routes added to Hono API (/studio/*)
-- [ ] **SETUP-05**: Single dev command starts both frontend and backend
+- [x] **SETUP-01**: React + Tailwind frontend scaffolded with Vite
+- [x] **SETUP-02**: Vite proxy configured for Hono API integration
+- [x] **SETUP-03**: SQLite database initialized for studio data persistence
+- [x] **SETUP-04**: Studio routes added to Hono API (/studio/*)
+- [x] **SETUP-05**: Single dev command starts both frontend and backend
 
 ### Chat UI
 
@@ -102,11 +102,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SETUP-01 | Phase 7 | Pending |
-| SETUP-02 | Phase 7 | Pending |
-| SETUP-03 | Phase 7 | Pending |
-| SETUP-04 | Phase 7 | Pending |
-| SETUP-05 | Phase 7 | Pending |
+| SETUP-01 | Phase 7 | Complete |
+| SETUP-02 | Phase 7 | Complete |
+| SETUP-03 | Phase 7 | Complete |
+| SETUP-04 | Phase 7 | Complete |
+| SETUP-05 | Phase 7 | Complete |
 | CHAT-01 | Phase 8 | Pending |
 | CHAT-02 | Phase 8 | Pending |
 | CHAT-03 | Phase 8 | Pending |
