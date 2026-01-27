@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 function App() {
   return (
@@ -35,6 +36,10 @@ function App() {
               <span className="text-slate-400 font-mono">localhost:5173</span>
             </div>
           </div>
+
+          <Button className="w-full" variant="default">
+            Check API Status
+          </Button>
         </div>
 
         <div className="text-center text-sm text-slate-500">
