@@ -3,7 +3,7 @@
 ## Milestones
 
 - v0.1 MVP - Phases 1-6 (shipped 2026-01-26) - archived in milestones/v0.1-ROADMAP.md
-- **v0.2 Studio** - Phases 7-10 (in progress)
+- **v0.2 Studio** - Phases 7-10 (complete 2026-01-27)
 
 ## Overview
 
@@ -18,7 +18,7 @@ v0.2 adds a local development studio UI to GameMotion. The user creates video te
 - [x] **Phase 7: Project Setup** - React + Vite + SQLite integrated with Hono API
 - [x] **Phase 8: Chat Interface** - Conversational AI template creation with streaming
 - [x] **Phase 9: Template Library** - Template CRUD with grid view and persistence
-- [ ] **Phase 10: Video Library & Preview** - Video grid, template linkage, and render-to-player workflow
+- [x] **Phase 10: Video Library & Preview** - Video grid, template linkage, and render-to-player workflow
 
 ## Phase Details
 
@@ -89,10 +89,10 @@ Plans:
   8. User can delete videos individually or in batch
 
 Plans:
-- [ ] 10-01-PLAN.md - Video backend (service + routes)
-- [ ] 10-02-PLAN.md - Frontend hooks and format helpers
-- [ ] 10-03-PLAN.md - Video Library UI with grid, filter, and delete
-- [ ] 10-04-PLAN.md - Render preview flow and navigation
+- [x] 10-01-PLAN.md - Video backend (service + routes)
+- [x] 10-02-PLAN.md - Frontend hooks and format helpers
+- [x] 10-03-PLAN.md - Video Library UI with grid, filter, and delete
+- [x] 10-04-PLAN.md - Render preview flow and navigation
 
 ## Progress
 
@@ -104,7 +104,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 | 7. Project Setup | 2/2 | Complete | 2026-01-27 |
 | 8. Chat Interface | 3/3 | Complete | 2026-01-27 |
 | 9. Template Library | 3/3 | Complete | 2026-01-27 |
-| 10. Video Library & Preview | 0/4 | Ready | - |
+| 10. Video Library & Preview | 4/4 | Complete | 2026-01-27 |
 
 ---
 *Roadmap created: 2026-01-27*

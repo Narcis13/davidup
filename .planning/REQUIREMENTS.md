@@ -38,19 +38,19 @@ Requirements for GameMotion Studio UI. Each maps to roadmap phases.
 
 ### Video Library
 
-- [ ] **VID-01**: User can view rendered videos in thumbnail grid
-- [ ] **VID-02**: User can see video duration and file size on thumbnail
-- [ ] **VID-03**: User can click video to open in system player
-- [ ] **VID-04**: User can see which template created each video (linkage)
-- [ ] **VID-05**: User can filter videos by source template
-- [ ] **VID-06**: User can delete videos (single and batch)
+- [x] **VID-01**: User can view rendered videos in thumbnail grid
+- [x] **VID-02**: User can see video duration and file size on thumbnail
+- [x] **VID-03**: User can click video to open in system player
+- [x] **VID-04**: User can see which template created each video (linkage)
+- [x] **VID-05**: User can filter videos by source template
+- [x] **VID-06**: User can delete videos (single and batch)
 
 ### Preview/Render
 
-- [ ] **PREV-01**: User can trigger render from template view
-- [ ] **PREV-02**: User can see render progress/status indicator
-- [ ] **PREV-03**: Video auto-opens in system player when render completes
-- [ ] **PREV-04**: User sees clear error message if render fails
+- [x] **PREV-01**: User can trigger render from template view
+- [x] **PREV-02**: User can see render progress/status indicator
+- [x] **PREV-03**: Video auto-opens in system player when render completes
+- [x] **PREV-04**: User sees clear error message if render fails
 
 ## Future Requirements
 
@@ -122,16 +122,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TMPL-04 | Phase 9 | Complete |
 | TMPL-05 | Phase 9 | Complete |
 | TMPL-06 | Phase 9 | Complete |
-| VID-01 | Phase 10 | Pending |
-| VID-02 | Phase 10 | Pending |
-| VID-03 | Phase 10 | Pending |
-| VID-04 | Phase 10 | Pending |
-| VID-05 | Phase 10 | Pending |
-| VID-06 | Phase 10 | Pending |
-| PREV-01 | Phase 10 | Pending |
-| PREV-02 | Phase 10 | Pending |
-| PREV-03 | Phase 10 | Pending |
-| PREV-04 | Phase 10 | Pending |
+| VID-01 | Phase 10 | Complete |
+| VID-02 | Phase 10 | Complete |
+| VID-03 | Phase 10 | Complete |
+| VID-04 | Phase 10 | Complete |
+| VID-05 | Phase 10 | Complete |
+| VID-06 | Phase 10 | Complete |
+| PREV-01 | Phase 10 | Complete |
+| PREV-02 | Phase 10 | Complete |
+| PREV-03 | Phase 10 | Complete |
+| PREV-04 | Phase 10 | Complete |
 
 **Coverage:**
 - v0.2 requirements: 30 total
@@ -140,4 +140,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-27*
-*Last updated: 2026-01-27 (Phase 9 TMPL requirements complete)*
+*Last updated: 2026-01-27 (Phase 10 VID/PREV requirements complete - v0.2 complete)*
