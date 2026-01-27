@@ -16,7 +16,7 @@ v0.2 adds a local development studio UI to GameMotion. The user creates video te
 - v0.2 uses Phases 7-10
 
 - [x] **Phase 7: Project Setup** - React + Vite + SQLite integrated with Hono API
-- [ ] **Phase 8: Chat Interface** - Conversational AI template creation with streaming
+- [x] **Phase 8: Chat Interface** - Conversational AI template creation with streaming
 - [ ] **Phase 9: Template Library** - Template CRUD with grid view and persistence
 - [ ] **Phase 10: Video Library & Preview** - Video grid, template linkage, and render-to-player workflow
 
@@ -52,9 +52,9 @@ Plans:
   6. User can start fresh conversation that clears previous context
 
 Plans:
-- [ ] 08-01-PLAN.md - Streaming chat API endpoint with SSE and conversation persistence
-- [ ] 08-02-PLAN.md - Frontend state management with Zustand and TanStack Query
-- [ ] 08-03-PLAN.md - Chat UI components and App integration
+- [x] 08-01-PLAN.md - Streaming chat API endpoint with SSE and conversation persistence
+- [x] 08-02-PLAN.md - Frontend state management with Zustand and TanStack Query
+- [x] 08-03-PLAN.md - Chat UI components and App integration
 
 ### Phase 9: Template Library
 **Goal**: User can save, organize, and manage their video templates
@@ -100,8 +100,8 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. Project Setup | 2/2 | Complete | 2026-01-27 |
-| 8. Chat Interface | 0/3 | Ready | - |
-| 9. Template Library | 0/TBD | Not started | - |
+| 8. Chat Interface | 3/3 | Complete | 2026-01-27 |
+| 9. Template Library | 0/TBD | Ready | - |
 | 10. Video Library & Preview | 0/TBD | Not started | - |
 
 ---

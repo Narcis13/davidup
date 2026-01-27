@@ -17,15 +17,15 @@ Requirements for GameMotion Studio UI. Each maps to roadmap phases.
 
 ### Chat UI
 
-- [ ] **CHAT-01**: User can type messages in bottom-sticky input field
-- [ ] **CHAT-02**: User can send message with clear send button
-- [ ] **CHAT-03**: User can see conversation history with visual distinction (user vs AI)
-- [ ] **CHAT-04**: User sees typing indicator while AI generates response
-- [ ] **CHAT-05**: User sees inline error messages when AI request fails
-- [ ] **CHAT-06**: User can copy generated JSON template to clipboard
-- [ ] **CHAT-07**: User can refine template conversationally ("make it shorter", "change font")
-- [ ] **CHAT-08**: AI maintains context across conversation turns
-- [ ] **CHAT-09**: User can start new conversation (clears context)
+- [x] **CHAT-01**: User can type messages in bottom-sticky input field
+- [x] **CHAT-02**: User can send message with clear send button
+- [x] **CHAT-03**: User can see conversation history with visual distinction (user vs AI)
+- [x] **CHAT-04**: User sees typing indicator while AI generates response
+- [x] **CHAT-05**: User sees inline error messages when AI request fails
+- [x] **CHAT-06**: User can copy generated JSON template to clipboard
+- [x] **CHAT-07**: User can refine template conversationally ("make it shorter", "change font")
+- [x] **CHAT-08**: AI maintains context across conversation turns
+- [x] **CHAT-09**: User can start new conversation (clears context)
 
 ### Template Library
 
@@ -107,15 +107,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SETUP-03 | Phase 7 | Complete |
 | SETUP-04 | Phase 7 | Complete |
 | SETUP-05 | Phase 7 | Complete |
-| CHAT-01 | Phase 8 | Pending |
-| CHAT-02 | Phase 8 | Pending |
-| CHAT-03 | Phase 8 | Pending |
-| CHAT-04 | Phase 8 | Pending |
-| CHAT-05 | Phase 8 | Pending |
-| CHAT-06 | Phase 8 | Pending |
-| CHAT-07 | Phase 8 | Pending |
-| CHAT-08 | Phase 8 | Pending |
-| CHAT-09 | Phase 8 | Pending |
+| CHAT-01 | Phase 8 | Complete |
+| CHAT-02 | Phase 8 | Complete |
+| CHAT-03 | Phase 8 | Complete |
+| CHAT-04 | Phase 8 | Complete |
+| CHAT-05 | Phase 8 | Complete |
+| CHAT-06 | Phase 8 | Complete |
+| CHAT-07 | Phase 8 | Complete |
+| CHAT-08 | Phase 8 | Complete |
+| CHAT-09 | Phase 8 | Complete |
 | TMPL-01 | Phase 9 | Pending |
 | TMPL-02 | Phase 9 | Pending |
 | TMPL-03 | Phase 9 | Pending |
