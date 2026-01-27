@@ -42,7 +42,7 @@ Plans:
 **Goal**: User can create and refine video templates through conversation with AI
 **Depends on**: Phase 7
 **Requirements**: CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, CHAT-06, CHAT-07, CHAT-08, CHAT-09
-**Plans**: TBD
+**Plans**: 3 plans
 **Success Criteria** (what must be TRUE):
   1. User can type message and send it with visible send button
   2. Conversation history displays with clear visual distinction between user and AI messages
@@ -52,9 +52,9 @@ Plans:
   6. User can start fresh conversation that clears previous context
 
 Plans:
-- [ ] 08-01: TBD
-- [ ] 08-02: TBD
-- [ ] 08-03: TBD
+- [ ] 08-01-PLAN.md - Streaming chat API endpoint with SSE and conversation persistence
+- [ ] 08-02-PLAN.md - Frontend state management with Zustand and TanStack Query
+- [ ] 08-03-PLAN.md - Chat UI components and App integration
 
 ### Phase 9: Template Library
 **Goal**: User can save, organize, and manage their video templates
@@ -100,7 +100,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 7. Project Setup | 2/2 | Complete | 2026-01-27 |
-| 8. Chat Interface | 0/TBD | Not started | - |
+| 8. Chat Interface | 0/3 | Ready | - |
 | 9. Template Library | 0/TBD | Not started | - |
 | 10. Video Library & Preview | 0/TBD | Not started | - |
 
