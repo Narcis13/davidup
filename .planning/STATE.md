@@ -12,12 +12,12 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 
 ## Current Position
 
-Phase: 9 of 10 (Template Library)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-01-27 - Completed 09-02-PLAN.md (Template Library UI)
+Phase: 9 of 10 (Template Library) - COMPLETE
+Plan: 3 of 3 in current phase
+Status: Phase complete
+Last activity: 2026-01-27 - Completed 09-03-PLAN.md (Save to Library)
 
-Progress: ████████████░░░░░░░░ 60% (~6/10 plans complete in v0.2)
+Progress: ██████████████░░░░░░ 70% (~7/10 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -57,13 +57,15 @@ Progress: ████████████░░░░░░░░ 60% (~6/1
 - 2026-01-27: Phase 8 (Chat Interface) complete
 - 2026-01-27: Completed 09-01 Template CRUD API (backend routes + frontend hooks)
 - 2026-01-27: Completed 09-02 Template Library UI (grid, cards, view/edit/delete dialogs)
+- 2026-01-27: Completed 09-03 Save to Library (button + navigation)
+- 2026-01-27: Phase 9 (Template Library) complete
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Completed 09-02-PLAN.md
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
-Next action: Execute 09-03 (Save to Library)
+Next action: Start Phase 10 (Video Generation & Preview)
 
 ## Accumulated Context
 
@@ -118,6 +120,11 @@ v0.2 decisions:
 - Controlled dialog pattern - parent manages open state for view/edit dialogs
 - Delete button stops propagation to prevent card click when deleting
 
+09-03 decisions:
+- View state in App.tsx with useState (simple navigation, no router needed)
+- Prop drilling conversationId from ChatContainer to TemplatePreview (explicit data flow)
+- Auto-generated template name using locale date string
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -136,4 +143,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (09-02 complete)*
+*Last updated: 2026-01-27 (09-03 complete, Phase 9 complete)*
