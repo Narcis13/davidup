@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -5,8 +6,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, Pencil } from 'lucide-react';
+import { Copy, Check, Pencil, Play } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
+import { useRenderVideo } from '@/api/videos';
+import { RenderProgressDialog } from '../videos/RenderProgressDialog';
 import type { StudioTemplate } from '@/api/templates';
 
 interface TemplateViewDialogProps {
@@ -23,6 +26,17 @@ export function TemplateViewDialog({
   onEdit,
 }: TemplateViewDialogProps) {
   const { copy, isCopied } = useCopyToClipboard();
+  const [progressDialogOpen, setProgressDialogOpen] = useState(false);
+  const { render, isRendering, progress, resetProgress } = useRenderVideo({
+    onComplete: async (videoId) => {
+      // Auto-open video in system player
+      try {
+        await fetch(`/studio/videos/${videoId}/open`, { method: 'POST' });
+      } catch (error) {
+        console.error('Failed to auto-open video:', error);
+      }
+    },
+  });
 
   if (!template) return null;
 
@@ -70,6 +84,20 @@ export function TemplateViewDialog({
                   </>
                 )}
               </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (template) {
+                    setProgressDialogOpen(true);
+                    render(template.id);
+                  }
+                }}
+                disabled={isRendering}
+                className="h-7 gap-1.5"
+              >
+                <Play className="size-3.5" />
+                Render Video
+              </Button>
             </div>
           </div>
         </DialogHeader>
@@ -79,6 +107,19 @@ export function TemplateViewDialog({
           </pre>
         </div>
       </DialogContent>
+
+      <RenderProgressDialog
+        open={progressDialogOpen}
+        onOpenChange={(open) => {
+          setProgressDialogOpen(open);
+          if (!open) {
+            resetProgress();
+          }
+        }}
+        status={progress?.status || null}
+        progress={progress?.progress}
+        error={progress?.error}
+      />
     </Dialog>
   );
 }
