@@ -17,7 +17,7 @@ v0.2 adds a local development studio UI to GameMotion. The user creates video te
 
 - [x] **Phase 7: Project Setup** - React + Vite + SQLite integrated with Hono API
 - [x] **Phase 8: Chat Interface** - Conversational AI template creation with streaming
-- [ ] **Phase 9: Template Library** - Template CRUD with grid view and persistence
+- [x] **Phase 9: Template Library** - Template CRUD with grid view and persistence
 - [ ] **Phase 10: Video Library & Preview** - Video grid, template linkage, and render-to-player workflow
 
 ## Phase Details
@@ -69,9 +69,9 @@ Plans:
   5. User can name new templates and rename existing ones
 
 Plans:
-- [ ] 09-01-PLAN.md - Backend template CRUD routes and frontend API hooks
-- [ ] 09-02-PLAN.md - Template Library UI with grid, cards, and dialogs
-- [ ] 09-03-PLAN.md - Save to Library from chat and view navigation
+- [x] 09-01-PLAN.md - Backend template CRUD routes and frontend API hooks
+- [x] 09-02-PLAN.md - Template Library UI with grid, cards, and dialogs
+- [x] 09-03-PLAN.md - Save to Library from chat and view navigation
 
 ### Phase 10: Video Library & Preview
 **Goal**: User can browse rendered videos and trigger new renders with one-click preview
@@ -102,8 +102,8 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 7. Project Setup | 2/2 | Complete | 2026-01-27 |
 | 8. Chat Interface | 3/3 | Complete | 2026-01-27 |
-| 9. Template Library | 0/3 | Ready | - |
-| 10. Video Library & Preview | 0/TBD | Not started | - |
+| 9. Template Library | 3/3 | Complete | 2026-01-27 |
+| 10. Video Library & Preview | 0/TBD | Ready | - |
 
 ---
 *Roadmap created: 2026-01-27*

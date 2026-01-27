@@ -29,12 +29,12 @@ Requirements for GameMotion Studio UI. Each maps to roadmap phases.
 
 ### Template Library
 
-- [ ] **TMPL-01**: User can view templates in grid/card layout
-- [ ] **TMPL-02**: User can see template name and last modified date on card
-- [ ] **TMPL-03**: User can click template card to view full JSON
-- [ ] **TMPL-04**: User can delete template from library
-- [ ] **TMPL-05**: User can save generated template from chat to library
-- [ ] **TMPL-06**: User can name/rename templates
+- [x] **TMPL-01**: User can view templates in grid/card layout
+- [x] **TMPL-02**: User can see template name and last modified date on card
+- [x] **TMPL-03**: User can click template card to view full JSON
+- [x] **TMPL-04**: User can delete template from library
+- [x] **TMPL-05**: User can save generated template from chat to library
+- [x] **TMPL-06**: User can name/rename templates
 
 ### Video Library
 
@@ -116,12 +116,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHAT-07 | Phase 8 | Complete |
 | CHAT-08 | Phase 8 | Complete |
 | CHAT-09 | Phase 8 | Complete |
-| TMPL-01 | Phase 9 | Pending |
-| TMPL-02 | Phase 9 | Pending |
-| TMPL-03 | Phase 9 | Pending |
-| TMPL-04 | Phase 9 | Pending |
-| TMPL-05 | Phase 9 | Pending |
-| TMPL-06 | Phase 9 | Pending |
+| TMPL-01 | Phase 9 | Complete |
+| TMPL-02 | Phase 9 | Complete |
+| TMPL-03 | Phase 9 | Complete |
+| TMPL-04 | Phase 9 | Complete |
+| TMPL-05 | Phase 9 | Complete |
+| TMPL-06 | Phase 9 | Complete |
 | VID-01 | Phase 10 | Pending |
 | VID-02 | Phase 10 | Pending |
 | VID-03 | Phase 10 | Pending |
@@ -140,4 +140,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-27*
-*Last updated: 2026-01-27 (traceability added for v0.2 roadmap)*
+*Last updated: 2026-01-27 (Phase 9 TMPL requirements complete)*
