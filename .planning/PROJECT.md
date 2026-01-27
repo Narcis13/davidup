@@ -2,7 +2,7 @@
 
 ## What This Is
 
-GameMotion is a high-performance, JSON-driven video rendering engine that enables programmatic video creation using game engine techniques. It provides a simple REST API where you submit a JSON specification and receive an MP4 file, with AI-powered template generation from natural language descriptions. Built as a single Node.js process with @napi-rs/canvas and FFmpeg, it prioritizes simplicity over complex infrastructure.
+GameMotion is a high-performance, JSON-driven video rendering engine with a local development studio UI. The rendering engine provides a REST API where you submit JSON and receive MP4. The studio provides a chat-based interface for AI template generation, a library of templates and rendered videos, and frictionless testing of the rendering engine. Built for single-user local development with React + Tailwind frontend and Node.js backend.
 
 ## Core Value
 
@@ -26,11 +26,16 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 
 ### Active
 
-(None — ship to validate next milestone requirements)
+**v0.2 Studio UI:**
+- [ ] Conversational AI chat for template generation and refinement
+- [ ] Template library with version history
+- [ ] Video library linked to source templates
+- [ ] Video preview via render → system player
+- [ ] Frictionless testing of rendering engine
 
 ### Out of Scope
 
-- Browser-based preview/editor — Keep infrastructure simple, no frontend complexity
+- In-browser video playback — System player is simpler, avoids streaming complexity
 - Real-time collaboration — Not needed for API-first product
 - Mobile app — Web API is the interface
 - Video-in-video (embedded videos) — Complexity not worth it for v1
@@ -79,5 +84,16 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 | canvas.data() for raw pixels | toBuffer('raw') not supported in @napi-rs/canvas | Works |
 | FFmpeg for encoding | Industry standard, reliable | Good |
 
+## Current Milestone: v0.2 Studio
+
+**Goal:** Build a local dev UI for frictionless AI-assisted video creation and testing.
+
+**Target features:**
+- Conversational AI chat for template generation/refinement
+- Template library with version history
+- Video library linked to templates
+- Preview via system player
+- Zero-friction testing workflow
+
 ---
-*Last updated: 2026-01-26 after v0.1 milestone*
+*Last updated: 2026-01-27 after starting v0.2 milestone*
