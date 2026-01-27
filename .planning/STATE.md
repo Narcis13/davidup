@@ -127,6 +127,12 @@ v0.2 decisions:
 - Prop drilling conversationId from ChatContainer to TemplatePreview (explicit data flow)
 - Auto-generated template name using locale date string
 
+10-01 decisions:
+- FFmpeg thumbnail at 1 second with 320px width for consistent sizing
+- Use 'open' npm package for cross-platform system player opening
+- Singleton JobQueueService for studio renders to track job status
+- thumbnail_path column added with migration for existing databases
+
 10-02 decisions:
 - Format helpers in separate format.ts file (separate from date.ts)
 - Optimistic updates use getQueriesData for all matching queries
@@ -151,4 +157,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (10-02 complete)*
+*Last updated: 2026-01-27 (10-01, 10-02 complete)*
