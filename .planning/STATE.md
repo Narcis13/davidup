@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 ## Current Position
 
 Phase: 10 of 10 (Video Library & Preview)
-Plan: 2 of 4 in current phase
+Plan: 3 of 4 in current phase
 Status: In progress
-Last activity: 2026-01-27 - Completed 10-02-PLAN.md (Frontend Data Layer)
+Last activity: 2026-01-27 - Completed 10-03-PLAN.md (Video Library UI)
 
-Progress: ████████████████░░░░ 80% (~9/11 plans complete in v0.2)
+Progress: █████████████████░░░ 85% (~10/11 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -61,13 +61,14 @@ Progress: ████████████████░░░░ 80% (~9/1
 - 2026-01-27: Phase 9 (Template Library) complete
 - 2026-01-27: Completed 10-01 Video Backend Routes (API endpoints for videos)
 - 2026-01-27: Completed 10-02 Frontend Data Layer (format helpers + video hooks)
+- 2026-01-27: Completed 10-03 Video Library UI (grid, cards, filter, batch delete)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Completed 10-02-PLAN.md
+Stopped at: Completed 10-03-PLAN.md
 Resume file: None
-Next action: Continue with 10-03 (Video Library UI)
+Next action: Continue with 10-04 (Preview & Render)
 
 ## Accumulated Context
 
@@ -139,6 +140,12 @@ v0.2 decisions:
 - Polling continues on network errors, stops on completion
 - useRef for interval handle storage in useRenderVideo
 
+10-03 decisions:
+- Batch selection uses Set for efficient toggle operations
+- Exit batch mode clears selection (prevents stale selections)
+- Checkbox only visible in batch mode (cleaner default view)
+- Controlled dialog pattern for DeleteVideoDialog
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -157,4 +164,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (10-01, 10-02 complete)*
+*Last updated: 2026-01-27 (10-01, 10-02, 10-03 complete)*
