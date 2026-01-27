@@ -5,12 +5,16 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "dev": "concurrently -n api,studio -c blue,magenta \"npm run dev:api\" \"npm run dev:studio\"",
+    "dev:api": "node --import tsx src/api/server.ts",
+    "dev:studio": "npm run dev --prefix studio",
+    "build": "npm run build:api && npm run build:studio",
+    "build:api": "tsc",
+    "build:studio": "npm run build --prefix studio",
+    "start": "NODE_ENV=production node dist/api/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "dev:api": "node --import tsx src/api/server.ts",
-    "start:api": "node dist/api/server.js"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "video",
@@ -40,6 +44,7 @@
     "@types/async-retry": "^1.4.9",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.19.30",
+    "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
