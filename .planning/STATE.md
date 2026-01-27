@@ -1,23 +1,23 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-27
-**Current phase:** Defining requirements for v0.2
+**Current phase:** Phase 7 - Project Setup
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** JSON-to-video rendering engine must work reliably
-**Current focus:** v0.2 Studio UI — local dev UI for AI-assisted video creation
+**Current focus:** v0.2 Studio UI - local dev UI for AI-assisted video creation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-01-27 — Milestone v0.2 started
+Phase: 7 of 10 (Project Setup)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-01-27 - Roadmap created for v0.2
 
-Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (v0.2 defining)
+Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (v0.2 starting)
 
 ## Shipped Milestones
 
@@ -25,11 +25,18 @@ Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (v0.2 
 |---------|------|--------|-------|---------|
 | v0.1 | MVP | 1-6 | 30 | 2026-01-26 |
 
-## Requirements Coverage
+## Requirements Coverage (v0.2)
 
-- v0.1 requirements: 40 total
-- Shipped: 40
+- v0.2 requirements: 30 total
+- Mapped to phases: 30
 - Coverage: 100%
+
+| Phase | Requirements |
+|-------|--------------|
+| 7 | SETUP-01 to SETUP-05 (5) |
+| 8 | CHAT-01 to CHAT-09 (9) |
+| 9 | TMPL-01 to TMPL-06 (6) |
+| 10 | VID-01 to VID-06, PREV-01 to PREV-04 (10) |
 
 ## Session Log
 
@@ -40,19 +47,27 @@ Progress: ░░░░░░░░░░░░░░░░░░░░ 0% (v0.2 
 - 2026-01-26: Passed milestone audit (40/40 requirements)
 - 2026-01-26: Archived v0.1 milestone
 - 2026-01-27: Started v0.2 Studio milestone
+- 2026-01-27: Created v0.2 roadmap (4 phases, 30 requirements)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Defining v0.2 requirements
+Stopped at: Roadmap created, ready to plan Phase 7
 Resume file: None
-Next action: Complete requirements → roadmap
+Next action: /gsd:plan-phase 7
 
 ## Accumulated Context
 
 ### Key Decisions (see PROJECT.md for full list)
 
 Milestone-level decisions now archived. See `.planning/milestones/v0.1-ROADMAP.md` for v0.1 decisions.
+
+v0.2 decisions:
+- Stack: Vite 7 + React 19 + Tailwind v4 + shadcn/ui
+- State: TanStack Query (server) + Zustand (UI)
+- Data: SQLite with better-sqlite3
+- Dev: Vite proxy to Hono, single `npm run dev` command
+- Prod: Hono serveStatic for built frontend
 
 ### Technical Debt
 
@@ -62,14 +77,14 @@ Milestone-level decisions now archived. See `.planning/milestones/v0.1-ROADMAP.m
 
 (None)
 
-### Notes for Future Milestones
+### Notes for v0.2
 
-- @napi-rs/canvas save()/restore() doesn't restore fillStyle - only transforms
-- Use canvas.data() for raw RGBA, not toBuffer('raw')
-- FFmpeg stdin piping: use stdin='pipe' option, write frames, call stdin.end()
-- All Phase 1-6 exports available from main index (src/index.ts)
-- npm run dev:api starts API server with tsx on port 3000
+From research:
+- Use IPv4 (127.0.0.1) not localhost for Vite proxy to avoid Node 17+ IPv6 issues
+- SSE streaming: use fetch + ReadableStream, not EventSource (EventSource can't POST)
+- System player: backend endpoint triggers `exec('open')`, not browser
+- Tailwind v4: native Vite plugin, no PostCSS config needed
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (v0.2 milestone started)*
+*Last updated: 2026-01-27 (v0.2 roadmap created)*

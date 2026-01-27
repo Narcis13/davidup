@@ -102,42 +102,42 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SETUP-01 | — | Pending |
-| SETUP-02 | — | Pending |
-| SETUP-03 | — | Pending |
-| SETUP-04 | — | Pending |
-| SETUP-05 | — | Pending |
-| CHAT-01 | — | Pending |
-| CHAT-02 | — | Pending |
-| CHAT-03 | — | Pending |
-| CHAT-04 | — | Pending |
-| CHAT-05 | — | Pending |
-| CHAT-06 | — | Pending |
-| CHAT-07 | — | Pending |
-| CHAT-08 | — | Pending |
-| CHAT-09 | — | Pending |
-| TMPL-01 | — | Pending |
-| TMPL-02 | — | Pending |
-| TMPL-03 | — | Pending |
-| TMPL-04 | — | Pending |
-| TMPL-05 | — | Pending |
-| TMPL-06 | — | Pending |
-| VID-01 | — | Pending |
-| VID-02 | — | Pending |
-| VID-03 | — | Pending |
-| VID-04 | — | Pending |
-| VID-05 | — | Pending |
-| VID-06 | — | Pending |
-| PREV-01 | — | Pending |
-| PREV-02 | — | Pending |
-| PREV-03 | — | Pending |
-| PREV-04 | — | Pending |
+| SETUP-01 | Phase 7 | Pending |
+| SETUP-02 | Phase 7 | Pending |
+| SETUP-03 | Phase 7 | Pending |
+| SETUP-04 | Phase 7 | Pending |
+| SETUP-05 | Phase 7 | Pending |
+| CHAT-01 | Phase 8 | Pending |
+| CHAT-02 | Phase 8 | Pending |
+| CHAT-03 | Phase 8 | Pending |
+| CHAT-04 | Phase 8 | Pending |
+| CHAT-05 | Phase 8 | Pending |
+| CHAT-06 | Phase 8 | Pending |
+| CHAT-07 | Phase 8 | Pending |
+| CHAT-08 | Phase 8 | Pending |
+| CHAT-09 | Phase 8 | Pending |
+| TMPL-01 | Phase 9 | Pending |
+| TMPL-02 | Phase 9 | Pending |
+| TMPL-03 | Phase 9 | Pending |
+| TMPL-04 | Phase 9 | Pending |
+| TMPL-05 | Phase 9 | Pending |
+| TMPL-06 | Phase 9 | Pending |
+| VID-01 | Phase 10 | Pending |
+| VID-02 | Phase 10 | Pending |
+| VID-03 | Phase 10 | Pending |
+| VID-04 | Phase 10 | Pending |
+| VID-05 | Phase 10 | Pending |
+| VID-06 | Phase 10 | Pending |
+| PREV-01 | Phase 10 | Pending |
+| PREV-02 | Phase 10 | Pending |
+| PREV-03 | Phase 10 | Pending |
+| PREV-04 | Phase 10 | Pending |
 
 **Coverage:**
 - v0.2 requirements: 30 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 30
+- Mapped to phases: 30
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-27*
-*Last updated: 2026-01-27 after initial definition*
+*Last updated: 2026-01-27 (traceability added for v0.2 roadmap)*
