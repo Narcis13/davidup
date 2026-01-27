@@ -60,6 +60,7 @@ export function ChatContainer() {
         streamingContent={currentStreamingMessage}
         isGenerating={isGenerating}
         error={error}
+        conversationId={conversationId}
       />
 
       {/* Chat Input */}

@@ -5,9 +5,10 @@ interface MessageProps {
   role: 'user' | 'assistant';
   content: string;
   template?: object;
+  conversationId?: string | null;
 }
 
-export function Message({ role, content, template }: MessageProps) {
+export function Message({ role, content, template, conversationId }: MessageProps) {
   const isUser = role === 'user';
 
   return (
@@ -34,7 +35,7 @@ export function Message({ role, content, template }: MessageProps) {
           <p className="whitespace-pre-wrap break-words">{content}</p>
         </div>
         {template && !isUser && (
-          <TemplatePreview template={template} />
+          <TemplatePreview template={template} conversationId={conversationId} />
         )}
       </div>
     </div>

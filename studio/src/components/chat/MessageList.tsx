@@ -10,6 +10,7 @@ interface MessageListProps {
   streamingContent: string;
   isGenerating: boolean;
   error: string | null;
+  conversationId?: string | null;
 }
 
 export function MessageList({
@@ -17,6 +18,7 @@ export function MessageList({
   streamingContent,
   isGenerating,
   error,
+  conversationId,
 }: MessageListProps) {
   const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>();
 
@@ -46,6 +48,7 @@ export function MessageList({
           role={msg.role}
           content={msg.content}
           template={msg.template}
+          conversationId={conversationId}
         />
       ))}
 
