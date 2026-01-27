@@ -60,7 +60,7 @@ Plans:
 **Goal**: User can save, organize, and manage their video templates
 **Depends on**: Phase 8
 **Requirements**: TMPL-01, TMPL-02, TMPL-03, TMPL-04, TMPL-05, TMPL-06
-**Plans**: TBD
+**Plans**: 3 plans
 **Success Criteria** (what must be TRUE):
   1. User sees templates in grid/card layout showing name and last modified date
   2. User can click template card to view full JSON content
@@ -69,8 +69,9 @@ Plans:
   5. User can name new templates and rename existing ones
 
 Plans:
-- [ ] 09-01: TBD
-- [ ] 09-02: TBD
+- [ ] 09-01-PLAN.md - Backend template CRUD routes and frontend API hooks
+- [ ] 09-02-PLAN.md - Template Library UI with grid, cards, and dialogs
+- [ ] 09-03-PLAN.md - Save to Library from chat and view navigation
 
 ### Phase 10: Video Library & Preview
 **Goal**: User can browse rendered videos and trigger new renders with one-click preview
@@ -101,7 +102,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 7. Project Setup | 2/2 | Complete | 2026-01-27 |
 | 8. Chat Interface | 3/3 | Complete | 2026-01-27 |
-| 9. Template Library | 0/TBD | Ready | - |
+| 9. Template Library | 0/3 | Ready | - |
 | 10. Video Library & Preview | 0/TBD | Not started | - |
 
 ---
