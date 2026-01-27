@@ -1,7 +1,7 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-27
-**Current phase:** Phase 8 - Chat Interface
+**Current phase:** Phase 9 - Template Library
 
 ## Project Reference
 
@@ -12,12 +12,12 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 
 ## Current Position
 
-Phase: 8 of 10 (Chat Interface)
-Plan: 3 of 3 in current phase
-Status: Phase complete
-Last activity: 2026-01-27 - Completed 08-03-PLAN.md (Chat Interface)
+Phase: 9 of 10 (Template Library)
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-01-27 - Completed 09-01-PLAN.md (Template CRUD API)
 
-Progress: █████████░░░░░░░░░░░ 45% (~4/9 plans complete in v0.2)
+Progress: ██████████░░░░░░░░░░ 50% (~5/10 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -55,13 +55,14 @@ Progress: █████████░░░░░░░░░░░ 45% (~4/9
 - 2026-01-27: Completed 08-02 Frontend State Management (Zustand + TanStack Query + hooks)
 - 2026-01-27: Completed 08-03 Chat Interface (complete chat UI with all 9 CHAT requirements)
 - 2026-01-27: Phase 8 (Chat Interface) complete
+- 2026-01-27: Completed 09-01 Template CRUD API (backend routes + frontend hooks)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Completed 08-03-PLAN.md (Phase 8 complete)
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
-Next action: Execute Phase 9 (Template Library)
+Next action: Execute 09-02 (Template Library UI)
 
 ## Accumulated Context
 
@@ -105,6 +106,12 @@ v0.2 decisions:
 - Streaming content shown in progress before full message completion
 - Copy feedback: button shows "Copied!" for 2 seconds after action
 
+09-01 decisions:
+- UUID generated server-side for template IDs (crypto.randomUUID())
+- Spec stored as JSON string matching existing pattern
+- 5-minute staleTime for template queries (consistent with chat hooks)
+- Optimistic updates only for update/delete (create uses invalidation since we need server-generated ID)
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -123,4 +130,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (Phase 8 complete)*
+*Last updated: 2026-01-27 (09-01 complete)*
