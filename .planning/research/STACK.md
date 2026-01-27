@@ -1,481 +1,509 @@
-# Stack Research: GameMotion
+# Technology Stack: v0.2 Studio UI
 
-**Researched:** 2026-01-24
-**Domain:** Programmatic video generation (JSON-to-video rendering engine)
-**Overall Confidence:** HIGH
+**Project:** GameMotion
+**Researched:** 2026-01-27
+**Scope:** React + Tailwind frontend additions for local dev studio
 
-## Recommended Stack
+## Recommended Stack Additions
 
-| Component | Recommendation | Confidence | Rationale |
-|-----------|---------------|------------|-----------|
-| 2D Rendering | @napi-rs/canvas@0.1.88 | HIGH | 44% faster than skia-canvas, zero system dependencies, pure npm install, Lottie support built-in |
-| Video Encoding | fluent-ffmpeg@2.1.3 + ffmpeg-static@5.2.0 | HIGH | Industry standard combination; fluent API + bundled FFmpeg binary |
-| API Framework | Fastify@5.7.1 | HIGH | 2.3x faster than Express, mature plugin ecosystem, built-in validation |
-| Job Queue (MVP) | p-queue@8.0.1 | HIGH | In-memory concurrency control, sufficient for 50-100 concurrent jobs |
-| Job Queue (Scale) | BullMQ@5.x | MEDIUM | Redis-backed, for when you need persistence/multi-worker |
-| AI Integration | OpenRouter + Zod | HIGH | Multi-model access, structured outputs via json_schema |
-| Database | Prisma@5.x | HIGH | Type-safe ORM, SQLite dev / PostgreSQL prod |
-| Runtime | Node.js 22.x LTS | HIGH | Latest LTS, required for Fastify v5 |
+### Core Frontend
 
----
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Vite | ^7.3.1 | Build tool & dev server | Fastest HMR, native ESM, official Tailwind v4 plugin support |
+| React | ^19.2.4 | UI framework | Latest stable, project scope uses React |
+| TypeScript | ^5.9.3 | Type safety | Already in use, share types with backend |
+| Tailwind CSS | ^4.1.18 | Styling | Project scope specifies Tailwind, v4 has simpler setup |
+| @tailwindcss/vite | ^4.1.18 | Vite integration | New v4 plugin, no PostCSS config needed |
 
-## 2D Rendering
+### UI Components
 
-### Recommendation: @napi-rs/canvas@0.1.88
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| shadcn/ui | latest (CLI) | Component primitives | Unstyled, accessible, Tailwind-native, copy-paste model |
+| lucide-react | ^0.563.0 | Icons | shadcn default, tree-shakeable, consistent style |
+| class-variance-authority | ^0.7.1 | Component variants | shadcn dependency, variant management |
+| clsx | ^2.1.1 | Class merging | shadcn dependency, conditional classes |
+| tailwind-merge | ^3.0.1 | Tailwind class merging | Handles conflicting Tailwind classes |
 
-**Why this over alternatives:**
+### State Management
 
-@napi-rs/canvas is a high-performance Skia binding for Node.js that provides the fastest single-threaded Canvas API implementation. Key advantages:
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| @tanstack/react-query | ^5.90.20 | Server state | Auto caching, background refetch, optimistic updates |
+| zustand | ^5.0.10 | Client state | Minimal boilerplate, perfect for chat UI state |
 
-1. **Performance**: 44% faster than skia-canvas in benchmark tests (68 ops/s vs 47 ops/s for "draw house, export PNG")
-2. **Zero dependencies**: Pure npm package, no node-gyp, no system libraries required
-3. **Lottie support**: Built-in `LottieAnimation.loadFromFile()` for motion graphics
-4. **Format support**: PNG, JPEG, AVIF, WebP export with non-blocking encoding in libuv thread pool
-5. **AWS Lambda ready**: Pre-built Lambda layer available
+### Routing (Optional - Defer)
 
-```typescript
-import { createCanvas, loadImage, LottieAnimation } from '@napi-rs/canvas';
-
-// Basic rendering
-const canvas = createCanvas(1920, 1080);
-const ctx = canvas.getContext('2d');
-ctx.fillStyle = '#000000';
-ctx.fillRect(0, 0, 1920, 1080);
-
-// Export (non-blocking)
-const buffer = await canvas.encode('png');
-
-// Lottie animation support
-const lottie = LottieAnimation.loadFromFile('./animation.json');
-lottie.render(ctx, { width: 1920, height: 1080 });
-```
-
-**Alternatives considered:**
-
-| Library | Why Not |
-|---------|---------|
-| **skia-canvas** | 44% slower in serial mode. Multi-threaded async mode is faster for batch processing, but GameMotion renders frames sequentially for video. More dependencies. |
-| **node-canvas** | Uses Cairo, not Skia. 13% slower than @napi-rs/canvas. Requires system dependencies (cairo, pango). No Lottie support. |
-| **fabric.js (server)** | Built on node-canvas, adds overhead. Better for complex object manipulation, overkill for frame rendering. |
-| **Sharp** | Image processing only, not a Canvas API. Use alongside @napi-rs/canvas for image transformations if needed. |
-
-**Sources:**
-- [@napi-rs/canvas npm](https://www.npmjs.com/package/@napi-rs/canvas)
-- [GitHub Brooooooklyn/canvas](https://github.com/Brooooooklyn/canvas)
-- [Benchmark discussion](https://github.com/Brooooooklyn/canvas/discussions/977)
+| Technology | Version | Purpose | When to Add |
+|------------|---------|---------|-------------|
+| react-router-dom | ^7.13.0 | Client routing | Only if multiple pages needed |
 
 ---
 
-## Video Encoding
+## Build Architecture
 
-### Recommendation: fluent-ffmpeg@2.1.3 + ffmpeg-static@5.2.0
+### Recommendation: Vite SPA served by Hono
 
-**Why this combination:**
+**Why Vite over alternatives:**
 
-These packages work together: `ffmpeg-static` bundles the FFmpeg binary, `fluent-ffmpeg` provides a clean Node.js API.
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| **Vite** | **USE** | Fastest dev experience, native Tailwind v4 support, simple SPA build |
+| Next.js | SKIP | SSR/RSC overkill for local dev tool, adds complexity |
+| Create React App | SKIP | Deprecated, slow, no Tailwind v4 plugin |
+| Remix | SKIP | Full-stack framework overhead unnecessary |
+
+**Why serve from Hono (not separate server):**
+
+For a local dev studio, running two servers (Vite dev + Hono API) adds friction. Instead:
+
+**Development mode:**
+- Vite dev server on port 5173 (HMR, fast refresh)
+- Hono API on port 3000
+- Vite proxies API calls to Hono
+
+**Production mode:**
+- Vite builds to `/dist/ui`
+- Hono serves static files from `/dist/ui`
+- Single port (3000) for everything
 
 ```typescript
-import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
-
-// Point fluent-ffmpeg to bundled binary
-ffmpeg.setFfmpegPath(ffmpegStatic);
-
-// Memory-efficient streaming: pipe frames to FFmpeg stdin
-const command = ffmpeg()
-  .input('pipe:0')
-  .inputFormat('rawvideo')
-  .inputOptions([
-    '-framerate 30',
-    '-video_size 1920x1080',
-    '-pix_fmt rgba'
-  ])
-  .outputOptions([
-    '-c:v libx264',
-    '-preset medium',
-    '-crf 23',
-    '-pix_fmt yuv420p'
-  ])
-  .output('output.mp4');
-
-// Pipe canvas frames
-command.on('start', () => {
-  for (const frame of frames) {
-    command.stdin.write(frame.toBuffer('raw'));
-  }
-  command.stdin.end();
+// vite.config.ts - dev proxy
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3000',
+    },
+  },
 });
 ```
 
-**Memory-efficient patterns:**
-
-1. **Streaming via stdin**: Pipe frames directly to FFmpeg instead of writing temp files
-2. **Use `-f rawvideo`**: Avoid PNG encoding overhead, send raw pixel data
-3. **Buffer management**: Use `queue.onSizeLessThan(10)` to prevent memory buildup
-
-**Hardware acceleration (optional):**
-
-For NVIDIA GPUs, add NVENC support:
-
 ```typescript
-// Check for NVENC support
-ffmpeg.getAvailableEncoders((err, encoders) => {
-  const hasNvenc = Object.keys(encoders).some(e => e.includes('nvenc'));
+// src/api/app.ts - production static serving
+import { serveStatic } from '@hono/node-server/serve-static';
 
-  if (hasNvenc) {
-    command.outputOptions([
-      '-c:v h264_nvenc',
-      '-preset p4',  // NVENC preset
-      '-b:v 5M'
-    ]);
-  }
-});
+// Serve React SPA
+app.use('/*', serveStatic({ root: './dist/ui' }));
+// SPA fallback for client-side routing
+app.get('*', serveStatic({ path: './dist/ui/index.html' }));
 ```
 
-**Alternatives considered:**
+---
 
-| Approach | Why Not |
+## State Management Strategy
+
+### Server State: TanStack Query
+
+Use for all API interactions with the Hono backend.
+
+```typescript
+// hooks/useTemplates.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+export function useTemplates() {
+  return useQuery({
+    queryKey: ['templates'],
+    queryFn: () => fetch('/api/templates').then(r => r.json()),
+  });
+}
+
+export function useCreateTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data) => fetch('/api/templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+    },
+  });
+}
+```
+
+**Why TanStack Query:**
+- Automatic caching (avoid re-fetching template list)
+- Background refetching when window focuses
+- Optimistic updates for instant UI feedback
+- Loading/error states built-in
+- ~40% of React projects use it (de-facto standard)
+
+### Client State: Zustand
+
+Use for UI state that doesn't come from the server.
+
+```typescript
+// stores/chatStore.ts
+import { create } from 'zustand';
+
+interface ChatStore {
+  messages: Message[];
+  isStreaming: boolean;
+  addMessage: (message: Message) => void;
+  setStreaming: (streaming: boolean) => void;
+  clearMessages: () => void;
+}
+
+export const useChatStore = create<ChatStore>((set) => ({
+  messages: [],
+  isStreaming: false,
+  addMessage: (message) => set((state) => ({
+    messages: [...state.messages, message],
+  })),
+  setStreaming: (streaming) => set({ isStreaming: streaming }),
+  clearMessages: () => set({ messages: [] }),
+}));
+```
+
+**Why Zustand over alternatives:**
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| **Zustand** | **USE** | 3KB, zero boilerplate, perfect for chat state |
+| Jotai | SKIP | Atom model better for complex interdependent state |
+| Redux | SKIP | Overkill, too much boilerplate for this scope |
+| Context | SKIP | Re-render issues without memoization |
+
+**State ownership:**
+
+| State Type | Owner | Examples |
+|------------|-------|----------|
+| Templates | TanStack Query | Template list, template details |
+| Videos | TanStack Query | Video list, render status |
+| Chat messages | Zustand | Message history, streaming state |
+| UI preferences | Zustand | Sidebar open, selected template |
+
+---
+
+## Chat UI Components
+
+### Recommendation: Build with shadcn, not a chat library
+
+**Why not use a chat UI library:**
+
+| Library | Verdict | Reason |
+|---------|---------|--------|
+| chatscope/chat-ui-kit | SKIP | Opinionated styling conflicts with Tailwind |
+| @llamaindex/chat-ui | SKIP | LLM-specific, couples to their patterns |
+| CometChat | SKIP | Real-time chat service, not needed |
+
+**Why build with shadcn:**
+
+1. **Tailwind-native**: Styled with utility classes, matches project approach
+2. **Simple requirements**: Chat UI is just messages + input, not complex
+3. **Full control**: Customize streaming, markdown rendering, etc.
+4. **Accessible**: shadcn primitives are WAI-ARIA compliant
+
+**Required shadcn components:**
+
+```bash
+npx shadcn@latest add button input textarea card scroll-area avatar
+```
+
+**Chat message structure:**
+
+```typescript
+// components/ChatMessage.tsx
+import { Card } from '@/components/ui/card';
+import { Avatar } from '@/components/ui/avatar';
+
+interface ChatMessageProps {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: Date;
+}
+
+export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
+  return (
+    <div className={cn(
+      'flex gap-3 p-4',
+      role === 'user' ? 'flex-row-reverse' : 'flex-row'
+    )}>
+      <Avatar>
+        {role === 'user' ? 'U' : 'AI'}
+      </Avatar>
+      <Card className={cn(
+        'max-w-[80%] p-3',
+        role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+      )}>
+        {content}
+      </Card>
+    </div>
+  );
+}
+```
+
+---
+
+## Project Structure
+
+### Recommendation: Frontend in `/ui` subdirectory
+
+```
+davidup/
+  src/                    # Existing backend
+    api/
+    render/
+    ...
+  ui/                     # NEW: Frontend
+    src/
+      components/
+        ui/               # shadcn components
+        chat/             # Chat-specific components
+        templates/        # Template library components
+        videos/           # Video library components
+      hooks/              # Custom hooks
+      stores/             # Zustand stores
+      lib/                # Utilities
+      App.tsx
+      main.tsx
+      index.css
+    index.html
+    vite.config.ts
+    tsconfig.json
+    package.json          # Separate from root
+  package.json            # Root (backend)
+```
+
+**Why separate `/ui` directory:**
+
+1. **Separate package.json**: Frontend deps don't bloat backend
+2. **Separate tsconfig**: React JSX settings don't affect backend
+3. **Clear boundaries**: Backend and frontend are distinct
+4. **Simpler builds**: `npm run build:ui` vs `npm run build:api`
+
+**Why NOT a monorepo tool (pnpm workspaces, turborepo):**
+
+- Single developer, single machine
+- Adds complexity without benefits at this scale
+- Simple `cd ui && npm run dev` is sufficient
+
+---
+
+## Integration with Existing Hono API
+
+### New API Routes for Studio
+
+The existing API has auth middleware. For local dev studio, add an unauthenticated dev mode:
+
+```typescript
+// src/api/app.ts
+const isDev = process.env.NODE_ENV !== 'production';
+
+// Studio routes - no auth in dev mode
+if (isDev) {
+  app.route('/api/studio', studioRoutes);
+}
+```
+
+**Studio-specific endpoints:**
+
+| Endpoint | Purpose |
 |----------|---------|
-| **Raw child_process** | Works, but fluent-ffmpeg handles progress tracking, error handling, and option building. Less code to maintain. |
-| **@ffmpeg/ffmpeg (WASM)** | WASM version is 10-20x slower than native FFmpeg. Only use for browser. |
-| **ffmpeg-kit** | Overkill for Node.js. Designed for mobile/desktop apps. |
-| **FFCreator** | Higher-level abstraction. Good for simple videos, but GameMotion needs frame-level control. |
+| `POST /api/studio/chat` | Stream AI responses for chat |
+| `GET /api/studio/templates` | List templates with versions |
+| `POST /api/studio/templates` | Save new template |
+| `GET /api/studio/videos` | List rendered videos |
+| `POST /api/studio/preview` | Render and open in system player |
 
-**Sources:**
-- [Creatomate: How to use FFmpeg in Node.js](https://creatomate.com/blog/how-to-use-ffmpeg-in-nodejs)
-- [fluent-ffmpeg GitHub](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg)
-- [NVIDIA FFmpeg documentation](https://docs.nvidia.com/video-technologies/video-codec-sdk/13.0/ffmpeg-with-nvidia-gpu/index.html)
+### Streaming Chat Responses
 
----
-
-## API Framework
-
-### Recommendation: Fastify@5.7.1
-
-**Why Fastify over Hono:**
-
-Both are excellent, but Fastify is the better choice for a Node.js monolith:
-
-| Factor | Fastify | Hono |
-|--------|---------|------|
-| **Performance** | 2.3x faster than Express | Slightly behind Fastify on Node.js |
-| **Ecosystem** | 200+ official plugins | Growing, but smaller |
-| **Validation** | Built-in JSON Schema | Manual or third-party |
-| **Node.js optimization** | Primary focus | Multi-runtime focus |
-| **Memory** | Higher than Hono | 30% less than Fastify |
-
-**Recommendation rationale:**
-- GameMotion runs as a single Node.js process, not edge/serverless
-- Fastify's built-in JSON Schema validation aligns with GameMotion's JSON-driven design
-- Mature plugin ecosystem (auth, rate limiting, multipart, etc.)
-- Better JSON serialization performance (important for API responses)
+Use Server-Sent Events (SSE) for streaming AI responses:
 
 ```typescript
-import Fastify from 'fastify';
+// src/api/routes/studio.ts
+import { streamSSE } from 'hono/streaming';
 
-const app = Fastify({
-  logger: true,
-  ajv: {
-    customOptions: {
-      removeAdditional: 'all',  // Strip unknown properties
-      coerceTypes: true,
-      useDefaults: true
+studioRoutes.post('/chat', async (c) => {
+  const { messages } = await c.req.json();
+
+  return streamSSE(c, async (stream) => {
+    // Stream from AI provider
+    for await (const chunk of aiClient.streamChat(messages)) {
+      await stream.writeSSE({
+        data: JSON.stringify({ content: chunk }),
+      });
     }
-  }
+  });
 });
+```
 
-// Built-in schema validation
-app.post('/render', {
-  schema: {
-    body: {
-      type: 'object',
-      required: ['scenes'],
-      properties: {
-        scenes: { type: 'array' },
-        fps: { type: 'number', default: 30 }
-      }
+```typescript
+// ui/src/hooks/useChat.ts
+export function useChat() {
+  const { addMessage, setStreaming } = useChatStore();
+
+  const sendMessage = async (content: string) => {
+    addMessage({ role: 'user', content });
+    setStreaming(true);
+
+    const response = await fetch('/api/studio/chat', {
+      method: 'POST',
+      body: JSON.stringify({ messages }),
+    });
+
+    const reader = response.body?.getReader();
+    let assistantContent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const text = new TextDecoder().decode(value);
+      assistantContent += parseSSE(text);
+      // Update UI incrementally
     }
-  }
-}, async (request, reply) => {
-  // request.body is validated and typed
-});
-```
 
-**Alternatives considered:**
+    addMessage({ role: 'assistant', content: assistantContent });
+    setStreaming(false);
+  };
 
-| Framework | Why Not |
-|-----------|---------|
-| **Hono** | Optimized for edge/serverless. Lower memory is nice, but Fastify's Node.js optimization and plugin ecosystem are more valuable for a monolith. |
-| **Express** | 2.3x slower than Fastify. Legacy callback patterns. No built-in validation. |
-| **Elysia** | Bun-optimized. GameMotion targets Node.js for broader compatibility. |
-| **NestJS** | Enterprise framework with steep learning curve. Overkill for GameMotion's API surface. |
-
-**Sources:**
-- [Better Stack: Hono vs Fastify](https://betterstack.com/community/guides/scaling-nodejs/hono-vs-fastify/)
-- [Fastify LTS documentation](https://fastify.dev/docs/latest/Reference/LTS/)
-- [Fastify npm](https://www.npmjs.com/package/fastify)
-
----
-
-## Job Queue
-
-### MVP: p-queue@8.0.1
-
-For MVP with single-process deployment, p-queue is sufficient:
-
-```typescript
-import PQueue from 'p-queue';
-
-const renderQueue = new PQueue({
-  concurrency: 4,        // Parallel render jobs
-  intervalCap: 10,       // Max 10 jobs started per interval
-  interval: 1000,        // Per second
-  carryoverConcurrencyCount: true
-});
-
-// Add job with priority
-await renderQueue.add(() => renderVideo(config), { priority: 1 });
-
-// Backpressure: wait if queue too large
-await renderQueue.onSizeLessThan(100);
-
-// Progress tracking
-console.log(`Queue: ${renderQueue.size} waiting, ${renderQueue.pending} running`);
-```
-
-**p-queue capabilities:**
-- Concurrency limiting (handles 50-100 concurrent jobs easily)
-- Priority queuing
-- Rate limiting (intervalCap)
-- Pause/resume
-- Backpressure management (onSizeLessThan)
-- AbortController support for cancellation
-
-**Limitation:** In-memory only. Jobs lost on process restart.
-
-### Scale: BullMQ@5.x
-
-Upgrade to BullMQ when you need:
-- **Persistence**: Jobs survive process restarts
-- **Multi-worker**: Scale across multiple Node.js processes/servers
-- **Scheduling**: Delayed jobs, cron-like scheduling
-- **Retries**: Automatic retry with backoff
-- **Observability**: Redis-backed dashboards
-
-```typescript
-import { Queue, Worker } from 'bullmq';
-import IORedis from 'ioredis';
-
-const connection = new IORedis();
-
-const renderQueue = new Queue('render', { connection });
-
-const worker = new Worker('render', async (job) => {
-  const { config } = job.data;
-  await renderVideo(config);
-}, {
-  connection,
-  concurrency: 4
-});
-```
-
-**When to upgrade from p-queue to BullMQ:**
-- Need job persistence across restarts
-- Running multiple Node.js processes
-- Need scheduled/delayed jobs
-- Need built-in retry logic
-- Want job progress dashboards
-
-**Sources:**
-- [p-queue GitHub](https://github.com/sindresorhus/p-queue)
-- [BullMQ documentation](https://docs.bullmq.io)
-- [BullMQ getting started guide](https://www.dragonflydb.io/guides/bullmq)
-
----
-
-## AI Integration
-
-### Recommendation: OpenRouter + Zod
-
-**Why OpenRouter:**
-- Single API for 400+ models (Claude, GPT-4, Gemini, Llama, etc.)
-- OpenAI-compatible API format
-- Built-in structured outputs support
-- Provider routing and fallback
-- Usage analytics
-
-**Recommended models for JSON generation:**
-
-| Model | Use Case | Pricing |
-|-------|----------|---------|
-| **Claude Sonnet 4** | Complex scene generation, best instruction following | $3/$15 per 1M tokens |
-| **Claude Sonnet 4.5** | Latest, best for agentic workflows | Higher |
-| **GPT-4o** | Alternative, good structured output | Varies |
-| **Claude Haiku** | Simple scenes, cost-optimized | Lower |
-
-**Structured output with Zod:**
-
-```typescript
-import { z } from 'zod';
-import OpenAI from 'openai';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-
-// Define scene schema with Zod
-const SceneSchema = z.object({
-  duration: z.number().min(0.1).describe('Scene duration in seconds'),
-  elements: z.array(z.object({
-    type: z.enum(['text', 'image', 'shape']),
-    position: z.object({ x: z.number(), y: z.number() }),
-    animations: z.array(z.object({
-      property: z.string(),
-      from: z.number(),
-      to: z.number(),
-      easing: z.enum(['linear', 'easeIn', 'easeOut', 'easeInOut'])
-    }))
-  }))
-});
-
-type Scene = z.infer<typeof SceneSchema>;
-
-// OpenRouter client
-const client = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY
-});
-
-// Generate with structured output
-const response = await client.chat.completions.create({
-  model: 'anthropic/claude-sonnet-4',
-  messages: [
-    { role: 'user', content: 'Create a 5-second intro scene with animated text' }
-  ],
-  response_format: {
-    type: 'json_schema',
-    json_schema: {
-      name: 'scene',
-      strict: true,
-      schema: zodToJsonSchema(SceneSchema)
-    }
-  }
-});
-
-// Parse and validate
-const scene = SceneSchema.parse(JSON.parse(response.choices[0].message.content));
-```
-
-**Key packages:**
-- `openai@4.x` - OpenAI SDK (works with OpenRouter)
-- `zod@3.x` - Schema definition and validation
-- `zod-to-json-schema@3.x` - Convert Zod to JSON Schema for API
-
-**Sources:**
-- [OpenRouter Structured Outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
-- [OpenRouter Claude Sonnet 4](https://openrouter.ai/anthropic/claude-sonnet-4)
-- [Zod for TypeScript AI development](https://workos.com/blog/zod-for-typescript)
-- [OpenAI Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs)
-
----
-
-## Database
-
-### Recommendation: Prisma@5.x with SQLite (dev) / PostgreSQL (prod)
-
-Already specified in PRD. This is the right choice:
-
-```prisma
-// prisma/schema.prisma
-datasource db {
-  provider = "postgresql"  // or "sqlite" for dev
-  url      = env("DATABASE_URL")
-}
-
-model RenderJob {
-  id        String   @id @default(cuid())
-  status    JobStatus
-  config    Json     // Store scene config as JSON
-  progress  Float    @default(0)
-  outputUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-enum JobStatus {
-  PENDING
-  RENDERING
-  COMPLETE
-  FAILED
+  return { sendMessage };
 }
 ```
 
-**Why Prisma:**
-- Type-safe queries with auto-generated types
-- Easy migrations
-- SQLite for local dev (zero setup)
-- PostgreSQL for production (scalable)
-- JSON field support for scene configs
-
 ---
 
-## Version Constraints
+## What NOT to Add
 
-| Package | Min Version | Reason |
-|---------|-------------|--------|
-| Node.js | 22.x LTS | Latest LTS, Fastify v5 requires 20+ |
-| @napi-rs/canvas | 0.1.88 | Latest, includes Lottie and AVIF support |
-| Fastify | 5.7.1 | Latest stable, security fixes |
-| fluent-ffmpeg | 2.1.3 | Stable, well-maintained |
-| ffmpeg-static | 5.2.0 | Bundles FFmpeg 5.1.x |
-| p-queue | 8.0.1 | ESM-only, TypeScript types |
-| Prisma | 5.x | JSON field improvements |
-| Zod | 3.x | Stable, AI SDK integration |
-| TypeScript | 5.x | Latest features |
+| Technology | Why Skip |
+|------------|----------|
+| **Next.js** | SSR/RSC unnecessary for local dev tool |
+| **Redux** | Overkill; Zustand is simpler for this scope |
+| **Socket.io** | SSE sufficient for chat streaming |
+| **Chat UI library** | Conflicts with Tailwind, simple to build |
+| **react-router-dom** | Single page sufficient initially; add if needed |
+| **Monaco Editor** | JSON editing not in v0.2 scope |
+| **Video.js** | System player, not in-browser playback |
+| **Authentication** | Local dev, single user |
 
 ---
 
 ## Installation
 
+### Step 1: Create UI directory
+
 ```bash
-# Core dependencies
-npm install @napi-rs/canvas@^0.1.88 \
-  fluent-ffmpeg@^2.1.3 \
-  ffmpeg-static@^5.2.0 \
-  fastify@^5.7.1 \
-  p-queue@^8.0.1 \
-  @prisma/client@^5.0.0 \
-  openai@^4.0.0 \
-  zod@^3.23.0 \
-  zod-to-json-schema@^3.23.0
+mkdir -p ui
+cd ui
+npm create vite@latest . -- --template react-ts
+```
 
-# Dev dependencies
-npm install -D typescript@^5.0.0 \
-  prisma@^5.0.0 \
-  @types/node@^22.0.0 \
-  @types/fluent-ffmpeg@^2.1.0
+### Step 2: Install dependencies
 
-# Initialize Prisma
-npx prisma init
+```bash
+# Core
+npm install tailwindcss @tailwindcss/vite
+npm install @tanstack/react-query zustand
+npm install lucide-react
+npm install class-variance-authority clsx tailwind-merge
+
+# Dev
+npm install -D @types/node
+```
+
+### Step 3: Initialize shadcn
+
+```bash
+npx shadcn@latest init
+```
+
+Select:
+- Style: Default
+- Base color: Neutral (or preference)
+- CSS variables: Yes
+
+### Step 4: Add components
+
+```bash
+npx shadcn@latest add button input textarea card scroll-area avatar
+```
+
+### Step 5: Configure Vite
+
+```typescript
+// ui/vite.config.ts
+import path from 'path';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3000',
+    },
+  },
+  build: {
+    outDir: '../dist/ui',
+  },
+});
+```
+
+### Step 6: Update root package.json scripts
+
+```json
+{
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:ui\"",
+    "dev:api": "node --import tsx src/api/server.ts",
+    "dev:ui": "cd ui && npm run dev",
+    "build:ui": "cd ui && npm run build",
+    "start": "node dist/api/server.js"
+  }
+}
 ```
 
 ---
 
-## Open Questions
+## Version Constraints
 
-1. **GPU acceleration scope**: Should hardware encoding (NVENC) be MVP or post-MVP? It's optional but provides 3-5x encoding speedup on supported hardware.
+| Package | Min Version | Verified | Notes |
+|---------|-------------|----------|-------|
+| vite | ^7.3.1 | npm registry | Latest stable |
+| react | ^19.2.4 | npm registry | Latest stable |
+| tailwindcss | ^4.1.18 | npm registry | v4 with Vite plugin |
+| @tailwindcss/vite | ^4.1.18 | npm registry | Matches Tailwind version |
+| @tanstack/react-query | ^5.90.20 | npm registry | Latest v5 |
+| zustand | ^5.0.10 | npm registry | Latest v5 |
+| lucide-react | ^0.563.0 | npm registry | Latest |
+| @hono/node-server | ^1.19.9 | npm registry | Already installed |
 
-2. **WebCodecs integration**: @napi-rs/canvas supports @napi-rs/webcodecs for video encoding. Worth investigating as alternative to FFmpeg for some use cases.
+---
 
-3. **Lottie library selection**: @napi-rs/canvas has built-in Lottie support, but lottie-to-canvas or lottie-player might offer more features. Needs deeper research if complex Lottie support is required.
+## Sources
 
-4. **Memory profiling**: Need to benchmark memory usage with 4K video frames. May need to tune Node.js heap size or implement frame pooling.
+- [Tailwind CSS v4 + Vite Installation](https://tailwindcss.com/docs)
+- [shadcn/ui Vite Installation](https://ui.shadcn.com/docs/installation/vite)
+- [TanStack Query Overview](https://tanstack.com/query/latest/docs/framework/react/overview)
+- [Zustand vs Redux vs Jotai](https://betterstack.com/community/guides/scaling-nodejs/zustand-vs-redux-toolkit-vs-jotai/)
+- [Hono Node.js Static Files](https://hono.dev/docs/getting-started/nodejs)
+- [React State Management 2026](https://www.patterns.dev/react/react-2026/)
+- [15 Best React UI Libraries 2026](https://www.builder.io/blog/react-component-libraries-2026)
 
 ---
 
 ## Summary
 
-The recommended stack prioritizes:
-- **Performance**: @napi-rs/canvas + FFmpeg streaming for efficient rendering
-- **Developer experience**: TypeScript throughout, Fastify validation, Prisma types
-- **Simplicity**: Single Node.js process, p-queue for MVP, upgrade path to BullMQ
-- **AI flexibility**: OpenRouter for multi-model access, Zod for type-safe structured outputs
+The v0.2 Studio UI adds:
 
-This stack is production-ready and scales from MVP to handling significant render volume.
+| Category | Technology | Rationale |
+|----------|------------|-----------|
+| Build | Vite 7 | Fastest DX, Tailwind v4 native |
+| UI | React 19 + Tailwind v4 | Project scope, modern stack |
+| Components | shadcn/ui | Accessible, Tailwind-native, copy-paste |
+| Server state | TanStack Query | Caching, background refresh |
+| Client state | Zustand | Minimal, perfect for chat |
+| Serving | Hono static | Single port, no separate server |
+
+This stack prioritizes:
+- **Developer experience**: Fast HMR, type safety, minimal config
+- **Simplicity**: No SSR, no monorepo tools, no chat libraries
+- **Integration**: Proxy in dev, static serve in prod, shared types

@@ -1,397 +1,331 @@
-# Research Summary: GameMotion
+# Project Research Summary
 
-**Completed:** 2026-01-24
-**Overall Confidence:** HIGH
-
----
+**Project:** GameMotion v0.2 Studio
+**Domain:** Local development UI for JSON-to-video rendering engine
+**Researched:** 2026-01-27
+**Confidence:** HIGH
 
 ## Executive Summary
 
-GameMotion is a programmatic video generation engine that transforms JSON specifications into rendered MP4 videos. The research reveals a well-established domain with clear technical patterns: JSON-to-video engines follow a consistent architecture of spec parsing -> scene graph construction -> frame-by-frame rendering -> FFmpeg encoding.
+GameMotion v0.2 adds a React + Tailwind frontend to the existing Hono API, creating a local development studio for AI-assisted video template creation. Research confirms this is a straightforward integration using battle-tested patterns from API dev tools (Postman, Insomnia), AI chat interfaces (Cursor, ChatGPT), and creative software (Figma). The recommended approach is to build with Vite + React 19 + Tailwind v4, use shadcn/ui components instead of chat libraries, manage server state with TanStack Query and UI state with Zustand, and serve the built frontend from the existing Hono server.
 
-**The recommended technical approach:** Build a Node.js service using @napi-rs/canvas for 2D rendering (44% faster than alternatives, zero system dependencies), stream frames to fluent-ffmpeg for video encoding, expose via Fastify REST API, and queue jobs with p-queue. This stack balances performance, developer experience, and operational simplicity. The architecture should follow proven patterns: reusable canvas instances, preloaded assets, memory-efficient FFmpeg streaming, and robust error boundaries.
+The key architectural decision is to use a flat monorepo structure with Vite proxy in development and static serving from Hono in production, avoiding the complexity of SSR frameworks, separate deployment, or authentication systems. This keeps the tool fast and frictionless for single-user local development.
 
-**The key differentiator is AI-powered template generation.** No competitor (json2video, Creatomate, Shotstack, Remotion) offers first-class natural language to JSON template creation. This is GameMotion's competitive moat. However, this comes with specific risks: AI JSON hallucinations require multi-layer validation, self-healing pipelines, and defensive output sanitization.
+The primary risks are CORS/proxy misconfiguration between Vite and Hono (which will block first API calls), SSE streaming state corruption (which will cause chat message duplication), and browser limitations around system player integration (which requires backend-triggered file opening). All three are preventable with proper configuration and architecture decisions made in Phase 1.
 
-**Critical risks to mitigate early:** Memory leaks from improper canvas reuse (use synchronous methods, reuse instances), FFmpeg child process accumulation (explicit cleanup, event listener management), font rendering inconsistencies across platforms (bundle fonts, set FONTCONFIG_PATH), color space mismatches (explicitly specify bt709 for HD content), and audio/video sync drift (constant frame rate, explicit duration). These pitfalls have clear, documented solutions but will cause major production issues if not addressed during initial implementation.
+## Key Findings
+
+### Recommended Stack
+
+The research identified a minimal, modern stack that prioritizes developer experience and simplicity for local dev tools. Vite 7 provides the fastest HMR with native Tailwind v4 support, React 19 offers the latest stable features, and shadcn/ui delivers accessible, Tailwind-native components without opinionated styling conflicts.
+
+**Core technologies:**
+- **Vite 7.3.1**: Build tool and dev server — fastest HMR, native Tailwind v4 plugin, simple SPA build
+- **React 19.2.4**: UI framework — latest stable, project scope requirement
+- **Tailwind v4.1.18**: Styling — project scope, v4 has simpler Vite integration without PostCSS
+- **shadcn/ui**: Component primitives — accessible, copy-paste model, no library lock-in
+- **TanStack Query 5**: Server state management — auto caching, background refetch, optimistic updates
+- **Zustand 5**: Client state management — 3KB, zero boilerplate, perfect for chat UI state
+- **better-sqlite3**: Data persistence — synchronous API, fastest for Node.js, zero config
+- **Hono serveStatic**: Production serving — single process, no separate deployment
+
+**Anti-stack (explicitly avoid):**
+- Next.js, Remix — SSR/RSC overkill for local dev tool
+- Redux — over-engineered state management for single user
+- WebSocket, Socket.io — polling + SSE sufficient for localhost
+- Chat UI libraries — conflicts with Tailwind, simple to build from shadcn
+- Monorepo tools — adds complexity without benefits at this scale
+
+### Expected Features
+
+Research identified clear feature priorities based on patterns from established dev tools and AI interfaces. The MVP should focus on the core workflow: chat for template generation/refinement, basic library for organization, and frictionless render-preview flow.
+
+**Must have (table stakes):**
+- Chat input at bottom with clear send button — universal pattern, expected by all users
+- Visible conversation history with AI typing indicator — 77% of conversations are multi-turn
+- Template library with grid/card view, names, and delete — basic CRUD, standard gallery pattern
+- Video thumbnail grid linked to source templates — core value proposition of the tool
+- One-click render with status indicator — Postman/Insomnia pattern for API dev tools
+- Click to open video in system player — project spec, avoids streaming complexity
+- Copy JSON output from chat — primary deliverable from AI conversation
+
+**Should have (competitive):**
+- Multi-turn refinement with context ("make it shorter") — Cursor pattern, enables iterative workflow
+- Template version history timeline — Figma pattern, enables experimentation without fear
+- Template-video linkage tracking — trace video back to source, debugging aid
+- Variable substitution for testing — test templates with different data inputs
+- Search and filter in libraries — scales as content grows
+- Auto-open video in player after render — zero-friction workflow
+
+**Defer (v2+):**
+- Version comparison side-by-side — high complexity, nice-to-have
+- @ mentions for templates in chat — power user feature, complex context injection
+- Suggested refinement prompts — requires AI sophistication beyond MVP
+- Visual template editor — scope creep, contradicts AI-first approach
+- In-browser video playback — streaming complexity, out of scope
+
+### Architecture Approach
+
+The recommended architecture keeps the existing Hono API intact and adds React in an adjacent `/studio` directory with separate package.json. For development, Vite proxies API calls to Hono (avoiding CORS). For production, Vite builds static files served by Hono via serveStatic, creating a single-process deployment. All studio data (conversations, templates, videos) persists in a single SQLite database accessed only by the Hono backend, maintaining clean separation.
+
+**Major components:**
+1. **Hono API (existing)** — handles all business logic, adds `/studio/*` routes for UI-specific endpoints (conversations, template CRUD, video metadata, system player trigger)
+2. **React Studio (new)** — browser-based UI in `/studio` subdirectory, communicates with API via fetch, manages UI state with Zustand and server state with TanStack Query
+3. **SQLite Database (new)** — single `data/studio.db` file stores conversations, messages, templates, template versions, and video metadata with referential integrity
+4. **System Player** — external process spawned by Hono backend when user clicks preview, avoids browser streaming limitations
+
+**Key patterns:**
+- Optimistic updates for chat — add message to UI immediately, reconcile with server
+- Polling for job status — existing pattern, use `setInterval` with 1s delay until completion
+- Backend-triggered player — POST `/studio/preview/:jobId` triggers `exec('open "path"')` on server
+- Type sharing via Hono RPC or manual sync — start manual, migrate to Hono RPC when types stabilize
+- Vite proxy with IPv4 addresses — use `127.0.0.1` not `localhost` to avoid Node 17+ IPv6 issues
+
+### Critical Pitfalls
+
+Research identified five critical pitfalls that will block progress if not addressed proactively. All have proven solutions.
+
+1. **CORS misconfiguration between Vite and Hono** — Use Vite proxy in dev (eliminates cross-origin), configure `target: 'http://127.0.0.1:3000'` not `localhost`, serve static from Hono in production for same-origin
+2. **Vite proxy only works in dev, fails in production** — Design API base URL to be empty string (same-origin) in production, serve React build from Hono with `serveStatic`
+3. **SSE streaming state corruption in React** — Use AbortController for cleanup, functional setState updates for concurrent chunks, single message reference updated incrementally
+4. **Browser cannot launch system player** — Accept browser limitation, implement POST `/studio/preview/:jobId` that triggers `exec('open')` on backend (safe for local dev tool)
+5. **Tailwind styles missing in production build** — Configure content paths correctly in `tailwind.config.js`, avoid dynamic class names, test production build early
+
+## Implications for Roadmap
+
+Based on research, suggested phase structure follows dependency order and risk mitigation:
+
+### Phase 1: Project Setup & Integration Foundation
+**Rationale:** Must establish correct Vite-Hono integration before building features. CORS/proxy issues will block all API calls if not configured correctly from the start. Setting up SQLite, TypeScript paths, and development workflow prevents rework later.
+
+**Delivers:**
+- Vite + React project in `/studio` with Tailwind v4 and shadcn/ui installed
+- Vite proxy configured for all API routes with IPv4 addresses
+- SQLite database schema created with tables for conversations, messages, templates, videos
+- Single `npm run dev` command that starts both servers
+- Validation route (`/test-cors`) confirms API connectivity
+
+**Addresses:**
+- CORS configuration (Pitfall #1)
+- Vite proxy production gap (Pitfall #2)
+- Tailwind config (Pitfall #5)
+- Monorepo package resolution (Pitfall #12)
+
+**Avoids:**
+- Over-engineering with monorepo tools — use simple flat structure
+- Authentication UI — skip entirely for local dev
+- Complex state management — defer until needed
+
+**Research flag:** No additional research needed. Standard Vite + Hono integration with official documentation.
 
 ---
 
-## Stack Recommendations
+### Phase 2: Chat Interface with Streaming
+**Rationale:** Chat is the core value proposition and most complex feature. Build early to validate streaming approach and state management patterns. Multi-turn refinement requires conversation context, so database integration happens here.
 
-| Component | Choice | Confidence | Key Insight |
-|-----------|--------|------------|-------------|
-| 2D Rendering | @napi-rs/canvas@0.1.88 | HIGH | 44% faster than skia-canvas, zero system deps, built-in Lottie support |
-| Video Encoding | fluent-ffmpeg@2.1.3 + ffmpeg-static@5.2.0 | HIGH | Industry standard; stream frames via stdin for memory efficiency |
-| API Framework | Fastify@5.7.1 | HIGH | 2.3x faster than Express, built-in JSON Schema validation aligns with JSON-driven design |
-| Job Queue (MVP) | p-queue@8.0.1 | HIGH | In-memory concurrency control, sufficient for 50-100 concurrent jobs |
-| Job Queue (Scale) | BullMQ@5.x | MEDIUM | Upgrade when you need persistence, multi-worker, or job scheduling |
-| AI Integration | OpenRouter + Zod | HIGH | Multi-model access (Claude, GPT-4, etc.), structured outputs via json_schema |
-| Database | Prisma@5.x (SQLite/PostgreSQL) | HIGH | Type-safe ORM, JSON field support for scene configs |
-| Runtime | Node.js 22.x LTS | HIGH | Latest LTS, required for Fastify v5 |
+**Delivers:**
+- Chat UI with input at bottom, message history, user/assistant styling
+- POST `/studio/conversations` and `/studio/conversations/:id/messages` endpoints
+- Streaming AI responses via SSE (Hono `streamSSE`)
+- Conversation persistence in SQLite
+- Copy JSON button for extracting templates
+- AbortController cleanup preventing memory leaks
 
-**Most important stack decision:** @napi-rs/canvas over alternatives because it's the fastest single-threaded Canvas API implementation, has zero system dependencies (critical for deployment simplicity), and includes Lottie animation support out of the box. The performance advantage (44% faster) directly impacts the "2x realtime rendering" target.
+**Addresses:**
+- Chat input, history, typing indicator (table stakes from FEATURES.md)
+- Multi-turn refinement with context (competitive differentiator)
+- Conversation history persistence
 
----
+**Uses:**
+- Zustand for chat state (isStreaming, messages)
+- Hono SSE streaming helper
+- better-sqlite3 for conversation storage
 
-## Feature Priorities
+**Implements:**
+- Optimistic updates pattern
+- SSE with proper keep-alive and cleanup
 
-### Table Stakes (Must Ship v1)
+**Avoids:**
+- SSE connection limit issues — accept 6-connection limit for local dev (Pitfall #4)
+- State corruption — use functional updates and AbortController (Pitfall #6)
+- EventSource POST limitation — use fetch with ReadableStream instead (Pitfall #7)
 
-**Core rendering:**
-- Text elements with rich styling (font, size, weight, color, alignment, shadows)
-- Image elements with fit modes (cover, contain, fill)
-- Basic shapes (rectangle, circle, ellipse, line) with fills and strokes
-- Keyframe animation system with 12-15 easing functions
-- Enter/exit animation presets (fade, slide, scale, bounce)
-
-**Scene composition:**
-- Scene transitions (fade, slide left/right/up/down, zoom)
-- Variable substitution (`{{placeholder}}` syntax)
-- Platform dimension presets (TikTok 9:16, YouTube 16:9, Instagram 1:1)
-
-**Audio:**
-- Background music track with volume control
-- Audio fade in/out
-
-**API:**
-- REST API with API key authentication
-- Async rendering with job polling
-- Sync rendering option for short videos
-- Rate limiting
-- JSON validation with detailed errors
-
-**AI (differentiator):**
-- Natural language to JSON template generation
-- Auto-generated placeholder suggestions
-- Built-in starter templates
-
-### Differentiators (Why Choose GameMotion)
-
-1. **AI template generation from natural language** - Primary competitive moat; no competitor has this
-2. **3-10x faster rendering** - Speed advantage from game engine-style rendering techniques
-3. **Simple self-hosting** - Single Node.js process vs. Remotion's complex setup
-4. **OpenRouter integration** - Access to 400+ models, not locked to one provider
-
-### Gaps Identified (Consider for v1.x or v2)
-
-**High-value additions for early updates:**
-- **Webhooks** (v1 or v1.1) - Production integrations strongly prefer webhooks over polling; add simple `webhookUrl` parameter
-- **Word-by-word text animation** (v1.1) - High demand for captions/kinetic typography; Creatomate has this
-- **Image filters** (v1.1) - Brightness, contrast, saturation; common design need, low implementation effort
-- **Additional easing functions** (v1) - Add easeInQuart, easeOutQuart, easeInBack, easeOutBack for parity
-
-**Medium-priority for v2:**
-- Text-to-speech voiceover (ElevenLabs integration)
-- Multiple audio tracks (voiceover + music)
-- Auto-transcription and captions
-- Audio ducking (auto-lower music during voiceover)
-- Lottie animation support (@napi-rs/canvas has built-in support)
-
-**Anti-features (Don't Build):**
-- Browser-based preview/editor - Adds frontend complexity, distracts from API focus
-- Video-in-video embedding - Extreme complexity for limited use cases
-- 3D animations - Different rendering pipeline, wrong product category
-- Custom font upload before v1 - Google Fonts covers 95% of needs
+**Research flag:** May need `/gsd:research-phase` for AI provider integration (OpenRouter, Anthropic, OpenAI) depending on provider choice.
 
 ---
 
-## Architecture Highlights
+### Phase 3: Template Library with Version History
+**Rationale:** Users need to save and organize templates generated in chat. Version history enables experimentation without fear of losing work. Builds on SQLite foundation from Phase 2.
 
-### Build Order (Dependency-Informed Sequence)
+**Delivers:**
+- Grid view of templates with cards (shadcn Card component)
+- POST `/studio/templates`, GET `/studio/templates`, GET/PUT/DELETE `/studio/templates/:id`
+- Template CRUD operations stored in SQLite
+- Version history timeline (automatic on every save)
+- "Edit in chat" action that loads template context into conversation
+- Duplicate template for fast iteration
+- Search/filter functionality
 
-**Phase 1: Foundation (Week 1-2)**
-1. JSON Schema definition
-2. Spec Parser with validation
-3. Basic TypeScript types and interfaces
+**Addresses:**
+- Template library grid, names, delete (table stakes)
+- Version history timeline (competitive differentiator)
+- Duplicate template (competitive differentiator)
 
-**Phase 2: Core Rendering (Week 3-4)**
-1. Canvas setup (@napi-rs/canvas)
-2. Element renderers (text, image, shape)
-3. Frame Generator orchestration
-4. Single frame rendering test
+**Uses:**
+- TanStack Query for template fetching and caching
+- shadcn Card, ScrollArea, Button components
+- SQLite template_versions table
 
-**Phase 3: Timeline & Animation (Week 5-6)**
-1. Timeline/Scene Graph model
-2. Interpolator with easing functions
-3. Scene graph query interface
-4. Multi-frame render loop
+**Implements:**
+- Card view pattern from research (entire card clickable)
+- Figma-style version timeline (named versions, preview before restore)
 
-**Phase 4: Video Output (Week 7-8)**
-1. FFmpeg Encoder with streaming
-2. Render Pipeline integration
-3. Asset Manager with preloading
-4. Complete end-to-end test
+**Avoids:**
+- Version comparison side-by-side — defer to v2+ (high complexity)
+- Visual template editor — out of scope, contradicts AI-first approach
 
-**Phase 5: API Layer (Week 9-10)**
-1. Job Queue (p-queue)
-2. REST API endpoints (Fastify)
-3. Progress tracking
-4. Webhooks (optional but recommended)
+**Research flag:** No additional research needed. Standard CRUD + versioning patterns.
 
-**Phase 6: AI Integration (Week 11-12)**
-1. OpenRouter client
-2. Prompt processing and schema conversion
-3. JSON validation and self-healing
-4. Template generation endpoint
+---
 
-**Why this order:** Foundation blocks everything. Rendering is the core value - build end-to-end for single frame first, then extend to full timeline. FFmpeg integration is independent and can start in parallel with timeline work. API layer wraps the render pipeline. AI integration is last because it depends on stable JSON schema and rendering validation.
+### Phase 4: Video Library & Preview Integration
+**Rationale:** Completing the workflow loop from chat → template → render → preview. Video library provides visibility into render history. System player integration is the biggest unknown and should be validated before polish phase.
 
-### Key Architectural Pattern
+**Delivers:**
+- Grid view of videos with thumbnails (extracted from first frame)
+- POST `/studio/videos`, GET `/studio/videos`, GET `/studio/videos/:id`
+- Video metadata stored in SQLite with link to template_id and conversation_id
+- POST `/studio/preview/:jobId` endpoint that triggers system player via `exec('open')`
+- Filter videos by source template
+- "Render" button from template detail view
 
-**Scene Graph Pattern:** The timeline is a collection of tracks, each containing non-overlapping clips. Each clip references an element (text, image, shape) with timing (startFrame, endFrame) and animations. The scene graph answers "what elements are visible at frame N?" rather than modeling the entire video statically. This matches Remotion's model: the system is "only aware of the current frame."
+**Addresses:**
+- Video thumbnail grid, click to play, template linkage (table stakes)
+- Auto-open in player after render (competitive differentiator)
+- Render button with status indicator (table stakes)
 
-**Data Flow:**
+**Uses:**
+- Hono backend to trigger system player (only safe approach)
+- FFmpeg for thumbnail extraction (already in dependencies)
+- Polling pattern for job status (existing pattern)
+
+**Implements:**
+- Backend-triggered player pattern (Pitfall #8 solution)
+- File path normalization for cross-platform support (Pitfall #9)
+- Video-template linkage tracking
+
+**Avoids:**
+- In-browser video playback — out of scope, use system player
+- Batch delete — defer to post-MVP
+
+**Research flag:** May need `/gsd:research-phase` for FFmpeg thumbnail extraction if not already implemented.
+
+---
+
+### Phase 5: Polish & Production Build
+**Rationale:** Validate production deployment works correctly. Test on different OS (macOS/Windows) if possible. Add final UX improvements based on dogfooding.
+
+**Delivers:**
+- Production build configuration (Vite builds to `dist/ui`, Hono serves static)
+- Loading states for all API calls (spinners, skeletons)
+- Error handling with retry actions
+- Empty states for libraries
+- Keyboard shortcuts (Enter to send, Cmd+K to clear chat)
+- Production build testing on macOS and Windows
+
+**Addresses:**
+- Loading/error states (Pitfall #14)
+- Production build differences (Pitfall #2)
+- OS path handling (Pitfall #9)
+
+**Uses:**
+- Hono `serveStatic` for production serving
+- shadcn Skeleton components for loading states
+
+**Avoids:**
+- Custom themes — single clean theme sufficient
+- Notification system — status indicators sufficient for single user
+- Keyboard shortcut customization — fixed sensible defaults
+
+**Research flag:** No additional research needed. Standard production hardening.
+
+---
+
+### Phase Ordering Rationale
+
+- **Phase 1 first:** Infrastructure must be correct before building features. CORS/proxy issues block all API communication.
+- **Phase 2 next:** Chat is the core differentiator and most complex feature. Validates state management and streaming patterns early.
+- **Phase 3 before Phase 4:** Templates are created before videos, dependency order follows user workflow.
+- **Phase 4 before Phase 5:** System player integration is the biggest unknown, validate before polish.
+- **Phase 5 last:** Production build and UX polish after core features proven.
+
+**Dependency chain:**
 ```
-API Request (JSON)
-  -> Validation (Ajv/Zod)
-  -> Variable Resolution
-  -> Asset Preloading (all images/fonts loaded to memory)
-  -> Scene Graph Construction
-  -> FFmpeg Process Start
-  -> Frame Loop:
-       Query visible elements at frame N
-       Interpolate properties (animations)
-       Render elements to canvas (z-ordered)
-       Export PNG buffer
-       Write to FFmpeg stdin
-  -> FFmpeg Finish
-  -> Cleanup
-  -> Return video URL
+Phase 1 (setup)
+    ↓
+Phase 2 (chat) → creates templates
+    ↓
+Phase 3 (template library) → organizes templates
+    ↓
+Phase 4 (video library) → renders from templates
+    ↓
+Phase 5 (polish) → production hardening
 ```
-
-**Performance target:** 15-60 seconds total for 30-second 1080p 30fps video (900 frames). Asset preload: 1-5s, frame generation: 5-30s, FFmpeg encoding: 5-20s (parallel).
-
-### Scaling Path
-
-| Scale | Architecture | Trigger for Next |
-|-------|--------------|------------------|
-| MVP | Single process, p-queue, local files | Queue depth > 10 consistently |
-| Growth | Single server, BullMQ + Redis, S3 storage | Single server CPU > 80% |
-| Scale | Multiple workers, shared Redis, load balancer | Worker costs, need geographic distribution |
-
-**Key migration points:**
-- p-queue -> BullMQ when you need persistence or multiple servers
-- Local files -> S3 when disk fills or need CDN delivery
-- Single server -> Workers when CPU is bottleneck (render workers scale horizontally)
-
----
-
-## Critical Pitfalls
-
-### Top 5 to Watch (Must Address in Initial Implementation)
-
-| Pitfall | When It Hits | Prevention | Phase to Address |
-|---------|--------------|------------|------------------|
-| **Memory leaks in canvas rendering** | Long videos, high volume | Reuse canvas instances; use sync methods (`toBufferSync`); @napi-rs/canvas v1.0.1 has leak with async methods | Phase 2 (Rendering) |
-| **FFmpeg child process accumulation** | Concurrent renders | Explicit cleanup: destroy stdin/stdout/stderr, removeAllListeners(), kill on timeout; consume stderr to prevent buffer deadlock | Phase 4 (Video Output) |
-| **Font rendering inconsistencies** | Cross-platform (macOS dev, Linux prod) | Bundle fonts, set FONTCONFIG_PATH and PANGOCAIRO_BACKEND env vars, use FontLibrary.use() to register explicitly | Phase 5 (Production) |
-| **Color space mismatch** | First render tests | Explicitly specify bt709 color matrix in FFmpeg args for HD content; set `-colorspace bt709 -color_primaries bt709 -color_trc bt709` | Phase 4 (Video Output) |
-| **AI JSON hallucinations** | AI template generation | Multi-layer validation: structured output if available, JSON.parse with repair, Zod validation, auto-repair common issues (type coercion, enum mapping, clamping), re-prompt with error context | Phase 6 (AI Integration) |
-
-### Additional Important Pitfalls
-
-**Audio/video sync drift (High)** - Phase 4
-- Problem: Audio drifts out of sync, especially in videos >60s
-- Solution: Use constant frame rate, add `-af aresample=async=1` for drift correction, explicit duration instead of `-shortest`
-
-**Job timeout handling (Medium)** - Phase 5
-- Problem: Fixed timeouts block or kill legitimate long renders
-- Solution: Dynamic timeout based on video duration and complexity; graceful shutdown with AbortController
-
-**Prompt injection in user descriptions (Medium)** - Phase 6
-- Problem: Malicious users inject instructions into AI prompts
-- Solution: Sanitize input (remove instruction markers), structural separation in prompts, validate output content for policy violations
-
-**Disk space exhaustion (Medium)** - Phase 5
-- Problem: Disk fills during render, corrupting output
-- Solution: Pre-flight disk space check based on estimated output size, periodic cleanup of orphaned temps, output retention policy
-
-**Progress reporting accuracy (Low)** - Phase 5
-- Problem: Progress stuck at 99% or jumps backwards
-- Solution: Phase-based progress with weights (validating 5%, loading 10%, rendering 70%, encoding 10%, finalizing 5%); never show 100% until truly done
-
----
-
-## Requirements Implications
-
-**What this research means for requirements definition:**
-
-1. **JSON Schema is foundational** - Requirements must include complete schema definition before coding starts. Schema versioning strategy needed from day 1 (use discriminated union on `version` field).
-
-2. **Asset preloading is non-negotiable** - Requirements must specify that all assets (images, fonts) are validated and preloaded before frame 1 renders. Fail fast if assets are missing.
-
-3. **Memory management is a feature** - Requirements must include memory limits, canvas reuse patterns, and cleanup lifecycle. Not optional performance optimization.
-
-4. **FFmpeg process lifecycle requires explicit design** - Requirements must specify stdin streaming strategy, stderr consumption, graceful shutdown on timeout/cancel, orphan process cleanup.
-
-5. **AI validation is multi-layered** - Requirements must include not just schema validation but auto-repair strategies, re-prompting with context, and output content validation.
-
-6. **Error boundaries are architectural** - Requirements must specify where errors are caught (API input, asset loading, frame rendering, FFmpeg process, job queue) and recovery strategies for each.
-
-7. **Font consistency requires bundled fonts** - Requirements must specify font bundling and registration, not reliance on system fonts.
-
-8. **Color space must be explicit** - Requirements must specify bt709 color matrix for HD output, not FFmpeg defaults.
-
----
-
-## Roadmap Implications
-
-**What this research means for phase structure:**
-
-### Suggested Phase Structure (6 phases)
-
-**Phase 1: Foundation & Validation**
-- JSON Schema with versioning
-- Zod/Ajv validation with detailed errors
-- Variable substitution engine
-- **Rationale:** Everything depends on knowing the contract. Can't build rendering without spec format.
-- **Deliverable:** Can validate JSON specs, substitute variables, return detailed errors
-- **Pitfalls to avoid:** Schema too complex (progressive disclosure with defaults), validation performance (compile once), breaking changes (version from day 1)
-
-**Phase 2: Core Rendering Engine**
-- Canvas setup (@napi-rs/canvas)
-- Element renderers (text, image, shape)
-- Frame generator orchestration
-- Asset manager with preloading
-- **Rationale:** The heart of the system. Build end-to-end for single frame before adding complexity.
-- **Deliverable:** Can render a single frame PNG from a scene
-- **Pitfalls to avoid:** Memory leaks (reuse canvas, sync methods), asset caching (LRU eviction), font inconsistencies (bundle fonts)
-- **Features:** Text (PRD table), Image (PRD table), Shapes (PRD table)
-
-**Phase 3: Animation & Timeline**
-- Timeline/Scene Graph model
-- Interpolator with 15 easing functions
-- Keyframe animation system
-- Scene transitions
-- Enter/exit animation presets
-- **Rationale:** Extend from single frame to full video with smooth motion.
-- **Deliverable:** Can render multi-frame sequences with animations
-- **Pitfalls to avoid:** Animation timing accuracy (0-1 normalized time, correct easing domains), floating-point errors
-- **Features:** All PRD animations, easing functions, transitions
-
-**Phase 4: Video Encoding & Output**
-- FFmpeg encoder with stdin streaming
-- Render pipeline (frame loop -> FFmpeg)
-- Audio mixing (background music with fade)
-- Complete render job execution
-- **Rationale:** Connect frames to video output.
-- **Deliverable:** Can produce MP4 files with audio
-- **Pitfalls to avoid:** FFmpeg process leaks (explicit cleanup), color space (bt709), audio sync (constant framerate, aresample), backpressure handling
-- **Features:** MP4 output, audio track, fade in/out
-
-**Phase 5: API & Job Management**
-- Fastify REST API
-- p-queue job queue
-- Job status polling
-- Progress tracking (phase-based)
-- Rate limiting (per-endpoint, per-plan)
-- Webhooks (recommended)
-- **Rationale:** Expose rendering as a service with proper resource management.
-- **Deliverable:** Production-ready API for external clients
-- **Pitfalls to avoid:** Job timeouts (dynamic based on complexity), progress accuracy (phase weights), rate limiting (by API key not IP)
-- **Features:** POST /render, GET /jobs/:id, webhooks, rate limits
-
-**Phase 6: AI Template Generation**
-- OpenRouter integration
-- Prompt processing
-- JSON generation with structured outputs
-- Multi-layer validation and auto-repair
-- Self-healing pipeline (re-prompt with errors)
-- Template library with starter templates
-- **Rationale:** The key differentiator. Build on stable foundation.
-- **Deliverable:** Can generate video specs from natural language
-- **Pitfalls to avoid:** JSON hallucinations (multi-layer validation), token limits (chunked generation), prompt injection (sanitize input)
-- **Features:** POST /ai/generate, template library API, placeholder suggestions
 
 ### Research Flags
 
-**Phases that need deeper research during planning:**
-- **Phase 4:** FFmpeg command construction - test color space settings, audio sync parameters, backpressure handling. Run experiments before finalizing implementation.
-- **Phase 6:** AI model selection - benchmark Claude Sonnet 4 vs GPT-4o vs Haiku for template generation quality and cost. May need iteration.
+**Phases likely needing deeper research during planning:**
+- **Phase 2:** AI provider integration — need to choose between OpenRouter, Anthropic, OpenAI and research specific streaming implementation
+- **Phase 4:** FFmpeg thumbnail extraction — if not already implemented, need to research command syntax and error handling
 
-**Phases with well-documented patterns (can skip additional research):**
-- **Phase 1:** JSON Schema validation - Ajv and Zod are well-documented
-- **Phase 2:** Canvas 2D API - Standard browser API, well-known patterns
-- **Phase 3:** Easing functions - Established math, use libraries like bezier-easing
-- **Phase 5:** Fastify REST API - Mature framework with extensive docs
-
----
+**Phases with standard patterns (skip research-phase):**
+- **Phase 1:** Vite + Hono integration well-documented, official docs sufficient
+- **Phase 3:** CRUD operations and version history are standard patterns
+- **Phase 5:** Production build and error handling are standard React patterns
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| **Stack** | HIGH | All recommended technologies are production-proven with active maintenance. @napi-rs/canvas benchmarks verified, FFmpeg patterns well-documented, Fastify mature ecosystem. |
-| **Features** | HIGH | Feature expectations verified against 4 major competitors (json2video, Creatomate, Shotstack, Remotion). Table stakes clearly defined. Differentiators validated (no competitor has AI generation). |
-| **Architecture** | HIGH | Scene graph pattern used by Remotion and Motion Canvas. Frame-by-frame rendering is proven approach. Data flow verified against multiple implementations. Component boundaries clear. |
-| **Pitfalls** | HIGH | All critical pitfalls have documented occurrences with GitHub issues, blog posts, or official docs. Prevention strategies verified with working code examples. Phase mapping complete. |
+| Stack | HIGH | All technologies verified against official docs and npm registry, versions confirmed available |
+| Features | HIGH | Patterns validated against 5+ reference tools (Cursor, ChatGPT, Postman, Insomnia, Figma) |
+| Architecture | HIGH | Based on existing codebase analysis and official Hono/Vite documentation |
+| Pitfalls | HIGH | All pitfalls sourced from GitHub issues, official discussions, and production experience reports |
 
-**Overall confidence: HIGH** - This domain has mature patterns and well-documented solutions. The research uncovered no major unknowns or unresolved questions. All critical decision points have clear, evidence-backed recommendations.
+**Overall confidence:** HIGH
 
-### Gaps to Address During Planning
+Research is backed by official documentation, verified package versions, and established patterns from production tools. The local dev tool scope reduces uncertainty around scaling, authentication, and deployment complexity.
 
-1. **GPU acceleration scope:** Should NVENC hardware encoding be MVP or post-MVP? Optional but provides 3-5x encoding speedup on supported hardware. Recommend post-MVP unless target deployment has known GPU availability.
+### Gaps to Address
 
-2. **WebCodecs investigation:** @napi-rs/canvas supports @napi-rs/webcodecs for video encoding. Worth deeper investigation as potential FFmpeg alternative for specific use cases. Low priority.
+- **AI provider choice:** Research doesn't recommend specific provider (OpenRouter vs Anthropic vs OpenAI). Decision needed in Phase 2 based on cost, rate limits, and model quality preferences.
+- **FFmpeg thumbnail extraction:** Assumed existing FFmpeg integration can handle thumbnail generation. Verify in Phase 4 or add as research task.
+- **Windows testing:** Research based primarily on macOS patterns. File path handling and system player commands need validation on Windows (alternative: accept macOS-only for MVP).
+- **SSE connection limits:** Research identifies 6-connection limit but recommends accepting limitation for local dev. Monitor during testing — if it's painful, implement BroadcastChannel sharing pattern.
 
-3. **Memory profiling for 4K:** Need to benchmark memory usage with 4K video frames (3840x2160). May need Node.js heap size tuning or frame pooling. Recommend starting with 1080p cap, test 4K carefully.
+## Sources
 
-4. **Rate limit strategy:** Need to define specific limits per plan tier. Research provides patterns but not specific numbers. Requires business input on abuse scenarios and acceptable load.
+### Primary (HIGH confidence)
+- [Vite Official Documentation](https://vite.dev/config/server-options.html) — proxy configuration, build options
+- [Hono Official Documentation](https://hono.dev/docs/) — CORS middleware, streaming, serveStatic
+- [Tailwind CSS v4 Documentation](https://tailwindcss.com/docs) — Vite plugin integration
+- [shadcn/ui Documentation](https://ui.shadcn.com/docs/installation/vite) — Vite installation, component usage
+- [TanStack Query Documentation](https://tanstack.com/query/latest/docs/framework/react/overview) — caching, optimistic updates
+- [React Official Documentation](https://react.dev/) — hooks, cleanup, streaming patterns
+- NPM Registry — all package versions verified as available and stable
 
-5. **Template library content:** AI generation is differentiator, but starter templates are table stakes. Need to define what templates ship with v1 (e.g., "Social Post", "Promo Video", "Caption Video").
+### Secondary (MEDIUM confidence)
+- [Cursor AI Features](https://cursor.com/features) — chat patterns, @ mentions, diff view
+- [Postman vs Insomnia Comparison](https://apyhub.com/blog/postman-vs-insomnia) — dev tool UX patterns
+- [Figma Version History Strategies](https://www.nobledesktop.com/learn/figma/strategies-for-managing-design-updates-with-figmas-version-history) — version timeline patterns
+- [Chat UI Design Patterns 2025](https://bricxlabs.com/blogs/message-screen-ui-deisgn) — input placement, hierarchy
+- [PatternFly Design System](https://www.patternfly.org/) — conversation design, card views
+- [GitHub Issues and Discussions](https://github.com/vitejs/vite/discussions/) — Vite proxy IPv6, CORS, production build
 
----
-
-## Sources Summary
-
-**Research aggregated from 50+ sources across 4 research files:**
-
-### Stack Research (STACK.md)
-- @napi-rs/canvas GitHub and npm docs
-- fluent-ffmpeg documentation
-- Fastify vs Hono performance comparisons
-- OpenRouter API reference
-- BullMQ and p-queue documentation
-
-### Features Research (FEATURES.md)
-- json2video, Creatomate, Shotstack, Remotion API docs
-- Competitor feature comparison articles
-- GSAP, Remotion animation documentation
-- API best practices guides
-
-### Architecture Research (ARCHITECTURE.md)
-- Remotion, Motion Canvas, Creatomate architecture
-- Entity-Component-System pattern references
-- canvas2video implementation
-- FFmpeg streaming guides
-- BullMQ queue architecture
-
-### Pitfalls Research (PITFALLS.md)
-- GitHub issues for skia-canvas, node-canvas, fluent-ffmpeg
-- Memory leak debugging articles
-- FFmpeg color space documentation
-- OWASP LLM security guidelines
-- Docker optimization guides
-
-**All sources verified as current (2024-2026) and authoritative.** Research prioritized official documentation, GitHub issues with confirmed solutions, and production engineering blogs from companies solving similar problems.
+### Tertiary (LOW confidence)
+- [State Management in 2026](https://www.nucamp.co/blog/state-management-in-2026-redux-context-api-and-modern-patterns) — trends and patterns, needs validation in practice
+- [Monorepo Setup Tutorials](https://blog.abrocadabro.com/set-up-a-turborepo-monorepo-with-vite-typescript-tailwind-express-and-react-vue) — setup patterns, not official docs
 
 ---
-
-## Ready for Requirements
-
-This research summary provides sufficient foundation to proceed with detailed requirements definition. All major technical decisions have clear recommendations backed by evidence. Risk areas are identified with prevention strategies. Build order is dependency-informed and matches industry patterns.
-
-**Next steps:**
-1. Define exact JSON schema with examples
-2. Specify API endpoints and contracts
-3. Detail element property tables
-4. Create test plan for critical pitfalls
-5. Define deployment architecture (Docker, env vars, health checks)
-
-**Key questions for requirements phase:**
-- What are the specific rate limit numbers per tier?
-- What starter templates should ship with v1?
-- What's the maximum supported video duration and resolution?
-- Should webhooks be in v1 or v1.1?
-- What's the output file retention policy?
+*Research completed: 2026-01-27*
+*Ready for roadmap: yes*

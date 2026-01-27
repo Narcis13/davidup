@@ -1,731 +1,617 @@
-# Architecture Research: GameMotion
+# Architecture Patterns: React Frontend + Hono API Integration
 
-**Researched:** 2026-01-24
-**Domain:** Programmatic video generation
-**Confidence:** HIGH (verified against Remotion, Motion Canvas, Creatomate, canvas2video patterns)
+**Domain:** Local dev studio UI for JSON-to-video rendering engine
+**Researched:** 2026-01-27
+**Confidence:** HIGH (based on existing codebase analysis + official documentation)
 
 ## Executive Summary
 
-Programmatic video generation engines follow a consistent architectural pattern: JSON specification -> internal scene graph -> frame-by-frame rendering -> video encoding. The key architectural decisions center on:
+The GameMotion Studio frontend should integrate with the existing Hono API using a **single-process monorepo architecture** where React (Vite) talks to the existing Hono server. For local development, this is the simplest approach that avoids CORS complexity while maintaining type safety via Hono RPC.
 
-1. **Scene representation** - How elements and timelines are modeled internally
-2. **Render pipeline** - Frame generation strategy and asset management
-3. **Encoding integration** - FFmpeg process management and error handling
-4. **Scaling path** - From single-process to distributed workers
-
-GameMotion's proposed architecture aligns well with established patterns. This document provides specific guidance on component boundaries, data flow, and build order.
+**Key architectural decision:** Keep the existing Hono server as-is, add React frontend in a separate package within the monorepo, use Vite proxy in development, and serve static files from Hono in production.
 
 ---
 
-## High-Level Architecture
+## Recommended Architecture
 
 ```
-                              +------------------+
-                              |   API Gateway    |
-                              |   (Fastify)      |
-                              +--------+---------+
-                                       |
-                    +------------------+------------------+
-                    |                  |                  |
-            +-------v-------+  +-------v-------+  +-------v-------+
-            | Render Queue  |  |  AI Service   |  | Asset Service |
-            | (p-queue)     |  | (OpenRouter)  |  | (File Mgmt)   |
-            +-------+-------+  +---------------+  +-------+-------+
-                    |                                     |
-            +-------v---------------------------------------v-------+
-            |                    Render Service                     |
-            +-------------------------------------------------------+
-            |  +-------------+  +-------------+  +-------------+   |
-            |  | JSON Parser |  | Scene Graph |  | Interpolator|   |
-            |  +------+------+  +------+------+  +------+------+   |
-            |         |                |                |          |
-            |         v                v                v          |
-            |  +----------------------------------------------------+
-            |  |              Frame Generator                       |
-            |  |  +----------+  +----------+  +----------+         |
-            |  |  | Element  |  | Element  |  | Element  |  ...    |
-            |  |  | Renderer |  | Renderer |  | Renderer |         |
-            |  |  +----------+  +----------+  +----------+         |
-            |  +----------------------------------------------------+
-            |                        |                              |
-            |                +-------v--------+                     |
-            |                |  Canvas (2D)   |                     |
-            |                | node-canvas/   |                     |
-            |                | skia-canvas    |                     |
-            |                +-------+--------+                     |
-            +-------------------------------------------------------+
-                                     |
-                                     | PNG frames (streamed)
-                                     v
-                              +------+------+
-                              |   FFmpeg    |
-                              | (child proc)|
-                              +------+------+
-                                     |
-                                     v
-                              +------+------+
-                              |  MP4 Output |
-                              +-------------+
+gamemotion/
+├── package.json              # Root workspace config
+├── packages/
+│   ├── api/                  # Existing Hono backend (move src/ here)
+│   │   ├── src/
+│   │   │   ├── api/          # Existing routes, services, middleware
+│   │   │   ├── render/       # Existing rendering engine
+│   │   │   ├── schemas/      # Zod schemas (shared)
+│   │   │   └── index.ts
+│   │   └── package.json
+│   │
+│   ├── studio/               # NEW: React frontend
+│   │   ├── src/
+│   │   │   ├── components/   # React components
+│   │   │   ├── hooks/        # Custom hooks (useChat, useLibrary)
+│   │   │   ├── pages/        # Route pages
+│   │   │   ├── lib/          # Utilities, API client
+│   │   │   └── main.tsx
+│   │   ├── vite.config.ts    # Proxy to API in dev
+│   │   └── package.json
+│   │
+│   └── shared/               # NEW: Shared types (optional)
+│       ├── src/
+│       │   └── types.ts      # Types used by both packages
+│       └── package.json
+│
+├── data/                     # NEW: Persistent storage
+│   ├── studio.db             # SQLite database
+│   ├── templates/            # User template JSON files
+│   └── videos/               # Rendered video metadata
+│
+└── outputs/                  # Existing: Rendered MP4 files
+```
+
+### Alternative: Flat Structure (Simpler Start)
+
+For MVP, consider a simpler flat structure without moving existing code:
+
+```
+gamemotion/
+├── src/                      # Existing backend code (unchanged)
+│   ├── api/
+│   ├── render/
+│   └── ...
+├── studio/                   # NEW: React frontend (adjacent)
+│   ├── src/
+│   ├── vite.config.ts
+│   └── package.json
+├── data/                     # NEW: SQLite + metadata
+│   └── studio.db
+├── outputs/                  # Existing
+└── package.json              # Add workspaces config
+```
+
+**Recommendation:** Start with flat structure. Refactor to full monorepo only if needed.
+
+---
+
+## Component Boundaries
+
+| Component | Responsibility | Communicates With |
+|-----------|---------------|-------------------|
+| **Hono API** (existing) | Video rendering, AI generation, job queue | SQLite (new), file system |
+| **React Studio** (new) | Chat UI, library browsing, video preview | Hono API via HTTP |
+| **SQLite Database** (new) | Templates, videos, conversations persistence | Hono API only |
+| **System Player** | Video playback | Spawned by Studio via Hono API |
+
+### Data Flow
+
+```
+User Input (Chat)
+       │
+       ▼
+┌──────────────────┐
+│  React Studio    │  ← Vite dev server (port 5173)
+│  (Browser)       │
+└────────┬─────────┘
+         │ HTTP (fetch/hc)
+         │ /api/* proxied to :3000 in dev
+         ▼
+┌──────────────────┐
+│   Hono API       │  ← Node.js server (port 3000)
+│   (Express-like) │
+├──────────────────┤
+│ Routes:          │
+│  /generate       │ → AI template generation
+│  /render         │ → Video rendering queue
+│  /templates      │ → Template CRUD
+│  /library/*      │ → NEW: Library management
+│  /chat/*         │ → NEW: Conversation history
+│  /preview/*      │ → NEW: System player launch
+└────────┬─────────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+┌────────┐ ┌─────────┐
+│ SQLite │ │ FFmpeg  │
+│  (DB)  │ │ (Video) │
+└────────┘ └─────────┘
 ```
 
 ---
 
-## Component Analysis
+## Integration Points with Existing Hono API
 
-### 1. JSON Spec Parser
+### Existing Endpoints (No Changes Needed)
 
-**Responsibility:** Transform JSON video specification into validated internal representation.
+| Endpoint | Method | Purpose | Studio Usage |
+|----------|--------|---------|--------------|
+| `/health` | GET | Health check | Connection test |
+| `/generate` | POST | AI template generation | Chat flow |
+| `/render` | POST | Submit render job | After template approval |
+| `/render/:jobId` | GET | Poll job status | Progress tracking |
+| `/templates` | GET | List built-in templates | Template browser |
+| `/templates/:id` | GET | Get template details | Template preview |
+| `/templates/:id/render` | POST | Render with variables | Quick render |
+| `/download/:jobId` | GET | Download video | System player |
+| `/assets` | POST | Upload file | Asset management |
 
-**Pattern from Creatomate:** JSON-based "RenderScript" format describes videos from start to finish. Similar to HTML for creating videos - it's a component-based architecture where elements nest and compose.
+### New Endpoints Needed
 
-**Recommended structure:**
+| Endpoint | Method | Purpose | Priority |
+|----------|--------|---------|----------|
+| `/studio/conversations` | GET | List chat conversations | P1 |
+| `/studio/conversations` | POST | Create conversation | P1 |
+| `/studio/conversations/:id` | GET | Get conversation | P1 |
+| `/studio/conversations/:id/messages` | POST | Add message | P1 |
+| `/studio/templates` | GET | List user templates | P1 |
+| `/studio/templates` | POST | Save template | P1 |
+| `/studio/templates/:id` | GET/PUT/DELETE | CRUD | P1 |
+| `/studio/templates/:id/versions` | GET | Version history | P2 |
+| `/studio/videos` | GET | List rendered videos | P1 |
+| `/studio/videos/:id` | GET | Video metadata | P1 |
+| `/studio/preview/:jobId` | POST | Open in system player | P1 |
+
+### Authentication Strategy
+
+**For local dev studio:** Skip API key auth entirely for `/studio/*` routes.
 
 ```typescript
-// Input: Raw JSON spec
-interface VideoSpec {
-  version: string;
-  output: OutputConfig;
-  timeline: TimelineSpec;
-  assets?: AssetDefinition[];
-  variables?: Record<string, unknown>;
-}
+// In app.ts - NO auth for studio routes (local dev only)
+app.route('/studio', studioRoutes);  // No authMiddleware
 
-// Internal: Validated, resolved representation
-interface ResolvedSpec {
-  output: ValidatedOutput;
-  timeline: ResolvedTimeline;
-  assetMap: Map<string, LoadedAsset>;
-  variableMap: Map<string, ResolvedValue>;
-}
+// Keep auth for external API routes
+app.use('/render/*', authMiddleware);
+app.use('/generate/*', authMiddleware);
 ```
 
-**Key responsibilities:**
-- JSON Schema validation (use Ajv for speed and reliability)
-- Variable substitution and resolution
-- Asset reference validation (do assets exist?)
-- Duration and timing calculation
-- Composition flattening (nested compositions -> flat timeline)
-
-**Data flow:**
-1. Receive raw JSON
-2. Validate against schema
-3. Resolve variables (`{{user.name}}` -> actual values)
-4. Resolve asset references
-5. Calculate total duration
-6. Return validated spec or validation errors
+**Rationale:** Studio is for local development. Adding auth friction makes no sense. The existing auth remains for API consumers (Postman, curl, integrations).
 
 ---
 
-### 2. Scene Graph / Timeline
+## Data Storage Approach
 
-**Responsibility:** Model the temporal structure of the video - what appears when, for how long, with what properties.
+### Recommendation: SQLite with better-sqlite3
 
-**Pattern from Motion Canvas:** Scenes are collections of nodes organized in a tree hierarchy, similar to DOM. Each scene has its own timeline. Elements have parent-child relationships.
+**Why SQLite over JSON files:**
+- Atomic operations (no race conditions)
+- Query capabilities (search, filter, sort)
+- Transactions for related updates
+- Single file backup
+- Zero configuration
 
-**Pattern from Remotion:** Compositions contain Sequences. Each Sequence time-shifts content independently. The `from` property controls when content appears on the timeline.
+**Why better-sqlite3:**
+- Synchronous API (simpler code)
+- Fastest SQLite library for Node.js
+- No async callback hell
+- Battle-tested
 
-**Recommended structure:**
+### Database Schema
 
-```typescript
-interface Timeline {
-  duration: number;       // Total frames
-  fps: number;
-  tracks: Track[];        // Parallel tracks (like video editor tracks)
-}
+```sql
+-- Conversations (chat history)
+CREATE TABLE conversations (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 
-interface Track {
-  id: string;
-  clips: Clip[];          // Non-overlapping clips on this track
-}
+-- Messages within conversations
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  metadata TEXT,  -- JSON: template_id, video_id references
+  created_at INTEGER NOT NULL
+);
 
-interface Clip {
-  id: string;
-  element: ElementNode;   // What to render
-  startFrame: number;     // When it appears
-  endFrame: number;       // When it disappears
-  animations: Animation[]; // Property changes over time
-}
+-- User templates (saved from AI generation or manual)
+CREATE TABLE templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  spec TEXT NOT NULL,  -- JSON VideoSpec
+  variables TEXT,      -- JSON array of variable definitions
+  source_conversation_id TEXT REFERENCES conversations(id),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 
-interface ElementNode {
-  type: ElementType;
-  properties: ElementProperties;
-  children?: ElementNode[];  // For groups/compositions
-}
+-- Template versions (for history)
+CREATE TABLE template_versions (
+  id TEXT PRIMARY KEY,
+  template_id TEXT NOT NULL REFERENCES templates(id),
+  version INTEGER NOT NULL,
+  spec TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 
-type ElementType = 'text' | 'image' | 'shape' | 'video' | 'group';
+-- Rendered videos (metadata, links to outputs/)
+CREATE TABLE videos (
+  id TEXT PRIMARY KEY,          -- Same as job_id
+  template_id TEXT REFERENCES templates(id),
+  conversation_id TEXT REFERENCES conversations(id),
+  status TEXT NOT NULL,
+  output_path TEXT,             -- Path to MP4 in outputs/
+  duration_ms INTEGER,
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+
+-- Indexes
+CREATE INDEX idx_messages_conversation ON messages(conversation_id);
+CREATE INDEX idx_templates_updated ON templates(updated_at DESC);
+CREATE INDEX idx_videos_created ON videos(created_at DESC);
 ```
 
-**Key responsibilities:**
-- Maintain element tree structure
-- Track timing (start/end frames per element)
-- Store animation keyframes
-- Provide query interface: "What elements are visible at frame N?"
-- Handle element z-ordering (track order or explicit z-index)
+### Database Location
 
-**Critical insight from research:** Remotion is "only aware of the current frame" - it doesn't see the component statically. This is the right model: the scene graph answers the question "what should be rendered at frame N?" not "what is the entire video?"
+```
+data/studio.db
+```
+
+Add to `.gitignore`:
+```
+data/
+```
 
 ---
 
-### 3. Animation / Interpolation Engine
+## Frontend/Backend Communication Patterns
 
-**Responsibility:** Calculate property values at any given frame based on keyframes.
+### Option A: Hono RPC (Recommended)
 
-**Pattern from industry:** Keyframe interpolation with multiple easing functions. Linear, ease-in, ease-out, bezier curves.
+Type-safe API client with zero code generation.
 
-**Recommended structure:**
-
+**Server side (api/src/api/routes/studio.ts):**
 ```typescript
-interface Animation {
-  property: string;       // 'x', 'opacity', 'scale', etc.
-  keyframes: Keyframe[];
-}
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
 
-interface Keyframe {
-  frame: number;
-  value: number | string | Color;
-  easing: EasingFunction;
-}
-
-type EasingFunction =
-  | 'linear'
-  | 'easeIn' | 'easeOut' | 'easeInOut'
-  | { type: 'bezier'; points: [number, number, number, number] };
-
-// Interpolator service
-interface Interpolator {
-  getValue(animation: Animation, frame: number): PropertyValue;
-  getElementState(element: ElementNode, frame: number): ResolvedProperties;
-}
-```
-
-**Key responsibilities:**
-- Keyframe lookup (find surrounding keyframes for current frame)
-- Value interpolation (apply easing function)
-- Type-specific interpolation (numbers, colors, transforms)
-- Caching computed values when possible
-
-**Build vs Buy:** Consider using a library like `bezier-easing` for bezier curves. The math is well-established but easy to get wrong.
-
----
-
-### 4. Element Renderers
-
-**Responsibility:** Draw specific element types to the canvas.
-
-**Pattern from ECS (Entity-Component-System):** Components are data, Systems operate on components. Each element type has a renderer system that knows how to draw it.
-
-**Recommended structure:**
-
-```typescript
-// Element renderer interface
-interface ElementRenderer<T extends ElementType> {
-  type: T;
-  render(
-    ctx: CanvasRenderingContext2D,
-    element: ElementNode & { type: T },
-    state: ResolvedProperties,
-    assets: AssetManager
-  ): void | Promise<void>;
-}
-
-// Registry pattern for renderers
-class RendererRegistry {
-  private renderers = new Map<ElementType, ElementRenderer<any>>();
-
-  register<T extends ElementType>(renderer: ElementRenderer<T>): void;
-  render(ctx: CanvasRenderingContext2D, element: ElementNode, state: ResolvedProperties, assets: AssetManager): void | Promise<void>;
-}
-```
-
-**Element types and their responsibilities:**
-
-| Element | Properties | Rendering Considerations |
-|---------|------------|-------------------------|
-| **text** | content, font, size, color, alignment | Multi-line, word wrap, font loading |
-| **image** | src, fit (cover/contain/fill), crop | Aspect ratio, image loading/caching |
-| **shape** | type (rect/circle/polygon), fill, stroke | Path construction, gradient fills |
-| **video** | src, startTime, playbackRate | Frame extraction, sync issues |
-| **group** | children, transforms | Recursive rendering, transform matrices |
-
-**Key insight from Konva research:** Memory management is critical. Hold references to reusable objects (images, fonts) but explicitly clean up. Node.js + Canvas runs on native Cairo - memory leaks are real.
-
----
-
-### 5. Frame Generator
-
-**Responsibility:** Orchestrate rendering of a single frame.
-
-**Pattern from canvas2video and Remotion:** Generate each frame separately, then stitch into video. Frame-by-frame is slower but much simpler than real-time composition.
-
-**Recommended structure:**
-
-```typescript
-class FrameGenerator {
-  constructor(
-    private timeline: Timeline,
-    private renderers: RendererRegistry,
-    private assets: AssetManager,
-    private interpolator: Interpolator
-  ) {}
-
-  async generateFrame(frameNumber: number, canvas: Canvas): Promise<Buffer> {
-    const ctx = canvas.getContext('2d');
-
-    // 1. Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 2. Draw background
-    this.drawBackground(ctx);
-
-    // 3. Get visible elements at this frame
-    const visibleElements = this.timeline.getElementsAtFrame(frameNumber);
-
-    // 4. Sort by z-order
-    const sorted = this.sortByZOrder(visibleElements);
-
-    // 5. Render each element
-    for (const element of sorted) {
-      const state = this.interpolator.getElementState(element, frameNumber);
-      await this.renderers.render(ctx, element, state, this.assets);
+const studioRoutes = new Hono()
+  .get('/conversations', async (c) => {
+    const conversations = db.getConversations();
+    return c.json({ conversations });
+  })
+  .post('/conversations',
+    zValidator('json', z.object({ title: z.string() })),
+    async (c) => {
+      const { title } = c.req.valid('json');
+      const conversation = db.createConversation(title);
+      return c.json(conversation, 201);
     }
+  );
 
-    // 6. Export as PNG buffer
-    return canvas.toBuffer('image/png');
-  }
+// Export type for client
+export type StudioRoutes = typeof studioRoutes;
+```
+
+**Client side (studio/src/lib/api.ts):**
+```typescript
+import { hc } from 'hono/client';
+import type { StudioRoutes } from '@gamemotion/api/routes/studio';
+
+// Create typed client
+export const api = hc<StudioRoutes>('/api/studio');
+
+// Usage with full type inference
+const res = await api.conversations.$get();
+const data = await res.json();
+// data.conversations is typed!
+```
+
+### Option B: Plain Fetch with Shared Types
+
+If Hono RPC setup is complex, fall back to standard fetch with manually shared types.
+
+**Shared types (shared/src/types.ts):**
+```typescript
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ConversationListResponse {
+  conversations: Conversation[];
 }
 ```
 
-**Performance insight from Konva research:** Reuse the Stage/Canvas object between frames. Creating a new canvas for each frame is expensive. Cache images and filter results.
+**Client (studio/src/lib/api.ts):**
+```typescript
+import type { ConversationListResponse } from '@gamemotion/shared';
+
+export async function getConversations(): Promise<ConversationListResponse> {
+  const res = await fetch('/api/studio/conversations');
+  return res.json();
+}
+```
+
+**Recommendation:** Start with Option B (simpler), migrate to Option A once types stabilize.
 
 ---
 
-### 6. Asset Manager
+## Development Workflow
 
-**Responsibility:** Load, cache, and serve assets (images, fonts, audio, video clips).
+### Vite Proxy Configuration
 
-**Pattern from Remotion:** Preloading vs Prefetching. Preloading signals the browser to start downloading. Prefetching downloads fully and converts to blob URL for instant access.
-
-**Recommended structure:**
-
+**studio/vite.config.ts:**
 ```typescript
-interface AssetManager {
-  // Preload all assets before render starts
-  preloadAll(assetRefs: AssetReference[]): Promise<PreloadResult>;
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-  // Get loaded asset
-  get(id: string): LoadedAsset | undefined;
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      // Proxy download routes for video preview
+      '/download': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
+  },
+});
+```
 
-  // Get with lazy load fallback
-  getOrLoad(ref: AssetReference): Promise<LoadedAsset>;
+### Development Commands
 
-  // Cleanup
-  dispose(): void;
-}
-
-interface LoadedAsset {
-  type: 'image' | 'font' | 'audio' | 'video';
-  data: Image | FontFace | AudioBuffer | VideoFrameExtractor;
-  metadata: AssetMetadata;
-}
-
-class AssetCache {
-  private cache = new Map<string, LoadedAsset>();
-  private maxSize: number;
-  private currentSize: number = 0;
-
-  // LRU eviction when cache exceeds maxSize
+**Root package.json:**
+```json
+{
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:studio\"",
+    "dev:api": "node --import tsx src/api/server.ts",
+    "dev:studio": "npm run dev --workspace=studio",
+    "build": "npm run build --workspaces",
+    "start": "node dist/api/server.js"
+  },
+  "workspaces": ["studio"]
 }
 ```
 
-**Key responsibilities:**
-- Load images into node-canvas compatible format
-- Register fonts for text rendering
-- Extract frames from video clips (FFmpeg or ffprobe)
-- Cache with size limits (images can be large)
-- Handle load failures gracefully (placeholder or error)
-
-**Preload strategy:**
-1. Parse spec, extract all asset references
-2. Validate all assets exist (fail fast if missing)
-3. Preload all images and fonts before frame 1
-4. For video clips, prepare frame extractor but don't load all frames
-
----
-
-### 7. Video Encoder (FFmpeg Integration)
-
-**Responsibility:** Stitch frames into video file with optional audio.
-
-**Pattern from multiple sources:** Use FFmpeg as child process. Stream frames via pipe for memory efficiency. Handle process lifecycle carefully.
-
-**Recommended structure:**
-
-```typescript
-interface EncoderOptions {
-  fps: number;
-  width: number;
-  height: number;
-  codec: 'h264' | 'h265' | 'vp9';
-  quality: 'draft' | 'normal' | 'high';
-  audioPath?: string;
-}
-
-class VideoEncoder {
-  private process: ChildProcess | null = null;
-
-  start(outputPath: string, options: EncoderOptions): void {
-    // Spawn FFmpeg with appropriate args
-    // Input: pipe:0 (stdin) for PNG frames
-    // Output: outputPath
-  }
-
-  writeFrame(pngBuffer: Buffer): Promise<void> {
-    // Write to stdin pipe
-    // Handle backpressure (pause if FFmpeg can't keep up)
-  }
-
-  async finish(): Promise<EncoderResult> {
-    // Close stdin pipe
-    // Wait for FFmpeg to exit
-    // Return success/failure + output path
-  }
-
-  abort(): void {
-    // Kill FFmpeg process
-    // Clean up partial output
-  }
-}
-```
-
-**Critical patterns from research:**
-
-1. **Stream frames, don't buffer:** Write frames to FFmpeg stdin as they're generated. Don't store all frames in memory.
-
-2. **Handle backpressure:** FFmpeg might not encode as fast as you generate. Check `process.stdin.write()` return value; pause generation if false.
-
-3. **Increase threadpool:** If spawning multiple FFmpeg processes, set `UV_THREADPOOL_SIZE` environment variable higher.
-
-4. **Capture stderr:** FFmpeg logs to stderr. Capture it for debugging but don't let it fill up buffers.
-
-5. **Graceful shutdown:** On error, kill the FFmpeg process and clean up partial output files.
-
-**FFmpeg command pattern:**
+### Single-Command Development
 
 ```bash
-ffmpeg -y \
-  -f image2pipe -framerate {fps} -i pipe:0 \  # Input: PNG stream
-  -c:v libx264 -preset medium -crf 23 \        # Video codec
-  -pix_fmt yuv420p \                           # Pixel format for compatibility
-  {outputPath}
+npm run dev
+# Starts:
+# - Hono API on http://localhost:3000
+# - Vite dev server on http://localhost:5173
+# - Vite proxies /api/* to :3000
 ```
 
 ---
 
-### 8. Job Queue / Render Orchestrator
+## Production Deployment (Local)
 
-**Responsibility:** Manage concurrent render jobs with resource limits.
+### Option A: Serve Static from Hono (Recommended)
 
-**Pattern from BullMQ research:** Queue-based processing with configurable concurrency. Priority levels for different job types.
+Build React, serve from Hono. Single process.
 
-**Recommended MVP structure (p-queue):**
-
+**api/src/api/app.ts (modified):**
 ```typescript
-import PQueue from 'p-queue';
+import { serveStatic } from '@hono/node-server/serve-static';
 
-class RenderQueue {
-  private queue: PQueue;
-  private activeJobs = new Map<string, RenderJob>();
+// API routes first (higher priority)
+app.route('/render', renderRoutes);
+app.route('/generate', generateRoutes);
+app.route('/studio', studioRoutes);
 
-  constructor(concurrency: number = 2) {
-    this.queue = new PQueue({
-      concurrency,
-      timeout: 10 * 60 * 1000,  // 10 minute timeout
-    });
+// Serve React build for all other routes
+app.use('/*', serveStatic({ root: './studio/dist' }));
+
+// SPA fallback - serve index.html for client-side routing
+app.get('*', serveStatic({ path: './studio/dist/index.html' }));
+```
+
+**Build & Start:**
+```bash
+npm run build           # Builds API + Studio
+npm start              # Single process serves everything
+# Open http://localhost:3000
+```
+
+### Option B: Separate Processes
+
+If you need separate scaling (unlikely for local dev):
+
+```bash
+# Terminal 1
+npm run start:api       # Port 3000
+
+# Terminal 2
+npm run preview --workspace=studio  # Port 4173
+```
+
+**Recommendation:** Option A. Single process is simpler for local dev tool.
+
+---
+
+## Build Order Considerations
+
+### Dependency Graph
+
+```
+shared (types)
+    │
+    ├──► api (backend)
+    │       │
+    │       └──► studio (frontend, needs API types)
+    │
+    └──► studio (frontend, uses shared types)
+```
+
+### Build Sequence
+
+1. **shared** - TypeScript types (if using separate package)
+2. **api** - Backend, exports route types
+3. **studio** - Frontend, imports API types
+
+**Turbo or npm workspaces** handle this automatically via dependency declaration.
+
+### TypeScript Configuration
+
+**api/tsconfig.json:**
+```json
+{
+  "compilerOptions": {
+    "composite": true,  // Enable project references
+    "outDir": "./dist",
+    "declaration": true
   }
-
-  async enqueue(spec: VideoSpec): Promise<RenderJob> {
-    const job = new RenderJob(spec);
-    this.activeJobs.set(job.id, job);
-
-    const result = this.queue.add(async () => {
-      try {
-        return await this.executeRender(job);
-      } finally {
-        this.activeJobs.delete(job.id);
-      }
-    });
-
-    return job;
-  }
-
-  getStatus(jobId: string): JobStatus | undefined;
-  cancel(jobId: string): boolean;
 }
 ```
 
-**Concurrency considerations:**
-- Video rendering is CPU-bound (canvas drawing) and I/O-bound (FFmpeg encoding)
-- Default to 2 concurrent renders per CPU core
-- Monitor memory usage - each render needs ~100-500MB depending on resolution
-- Consider separate queues for preview (fast, low quality) vs final render
-
----
-
-## Data Flow: Complete Render Pipeline
-
-```
-1. API Request (JSON spec)
-        |
-        v
-2. JSON Validation (Ajv schema)
-        |
-        v
-3. Variable Resolution
-        |
-        v
-4. Asset Preloading
-        |  [All images, fonts loaded into memory]
-        v
-5. Scene Graph Construction
-        |  [Timeline with tracks, clips, elements]
-        v
-6. FFmpeg Process Start
-        |
-        v
-7. Frame Loop (frame 0 to duration-1)
-   |
-   +---> 7a. Query visible elements at frame N
-   |
-   +---> 7b. Interpolate properties for each element
-   |
-   +---> 7c. Render elements to canvas (sorted by z-order)
-   |
-   +---> 7d. Export canvas as PNG buffer
-   |
-   +---> 7e. Write PNG to FFmpeg stdin
-   |
-   +---> [repeat for next frame]
-        |
-        v
-8. FFmpeg Process Finish
-        |
-        v
-9. Cleanup (dispose assets, delete temp files)
-        |
-        v
-10. Return video URL/path
-```
-
-**Timing for a 30-second 1080p 30fps video (900 frames):**
-- Asset preload: 1-5 seconds (depends on asset count/size)
-- Frame generation: 5-30 seconds (depends on complexity)
-- FFmpeg encoding: 5-20 seconds (runs in parallel with generation)
-- Total: 15-60 seconds typical
-
----
-
-## Build Order
-
-Recommended order to build components (dependencies inform sequence):
-
-### Phase 1: Foundation
-Build these first - everything depends on them.
-
-| Component | Why First |
-|-----------|-----------|
-| **JSON Schema** | Defines the contract. Can't build anything without knowing the spec format. |
-| **Spec Parser** | Validates input, extracts structure. Blocks all downstream work. |
-| **Basic Types** | TypeScript interfaces for elements, timeline, animations. |
-
-### Phase 2: Core Rendering
-The heart of the system. Build end-to-end for single frame first.
-
-| Component | Depends On |
-|-----------|------------|
-| **Canvas Setup** | Types |
-| **Element Renderers (text, shape)** | Canvas, Types |
-| **Frame Generator** | Renderers |
-| **Single Frame Test** | Frame Generator |
-
-### Phase 3: Timeline & Animation
-Extend from single frame to full video.
-
-| Component | Depends On |
-|-----------|------------|
-| **Timeline Model** | Types |
-| **Interpolator** | Timeline |
-| **Scene Graph Query** | Timeline, Interpolator |
-| **Multi-frame Loop** | Frame Generator, Scene Graph |
-
-### Phase 4: Video Output
-Connect frames to FFmpeg.
-
-| Component | Depends On |
-|-----------|------------|
-| **FFmpeg Encoder** | - (independent) |
-| **Render Pipeline** | Frame Generator, Encoder |
-| **Asset Manager** | Types |
-| **Image Element** | Asset Manager, Renderers |
-
-### Phase 5: API Layer
-Expose rendering as a service.
-
-| Component | Depends On |
-|-----------|------------|
-| **Job Queue** | Render Pipeline |
-| **REST API** | Job Queue |
-| **Progress Tracking** | Job Queue |
-| **Webhooks** | Job Queue |
-
-### Phase 6: AI Integration
-Add AI-driven features.
-
-| Component | Depends On |
-|-----------|------------|
-| **AI Service** | REST API |
-| **Prompt Processing** | AI Service |
-| **Spec Generation** | AI Service, Spec Parser |
-
----
-
-## Scaling Path
-
-| Scale | Architecture | Changes from Previous | Trigger for Next |
-|-------|--------------|----------------------|------------------|
-| **MVP** (1-2 concurrent) | Single process, p-queue, local files | - | Queue depth > 10 consistently |
-| **Growth** (10-50 concurrent) | Single server, BullMQ + Redis, S3 storage | Add Redis, move files to S3, increase server resources | Single server CPU > 80%, or need multiple servers for availability |
-| **Scale** (100+ concurrent) | Multiple worker servers, shared Redis, load balancer | Separate API from workers, horizontal worker scaling | Worker costs, need geographic distribution |
-| **Enterprise** | Kubernetes, auto-scaling worker pools, CDN | Container orchestration, auto-scaling policies | Complex deployment needs, multi-region |
-
-**Key migration points:**
-
-1. **p-queue -> BullMQ:** When you need persistence (job survives restart), visibility (dashboard), or multiple servers.
-
-2. **Local files -> S3:** When disk fills up, or when you need multiple servers accessing same files, or when you need CDN delivery.
-
-3. **Single server -> Workers:** When CPU is bottleneck. Render workers can scale horizontally; API server stays small.
-
----
-
-## Error Boundaries
-
-Where to catch and handle errors, and what to do:
-
-### Boundary 1: API Input Validation
-**Errors:** Invalid JSON, schema violations, missing required fields
-**Handling:** Return 400 with detailed validation errors
-**Recovery:** None needed - fail fast
-
-### Boundary 2: Asset Loading
-**Errors:** Asset not found (404), network timeout, corrupt file
-**Handling:**
-- Try alternate sources if configured
-- Use placeholder for non-critical assets
-- Fail render if critical asset missing
-**Recovery:** Retry with exponential backoff for network errors
-
-### Boundary 3: Frame Rendering
-**Errors:** Canvas errors, font rendering failures, out of memory
-**Handling:**
-- Log frame number and element that failed
-- For non-critical elements, skip and continue
-- For critical failures, abort render
-**Recovery:** Consider reducing quality or resolution for memory issues
-
-### Boundary 4: FFmpeg Process
-**Errors:** Process crash, encoding error, disk full, timeout
-**Handling:**
-- Capture stderr for diagnostics
-- Clean up partial output file
-- Mark job as failed with error details
-**Recovery:**
-- Retry once for transient failures
-- For disk full, alert and halt new jobs
-- For consistent failures, check FFmpeg installation
-
-### Boundary 5: Job Queue
-**Errors:** Job timeout, job abandoned (server restart)
-**Handling:**
-- Mark job as failed after timeout
-- Clean up any partial resources
-- Notify via webhook if configured
-**Recovery:** Jobs should be idempotent - safe to retry
-
-**Error code taxonomy:**
-
-```typescript
-enum RenderErrorCode {
-  // 4xx - Client errors (don't retry)
-  INVALID_SPEC = 'INVALID_SPEC',
-  ASSET_NOT_FOUND = 'ASSET_NOT_FOUND',
-  UNSUPPORTED_FORMAT = 'UNSUPPORTED_FORMAT',
-
-  // 5xx - Server errors (may retry)
-  RENDER_FAILED = 'RENDER_FAILED',
-  ENCODER_CRASHED = 'ENCODER_CRASHED',
-  OUT_OF_MEMORY = 'OUT_OF_MEMORY',
-  TIMEOUT = 'TIMEOUT',
-
-  // Retryable
-  TRANSIENT_FAILURE = 'TRANSIENT_FAILURE',
+**studio/tsconfig.json:**
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@gamemotion/api/*": ["../src/*"]  // Or via workspace package
+    }
+  },
+  "references": [
+    { "path": "../" }  // Reference main project
+  ]
 }
 ```
 
 ---
 
-## Open Architecture Questions
+## Patterns to Follow
 
-Decisions to make during planning/implementation:
+### Pattern 1: Optimistic Updates for Chat
 
-1. **Canvas backend: node-canvas vs skia-canvas?**
-   - node-canvas: More mature, Cairo-based, well-documented
-   - skia-canvas: Skia-based (Chrome's engine), potentially faster, better text
-   - Recommendation: Start with node-canvas, benchmark skia-canvas later
+**What:** Update UI immediately, reconcile with server response.
 
-2. **Video clips: FFmpeg frame extraction vs dedicated library?**
-   - Need to extract frames from video clips used as elements
-   - FFmpeg can do it but requires managing another process
-   - Libraries like `ffmpeg-extract-frames` wrap FFmpeg
-   - Recommendation: FFmpeg with caching - extract needed frames on demand
+**Why:** Chat feels instant. User doesn't wait for AI.
 
-3. **Audio handling: Mix during render or post-process?**
-   - Option A: Generate silent video, mix audio with FFmpeg post
-   - Option B: Generate audio track in parallel, combine at end
-   - Recommendation: Post-process is simpler; do audio mixing as separate step
+**Example:**
+```typescript
+// Add message optimistically
+setMessages(prev => [...prev, { role: 'user', content: input }]);
 
-4. **Font handling: System fonts or embedded?**
-   - System fonts are simpler but inconsistent across servers
-   - Embedded fonts require font file management
-   - Recommendation: Support both; default to embedded for consistency
+// Then send to server
+const response = await api.conversations[':id'].messages.$post({
+  param: { id: conversationId },
+  json: { content: input }
+});
 
-5. **Resolution limits: What's the max supported?**
-   - 4K (3840x2160) at 60fps is ~25GB of raw frames for 30 seconds
-   - Memory and CPU constraints are real
-   - Recommendation: Start with 1080p cap, test higher resolutions carefully
+// Update with server response (includes AI reply)
+const { messages } = await response.json();
+setMessages(messages);
+```
+
+### Pattern 2: Polling for Job Status
+
+**What:** Poll `/render/:jobId` until complete.
+
+**Why:** Existing pattern, works reliably.
+
+**Example:**
+```typescript
+async function waitForRender(jobId: string): Promise<Video> {
+  while (true) {
+    const res = await fetch(`/api/render/${jobId}`);
+    const job = await res.json();
+
+    if (job.status === 'completed') return job;
+    if (job.status === 'failed') throw new Error(job.error);
+
+    await sleep(1000);  // Poll every second
+  }
+}
+```
+
+### Pattern 3: Video Preview via System Player
+
+**What:** Trigger OS to open MP4 file.
+
+**Why:** Avoids in-browser streaming complexity.
+
+**Implementation:**
+```typescript
+// Server: POST /studio/preview/:jobId
+import { exec } from 'node:child_process';
+import { platform } from 'node:os';
+
+function openVideo(filePath: string) {
+  const cmd = platform() === 'darwin'
+    ? `open "${filePath}"`
+    : platform() === 'win32'
+    ? `start "" "${filePath}"`
+    : `xdg-open "${filePath}"`;
+
+  exec(cmd);
+}
+```
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: WebSocket for Everything
+
+**What:** Using WebSocket for chat, job status, library updates.
+
+**Why bad:** Complexity for local dev. Connection management, reconnection logic.
+
+**Instead:** HTTP polling + optimistic updates. Simpler, sufficient for single-user.
+
+### Anti-Pattern 2: Separate Database per Feature
+
+**What:** SQLite for templates, JSON files for conversations, another DB for videos.
+
+**Why bad:** Inconsistent data access, no referential integrity, backup complexity.
+
+**Instead:** Single SQLite database for all studio state.
+
+### Anti-Pattern 3: Complex State Management
+
+**What:** Redux, MobX, or similar for a local dev tool.
+
+**Why bad:** Over-engineering. Single user, limited state.
+
+**Instead:** React Query for server state, useState/useReducer for UI state.
+
+### Anti-Pattern 4: Building Auth UI
+
+**What:** Login pages, session management, user accounts.
+
+**Why bad:** This is a local dev tool. No users except the developer.
+
+**Instead:** Skip auth entirely for studio routes. Keep API key auth only for external integrations.
+
+---
+
+## Scalability Considerations
+
+| Concern | Local Dev (Target) | If Scaled Later |
+|---------|-------------------|-----------------|
+| Concurrent users | 1 | Add sessions, auth |
+| Database | SQLite (sufficient) | PostgreSQL |
+| Job queue | p-queue (in-memory) | BullMQ + Redis |
+| File storage | Local disk | S3/R2 |
+| Video streaming | System player | HLS with CDN |
+
+**For v0.2:** All left-column approaches are correct. Don't optimize prematurely.
 
 ---
 
 ## Sources
 
-**Programmatic Video Frameworks:**
-- [Remotion](https://www.remotion.dev/) - React-based video generation
-- [Motion Canvas](https://motioncanvas.io/) - TypeScript animation library
-- [Creatomate](https://creatomate.com/docs/json/introduction) - JSON-based video API
-- [canvas2video](https://github.com/pankod/canvas2video) - Canvas to video library
-
-**Architecture Patterns:**
-- [Entity Component System](https://en.wikipedia.org/wiki/Entity_component_system) - ECS pattern
-- [Game Programming Patterns - Component](https://gameprogrammingpatterns.com/component.html) - Component pattern
-- [BullMQ](https://bullmq.io/) - Queue architecture for Node.js
-
-**Canvas & Rendering:**
-- [Konva Node.js Setup](https://konvajs.org/docs/nodejs/nodejs-setup) - Server-side canvas
-- [LeanLabs Konva Video Tutorial](https://leanylabs.com/blog/node-videos-konva/) - Video generation patterns
-
-**FFmpeg Integration:**
-- [Transloadit FFmpeg Streaming](https://transloadit.com/devtips/stream-video-processing-with-node-js-and-ffmpeg/) - Stream processing
-- [FFmpeg Incident Response](https://hoop.dev/blog/ffmpeg-incident-response-fast-exact-repeatable/) - Error handling
-
-**Scaling:**
-- [Horizontal Scaling Video Processing](https://ignitarium.com/horizontal-scaling-of-video-processing-applications/) - Scaling patterns
-- [AWS SageMaker Video Generation](https://aws.amazon.com/blogs/machine-learning/build-a-scalable-ai-video-generator-using-amazon-sagemaker-ai-and-cogvideox/) - Cloud architecture
+- [Hono Node.js Documentation](https://hono.dev/docs/getting-started/nodejs) - serveStatic, production patterns
+- [Hono RPC Guide](https://hono.dev/docs/guides/rpc) - Type-safe client creation
+- [Hono CORS Middleware](https://hono.dev/docs/middleware/builtin/cors) - Local dev configuration
+- [Vite Server Options](https://vite.dev/config/server-options) - Proxy configuration
+- [better-sqlite3 GitHub](https://github.com/WiseLibs/better-sqlite3) - Fastest SQLite for Node.js
+- [BHVR Monorepo Template](https://github.com/stevedylandev/bhvr) - Bun + Hono + Vite + React structure
+- Existing codebase analysis: `src/api/app.ts`, `src/api/routes/*.ts`

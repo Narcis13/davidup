@@ -1,484 +1,373 @@
-# Features Research: GameMotion
+# Feature Landscape: GameMotion Studio UI
 
-**Researched:** 2026-01-24
-**Domain:** Programmatic video generation
-**Overall Confidence:** MEDIUM-HIGH (verified against multiple competitor documentation and current sources)
+**Domain:** Local development studio for AI-assisted video template creation
+**Researched:** 2026-01-27
+**Overall Confidence:** HIGH (verified against multiple established tools: Cursor, Postman, Insomnia, ChatGPT, Figma)
 
 ## Executive Summary
 
-The programmatic video generation market has mature, well-defined feature expectations. Competitors like json2video, Creatomate, Shotstack, and Remotion have established clear table stakes features. GameMotion's PRD covers most essential features but has gaps in advanced text animation, audio capabilities, and image processing that should be considered.
+GameMotion Studio adds a local dev UI to the existing rendering engine API. The UI focuses on four areas: conversational AI chat for template generation/refinement, template library with versioning, video library linked to templates, and frictionless preview workflow. This research surveys patterns from AI chat tools (ChatGPT, Cursor), API dev tools (Postman, Insomnia), and creative libraries (Figma, video editors).
 
-**Key insight:** The AI template generation focus is a genuine differentiator. No major competitor offers first-class AI-powered template creation from natural language descriptions. This is GameMotion's competitive moat.
+**Key insight:** Local dev tools succeed by being fast, distraction-free, and immediately useful. Postman and Insomnia users cite "clean UI" and "quick tasks" as primary value. GameMotion Studio should embrace minimalism over feature richness.
 
 ---
 
 ## Feature Categories
 
-### Table Stakes (Must Have)
+### Table Stakes (Must Have for Chat UI + Library)
 
-Users expect these or they leave. Missing any is a dealbreaker.
+Users expect these or the tool feels incomplete/broken.
 
-| Feature | Why Table Stakes | Complexity | Notes |
-|---------|-----------------|------------|-------|
-| Text elements with styling | Every competitor supports rich text | Medium | Font, size, color, alignment, shadows |
-| Image elements with fit modes | Universal expectation | Low | cover, contain, fill modes |
-| Basic shapes | Required for backgrounds, overlays | Low | Rectangle, circle, line minimum |
-| Keyframe animation | json2video, Creatomate, Remotion all have this | High | Position, scale, rotation, opacity |
-| Easing functions | Expected for smooth motion | Medium | 10-15 common easing functions |
-| Enter/exit animation presets | Time-saver all competitors offer | Medium | Fade, slide, scale, bounce |
-| Scene transitions | Expected for multi-scene videos | Medium | Fade, slide, wipe, zoom |
-| Background music support | Basic audio is universal | Low | Single audio track with volume |
-| Audio fade in/out | Standard audio feature | Low | Smooth transitions |
-| REST API with authentication | All API products have this | Medium | API key based |
-| Async rendering with polling | Industry standard | Medium | Job ID + status endpoint |
-| Variable substitution | All template systems support | Medium | {{placeholder}} syntax |
-| Platform dimension presets | Users expect TikTok, YouTube, Instagram | Low | 9:16, 16:9, 1:1 |
-| MP4 H.264 output | Universal format | Low | Industry standard |
+| Feature | Why Expected | Complexity | Existing API Dependency |
+|---------|--------------|------------|------------------------|
+| **Chat: Message input at bottom** | Universal chat pattern, 40% faster response times | Low | None |
+| **Chat: Clear send button** | Users need obvious action trigger | Low | None |
+| **Chat: Visible conversation history** | Context is critical for refinement | Low | None |
+| **Chat: AI typing indicator** | Shows system is working, reduces abandonment | Low | None |
+| **Chat: Error messages inline** | Users need to know when something fails | Low | None |
+| **Chat: Copy JSON output** | Primary output is JSON template, must be extractable | Low | None |
+| **Library: Grid/card view of templates** | Standard gallery pattern for visual browsing | Medium | GET /templates |
+| **Library: Template names/labels** | Text labels are "absolute must" per research | Low | None (local storage) |
+| **Library: Click to open/select** | Entire card should be clickable | Low | None |
+| **Library: Delete templates** | Basic CRUD operation | Low | None (local storage) |
+| **Video: Thumbnail preview** | Users need visual identification | Medium | Render output |
+| **Video: Click to play** | Opens in system player per spec | Low | None |
+| **Video: Link to source template** | Core value prop - trace video to template | Low | None (local storage) |
+| **Preview: Render button** | Clear action to test template | Low | POST /render |
+| **Preview: Status indicator** | Show render progress/completion | Low | GET /jobs/:id |
 
-### Differentiators (Competitive Advantage)
+### Differentiators (Competitive Advantage for Dev Experience)
 
-Features that set you apart. Not expected, but valued.
+Features that make GameMotion Studio better than using Postman/curl directly.
 
-| Feature | Competitive Value | Complexity | Notes |
-|---------|------------------|------------|-------|
-| AI template generation from NL | **Primary differentiator** - no competitor has this | High | GameMotion's key value prop |
-| 3-10x faster rendering | Speed advantage from skia-canvas approach | High | Game engine technique |
-| Simple self-hosting | Simpler than Remotion's complex setup | Medium | Single Node.js process |
-| Word-by-word text animation | Valued for captions, kinetic typography | Medium | Creatomate has this, Shotstack doesn't |
-| Auto-transcription to subtitles | High demand for accessibility | High | Requires speech-to-text AI |
-| Text-to-speech voiceover | Pairs with AI templates naturally | Medium | ElevenLabs integration common |
-| Audio ducking | Professional audio mixing | High | Auto-lower music during voiceover |
-| Responsive/adaptive templates | Auto-resize for different platforms | High | Creatomate has this |
-| Webhook notifications | Preferred over polling for production | Medium | Event-driven architecture |
-| Lottie animation support | Rich animations from After Effects | High | Popular in design workflows |
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| **Chat: Refinement prompts** | "Make it shorter", "change the font" without re-explaining | Medium | Requires conversation context |
+| **Chat: Suggested follow-ups** | Reduce cognitive load, 77% of chats have follow-ups | Medium | AI-generated suggestions |
+| **Chat: @ mentions for templates** | Reference existing templates in conversation (like Cursor) | Medium | Template context injection |
+| **Chat: Persistent context** | Remember user preferences across sessions | Medium | Local storage |
+| **Library: Version history timeline** | See template evolution, revert mistakes | Medium | Local storage |
+| **Library: Compare versions side-by-side** | Visual diff like Figma | High | JSON diff rendering |
+| **Library: Duplicate template** | Fast iteration starting point | Low | Local storage |
+| **Library: Search/filter** | Find templates quickly as library grows | Medium | Local search |
+| **Video: Filter by template** | See all renders of specific template | Low | Local storage |
+| **Video: Batch delete** | Clean up old test renders | Low | Local storage |
+| **Preview: Auto-open in player** | Zero-click workflow after render | Low | OS integration |
+| **Preview: Render with variable substitution** | Test templates with different data | Medium | POST /render with variables |
+| **Workflow: One-click from chat to preview** | "Generate -> Render -> View" in single flow | Medium | API orchestration |
+| **Workflow: Edit JSON directly** | Power users want raw access | Medium | JSON editor component |
 
-### Anti-Features (Don't Build)
+### Anti-Features (Do NOT Build)
 
-Features that seem good but hurt the product.
+Features that seem good but hurt the product or are explicitly out of scope.
 
-| Feature | Why Avoid | Risk |
-|---------|----------|------|
-| Browser-based preview/editor | Adds frontend complexity, distracts from API focus | Scope creep, infrastructure complexity |
-| Video-in-video embedding | Extreme complexity for limited use cases | Development time sink, memory issues |
-| 3D animations | Completely different rendering pipeline | Wrong product category |
-| Real-time collaboration | Enterprise feature, not API-first | Misaligned with target users |
-| Custom font upload before v1 | Google Fonts covers 95% of needs | Pre-optimization |
-| GPU acceleration before v1 | skia-canvas is already fast | Premature optimization |
-| Horizontal scaling before v1 | Single instance handles MVP load | Over-engineering |
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| **In-browser video playback** | Streaming complexity, codec issues, out of scope | System player (VLC, QuickTime) handles all formats |
+| **Real-time collaboration** | Single-user localhost tool, adds WebSocket complexity | Just don't build it |
+| **Cloud sync** | Localhost dev tool, adds auth/account complexity | Local storage only |
+| **Multi-user accounts** | Single-user by design | No auth needed |
+| **Visual template editor** | Scope creep, massive effort, distracts from AI-first approach | JSON + AI chat is the interface |
+| **Drag-and-drop timeline** | Video editor feature, not template tool | JSON defines timeline |
+| **In-app asset management** | Already have API endpoints, UI adds little value | Use API directly or file picker |
+| **Custom themes/styling** | Developer tool vanity, no user value | Single clean theme |
+| **Keyboard shortcut customization** | Premature optimization | Fixed sensible defaults |
+| **Export/import template bundles** | Adds complexity for edge case | JSON files are portable |
+| **Undo/redo in chat** | Chat is append-only, AI can "undo" via refinement | "Undo that" as chat prompt |
+| **Notification system** | Single-user localhost, user is watching | Status indicators sufficient |
 
 ---
 
 ## Detailed Feature Analysis
 
-### Category 1: Element Types (Rendering)
+### Category 1: Chat Interface
 
-**Table stakes:**
+**Expected behavior from research (ChatGPT, Cursor, Gemini):**
 
-| Element | Status in PRD | Competitor Coverage | Notes |
-|---------|---------------|---------------------|-------|
-| Text | Yes | Universal | All competitors support |
-| Image | Yes | Universal | All competitors support |
-| Shape (rectangle, circle, ellipse, line) | Yes | Universal | json2video, Creatomate, Shotstack |
-| Video clip embedding | No (out of scope) | Common | json2video, Creatomate, Shotstack have it |
-
-**Differentiators:**
-
-| Element | Status in PRD | Competitor Coverage | Recommendation |
-|---------|---------------|---------------------|----------------|
-| HTML elements | No | json2video has it | Not needed for MVP |
-| SVG support | No | Shotstack has SvgAsset | Consider post-MVP |
-| Lottie animations | No | Growing demand | High value for v2 |
-| Captions/Subtitles element | No | Shotstack has CaptionAsset | High value for v2 |
-
-**Text element features (detail):**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| Font family | Yes | All | Table stakes |
-| Font size | Yes | All | Table stakes |
-| Font weight | Yes | All | Table stakes |
-| Font style (italic) | Yes | All | Table stakes |
-| Color | Yes | All | Table stakes |
-| Text alignment | Yes | All | Table stakes |
-| Line height | Yes | Most | Table stakes |
-| Max width / wrapping | Yes | Most | Table stakes |
-| Background color | Yes | Most | Nice to have |
-| Padding | Yes | Most | Nice to have |
-| Border radius | Yes | Most | Nice to have |
-| Text shadow | Yes | Most | Table stakes |
-| Text stroke/outline | Yes | Creatomate, Shotstack | Nice to have |
-| **Word-by-word reveal** | No | Creatomate | Differentiator |
-| **Typewriter effect** | No | json2video | Differentiator |
-| **Text along path** | No | Rare | Post-MVP |
-
-**Image element features (detail):**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| URL source | Yes | All | Table stakes |
-| Asset ID source | Yes | All | Table stakes |
-| Fit: cover | Yes | All | Table stakes |
-| Fit: contain | Yes | All | Table stakes |
-| Fit: fill | Yes | All | Table stakes |
-| Border radius | Yes | Most | Nice to have |
-| **Filters (brightness, contrast, etc.)** | No | Creatomate | Differentiator |
-| **Blur effect** | No | Creatomate | Nice to have |
-| **Color overlay/tint** | No | Creatomate | Nice to have |
-| **Masking** | No | Creatomate | Post-MVP |
-| **Chroma key (green screen)** | No | Shotstack | Post-MVP |
-
-**Shape element features (detail):**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| Rectangle | Yes | All | Table stakes |
-| Circle | Yes | All | Table stakes |
-| Ellipse | Yes | All | Table stakes |
-| Line | Yes | All | Table stakes |
-| Fill color | Yes | All | Table stakes |
-| Stroke color/width | Yes | All | Table stakes |
-| Linear gradient | Yes | Most | Nice to have |
-| Radial gradient | Yes | Most | Nice to have |
-| Border radius | Yes | Most | Nice to have |
-| **Polygon** | No | Shotstack | Post-MVP |
-| **Custom SVG path** | No | Shotstack | Post-MVP |
-
-### Category 2: Animation System
-
-**Table stakes:**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| Keyframe animation | Yes | Creatomate, Remotion | Table stakes |
-| Position animation (x, y) | Yes | All | Table stakes |
-| Scale animation | Yes | All | Table stakes |
-| Rotation animation | Yes | All | Table stakes |
-| Opacity animation | Yes | All | Table stakes |
-| Easing: linear | Yes | All | Table stakes |
-| Easing: ease-in/out family | Yes | All | Table stakes |
-| Easing: cubic bezier | Implied | Most | Table stakes |
-| Animation presets (fade, slide, scale, bounce) | Yes | Most | Table stakes |
-| Enter animations | Yes | All | Table stakes |
-| Exit animations | Yes | All | Table stakes |
-
-**Easing functions (recommend 15+ for parity):**
-
-Based on research, the following easing functions are expected:
-
-```
-linear
-easeIn, easeOut, easeInOut (default quad)
-easeInQuad, easeOutQuad, easeInOutQuad
-easeInCubic, easeOutCubic, easeInOutCubic
-easeInQuart, easeOutQuart, easeInOutQuart
-easeInElastic, easeOutElastic
-easeInBounce, easeOutBounce
-easeInBack, easeOutBack (overshoot)
-```
-
-**PRD Gap:** PRD lists 12 easing functions. Recommend adding:
-- `easeInQuart`, `easeOutQuart`, `easeInOutQuart`
-- `easeInBack`, `easeOutBack` (popular overshoot effect)
-
-**Differentiators:**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| **Spring physics** | No | Remotion has spring() | Differentiator |
-| **Motion path (bezier curve)** | No | After Effects, limited in APIs | Post-MVP |
-| **Stagger/sequence animations** | Implicit | Remotion | Nice to have |
-| **Animation delay** | Implicit via start time | Most | Table stakes |
-
-### Category 3: Scene Transitions
-
-**Table stakes:**
-
-| Transition | PRD Status | Competitor Support | Priority |
-|------------|-----------|-------------------|----------|
-| None (cut) | Implicit | All | Table stakes |
-| Fade (cross-dissolve) | Yes | All | Table stakes |
-| Slide left/right/up/down | Yes | All | Table stakes |
-| Zoom | Yes | Most | Table stakes |
-
-**Nice to have:**
-
-| Transition | PRD Status | Competitor Support | Priority |
-|------------|-----------|-------------------|----------|
-| Wipe | No | Shotstack | Nice to have |
-| Push (slide where both scenes move) | No | Common | Nice to have |
-| Reveal | No | Shotstack | Post-MVP |
-| Carousel | No | Shotstack | Post-MVP |
-
-**PRD is adequate** for MVP transitions. The 6 listed (none, fade, slideLeft, slideRight, slideUp, slideDown, zoom) cover primary use cases.
-
-### Category 4: Audio Features
-
-**Table stakes:**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| Background music track | Yes | All | Table stakes |
-| Volume control | Yes | All | Table stakes |
-| Fade in | Yes | Most | Table stakes |
-| Fade out | Yes | Most | Table stakes |
-
-**Gaps in PRD (consider for v1 or v2):**
-
-| Feature | PRD Status | Competitor Support | Value | Complexity |
-|---------|-----------|-------------------|-------|------------|
-| **Multiple audio tracks** | No | Creatomate, Shotstack | High | Medium |
-| **Audio ducking** | No | Filmora, Premiere (not APIs) | High | High |
-| **Sound effects layer** | No | Some competitors | Medium | Medium |
-| **Voiceover sync** | No | json2video (TTS built-in) | High | Medium |
-| **Text-to-speech** | No | json2video, Fliki | Differentiator | Medium |
-| **Audio looping** | No | Most | Low | Low |
-
-**Recommendation:** For v1, single audio track with volume + fade is sufficient. For v2, prioritize:
-1. Multiple audio tracks
-2. Text-to-speech integration (ElevenLabs)
-3. Audio ducking for voiceover scenarios
-
-### Category 5: API Features
-
-**Table stakes:**
-
-| Feature | PRD Status | Competitor Support | Priority |
-|---------|-----------|-------------------|----------|
-| REST API | Yes | All | Table stakes |
-| API key authentication | Yes | All | Table stakes |
-| Async rendering | Yes | All | Table stakes |
-| Job status polling | Yes | All | Table stakes |
-| Rate limiting | Yes | All | Table stakes |
-| Sync rendering (short videos) | Yes | Creatomate Direct API | Nice to have |
-| JSON validation with errors | Yes (Zod) | All | Table stakes |
-
-**Gaps (consider for v1 or v2):**
-
-| Feature | PRD Status | Competitor Support | Value | Complexity |
-|---------|-----------|-------------------|-------|------------|
-| **Webhooks** | No | Shotstack, Creatomate | High | Medium |
-| **Batch rendering** | No | Shotstack | Medium | Medium |
-| **Template endpoints** | Yes (basic) | All | Table stakes | Low |
-| **Video preview/thumbnail** | No | Some | Medium | Low |
-
-**Webhook recommendation:** Strongly recommend webhooks for v1 or early v2. Production integrations prefer webhooks over polling. Add a simple `webhookUrl` parameter to render requests.
-
-### Category 6: AI & Template Features
-
-**GameMotion's Differentiator**
-
-| Feature | PRD Status | Competitor Support | Notes |
-|---------|-----------|-------------------|-------|
-| **AI template generation from NL** | Yes | **None have this** | Primary differentiator |
-| Variable substitution ({{placeholder}}) | Yes | All | Table stakes |
-| Built-in starter templates | Yes | All | Table stakes |
-| Platform presets (TikTok, YouTube, etc.) | Yes | All | Table stakes |
-
-**AI Integration Opportunities:**
-
-| Feature | PRD Status | Value | Complexity |
-|---------|-----------|-------|------------|
-| Template generation from description | Yes | Core value | High |
-| Auto-generated placeholder suggestions | Yes | Nice | Medium |
-| **Style transfer/mood detection** | No | Differentiator | High |
-| **Auto-scene generation** | No | Future | Very High |
-| **Auto-image selection** | No | Future | High |
-
-**Template System Comparison:**
-
-| Vendor | Template Approach |
-|--------|-------------------|
-| json2video | JSON templates with variables, visual editor |
-| Creatomate | Responsive templates, cloud editor, JSON or visual |
-| Shotstack | JSON templates with merge fields |
-| Remotion | React components as templates |
-| **GameMotion** | JSON templates + AI generation |
-
----
-
-## Competitor Comparison Matrix
-
-### Element Support
-
-| Feature | json2video | Remotion | Creatomate | Shotstack | GameMotion (proposed) |
-|---------|-----------|----------|------------|-----------|----------------------|
-| Text | Yes | Yes | Yes | Yes | Yes |
-| Image | Yes | Yes | Yes | Yes | Yes |
-| Video clips | Yes | Yes | Yes | Yes | No (v1) |
-| Shapes | Yes | Via React | Yes | Yes | Yes |
-| HTML elements | Yes | Yes | No | Yes | No |
-| SVG | Limited | Yes | No | Yes | No |
-| Lottie | No | Yes | No | No | No (v2?) |
-| Audio | Yes | Yes | Yes | Yes | Yes |
-
-### Animation Capabilities
-
-| Feature | json2video | Remotion | Creatomate | Shotstack | GameMotion (proposed) |
-|---------|-----------|----------|------------|-----------|----------------------|
-| Keyframes | Basic | Full | Full | Basic | Yes |
-| Easing functions | Limited | Full (20+) | Full | Limited | Yes (12-15) |
-| Enter/exit presets | Yes | DIY | Yes | Limited | Yes |
-| Spring physics | No | Yes | No | No | No (consider v2) |
-| Motion paths | No | DIY | No | No | No |
-| Word-by-word text | Yes | DIY | Yes | No | No (consider) |
-
-### API Features
-
-| Feature | json2video | Remotion | Creatomate | Shotstack | GameMotion (proposed) |
-|---------|-----------|----------|------------|-----------|----------------------|
-| REST API | Yes | No (library) | Yes | Yes | Yes |
-| Webhooks | Yes | N/A | Yes | Yes | No (add) |
-| Sync mode | No | N/A | Yes (Direct API) | No | Yes |
-| Templates API | Yes | N/A | Yes | Yes | Yes |
-| Asset management | Yes | N/A | Yes | Yes | Yes |
-
-### AI Features
-
-| Feature | json2video | Remotion | Creatomate | Shotstack | GameMotion (proposed) |
-|---------|-----------|----------|------------|-----------|----------------------|
-| AI template gen | No | No | No | No | **Yes** |
-| TTS voiceover | Yes (built-in) | No | Via API | Yes | No (v2) |
-| Auto captions | No | No | Yes | Yes | No (v2) |
-| AI image gen | No | No | Yes | Yes | No |
-
-### Pricing Model
-
-| Vendor | Model | Starting Price |
-|--------|-------|----------------|
-| json2video | Per minute | $14.95/mo for 600 min |
-| Remotion | Per license + render | $149-749 one-time |
-| Creatomate | Per minute | $39/mo for 300 min |
-| Shotstack | Per minute | $49/mo for 200 min |
-| **GameMotion** | TBD | Self-hostable + hosted option |
-
----
-
-## Feature Dependencies
-
-```
-Foundation (Week 1-2)
-├── JSON Schema & Validation
-└── Variable Substitution
-
-Rendering Core (Week 3-4)
-├── Canvas Setup (skia-canvas)
-├── Element Renderers
-│   ├── Text Element
-│   ├── Image Element (depends on Asset Loading)
-│   └── Shape Element
-├── Transform System
-└── Asset Loading
-    └── FFmpeg Integration
-
-Animation System (Week 5-6)
-├── Easing Functions Library
-├── Keyframe Interpolation (depends on Easing)
-├── Animation Presets (depends on Keyframes)
-│   ├── Enter Animations
-│   └── Exit Animations
-└── Scene Transitions (depends on Render Loop)
-
-API Layer (Week 7-8)
-├── REST API (Fastify)
-├── Authentication
-├── Rate Limiting
-├── Job Queue (p-queue)
-└── AI Integration
-    ├── OpenRouter Client
-    └── Template Generator (depends on JSON Schema)
-```
-
----
-
-## Gaps in PRD
-
-Features not in the PRD that should be considered:
-
-### High Priority (Consider for v1)
-
-| Feature | Why Important | Effort |
+| Pattern | Implementation | Source |
 |---------|---------------|--------|
-| **Webhooks** | Production integrations strongly prefer webhooks over polling | Medium |
-| **Word-by-word text animation** | High demand for captions/subtitles style | Medium |
-| **Image filters (brightness, contrast)** | Common design need | Low |
-| **Additional easing functions** | Parity with competitors | Low |
+| Input at bottom, sticky | Fixed position input bar, always visible | [Chat UI Patterns 2025](https://bricxlabs.com/blogs/message-screen-ui-deisgn) |
+| Clear visual hierarchy | AI responses vs user messages styled differently | Universal pattern |
+| Typing indicator | "..." or spinner while AI responds | [Conversational UI Best Practices](https://research.aimultiple.com/conversational-ui/) |
+| Short messages | AI should keep responses to 3 lines or less before action | [PatternFly Conversation Design](https://www.patternfly.org/patternfly-ai/conversation-design/) |
+| Error inline | Display errors in chat flow, not modal/toast | [AI UI Patterns](https://www.patterns.dev/react/ai-ui-patterns/) |
+| Conversation starters | Suggest initial prompts for new users | [NN/G Prompt Controls](https://www.nngroup.com/articles/prompt-controls-genai/) |
 
-### Medium Priority (v1.x or v2)
+**Refinement workflow (critical for GameMotion):**
 
-| Feature | Why Important | Effort |
+Users will iteratively refine templates. Research shows 77% of AI conversations have multiple exchanges.
+
+```
+User: "Create a TikTok promo video for a coffee shop"
+AI: [generates template JSON]
+User: "Make the text bigger"
+AI: [modifies template, shows diff]
+User: "Add a bounce animation to the logo"
+AI: [modifies template, shows diff]
+User: "Perfect, render it"
+[Triggers render, opens in player]
+```
+
+**Recommended features:**
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Multi-turn conversation | Table stakes | Cursor uses Cmd+L for "chat with context" |
+| Show JSON diff on refinement | Differentiator | Like Cursor showing code diffs |
+| "Render this" action from chat | Differentiator | Integrate with existing API |
+| Suggested refinements | Nice-to-have | "Try: make it more energetic" |
+| Template @ mentions | Nice-to-have | "@product-promo but for YouTube" |
+
+### Category 2: Template Library
+
+**Expected behavior from research (Figma, design systems, Postman collections):**
+
+| Pattern | Implementation | Source |
 |---------|---------------|--------|
-| **Text-to-speech integration** | Natural pairing with AI templates | Medium |
-| **Multiple audio tracks** | Common use case (voiceover + music) | Medium |
-| **Auto-transcription/captions** | Accessibility, engagement | High |
-| **Audio ducking** | Professional audio mixing | High |
-| **Lottie animation support** | Design workflow integration | High |
+| Card grid layout | Cards with thumbnail/preview, title, metadata | [Card View Pattern](https://www.patternfly.org/patterns/card-view/design-guidelines/) |
+| Entire card clickable | Not just a button inside card | [Card UI Best Practices](https://www.justinmind.com/ui-design/cards) |
+| Text labels required | Thumbnail + title for identification | [UI Practicum Thumbnails](https://uibreakfast.com/practicum-04-thumbnails/) |
+| Search and filter | Find templates as library grows | Universal pattern |
+| Sort by date | Most recent first is default expectation | Universal pattern |
 
-### Lower Priority (v2+)
+**Version history (from Figma research):**
 
-| Feature | Why Important | Effort |
+| Feature | Implementation | Source |
 |---------|---------------|--------|
-| Video clip embedding | Common but complex | Very High |
-| SVG path support | Advanced shapes | Medium |
-| Spring physics animation | Remotion has this | Medium |
-| Motion paths | After Effects parity | High |
+| Timeline view | Visual list of versions with timestamps | [Figma Version History](https://www.nobledesktop.com/learn/figma/strategies-for-managing-design-updates-with-figmas-version-history) |
+| Preview before restore | Click version to see it, confirm to restore | [MockFlow Revision History](https://mockflow.com/wireframing/wireframe-version-history/) |
+| Named versions | Allow user to name significant milestones | [Supernova Versioning](https://www.supernova.io/blog/8-examples-of-versioning-in-leading-design-systems) |
+| Automatic saves | Don't require manual save, just version | Figma pattern |
+
+**Recommended implementation:**
+
+```
+Template Library
+├── Grid of template cards
+│   ├── [Thumbnail/preview image]
+│   ├── [Template name]
+│   ├── [Last modified date]
+│   └── [Version count badge]
+├── Search bar
+├── Sort dropdown (date, name)
+└── Template detail view
+    ├── Full JSON preview
+    ├── Version history sidebar
+    ├── "Render" button
+    └── "Edit in chat" button
+```
+
+### Category 3: Video Library
+
+**Expected behavior from research (video editors, photo libraries):**
+
+| Pattern | Implementation | Source |
+|---------|---------------|--------|
+| Thumbnail grid | Video frame as preview | [Thumbnail Pattern](https://ui-patterns.com/patterns/Thumbnail) |
+| Uniform layout | Fixed size thumbnails for scannability | [Gallery UI Mobbin](https://mobbin.com/glossary/gallery) |
+| Duration badge | Show video length on thumbnail | Video editor standard |
+| Click to play | Opens system player | Project spec |
+| Link to template | Show which template created it | Core value prop |
+
+**Unique requirements for GameMotion:**
+
+| Requirement | Rationale |
+|-------------|-----------|
+| Template linkage | Primary workflow is chat -> template -> render -> video. Need to trace back. |
+| Render timestamp | Know when video was created |
+| Thumbnail generation | First frame or keyframe of video |
+| File size display | Development tool, users care about output |
+
+### Category 4: Preview/Render Workflow
+
+**Expected behavior from research (Postman, Insomnia, local dev tools):**
+
+| Pattern | Implementation | Source |
+|---------|---------------|--------|
+| Single action to execute | One button to render, not multi-step wizard | [Insomnia vs Postman](https://apyhub.com/blog/postman-vs-insomnia) - "select method, enter URL, hit send" |
+| Clear status indication | Progress bar or status text | Universal pattern |
+| Result displayed immediately | Open player when done | Project spec |
+| Error details on failure | Show what went wrong | API dev tool standard |
+
+**Zero-friction workflow:**
+
+```
+1. Chat generates template JSON
+2. User clicks "Render" (or types "render this")
+3. Status shows: "Rendering... 2/10 scenes"
+4. Video opens in system player automatically
+5. User returns to chat to refine
+```
+
+**Variable substitution for testing:**
+
+Templates have `{{variables}}`. Preview should allow:
+- Quick input form for variables
+- Save variable sets for reuse
+- Default values from template
 
 ---
 
-## Recommendations Summary
+## Feature Dependencies on Existing API
 
-### For MVP (v1)
+| UI Feature | API Dependency | Status |
+|------------|---------------|--------|
+| Generate template | POST /ai/generate | Exists |
+| Render video | POST /render | Exists |
+| Check render status | GET /jobs/:id | Exists |
+| Get output file | Download from job result | Exists |
+| List starter templates | GET /templates | Exists |
+| Variable substitution | POST /render with variables | Exists |
+| Template versioning | None (local storage) | New |
+| Video library | None (local storage) | New |
+| Chat history | None (local storage) | New |
 
-1. **Keep** all features currently in PRD - they align with table stakes
-2. **Add** webhooks endpoint for job completion
-3. **Add** 3-4 more easing functions for parity
-4. **Consider** word-by-word text animation (high value, medium effort)
+---
 
-### For Early Updates (v1.x)
+## Complexity Estimates
 
-1. Text-to-speech voiceover (ElevenLabs integration)
-2. Multiple audio tracks
-3. Image filters (brightness, contrast, saturation)
-4. Batch rendering endpoint
+### Low Complexity (1-2 days each)
 
-### For v2
+- Chat message input/display
+- Send button and typing indicator
+- Template card grid
+- Video thumbnail grid
+- Render button with status
+- Click to open in system player
+- Copy JSON button
+- Delete template/video
+- Basic search
 
-1. Auto-transcription and captions
-2. Audio ducking
-3. Lottie animation support
-4. Video clip embedding
-5. Spring physics animation
+### Medium Complexity (3-5 days each)
+
+- Chat with conversation history
+- AI integration with refinement context
+- Template version history
+- JSON diff display
+- Variable input form
+- Filter and sort functionality
+- Template-video linkage
+- Thumbnail generation for videos
+
+### High Complexity (5-10 days each)
+
+- Version comparison side-by-side
+- Suggested refinement prompts (AI-generated)
+- @ mention system for templates
+- Full JSON editor with validation
+- Batch operations
+
+---
+
+## MVP Recommendation
+
+**For MVP, prioritize:**
+
+1. **Chat UI with refinement** - Core value prop, enables AI-first workflow
+2. **Template library (basic)** - Save and organize generated templates
+3. **Render and preview** - Must be able to test templates
+4. **Video library (basic)** - Track what you've rendered
+
+**Defer to post-MVP:**
+
+- Version history and comparison - Nice but not critical for initial testing
+- Suggested refinements - Requires more AI sophistication
+- @ mentions - Power user feature
+- Batch operations - Scale feature, not MVP
+- Variable presets - Can input manually first
+
+**MVP Feature Set:**
+
+| Area | Included | Excluded |
+|------|----------|----------|
+| Chat | Input, history, refinement, render action | @ mentions, suggestions |
+| Templates | Grid view, save, delete, edit | Versioning, comparison, search |
+| Videos | Grid view, play, template link | Batch delete, filter |
+| Preview | Render button, status, auto-open | Variable presets |
+
+---
+
+## Patterns from Reference Tools
+
+### From Cursor (AI IDE)
+
+| Pattern | Application to GameMotion |
+|---------|--------------------------|
+| Cmd+L opens chat sidebar | Chat as primary interface, not afterthought |
+| @ to add context | @ to reference templates in conversation |
+| Diff view for changes | Show JSON diff when AI modifies template |
+| Model selection | Could allow model choice if using OpenRouter |
+| Accept/reject changes | Preview template changes before saving |
+
+### From Postman/Insomnia
+
+| Pattern | Application to GameMotion |
+|---------|--------------------------|
+| Collections as folders | Template library organization |
+| Clean, minimal UI | Prioritize speed over features |
+| Environment variables | Variable presets for testing |
+| Request history | Render history with video links |
+| Quick actions | One-click render, not wizard |
+
+### From ChatGPT/Claude
+
+| Pattern | Application to GameMotion |
+|---------|--------------------------|
+| Sidebar conversation list | Template-linked conversation history |
+| New chat button | Start fresh template generation |
+| Conversation titles | Auto-name from first prompt |
+| Edit previous messages | Re-run generation with changes |
+| Regenerate response | Try again if template unsatisfactory |
+
+### From Figma
+
+| Pattern | Application to GameMotion |
+|---------|--------------------------|
+| Version history timeline | Template evolution tracking |
+| Named versions | Mark significant template states |
+| Click to preview version | See old template before restoring |
+| Autosave | Never lose work |
 
 ---
 
 ## Sources
 
-### Competitor Documentation
-- [JSON2Video API Documentation](https://json2video.com/docs/api/)
-- [Creatomate JSON Introduction](https://creatomate.com/docs/json/introduction)
-- [Shotstack API Reference](https://shotstack.io/docs/api/)
-- [Remotion Animation Documentation](https://www.remotion.dev/docs/animating-properties)
+### Chat UI Patterns
+- [Chat UI Design Patterns 2025](https://bricxlabs.com/blogs/message-screen-ui-deisgn) - Bottom input, visual hierarchy
+- [Conversational AI UI Comparison 2025](https://intuitionlabs.ai/articles/conversational-ai-ui-comparison-2025) - ChatGPT, Claude, Gemini patterns
+- [AI UI Patterns](https://www.patterns.dev/react/ai-ui-patterns/) - React implementation patterns
+- [PatternFly Conversation Design](https://www.patternfly.org/patternfly-ai/conversation-design/) - Message length, error handling
+- [NN/G Prompt Controls](https://www.nngroup.com/articles/prompt-controls-genai/) - Suggested prompts, follow-ups
 
-### Feature Comparisons
-- [Creatomate vs Shotstack Alternative](https://creatomate.com/compare/shotstack-alternative)
-- [Best Video Generation APIs - Plainly](https://www.plainlyvideos.com/blog/best-video-editing-api)
-- [Best Video Generation APIs - Creatomate](https://creatomate.com/blog/the-best-video-generation-apis)
+### Template/Library Patterns
+- [Card View Design Guidelines](https://www.patternfly.org/patterns/card-view/design-guidelines/) - When to use cards
+- [Card UI Fundamentals](https://www.justinmind.com/ui-design/cards) - Clickable cards, visual overload
+- [Supernova Versioning](https://www.supernova.io/blog/8-examples-of-versioning-in-leading-design-systems) - Library vs component versioning
+- [Figma Version History Strategies](https://www.nobledesktop.com/learn/figma/strategies-for-managing-design-updates-with-figmas-version-history) - Timeline, restore, naming
 
-### Animation & Easing
-- [GSAP Keyframes Documentation](https://gsap.com/resources/keyframes/)
-- [Remotion Easing Documentation](https://www.remotion.dev/docs/easing)
-- [Remotion interpolate() Documentation](https://www.remotion.dev/docs/interpolate)
+### Developer Tools
+- [Postman vs Insomnia 2025](https://apyhub.com/blog/postman-vs-insomnia) - Clean UI, quick tasks
+- [Cursor AI Review](https://prismic.io/blog/cursor-ai) - Chat sidebar, @ context, diff view
+- [Cursor Features](https://cursor.com/features) - Cmd+K inline, Cmd+L chat
 
-### API Best Practices
-- [Shotstack Webhooks Guide](https://shotstack.io/docs/guide/architecting-an-application/webhooks/)
-- [Creatomate Webhook Setup](https://creatomate.com/docs/api/reference/set-up-a-webhook)
-- [API Rate Limiting Best Practices](https://zuplo.com/learning-center/10-best-practices-for-api-rate-limiting-in-2025)
+### Video/Gallery Patterns
+- [Thumbnail Design Pattern](https://ui-patterns.com/patterns/Thumbnail) - Miniature previews
+- [Gallery UI Best Practices](https://mobbin.com/glossary/gallery) - Uniform vs masonry layouts
+- [UI Practicum Thumbnails](https://uibreakfast.com/practicum-04-thumbnails/) - Text labels required
 
-### Audio Features
-- [Aimi Sync API for Video Audio](https://aimi.fm/sync/api/)
-- [Creatomate AI Voiceover Integration](https://creatomate.com/blog/how-to-create-voice-over-videos-using-an-api)
-- [JSON2Video ElevenLabs Integration](https://json2video.com/docs/v2/api-reference/ai-integrations/elevenlabs)
+### Conversation History
+- [PatternFly Chatbot History](https://www.patternfly.org/patternfly-ai/chatbot/chatbot-conversation-history/) - Sidebar, pinning, display modes
+- [NN/G AI Conversation Types](https://www.nngroup.com/articles/AI-conversation-types/) - 77% multi-turn conversations
 
-### AI Video Tools
-- [Fliki AI Features](https://fliki.ai/features)
-- [Synthesia Features](https://www.synthesia.io/features)
-- [ElevenLabs TTS API](https://elevenlabs.io/docs/api-reference/text-to-speech)
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Rationale |
+|------|------------|-----------|
+| Chat UI patterns | HIGH | Well-documented across ChatGPT, Cursor, industry research |
+| Template library patterns | HIGH | Standard card/grid patterns from design systems |
+| Video library patterns | MEDIUM | Less specific research, adapted from gallery patterns |
+| Version history | HIGH | Figma patterns well-documented |
+| Refinement workflow | MEDIUM | GameMotion-specific, extrapolated from Cursor patterns |
+| MVP scope | HIGH | Clear priority based on existing API capabilities |
