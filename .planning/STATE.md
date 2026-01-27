@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 ## Current Position
 
 Phase: 9 of 10 (Template Library)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-01-27 - Completed 09-01-PLAN.md (Template CRUD API)
+Last activity: 2026-01-27 - Completed 09-02-PLAN.md (Template Library UI)
 
-Progress: ██████████░░░░░░░░░░ 50% (~5/10 plans complete in v0.2)
+Progress: ████████████░░░░░░░░ 60% (~6/10 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -56,13 +56,14 @@ Progress: ██████████░░░░░░░░░░ 50% (~5/1
 - 2026-01-27: Completed 08-03 Chat Interface (complete chat UI with all 9 CHAT requirements)
 - 2026-01-27: Phase 8 (Chat Interface) complete
 - 2026-01-27: Completed 09-01 Template CRUD API (backend routes + frontend hooks)
+- 2026-01-27: Completed 09-02 Template Library UI (grid, cards, view/edit/delete dialogs)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Completed 09-01-PLAN.md
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
-Next action: Execute 09-02 (Template Library UI)
+Next action: Execute 09-03 (Save to Library)
 
 ## Accumulated Context
 
@@ -112,6 +113,11 @@ v0.2 decisions:
 - 5-minute staleTime for template queries (consistent with chat hooks)
 - Optimistic updates only for update/delete (create uses invalidation since we need server-generated ID)
 
+09-02 decisions:
+- Native Intl.RelativeTimeFormat for relative dates (no external dependency)
+- Controlled dialog pattern - parent manages open state for view/edit dialogs
+- Delete button stops propagation to prevent card click when deleting
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -130,4 +136,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (09-01 complete)*
+*Last updated: 2026-01-27 (09-02 complete)*
