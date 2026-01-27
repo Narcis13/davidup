@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { MessageSquare, Library, Plus } from 'lucide-react';
+import { MessageSquare, Library, Plus, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { TemplateLibrary } from '@/components/templates/TemplateLibrary';
+import { VideoLibrary } from '@/components/videos/VideoLibrary';
 import { useChatStore } from '@/stores/chatStore';
 
-type View = 'chat' | 'library';
+type View = 'chat' | 'library' | 'videos';
 
 function App() {
   const [view, setView] = useState<View>('chat');
@@ -48,11 +49,22 @@ function App() {
             <Library className="size-4" />
             Library
           </Button>
+          <Button
+            variant={view === 'videos' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setView('videos')}
+            className="gap-2"
+          >
+            <Video className="size-4" />
+            Videos
+          </Button>
         </div>
       </header>
 
       {/* Content */}
-      {view === 'chat' ? <ChatContainer /> : <TemplateLibrary />}
+      {view === 'chat' && <ChatContainer />}
+      {view === 'library' && <TemplateLibrary />}
+      {view === 'videos' && <VideoLibrary />}
     </div>
   );
 }
