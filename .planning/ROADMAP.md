@@ -77,7 +77,7 @@ Plans:
 **Goal**: User can browse rendered videos and trigger new renders with one-click preview
 **Depends on**: Phase 9
 **Requirements**: VID-01, VID-02, VID-03, VID-04, VID-05, VID-06, PREV-01, PREV-02, PREV-03, PREV-04
-**Plans**: TBD
+**Plans**: 4 plans
 **Success Criteria** (what must be TRUE):
   1. User sees rendered videos in thumbnail grid showing duration and file size
   2. User can click video to open it in system video player
@@ -89,9 +89,10 @@ Plans:
   8. User can delete videos individually or in batch
 
 Plans:
-- [ ] 10-01: TBD
-- [ ] 10-02: TBD
-- [ ] 10-03: TBD
+- [ ] 10-01-PLAN.md - Video backend (service + routes)
+- [ ] 10-02-PLAN.md - Frontend hooks and format helpers
+- [ ] 10-03-PLAN.md - Video Library UI with grid, filter, and delete
+- [ ] 10-04-PLAN.md - Render preview flow and navigation
 
 ## Progress
 
@@ -103,7 +104,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 | 7. Project Setup | 2/2 | Complete | 2026-01-27 |
 | 8. Chat Interface | 3/3 | Complete | 2026-01-27 |
 | 9. Template Library | 3/3 | Complete | 2026-01-27 |
-| 10. Video Library & Preview | 0/TBD | Ready | - |
+| 10. Video Library & Preview | 0/4 | Ready | - |
 
 ---
 *Roadmap created: 2026-01-27*
