@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Generated video outputs
 outputs/
+
+# SQLite database (local dev data)
+data/
