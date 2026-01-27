@@ -64,6 +64,7 @@ db.exec(`
     template_id TEXT,
     filename TEXT NOT NULL,
     file_path TEXT NOT NULL,
+    thumbnail_path TEXT,
     duration_ms INTEGER,
     file_size_bytes INTEGER,
     status TEXT DEFAULT 'completed',
@@ -75,6 +76,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_template_versions_template ON template_versions(template_id);
   CREATE INDEX IF NOT EXISTS idx_videos_template ON videos(template_id);
 `);
+
+// Migration: Add thumbnail_path column to existing videos table if missing
+try {
+  db.exec('ALTER TABLE videos ADD COLUMN thumbnail_path TEXT');
+} catch {
+  // Column already exists, ignore error
+}
 
 export { db };
 export default db;

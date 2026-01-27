@@ -36,6 +36,7 @@
     "get-audio-duration": "^4.0.1",
     "hono": "^4.11.5",
     "hono-rate-limiter": "^0.5.3",
+    "open": "^11.0.0",
     "p-queue": "^9.1.0",
     "zod": "^3.25.76",
     "zod-validation-error": "^4.0.2"
