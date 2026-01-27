@@ -1,7 +1,7 @@
 # Project State: GameMotion
 
 **Last updated:** 2026-01-27
-**Current phase:** Phase 9 - Template Library
+**Current phase:** Phase 10 - Video Library & Preview
 
 ## Project Reference
 
@@ -12,12 +12,12 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 
 ## Current Position
 
-Phase: 9 of 10 (Template Library) - COMPLETE
-Plan: 3 of 3 in current phase
-Status: Phase complete
-Last activity: 2026-01-27 - Completed 09-03-PLAN.md (Save to Library)
+Phase: 10 of 10 (Video Library & Preview)
+Plan: 2 of 4 in current phase
+Status: In progress
+Last activity: 2026-01-27 - Completed 10-02-PLAN.md (Frontend Data Layer)
 
-Progress: ██████████████░░░░░░ 70% (~7/10 plans complete in v0.2)
+Progress: ████████████████░░░░ 80% (~9/11 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -59,13 +59,15 @@ Progress: ██████████████░░░░░░ 70% (~7/1
 - 2026-01-27: Completed 09-02 Template Library UI (grid, cards, view/edit/delete dialogs)
 - 2026-01-27: Completed 09-03 Save to Library (button + navigation)
 - 2026-01-27: Phase 9 (Template Library) complete
+- 2026-01-27: Completed 10-01 Video Backend Routes (API endpoints for videos)
+- 2026-01-27: Completed 10-02 Frontend Data Layer (format helpers + video hooks)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Completed 09-03-PLAN.md
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
-Next action: Start Phase 10 (Video Generation & Preview)
+Next action: Continue with 10-03 (Video Library UI)
 
 ## Accumulated Context
 
@@ -125,6 +127,12 @@ v0.2 decisions:
 - Prop drilling conversationId from ChatContainer to TemplatePreview (explicit data flow)
 - Auto-generated template name using locale date string
 
+10-02 decisions:
+- Format helpers in separate format.ts file (separate from date.ts)
+- Optimistic updates use getQueriesData for all matching queries
+- Polling continues on network errors, stops on completion
+- useRef for interval handle storage in useRenderVideo
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -143,4 +151,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (09-03 complete, Phase 9 complete)*
+*Last updated: 2026-01-27 (10-02 complete)*
