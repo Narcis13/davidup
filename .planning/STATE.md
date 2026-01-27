@@ -13,11 +13,11 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 ## Current Position
 
 Phase: 8 of 10 (Chat Interface)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-01-27 - Phase 7 verified and complete
+Plan: 1 of TBD in current phase
+Status: In progress
+Last activity: 2026-01-27 - Completed 08-01-PLAN.md (Streaming Chat API)
 
-Progress: █████░░░░░░░░░░░░░░░ 25% (1/4 phases complete)
+Progress: ██████░░░░░░░░░░░░░░ 30% (~2/6 plans complete in v0.2)
 
 ## Shipped Milestones
 
@@ -51,13 +51,14 @@ Progress: █████░░░░░░░░░░░░░░░ 25% (1/4 
 - 2026-01-27: Completed 07-01 Frontend Scaffold (Vite + React + Tailwind + shadcn)
 - 2026-01-27: Completed 07-02 State Management (SQLite + API routes + dev command)
 - 2026-01-27: Phase 7 (Project Setup) complete
+- 2026-01-27: Completed 08-01 Streaming Chat API (SSE endpoint, conversation management)
 
 ## Session Continuity
 
 Last session: 2026-01-27
-Stopped at: Phase 7 verified, ready for Phase 8
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
-Next action: /gsd:discuss-phase 8
+Next action: Execute 08-02-PLAN.md
 
 ## Accumulated Context
 
@@ -83,6 +84,12 @@ v0.2 decisions:
 - Studio routes have no auth middleware - local dev tool only
 - concurrently with -n and -c flags for named, colored output
 
+08-01 decisions:
+- Simulated streaming from non-streaming OpenRouter API (50 char chunks, 20ms delay)
+- System prompt includes full VideoSpec JSON structure documentation
+- Context limited to last 10 messages to manage token limits
+- JSON extraction supports both pure JSON and markdown code blocks
+
 ### Technical Debt
 
 - Phase 2 missing formal VERIFICATION.md (all plans complete, tests pass)
@@ -101,4 +108,4 @@ From research:
 
 ---
 *State initialized: 2026-01-24*
-*Last updated: 2026-01-27 (Phase 7 complete)*
+*Last updated: 2026-01-27 (08-01 complete)*
