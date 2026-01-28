@@ -12,26 +12,29 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 
 ### Validated
 
-- Canvas rendering with text, images, shapes — v0.1
-- Keyframe animation with 12 easing functions — v0.1
-- Enter/exit presets (fade, slide, scale, bounce) — v0.1
-- Scene transitions (fade, slide, zoom) — v0.1
-- H.264 MP4 encoding with FFmpeg — v0.1
-- Audio track with volume and fade controls — v0.1
-- REST API with authentication and rate limiting — v0.1
-- AI template generation from natural language — v0.1
-- Variable substitution in templates — v0.1
-- Asset upload and management — v0.1
-- 7 built-in starter templates — v0.1
+**v0.1 MVP:**
+- ✓ Canvas rendering with text, images, shapes — v0.1
+- ✓ Keyframe animation with 12 easing functions — v0.1
+- ✓ Enter/exit presets (fade, slide, scale, bounce) — v0.1
+- ✓ Scene transitions (fade, slide, zoom) — v0.1
+- ✓ H.264 MP4 encoding with FFmpeg — v0.1
+- ✓ Audio track with volume and fade controls — v0.1
+- ✓ REST API with authentication and rate limiting — v0.1
+- ✓ AI template generation from natural language — v0.1
+- ✓ Variable substitution in templates — v0.1
+- ✓ Asset upload and management — v0.1
+- ✓ 7 built-in starter templates — v0.1
+
+**v0.2 Studio UI:**
+- ✓ Conversational AI chat for template generation and refinement — v0.2
+- ✓ Template library with grid view and CRUD operations — v0.2
+- ✓ Video library linked to source templates — v0.2
+- ✓ Video preview via render → system player — v0.2
+- ✓ Frictionless testing of rendering engine — v0.2
 
 ### Active
 
-**v0.2 Studio UI:**
-- [ ] Conversational AI chat for template generation and refinement
-- [ ] Template library with version history
-- [ ] Video library linked to source templates
-- [ ] Video preview via render → system player
-- [ ] Frictionless testing of rendering engine
+(None — awaiting next milestone planning)
 
 ### Out of Scope
 
@@ -45,10 +48,11 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 - Horizontal scaling — Single instance handles MVP load; add later if needed
 - Custom font upload — Remote font URLs or system fonts cover most needs
 - GPU acceleration — Software rendering is fast enough initially
+- Template version history — Deferred to v0.3+
 
 ## Context
 
-**Current State:** v0.1 MVP shipped with 6,654 LOC TypeScript. All 40 requirements validated. 577 tests passing.
+**Current State:** v0.2 Studio shipped with ~10,000 LOC TypeScript total. 70 requirements validated across 2 milestones. Studio frontend adds 3,000 LOC React/TypeScript.
 
 **Tech Stack:**
 - Runtime: Node.js 20+ / TypeScript
@@ -56,6 +60,9 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 - Encoding: FFmpeg (binary)
 - API: Hono framework
 - AI: OpenRouter (Claude Sonnet 4)
+- Frontend: Vite 7 + React 19 + Tailwind v4 + shadcn/ui
+- State: TanStack Query (server) + Zustand (UI)
+- Data: SQLite with better-sqlite3 (WAL mode)
 
 **Market opportunity:** Programmatic video generation market growing. Existing solutions (json2video, Remotion) are either expensive at scale or complex to set up. Gap exists for a fast, simple, AI-enhanced solution.
 
@@ -75,25 +82,26 @@ The JSON-to-video rendering engine must work reliably. If rendering fails, nothi
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Single process architecture | Simplicity over scalability; can add Redis/BullMQ later if needed | Good for MVP |
-| @napi-rs/canvas for rendering | GPU-capable, game engine approach, faster than browser-based | Good |
-| OpenRouter for AI | Multi-model flexibility, can switch providers easily | Good |
-| Both keyframes and presets for v1 | Presets for simplicity, keyframes for power users — both needed | Good |
-| Hono for API framework | Fast, TypeScript-native, lightweight | Good |
-| p-queue for job management | Simple in-memory queue sufficient for MVP | Good for MVP |
-| canvas.data() for raw pixels | toBuffer('raw') not supported in @napi-rs/canvas | Works |
-| FFmpeg for encoding | Industry standard, reliable | Good |
+| Single process architecture | Simplicity over scalability; can add Redis/BullMQ later if needed | ✓ Good for MVP |
+| @napi-rs/canvas for rendering | GPU-capable, game engine approach, faster than browser-based | ✓ Good |
+| OpenRouter for AI | Multi-model flexibility, can switch providers easily | ✓ Good |
+| Both keyframes and presets for v1 | Presets for simplicity, keyframes for power users — both needed | ✓ Good |
+| Hono for API framework | Fast, TypeScript-native, lightweight | ✓ Good |
+| p-queue for job management | Simple in-memory queue sufficient for MVP | ✓ Good for MVP |
+| canvas.data() for raw pixels | toBuffer('raw') not supported in @napi-rs/canvas | ✓ Works |
+| FFmpeg for encoding | Industry standard, reliable | ✓ Good |
+| Vite + React for Studio | Modern tooling, fast HMR, TypeScript-native | ✓ Good |
+| Tailwind v4 | Native Vite plugin, no PostCSS config | ✓ Good |
+| TanStack Query + Zustand | Server state vs UI state separation | ✓ Good |
+| SSE via fetch (not EventSource) | EventSource cannot POST; fetch + ReadableStream works | ✓ Good |
+| SQLite with WAL mode | Prevents database locked errors | ✓ Good |
 
-## Current Milestone: v0.2 Studio
+## Shipped Milestones
 
-**Goal:** Build a local dev UI for frictionless AI-assisted video creation and testing.
-
-**Target features:**
-- Conversational AI chat for template generation/refinement
-- Template library with version history
-- Video library linked to templates
-- Preview via system player
-- Zero-friction testing workflow
+| Version | Name | Shipped | Phases | Requirements |
+|---------|------|---------|--------|--------------|
+| v0.1 | MVP | 2026-01-26 | 1-6 | 40 |
+| v0.2 | Studio | 2026-01-28 | 7-10 | 30 |
 
 ---
-*Last updated: 2026-01-27 after starting v0.2 milestone*
+*Last updated: 2026-01-28 after v0.2 milestone*
