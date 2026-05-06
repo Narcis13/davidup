@@ -1,0 +1,98 @@
+{
+  "$comment": [
+    "MotionForge hello-world — the design-doc §3.1 logo fade-in.",
+    "",
+    "What it does: 3-second clip on a 1280×720 / 60fps canvas. A rounded-rectangle 'logo' fades in",
+    "(opacity 0→1, easeOutQuad, 0–1.0s) and pops in scale (0.5→1.0, easeOutBack, 0–1.5s on both axes).",
+    "After 1.5s every tween is at its 'to' value and the resolver holds it there until t=duration.",
+    "",
+    "Why a shape and not an image: this composition is intentionally zero-asset so it runs out of the",
+    "box (validation passes, render-to-mp4 works without any external file). To use a real logo",
+    "instead, register an image asset and swap the 'logo' item to type 'sprite'. See examples/render.ts",
+    "and examples/mcp-demo.md for the asset-bearing variant.",
+    "",
+    "Coordinate system: origin top-left, y-down (per §1). Anchor (0.5, 0.5) means the logo's transform",
+    "x/y is its CENTER, and rotation/scale pivot around the center.",
+    "",
+    "$comment is non-canonical metadata: the schema's catch-all (z.record on items, z.object passthrough",
+    "on the root) ignores unknown keys, so this comment block is preserved on parse but never rendered.",
+    "It exists purely so this file documents itself when read in isolation. Strip it if you copy the",
+    "JSON into an environment that complains about extra fields."
+  ],
+
+  "version": "0.1",
+
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "duration": 3.0,
+    "background": "#0a0e27"
+  },
+
+  "assets": [],
+
+  "layers": [
+    {
+      "id": "foreground",
+      "z": 10,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": ["logo"]
+    }
+  ],
+
+  "items": {
+    "logo": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 320,
+      "height": 320,
+      "cornerRadius": 48,
+      "fillColor": "#ff6b35",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    }
+  },
+
+  "tweens": [
+    {
+      "id": "logo-fade-in",
+      "target": "logo",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0.0,
+      "duration": 1.0,
+      "easing": "easeOutQuad"
+    },
+    {
+      "id": "logo-pop-x",
+      "target": "logo",
+      "property": "transform.scaleX",
+      "from": 0.5,
+      "to": 1.0,
+      "start": 0.0,
+      "duration": 1.5,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "logo-pop-y",
+      "target": "logo",
+      "property": "transform.scaleY",
+      "from": 0.5,
+      "to": 1.0,
+      "start": 0.0,
+      "duration": 1.5,
+      "easing": "easeOutBack"
+    }
+  ]
+}
