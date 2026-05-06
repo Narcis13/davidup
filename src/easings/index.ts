@@ -1,2 +1,2 @@
-// Phase 3 — Easing functions land here.
-export {};
+export * from "./names.js";
+export * from "./functions.js";
