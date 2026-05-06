@@ -8,7 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:browser": "vite --config examples/browser-demo/vite.config.ts",
+    "build:browser": "vite build --config examples/browser-demo/vite.config.ts",
+    "mcp": "bun run src/mcp/bin.ts"
+  },
+  "bin": {
+    "motionforge-mcp": "./src/mcp/bin.ts"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -32,6 +38,7 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "skia-canvas": "^3.0.8",
     "zod": "^3.23.0"
   },

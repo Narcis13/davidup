@@ -1,0 +1,49 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/server.json",
+  "name": "motionforge",
+  "title": "MotionForge",
+  "version": "0.1.0",
+  "description": "Deterministic 2D programmatic video engine with MCP tools for AI agents. Build compositions, animate with tweens, preview frames, render to MP4.",
+  "homepage": "https://github.com/Narcis13/davidup",
+  "transport": {
+    "type": "stdio"
+  },
+  "command": "bun",
+  "args": ["run", "src/mcp/bin.ts"],
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "tools": [
+    "create_composition",
+    "get_composition",
+    "set_composition_property",
+    "validate",
+    "reset",
+    "register_asset",
+    "list_assets",
+    "remove_asset",
+    "add_layer",
+    "update_layer",
+    "remove_layer",
+    "add_sprite",
+    "add_text",
+    "add_shape",
+    "add_group",
+    "update_item",
+    "move_item_to_layer",
+    "remove_item",
+    "add_tween",
+    "update_tween",
+    "remove_tween",
+    "list_tweens",
+    "render_preview_frame",
+    "render_thumbnail_strip",
+    "render_to_video"
+  ],
+  "requirements": {
+    "runtime": "bun >=1.1 (or node >=20)",
+    "external": ["ffmpeg on $PATH (for render_to_video)"]
+  }
+}

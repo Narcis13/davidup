@@ -26,6 +26,15 @@ bun run typecheck
 bun run test
 ```
 
+### Browser preview demo
+
+```bash
+bun run dev:browser
+```
+
+Serves [`examples/browser-demo`](./examples/browser-demo) on Vite — a self-contained
+page that calls `attach(comp, canvas)` against the §3.1 hello-world animation.
+
 ## Layout
 
 ```
