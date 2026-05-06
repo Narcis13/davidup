@@ -1,0 +1,37 @@
+# deps
+node_modules/
+
+# build
+dist/
+*.tsbuildinfo
+
+# bun
+bun.lockb
+.bun/
+
+# test coverage
+coverage/
+.vitest/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# render outputs
+output/
+*.mp4
+*.mov
+*.webm
+*.gif
+!**/fixtures/**/*.mp4
+!**/fixtures/**/*.gif
+
+# logs
+*.log
+npm-debug.log*
+
+# env
+.env
+.env.local
