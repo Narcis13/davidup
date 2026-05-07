@@ -11,6 +11,8 @@
     "test:watch": "vitest",
     "dev:browser": "vite --config examples/browser-demo/vite.config.ts",
     "build:browser": "vite build --config examples/browser-demo/vite.config.ts",
+    "dev:comprehensive": "vite --config examples/comprehensive-browser/vite.config.ts",
+    "build:comprehensive": "vite build --config examples/comprehensive-browser/vite.config.ts",
     "mcp": "bun run src/mcp/bin.ts"
   },
   "bin": {
