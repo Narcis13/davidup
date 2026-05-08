@@ -2,53 +2,58 @@
  * MotionForge — comprehensive 20-second feature demo (Node renderer).
  * ===================================================================
  *
- * Exercises every v0.1 feature in one composition: every item type, every
- * easing in EASING_NAMES, multiple layers including a `screen` blend layer,
- * a group transform, color tweens, anchor tweens, and tweenable size /
- * stroke / cornerRadius / fontSize props.
+ * The composition is the canonical JSON in `comprehensive-composition.json`
+ * (per design-doc §3 — "the composition is data, not code"). The only thing
+ * this script does on top of that JSON is:
  *
- * The composition itself lives in `comprehensive-composition.ts` so the
- * browser preview demo (`examples/comprehensive-browser/`) can build the
- * exact same scene with browser-served asset URLs. Only the asset paths
- * differ between hosts.
+ *   1. Patch each asset's `src` from the JSON's portable relative path to
+ *      an absolute filesystem path skia-canvas / FontLibrary can open.
+ *   2. Validate, then render to MP4.
+ *
+ * The browser preview demo (`examples/comprehensive-browser/`) loads the
+ * same JSON and patches `src` to dev-server URLs instead.
  *
  * Run:  bun run examples/comprehensive.ts
  * Out:  examples/output/comprehensive.mp4
  */
 
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validate } from "../src/schema/index.js";
 import { renderToFile } from "../src/drivers/node/index.js";
-import { EASING_NAMES } from "../src/easings/names.js";
-import { buildCompositionAndCoverage } from "./comprehensive-composition.js";
+import { EASING_NAMES, type EasingName } from "../src/easings/names.js";
+import type { Composition } from "../src/schema/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = resolve(HERE, "output");
 const VIDEO_PATH = join(OUTPUT_DIR, "comprehensive.mp4");
-const BALL_PNG_PATH = resolve(HERE, "ball.png");
-const FONT_DISPLAY_PATH = resolve(HERE, "fonts", "BebasNeue-Regular.ttf");
-const FONT_MONO_PATH = resolve(HERE, "fonts", "JetBrainsMono-Bold.ttf");
+const COMPOSITION_JSON = resolve(HERE, "comprehensive-composition.json");
+const ASSET_PATHS: Record<string, string> = {
+  ball: resolve(HERE, "ball.png"),
+  "font-display": resolve(HERE, "fonts", "BebasNeue-Regular.ttf"),
+  "font-mono": resolve(HERE, "fonts", "JetBrainsMono-Bold.ttf"),
+};
 
 async function main(): Promise<void> {
   // 0) Pre-flight on assets. Fail fast if anything's missing on disk —
   //    skia-canvas's failure modes for missing files are unhelpful.
-  for (const path of [BALL_PNG_PATH, FONT_DISPLAY_PATH, FONT_MONO_PATH]) {
+  for (const path of Object.values(ASSET_PATHS)) {
     if (!existsSync(path)) {
       console.error(`[motionforge] missing asset: ${path}`);
       process.exit(1);
     }
   }
 
-  const { composition, usedEasings } = buildCompositionAndCoverage({
-    ball: BALL_PNG_PATH,
-    fontDisplay: FONT_DISPLAY_PATH,
-    fontMono: FONT_MONO_PATH,
-  });
+  const composition = await loadComposition();
 
+  const usedEasings = new Set<EasingName>(
+    composition.tweens
+      .map((t) => t.easing)
+      .filter((e): e is EasingName => e !== undefined),
+  );
   const missingEasings = EASING_NAMES.filter((e) => !usedEasings.has(e));
   if (missingEasings.length > 0) {
     console.error(`[motionforge] easing coverage incomplete — missing: ${missingEasings.join(", ")}`);
@@ -107,6 +112,20 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   console.log(`[motionforge] done — ${humanBytes(fileSize)}`);
+}
+
+async function loadComposition(): Promise<Composition> {
+  const text = await readFile(COMPOSITION_JSON, "utf8");
+  const json = JSON.parse(text) as Composition;
+  for (const asset of json.assets) {
+    const abs = ASSET_PATHS[asset.id];
+    if (!abs) {
+      console.error(`[motionforge] no filesystem mapping for asset id "${asset.id}"`);
+      process.exit(1);
+    }
+    asset.src = abs;
+  }
+  return json;
 }
 
 async function resolveFfmpegPath(): Promise<string | undefined> {

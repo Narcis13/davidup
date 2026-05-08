@@ -55,7 +55,19 @@ export interface AssetRegistry {
 
 import type { TweenIndex } from "./resolver.js";
 
+// A scratch surface the renderer can paint into, then drawImage onto the main
+// context. `source` is whatever the host's `drawImage` accepts as its first
+// argument: HTMLCanvasElement in browsers, skia-canvas's Canvas in node.
+export interface OffscreenSurface {
+  context: Canvas2DContext;
+  source: unknown;
+}
+
 export interface RenderOptions {
   assets?: AssetRegistry;
   index?: TweenIndex;
+  // Optional factory drivers supply so the engine can multiply-tint sprites
+  // without polluting the main canvas. When absent, sprite tint falls back to
+  // drawing the untinted image (texture preserved, no colorization).
+  createOffscreen?: (width: number, height: number) => OffscreenSurface;
 }

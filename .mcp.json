@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "motionforge": {
+      "type": "stdio",
+      "command": "bun",
+      "args": [
+        "run",
+        "/Users/narcisbrindusescu/newme/davidup/src/mcp/bin.ts"
+      ],
+      "env": {}
+    }
+  }
+}

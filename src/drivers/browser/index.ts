@@ -20,7 +20,7 @@ import {
   type AssetLoader,
 } from "../../assets/index.js";
 import { indexTweens, renderFrame } from "../../engine/index.js";
-import type { Canvas2DContext } from "../../engine/types.js";
+import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 
 export interface AttachableCanvas {
@@ -33,6 +33,8 @@ export interface AttachOptions {
   now?: () => number;
   requestAnimationFrame?: (cb: (t: number) => void) => number;
   cancelAnimationFrame?: (id: number) => void;
+  // Test injection point. Defaults to a DOM <canvas>; tests pass a fake.
+  createOffscreen?: (w: number, h: number) => OffscreenSurface;
 }
 
 export interface AttachHandle {
@@ -56,6 +58,7 @@ export async function attach(
   const now = options.now ?? defaultNow;
   const raf = options.requestAnimationFrame ?? defaultRaf;
   const caf = options.cancelAnimationFrame ?? defaultCaf;
+  const createOffscreen = options.createOffscreen ?? defaultCreateOffscreen;
   const tweenIndex = indexTweens(comp);
   const duration = comp.composition.duration;
 
@@ -68,7 +71,11 @@ export async function attach(
     if (cancelled) return;
     const t = (now() - startTime) / 1000;
     if (t > duration) return;
-    renderFrame(comp, t, ctx, { assets: loader, index: tweenIndex });
+    renderFrame(comp, t, ctx, {
+      assets: loader,
+      index: tweenIndex,
+      createOffscreen,
+    });
     rafId = raf(tick);
   };
 
@@ -87,6 +94,13 @@ export async function attach(
     },
     seek(seconds: number): void {
       startTime = now() - seconds * 1000;
+      if (cancelled) return;
+      // The loop self-stops once t > duration; seeking back into bounds must
+      // re-prime it. tick() always clears rafId before doing work, so the
+      // null-check guarantees we never double-schedule.
+      if (rafId === null) {
+        rafId = raf(tick);
+      }
     },
   };
 }
@@ -117,4 +131,21 @@ function defaultCaf(id: number): void {
     return;
   }
   clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
+}
+
+function defaultCreateOffscreen(width: number, height: number): OffscreenSurface {
+  const doc = (globalThis as { document?: Document }).document;
+  if (!doc) {
+    throw new Error(
+      "browser driver: no document — cannot create offscreen canvas for sprite tinting",
+    );
+  }
+  const c = doc.createElement("canvas");
+  c.width = width;
+  c.height = height;
+  const ctx = c.getContext("2d");
+  if (!ctx) {
+    throw new Error("browser driver: offscreen canvas getContext('2d') returned null");
+  }
+  return { context: ctx as unknown as Canvas2DContext, source: c };
 }

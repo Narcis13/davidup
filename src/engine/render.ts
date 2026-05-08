@@ -25,7 +25,20 @@ import {
   type ResolvedScene,
   type TweenIndex,
 } from "./resolver.js";
-import type { AssetRegistry, Canvas2DContext, RenderOptions } from "./types.js";
+import type {
+  AssetRegistry,
+  Canvas2DContext,
+  OffscreenSurface,
+  RenderOptions,
+} from "./types.js";
+
+// Subset of RenderOptions plumbed through the per-item draw functions. Built
+// once per renderFrame call so we don't reach back into the public options
+// shape from deep in the call tree.
+interface DrawContext {
+  assets: AssetRegistry | undefined;
+  createOffscreen: ((w: number, h: number) => OffscreenSurface) | undefined;
+}
 
 const COMPOSITE_NORMAL = "source-over";
 
@@ -36,13 +49,14 @@ export function renderFrame(
   options: RenderOptions = {},
 ): void {
   const scene = computeStateAt(comp, t, options.index);
-  drawScene(scene, ctx, options.assets);
+  drawScene(scene, ctx, options.assets, options.createOffscreen);
 }
 
 export function drawScene(
   scene: ResolvedScene,
   ctx: Canvas2DContext,
   assets: AssetRegistry | undefined,
+  createOffscreen?: (w: number, h: number) => OffscreenSurface,
 ): void {
   drawBackground(
     ctx,
@@ -50,6 +64,8 @@ export function drawScene(
     scene.composition.width,
     scene.composition.height,
   );
+
+  const dc: DrawContext = { assets, createOffscreen };
 
   const sorted = sortLayersByZ(scene.layers);
   for (const layer of sorted) {
@@ -59,7 +75,7 @@ export function drawScene(
     for (const itemId of layer.items) {
       const item = scene.items[itemId];
       if (!item) continue;
-      drawItem(ctx, item, scene, assets);
+      drawItem(ctx, item, scene, assets, dc);
     }
     ctx.restore();
   }
@@ -70,6 +86,7 @@ export function drawItem(
   item: Item,
   scene: ResolvedScene,
   assets: AssetRegistry | undefined,
+  dc: DrawContext = { assets, createOffscreen: undefined },
 ): void {
   const tr = item.transform;
   ctx.save();
@@ -87,7 +104,7 @@ export function drawItem(
 
   switch (item.type) {
     case "sprite":
-      drawSprite(ctx, item, assets);
+      drawSprite(ctx, item, dc);
       break;
     case "text":
       drawText(ctx, item, assets);
@@ -96,7 +113,7 @@ export function drawItem(
       drawShape(ctx, item);
       break;
     case "group":
-      drawGroupChildren(ctx, item, scene, assets);
+      drawGroupChildren(ctx, item, scene, dc);
       break;
   }
 
@@ -141,18 +158,62 @@ function anchorWidth(item: Item): number {
 
 function anchorHeight(item: Item): number {
   if (item.type === "sprite") return item.height;
-  if (item.type === "shape") return item.height ?? 0;
+  if (item.type === "shape") {
+    // §3.2: a circle's `width` is its diameter on both axes, and `height` is
+    // intentionally not authored. Fall back to width so anchorY actually
+    // shifts the circle vertically.
+    if (item.kind === "circle") return item.height ?? item.width ?? 0;
+    return item.height ?? 0;
+  }
   return 0;
 }
 
 function drawSprite(
   ctx: Canvas2DContext,
   item: SpriteItem,
-  assets: AssetRegistry | undefined,
+  dc: DrawContext,
 ): void {
-  const image = assets?.getImage(item.asset);
+  const image = dc.assets?.getImage(item.asset);
   if (image === undefined) return;
-  ctx.drawImage(image, 0, 0, item.width, item.height);
+  const tint = item.tint;
+  // No tint, identity (white) tint, or no offscreen factory wired by the
+  // driver → just paint the image. Skipping the offscreen on white avoids
+  // a per-frame allocation when the tween parks on its identity colour.
+  if (tint === undefined || isIdentityTint(tint) || !dc.createOffscreen) {
+    ctx.drawImage(image, 0, 0, item.width, item.height);
+    return;
+  }
+
+  // Tint via "multiply" on a scratch surface, then mask back to the image's
+  // alpha with "destination-in". A flat fillRect with source-atop on the main
+  // ctx would *replace* the texture with a solid colour (pre-fix bug); multiply
+  // preserves luminance so highlights/shadows survive while pixels take the
+  // tint's hue.
+  const off = dc.createOffscreen(item.width, item.height);
+  const oc = off.context;
+  oc.drawImage(image, 0, 0, item.width, item.height);
+  oc.globalCompositeOperation = "multiply";
+  oc.fillStyle = tint;
+  oc.fillRect(0, 0, item.width, item.height);
+  oc.globalCompositeOperation = "destination-in";
+  oc.drawImage(image, 0, 0, item.width, item.height);
+  // Restore default for any reuse of the offscreen by other code paths.
+  oc.globalCompositeOperation = "source-over";
+  ctx.drawImage(off.source, 0, 0, item.width, item.height);
+}
+
+function isIdentityTint(tint: string): boolean {
+  // Cheap match for common spellings of pure white. Anything ambiguous takes
+  // the multiply path — multiply by an actual #ffffff is a no-op anyway, so
+  // false negatives only cost an offscreen allocation, not correctness.
+  const norm = tint.replace(/\s+/g, "").toLowerCase();
+  return (
+    norm === "#ffffff" ||
+    norm === "#fff" ||
+    norm === "white" ||
+    norm === "rgb(255,255,255)" ||
+    norm === "rgba(255,255,255,1)"
+  );
 }
 
 function drawText(
@@ -226,12 +287,12 @@ function drawGroupChildren(
   ctx: Canvas2DContext,
   item: GroupItem,
   scene: ResolvedScene,
-  assets: AssetRegistry | undefined,
+  dc: DrawContext,
 ): void {
   for (const childId of item.items) {
     const child = scene.items[childId];
     if (!child) continue;
-    drawItem(ctx, child, scene, assets);
+    drawItem(ctx, child, scene, dc.assets, dc);
   }
 }
 

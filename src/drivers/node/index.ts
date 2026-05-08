@@ -22,7 +22,7 @@ import {
   type SkiaCanvasModule,
 } from "../../assets/index.js";
 import { indexTweens, renderFrame } from "../../engine/index.js";
-import type { Canvas2DContext } from "../../engine/types.js";
+import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 
 export interface SkiaCanvasInstance {
@@ -73,6 +73,10 @@ export async function renderToFile(
   const canvas = new skia.Canvas(meta.width, meta.height);
   const ctx = canvas.getContext("2d");
   const tweenIndex = indexTweens(comp);
+  const createOffscreen = (w: number, h: number): OffscreenSurface => {
+    const off = new skia.Canvas(w, h);
+    return { context: off.getContext("2d"), source: off };
+  };
 
   const totalFrames = frameCount(comp);
 
@@ -109,7 +113,11 @@ export async function renderToFile(
       if (stdinErrored) throw stdinErrored;
       const t = i / meta.fps;
       ctx.clearRect(0, 0, meta.width, meta.height);
-      renderFrame(comp, t, ctx, { assets: loader, index: tweenIndex });
+      renderFrame(comp, t, ctx, {
+        assets: loader,
+        index: tweenIndex,
+        createOffscreen,
+      });
       const raw = await Promise.resolve(canvas.toBuffer("raw"));
       const buf = toNodeBuffer(raw);
       const ok = stdin.write(buf);

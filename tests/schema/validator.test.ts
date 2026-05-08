@@ -192,6 +192,68 @@ describe("validate — tween overlap (E_TWEEN_OVERLAP)", () => {
   });
 });
 
+describe("validate — tween overlap regression (IEEE-754 drift)", () => {
+  it("accepts back-to-back chains whose start+duration drifts by 1 ULP", () => {
+    // 8.55 + 0.55 = 9.100000000000001 in IEEE-754 — used to trip strict overlap.
+    const comp = baseComposition();
+    comp.composition.duration = 30;
+    comp.tweens = [
+      {
+        id: "drift-a",
+        target: "logo-sprite",
+        property: "transform.x",
+        from: 0,
+        to: 100,
+        start: 8.0,
+        duration: 0.55,
+        easing: "linear",
+      },
+      {
+        id: "drift-b",
+        target: "logo-sprite",
+        property: "transform.x",
+        from: 100,
+        to: 200,
+        start: 8.55,
+        duration: 0.55,
+        easing: "linear",
+      },
+      {
+        id: "drift-c",
+        target: "logo-sprite",
+        property: "transform.x",
+        from: 200,
+        to: 300,
+        start: 9.1,
+        duration: 0.55,
+        easing: "linear",
+      },
+    ];
+    // sanity: drift exists.
+    expect(8.55 + 0.55).not.toBe(9.1);
+    const result = validate(comp);
+    expect(result.errors.filter((e) => e.code === "E_TWEEN_OVERLAP")).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+
+  it("still flags real overlap larger than the epsilon", () => {
+    const comp = baseComposition();
+    comp.tweens.push({
+      id: "logo-x-overlap",
+      target: "logo-sprite",
+      property: "transform.opacity",
+      // Existing logo-fade-in covers [0,1]; this one starts at 0.5 — clearly overlapping.
+      from: 1,
+      to: 0,
+      start: 0.5,
+      duration: 0.4,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.errors.some((e) => e.code === "E_TWEEN_OVERLAP")).toBe(true);
+  });
+});
+
 describe("validate — duration warning (W_TWEEN_TRUNCATED)", () => {
   it("warns (not errors) when tween extends past composition end", () => {
     const comp = baseComposition();

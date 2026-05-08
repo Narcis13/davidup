@@ -29,6 +29,11 @@ export type ValidationErrorCode =
 
 export type ValidationWarningCode = "W_TWEEN_TRUNCATED";
 
+// 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
+// floating-point drift from chained `start + duration` sums so back-to-back
+// segments authored with non-bit-exact durations validate correctly.
+const OVERLAP_EPS = 1e-6;
+
 export type ValidationError = {
   code: ValidationErrorCode;
   message: string;
@@ -227,11 +232,10 @@ function validateTweens(
       const prev = sorted[i - 1]!;
       const curr = sorted[i]!;
       const prevEnd = prev.start + prev.duration;
-      // Strict overlap; touching at endpoints is OK because at t=end the
-      // resolver holds at `to` and the next tween's pre-start value equals
-      // its `from` — they coincide only when from/to match, which is the
-      // user's responsibility.
-      if (curr.start < prevEnd) {
+      // Touching at endpoints is OK; an EPS guard absorbs IEEE-754 drift from
+      // chained `start + duration` sums (e.g. 8.55 + 0.55 = 9.100000000000001).
+      // EPS is 1µs — well below sub-frame tolerance even at 120fps.
+      if (curr.start + OVERLAP_EPS < prevEnd) {
         errors.push({
           code: "E_TWEEN_OVERLAP",
           message: `Tweens "${prev.id}" and "${curr.id}" overlap on ${key}: [${prev.start}, ${prevEnd}] vs [${curr.start}, ${curr.start + curr.duration}].`,

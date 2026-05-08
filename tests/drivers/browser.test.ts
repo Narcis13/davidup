@@ -283,6 +283,76 @@ describe("attach", () => {
     handle.stop();
   });
 
+  it("seek(0) re-primes the RAF loop after it has self-stopped past the end", async () => {
+    const comp = tinyComp({ duration: 0.1 });
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(comp, canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    // Run past the duration — loop self-terminates, no pending RAF.
+    clock.advance(150);
+    raf.flushOne();
+    expect(raf.pending()).toBe(0);
+    const fillsAtEnd = fillRectCount(canvas.ctx);
+
+    // Seek back to the start. Loop must restart.
+    handle.seek(0);
+    expect(raf.pending()).toBe(1);
+
+    // Subsequent ticks should paint frame 0 again.
+    raf.flushOne();
+    expect(fillRectCount(canvas.ctx)).toBeGreaterThan(fillsAtEnd);
+
+    handle.stop();
+  });
+
+  it("seek() does not double-schedule when the loop is already running", async () => {
+    const comp = tinyComp({ duration: 10 });
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(comp, canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    expect(raf.pending()).toBe(1); // Initial RAF queued.
+    handle.seek(2.0);
+    expect(raf.pending()).toBe(1); // Still exactly one — no double-schedule.
+
+    handle.stop();
+  });
+
+  it("seek() after stop() is inert (stop is terminal)", async () => {
+    const comp = tinyComp({ duration: 1 });
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(comp, canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    handle.stop();
+    expect(raf.pending()).toBe(0);
+
+    handle.seek(0);
+    expect(raf.pending()).toBe(0); // Nothing scheduled after stop.
+  });
+
   it("startAt initializes the clock offset before the first frame", async () => {
     const comp = tinyComp({ duration: 5 });
     const canvas = new FakeCanvas();

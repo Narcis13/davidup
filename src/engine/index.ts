@@ -1,4 +1,9 @@
-export type { AssetRegistry, Canvas2DContext, RenderOptions } from "./types.js";
+export type {
+  AssetRegistry,
+  Canvas2DContext,
+  OffscreenSurface,
+  RenderOptions,
+} from "./types.js";
 export {
   computeStateAt,
   indexTweens,

@@ -269,6 +269,213 @@ describe("drawItem — sprite", () => {
     }
   });
 
+  it("tints via offscreen multiply + destination-in, then composites to main ctx", () => {
+    // Pre-fix tint used `source-atop` + solid fillRect on the main ctx, which
+    // *replaced* the image's RGB with a flat colour and erased the texture.
+    // The fix moves tinting onto a scratch surface and uses `multiply` so the
+    // sprite's luminance survives.
+    const ctx = new FakeContext();
+    const offCtx = new FakeContext();
+    const offSource = { __offscreen: true };
+    let lastSize: { w: number; h: number } | null = null;
+    const createOffscreen = (w: number, h: number) => {
+      lastSize = { w, h };
+      return { context: offCtx, source: offSource };
+    };
+
+    const sprite: SpriteItem = {
+      type: "sprite",
+      asset: "logo",
+      width: 200,
+      height: 100,
+      tint: "#ff00aa",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { logo: sprite },
+    };
+    drawItem(ctx, sprite, scene, stubAssets, {
+      assets: stubAssets,
+      createOffscreen,
+    });
+
+    expect(lastSize).toEqual({ w: 200, h: 100 });
+
+    // Offscreen sequence: drawImage → multiply fillRect → destination-in drawImage.
+    const offDrawImages = offCtx.calls.filter((c) => c.op === "drawImage");
+    const offMultiplyFill = offCtx.calls.find(
+      (c) => c.op === "fillRect" && c.composite === "multiply",
+    );
+    const offMaskDraw = offCtx.calls.find(
+      (c) => c.op === "drawImage" && c.alpha !== undefined,
+    );
+    expect(offDrawImages.length).toBe(2); // base image + alpha re-mask
+    expect(offMultiplyFill).toBeDefined();
+    if (offMultiplyFill && offMultiplyFill.op === "fillRect") {
+      expect(offMultiplyFill.fillStyle).toBe("#ff00aa");
+      expect(offMultiplyFill.w).toBe(200);
+      expect(offMultiplyFill.h).toBe(100);
+    }
+    expect(offMaskDraw).toBeDefined();
+
+    // The offscreen ops must be in the right order for the multiply+mask trick.
+    const idxImage = offCtx.calls.findIndex((c) => c.op === "drawImage");
+    const idxMultiply = offCtx.calls.findIndex(
+      (c) => c.op === "fillRect" && c.composite === "multiply",
+    );
+    const lastDraw = offCtx.calls
+      .map((c, i) => ({ c, i }))
+      .filter((x) => x.c.op === "drawImage")
+      .pop();
+    expect(idxMultiply).toBeGreaterThan(idxImage);
+    expect(lastDraw && lastDraw.i).toBeGreaterThan(idxMultiply);
+    const maskCall = lastDraw?.c;
+    if (maskCall && maskCall.op === "drawImage") {
+      // The mask drawImage runs while compositeOperation is "destination-in".
+      // FakeContext doesn't snapshot composite on drawImage, but we can prove
+      // it via the explicit composite-state set right before it: search backwards.
+      // Simpler: the second drawImage must reuse the same image as the first.
+      expect(maskCall.image).toEqual({ __image: "logo" });
+    }
+
+    // The MAIN context must NOT show the legacy source-atop fillRect, and must
+    // composite the offscreen surface as its single sprite-level drawImage.
+    expect(
+      ctx.calls.some(
+        (c) => c.op === "fillRect" && c.composite === "source-atop",
+      ),
+    ).toBe(false);
+    const mainDraws = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(mainDraws.length).toBe(1);
+    if (mainDraws[0] && mainDraws[0].op === "drawImage") {
+      expect(mainDraws[0].image).toBe(offSource);
+      expect(mainDraws[0].dw).toBe(200);
+      expect(mainDraws[0].dh).toBe(100);
+    }
+  });
+
+  it("skips the offscreen for an identity (white) tint", () => {
+    // Multiply by white is a no-op; allocating a scratch canvas every frame
+    // for a sprite parked on `#ffffff` would be pure waste.
+    const ctx = new FakeContext();
+    let createCount = 0;
+    const createOffscreen = (w: number, h: number) => {
+      createCount++;
+      return { context: new FakeContext(), source: { __off: [w, h] } };
+    };
+    const sprite: SpriteItem = {
+      type: "sprite",
+      asset: "logo",
+      width: 64,
+      height: 64,
+      tint: "#ffffff",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { logo: sprite },
+    };
+    drawItem(ctx, sprite, scene, stubAssets, {
+      assets: stubAssets,
+      createOffscreen,
+    });
+
+    expect(createCount).toBe(0);
+    const draws = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(draws.length).toBe(1);
+    if (draws[0] && draws[0].op === "drawImage") {
+      expect(draws[0].image).toEqual({ __image: "logo" });
+    }
+  });
+
+  it("falls back to drawing the untinted image when no createOffscreen factory is supplied", () => {
+    // A driver that forgets to pass a factory must NOT silently re-introduce
+    // the source-atop bug. Fall back to texture-preserving identity render.
+    const ctx = new FakeContext();
+    const sprite: SpriteItem = {
+      type: "sprite",
+      asset: "logo",
+      width: 64,
+      height: 64,
+      tint: "#ff00aa",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { logo: sprite },
+    };
+    drawItem(ctx, sprite, scene, stubAssets);
+    const draws = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(draws.length).toBe(1);
+    expect(
+      ctx.calls.some(
+        (c) => c.op === "fillRect" && c.composite === "source-atop",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not paint tint when item.tint is unset", () => {
+    const ctx = new FakeContext();
+    const sprite: SpriteItem = {
+      type: "sprite",
+      asset: "logo",
+      width: 50,
+      height: 50,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { logo: sprite },
+    };
+    drawItem(ctx, sprite, scene, stubAssets);
+    expect(
+      ctx.calls.some(
+        (c) => c.op === "fillRect" && c.composite === "source-atop",
+      ),
+    ).toBe(false);
+  });
+
   it("skips drawImage when the asset is missing from the registry", () => {
     const ctx = new FakeContext();
     const sprite: SpriteItem = {
@@ -411,6 +618,40 @@ describe("drawItem — shape", () => {
       expect(arc.y).toBe(20);
       expect(arc.sa).toBe(0);
       expect(arc.ea).toBeCloseTo(Math.PI * 2);
+    }
+  });
+
+  it("anchors a circle on Y using width when height is unset", () => {
+    const ctx = new FakeContext();
+    // diameter = 220, anchored centre (0.5, 0.5) → expect translate(-110, -110).
+    const item: ShapeItem = {
+      type: "shape",
+      kind: "circle",
+      width: 220,
+      fillColor: "#118ab2",
+      transform: {
+        x: 400,
+        y: 400,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        opacity: 1,
+      },
+    };
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { c: item },
+    };
+    drawItem(ctx, item, scene, undefined);
+
+    const translates = ctx.calls.filter((c) => c.op === "translate");
+    expect(translates).toHaveLength(2);
+    if (translates[1] && translates[1].op === "translate") {
+      expect(translates[1].x).toBe(-0.5 * 220);
+      expect(translates[1].y).toBe(-0.5 * 220); // not 0 — this is the bug fix
     }
   });
 
