@@ -536,7 +536,7 @@ parent timeline.
     "intro": {
       "type": "scene",
       "scene": "introCard",
-      "params": { "title": "MotionForge", "subtitle": "v0.2 demo" },
+      "params": { "title": "Davidup", "subtitle": "v0.2 demo" },
       "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 1 }
     }
   },
@@ -603,7 +603,7 @@ overlap rules — defer them.
     "./scenes/outro.json"
   ],
   "items": {
-    "intro":     { "type": "scene", "scene": "introCard",     "params": {"title": "MotionForge"}, "transform": {...} },
+    "intro":     { "type": "scene", "scene": "introCard",     "params": {"title": "Davidup"}, "transform": {...} },
     "pricing":   { "type": "scene", "scene": "sectionPricing","params": {"plans": [...]},          "transform": {...} },
     "features":  { "type": "scene", "scene": "sectionFeatures","params": {"items": [...]},         "transform": {...} },
     "outro":     { "type": "scene", "scene": "outroCard",     "params": {"cta": "Try it"},         "transform": {...} }
@@ -801,7 +801,7 @@ The compiler must be a pure function of the authored input. Practically:
 
 ### 10.3 Where compilation runs
 
-- **CLI** — `motionforge compile authored.json --out canonical.json` for
+- **CLI** — `davidup compile authored.json --out canonical.json` for
   one-shot generation (great for git diffs of "what does this expand to?").
 - **Server driver** — auto-runs before `renderToFile`.
 - **Browser driver** — auto-runs before `attach`.
@@ -851,7 +851,7 @@ optional `assets` those definitions depend on. It has no `composition` /
 composition, it's a bag of reusable definitions.
 
 ```json
-// ~/motionforge/libs/narcis-brand-pack/library.json
+// ~/davidup/libs/narcis-brand-pack/library.json
 {
   "kind": "library",
   "id": "@narcis/brand-pack",
@@ -887,9 +887,9 @@ Two forms — pick one per import:
 {
   "imports": [
     "./scenes/local-section.json",                                  // bare path: compose-fragment import (§5)
-    { "library": "~/motionforge/libs/narcis-brand-pack" },          // library import (this section)
+    { "library": "~/davidup/libs/narcis-brand-pack" },          // library import (this section)
     { "library": "../shared/transitions", "as": "tr" },             // aliased library import
-    { "library": "@motionforge/effects-classic", "version": "^1.0" } // future: registry-resolved
+    { "library": "@davidup/effects-classic", "version": "^1.0" } // future: registry-resolved
   ]
 }
 ```
@@ -912,7 +912,7 @@ disambiguate via aliasing:
 ```json
 {
   "imports": [
-    { "library": "@motionforge/classic",   "as": "classic" },
+    { "library": "@davidup/classic",   "as": "classic" },
     { "library": "@narcis/brand-pack",     "as": "brand" }
   ],
   "tweens": [
@@ -940,7 +940,7 @@ Library JSON files may declare assets with paths relative to the
 library file itself:
 
 ```
-~/motionforge/libs/narcis-brand-pack/
+~/davidup/libs/narcis-brand-pack/
   library.json
   assets/
     Inter-Bold.ttf
@@ -961,13 +961,13 @@ A library may itself import other libraries. The compiler resolves
 transitively, with cycle detection:
 
 ```json
-// ~/motionforge/libs/brand-bundle/library.json
+// ~/davidup/libs/brand-bundle/library.json
 {
   "kind": "library",
   "id": "@narcis/brand-bundle",
   "imports": [
     { "library": "@narcis/brand-pack" },
-    { "library": "@motionforge/effects-classic", "as": "classic" }
+    { "library": "@davidup/effects-classic", "as": "classic" }
   ],
   "scenes": {
     "fullSection": {
@@ -996,17 +996,17 @@ preserve "same source → same pixels" across machines:
 libraries into their project (or use a vendored `libs/` folder).
 Absolute `~/`-paths are discouraged for shared projects.
 
-**Phase B (v0.5+) — lock file.** A `motionforge.lock.json` records the
+**Phase B (v0.5+) — lock file.** A `davidup.lock.json` records the
 content hash of every resolved library file. The compiler refuses to
 proceed if a library's resolved content doesn't match the lock. Authors
-update locks intentionally with `motionforge update`.
+update locks intentionally with `davidup update`.
 
 ```json
-// motionforge.lock.json
+// davidup.lock.json
 {
   "libraries": {
     "@narcis/brand-pack@1.2.0": {
-      "resolved": "/Users/narcis/motionforge/libs/narcis-brand-pack/library.json",
+      "resolved": "/Users/narcis/davidup/libs/narcis-brand-pack/library.json",
       "contentHash": "sha256:a3b1...",
       "files": {
         "library.json":            "sha256:a3b1...",
@@ -1048,8 +1048,8 @@ Three tiers, in order of "cost to ship":
    `imports` accepts library objects. Zero infrastructure.
 2. **Git URL imports** — `{ library: "git+https://github.com/foo/bar#v1.2.0" }`.
    The compiler clones to a cache dir on first resolve.
-3. **A registry** — `motionforge` CLI subcommand `motionforge add @org/pack`
-   pulls from a curated index (npm registry with `motionforge-library`
+3. **A registry** — `davidup` CLI subcommand `davidup add @org/pack`
+   pulls from a curated index (npm registry with `davidup-library`
    keyword is the cheapest implementation). Adds the import + updates
    the lock.
 
@@ -1091,7 +1091,7 @@ Discovery flow for an agent:
 For users actively building a library workflow:
 
 ```
-~/motionforge/
+~/davidup/
   libs/
     narcis-brand-pack/
       library.json
@@ -1107,7 +1107,7 @@ For users actively building a library workflow:
     product-launch-2026/
       composition.json
       scenes/
-      motionforge.lock.json
+      davidup.lock.json
     conference-talk/
       composition.json
       ...
@@ -1126,9 +1126,9 @@ file. Authors can develop a library in-place (relative `imports`) and
 | Asset path rewriting from libraries | v0.3 |
 | Built-in `core::` alias reserved | v0.3 |
 | Transitive library imports + cycle detection | v0.4 |
-| Lock file (`motionforge.lock.json`) | v0.5 |
+| Lock file (`davidup.lock.json`) | v0.5 |
 | Git-URL library imports | v0.5 |
-| Registry / CLI `motionforge add` | post-v1.0, demand-driven |
+| Registry / CLI `davidup add` | post-v1.0, demand-driven |
 
 The cheap-and-essential parts (file imports, aliasing, asset rewriting)
 land alongside templates. Determinism-grade pinning (lock file) waits
@@ -1138,7 +1138,7 @@ implementation cost.
 ### 12.12 Why not "just npm packages"?
 
 Tempting — npm already solves distribution, versioning, locking. But:
-- A `motionforge-library` is *data*, not code. Half of npm's machinery
+- A `davidup-library` is *data*, not code. Half of npm's machinery
   (transitive code-level deps, `node_modules` flattening,
   `package-lock.json` inside `node_modules`) is overhead with no value.
 - We want libraries usable from a browser-only context too (visual
@@ -1147,7 +1147,7 @@ Tempting — npm already solves distribution, versioning, locking. But:
   stronger than npm's tag-based pinning anyway.
 
 So: **leverage npm as transport** (you can `npm install
-@motionforge/effects-classic` and the package's `library.json` lives at
+@davidup/effects-classic` and the package's `library.json` lives at
 its root), but **don't build on npm semantics**. The compiler resolves
 library JSON files; npm is just one of several ways to get them onto
 disk.
@@ -1283,7 +1283,7 @@ examples/comprehensive/
     "./scenes/outro-card.json"
   ],
   "items": {
-    "act1": { "type": "scene", "scene": "titleCard",      "params": { "title": "MotionForge", "subtitle": "Comprehensive Feature Demo" }, "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 1 } },
+    "act1": { "type": "scene", "scene": "titleCard",      "params": { "title": "Davidup", "subtitle": "Comprehensive Feature Demo" }, "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 1 } },
     "act2": { "type": "scene", "scene": "shapesShowcase", "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 1 } },
     "act3": { "type": "scene", "scene": "ballBounce",     "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 1 } },
     "act4": { "type": "scene", "scene": "orbitSpin",      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 1 } },
@@ -1402,7 +1402,7 @@ and never write a single tween if the scene library covers the shapes.
 - **Library** — JSON file (or directory containing one) exporting reusable `behaviors` / `templates` / `scenes` / `assets` for use across multiple compositions. Has no `composition` block of its own.
 - **Library import** — entry in a composition's `imports` array referencing a library by path, optionally aliased.
 - **Namespace alias** — local short name (`as: "brand"`) under which a library's exports are addressed (`brand::popIn`).
-- **Lock file** — `motionforge.lock.json` recording the content hash of every resolved library and asset, ensuring same-source-different-machine determinism.
+- **Lock file** — `davidup.lock.json` recording the content hash of every resolved library and asset, ensuring same-source-different-machine determinism.
 - **Tree-shaking (compile-time)** — dropping library assets/definitions that no `items` / `tweens` actually reference, before producing the canonical JSON.
 
 ---

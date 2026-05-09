@@ -14,6 +14,6 @@ main().catch((err) => {
   // Surface the failure on stderr (stdio transport owns stdout for the JSON-RPC
   // framing, so anything we write there would corrupt the protocol).
   // eslint-disable-next-line no-console
-  console.error("[motionforge] fatal:", err);
+  console.error("[davidup] fatal:", err);
   process.exit(1);
 });

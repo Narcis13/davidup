@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "motionforge": {
+    "davidup": {
       "type": "stdio",
       "command": "bun",
       "args": [

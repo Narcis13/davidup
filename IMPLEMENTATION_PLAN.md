@@ -1,4 +1,4 @@
-# MotionForge v0.1 — Implementation Plan
+# Davidup v0.1 — Implementation Plan
 
 The design doc (`design-doc.md`) is well-specified. Below is a phased plan with the key decisions to approve up front. Implementation total is ~1–2 weeks of focused work.
 

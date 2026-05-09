@@ -1,13 +1,13 @@
-# MotionForge MCP — agent walkthrough
+# Davidup MCP — agent walkthrough
 
 This document covers everything an MCP client (Claude Code, Claude Desktop, the
 [`@modelcontextprotocol/inspector`](https://github.com/modelcontextprotocol/inspector),
-or your own custom client) needs to drive MotionForge as an autonomous video
+or your own custom client) needs to drive Davidup as an autonomous video
 composer.
 
 By the end you will:
 
-1. Understand the protocol shape MotionForge speaks (stdio, JSON-RPC over the
+1. Understand the protocol shape Davidup speaks (stdio, JSON-RPC over the
    MCP SDK, structured errors).
 2. Have the server registered with Claude Code (or your client of choice).
 3. Have walked an agent through building, validating, previewing, and
@@ -24,7 +24,7 @@ By the end you will:
 ## 1. What the MCP server actually is
 
 The package ships a stdio MCP server at `src/mcp/bin.ts`. When you launch it
-with `bun run src/mcp/bin.ts` (or via the `motionforge-mcp` bin shim defined
+with `bun run src/mcp/bin.ts` (or via the `davidup-mcp` bin shim defined
 in `package.json`), the process:
 
 - attaches to `stdin`/`stdout` as an MCP transport (JSON-RPC framed);
@@ -88,7 +88,7 @@ depends on your client; for Claude Code (CLI), edit `~/.claude.json` (or use
 ```jsonc
 {
   "mcpServers": {
-    "motionforge": {
+    "davidup": {
       "command": "bun",
       "args": ["run", "/absolute/path/to/davidup/src/mcp/bin.ts"],
       "env": {}
@@ -112,7 +112,7 @@ Reload Claude Code (`/mcp` to verify) and the 25 tools become callable.
 ### 2.2 Programmatic registration (`claude mcp add`)
 
 ```bash
-claude mcp add motionforge \
+claude mcp add davidup \
   --command bun \
   --args run /absolute/path/to/davidup/src/mcp/bin.ts
 ```
@@ -158,7 +158,7 @@ await client.callTool({
 ```
 
 For unit-test-style usage that doesn't even spawn a process, import
-`dispatchTool` and the tool registry from `motionforge/mcp` and drive
+`dispatchTool` and the tool registry from `davidup/mcp` and drive
 handlers in-process. See [`tests/mcp/`](../tests/mcp/) for examples.
 
 ---
@@ -427,7 +427,7 @@ There is no PRNG inside the engine in v0.1 (Q10 in design-doc §7 is open).
 - [`hello-world.json`](./hello-world.json) — the same composition this
   walkthrough builds, but as a hand-authored file.
 - [`render.ts`](./render.ts) — same composition again, driven through the JS
-  API. Useful when you want to skip MCP entirely and embed MotionForge in a
+  API. Useful when you want to skip MCP entirely and embed Davidup in a
   larger Node/Bun app.
 - [`server.json`](../server.json) — the MCP server manifest (consumed by
   registries).

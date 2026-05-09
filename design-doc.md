@@ -1,8 +1,8 @@
-# MotionForge — Design Document v0.1
+# Davidup — Design Document v0.1
 
 > **Status:** WIP / live document
 > **Ultima actualizare:** 2026-05-05
-> **Nume:** *MotionForge* este placeholder. Final TBD.
+> **Nume:** *Davidup*.
 
 ---
 

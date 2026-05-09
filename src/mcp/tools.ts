@@ -1,4 +1,4 @@
-// MCP tool definitions for MotionForge (per design-doc §4.1–4.6).
+// MCP tool definitions for Davidup (per design-doc §4.1–4.6).
 //
 // Each tool is a plain `ToolDef` with name, description, Zod input shape, and
 // a handler that returns a JSON-serialisable result OR throws MCPToolError

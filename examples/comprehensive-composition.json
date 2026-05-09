@@ -17,13 +17,13 @@
       "id": "font-display",
       "type": "font",
       "src": "./fonts/BebasNeue-Regular.ttf",
-      "family": "MotionForgeDisplay"
+      "family": "DavidupDisplay"
     },
     {
       "id": "font-mono",
       "type": "font",
       "src": "./fonts/JetBrainsMono-Bold.ttf",
-      "family": "MotionForgeMono"
+      "family": "DavidupMono"
     }
   ],
   "layers": [
@@ -135,7 +135,7 @@
     },
     "title": {
       "type": "text",
-      "text": "MotionForge",
+      "text": "Davidup",
       "font": "font-display",
       "fontSize": 110,
       "color": "#ff6b35",

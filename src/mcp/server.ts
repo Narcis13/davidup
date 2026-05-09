@@ -26,17 +26,17 @@ export interface CreateServerOptions {
   version?: string;
 }
 
-export interface MotionForgeServer {
+export interface DavidupServer {
   mcp: McpServer;
   store: CompositionStore;
   start(): Promise<void>;
   close(): Promise<void>;
 }
 
-const DEFAULT_NAME = "motionforge";
+const DEFAULT_NAME = "davidup";
 const DEFAULT_VERSION = "0.1.0";
 
-export function createServer(options: CreateServerOptions = {}): MotionForgeServer {
+export function createServer(options: CreateServerOptions = {}): DavidupServer {
   const store = options.store ?? new CompositionStore();
   const deps: ToolDeps = { store };
 

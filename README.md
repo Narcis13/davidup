@@ -1,4 +1,4 @@
-# MotionForge
+# Davidup
 
 > Deterministic 2D programmatic video engine for AI agents.
 > One JSON composition runs in the **browser** (live preview via Canvas2D +
@@ -33,7 +33,7 @@ need three properties at the same time:
    structured response. No prose, no codegen, no "maybe this is what I
    meant".
 
-MotionForge is built around exactly those three properties. The same engine
+Davidup is built around exactly those three properties. The same engine
 core renders both the live browser preview and the final MP4, so what you
 see while iterating is what ships.
 
@@ -84,7 +84,7 @@ loads the composition in JS and calls `attach(comp, canvas)` to start a
 `stop` controls.
 
 ```ts
-import { attach } from "motionforge/browser";
+import { attach } from "davidup/browser";
 
 const handle = await attach(comp, canvas);
 // handle.stop()        — cancel the RAF loop
@@ -110,8 +110,8 @@ API: load JSON → validate → sample the resolver → render a single PNG fram
 The minimal-viable version is just three lines:
 
 ```ts
-import { renderToFile } from "motionforge/node";
-import { validate } from "motionforge/schema";
+import { renderToFile } from "davidup/node";
+import { validate } from "davidup/schema";
 
 if (!validate(comp).valid) throw new Error("invalid");
 await renderToFile(comp, "out.mp4", { codec: "libx264", crf: 18 });
@@ -134,7 +134,7 @@ MCP client) by adding to your config — for Claude Code's `~/.claude.json`:
 ```jsonc
 {
   "mcpServers": {
-    "motionforge": {
+    "davidup": {
       "command": "bun",
       "args": ["run", "/absolute/path/to/davidup/src/mcp/bin.ts"]
     }
@@ -159,13 +159,13 @@ The package exposes one entrypoint per layer (subpath exports declared in
 
 | Subpath | What's there | Use it for |
 |---|---|---|
-| `motionforge/schema` | `validate`, Zod schemas, `Composition` types | Parsing JSON, validating before render |
-| `motionforge/easings` | 19 named easings, `EASING_NAMES`, `getEasing` | Custom code that needs the same easing math |
-| `motionforge/engine` | `computeStateAt`, `renderFrame`, `drawScene`, `indexTweens` | Building your own driver, or sampling state at a time without painting |
-| `motionforge/assets` | `BrowserAssetLoader`, `NodeAssetLoader`, `BaseAssetLoader` | Custom asset loading (CDN, S3, …) |
-| `motionforge/browser` | `attach(comp, canvas) → { stop, seek }` | Live preview in a page |
-| `motionforge/node` | `renderToFile(comp, outPath, opts)` | Render MP4 / MOV / WebM via ffmpeg |
-| `motionforge/mcp` | `createServer`, `dispatchTool`, `TOOLS`, `renderPreviewFrame`, `renderThumbnailStrip` | Embed the MCP server, or call tool handlers in-process from tests |
+| `davidup/schema` | `validate`, Zod schemas, `Composition` types | Parsing JSON, validating before render |
+| `davidup/easings` | 19 named easings, `EASING_NAMES`, `getEasing` | Custom code that needs the same easing math |
+| `davidup/engine` | `computeStateAt`, `renderFrame`, `drawScene`, `indexTweens` | Building your own driver, or sampling state at a time without painting |
+| `davidup/assets` | `BrowserAssetLoader`, `NodeAssetLoader`, `BaseAssetLoader` | Custom asset loading (CDN, S3, …) |
+| `davidup/browser` | `attach(comp, canvas) → { stop, seek }` | Live preview in a page |
+| `davidup/node` | `renderToFile(comp, outPath, opts)` | Render MP4 / MOV / WebM via ffmpeg |
+| `davidup/mcp` | `createServer`, `dispatchTool`, `TOOLS`, `renderPreviewFrame`, `renderThumbnailStrip` | Embed the MCP server, or call tool handlers in-process from tests |
 
 ---
 
@@ -232,7 +232,7 @@ server.json              MCP server manifest
 | `dyld: Library not loaded: libx265.215.dylib` when ffmpeg starts | Broken Homebrew ffmpeg — missing transitive lib. | `brew reinstall ffmpeg x265`, or rely on the bundled `ffmpeg-static` (the example does this automatically). |
 | `EPIPE: broken pipe, send` from `renderToFile` | ffmpeg subprocess crashed (bad codec / args / dyld). | Inspect the thrown error's `message` for the ffmpeg stderr tail; verify `ffmpeg -version` runs cleanly. |
 | `examples/render.ts` reports success but no MP4 file | ffmpeg killed by a signal mid-stream. The current driver treats signal-killed exits as success — known issue. | The example post-checks file size and exits non-zero in this case. Track the fix in `src/drivers/node/index.ts` (the `waitForClose` helper conflates `code: null` with success). |
-| `tools list is empty` in your MCP client | The MotionForge subprocess didn't start. | Run `bun run src/mcp/bin.ts` manually — anything on stderr is the real error. Use absolute paths in the MCP client config. |
+| `tools list is empty` in your MCP client | The Davidup subprocess didn't start. | Run `bun run src/mcp/bin.ts` manually — anything on stderr is the real error. Use absolute paths in the MCP client config. |
 | `skia-canvas` install fails | Native build prerequisites missing. | macOS: install Xcode CLT (`xcode-select --install`). Linux: install `build-essential` + `libcairo2-dev`. |
 
 For more agent-side troubleshooting, see [`examples/mcp-demo.md` §7](./examples/mcp-demo.md).

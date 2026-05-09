@@ -1,7 +1,7 @@
 {
   "$schema": "https://modelcontextprotocol.io/schemas/server.json",
-  "name": "motionforge",
-  "title": "MotionForge",
+  "name": "davidup",
+  "title": "Davidup",
   "version": "0.1.0",
   "description": "Deterministic 2D programmatic video engine with MCP tools for AI agents. Build compositions, animate with tweens, preview frames, render to MP4.",
   "homepage": "https://github.com/Narcis13/davidup",

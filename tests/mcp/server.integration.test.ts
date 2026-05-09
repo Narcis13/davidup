@@ -62,7 +62,7 @@ describe("MCP server — end-to-end over stdio", () => {
       cwd: REPO_ROOT,
       stderr: "pipe",
     });
-    client = new Client({ name: "motionforge-test", version: "0.0.0" });
+    client = new Client({ name: "davidup-test", version: "0.0.0" });
     await client.connect(transport);
   });
 

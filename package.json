@@ -1,5 +1,5 @@
 {
-  "name": "motionforge",
+  "name": "davidup",
   "version": "0.1.0",
   "description": "Deterministic 2D programmatic video engine with MCP tools for AI agents",
   "type": "module",
@@ -16,7 +16,7 @@
     "mcp": "bun run src/mcp/bin.ts"
   },
   "bin": {
-    "motionforge-mcp": "./src/mcp/bin.ts"
+    "davidup-mcp": "./src/mcp/bin.ts"
   },
   "exports": {
     ".": "./src/index.ts",

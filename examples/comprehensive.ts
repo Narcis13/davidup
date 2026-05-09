@@ -1,5 +1,5 @@
 /**
- * MotionForge — comprehensive 20-second feature demo (Node renderer).
+ * Davidup — comprehensive 20-second feature demo (Node renderer).
  * ===================================================================
  *
  * The composition is the canonical JSON in `comprehensive-composition.json`
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   //    skia-canvas's failure modes for missing files are unhelpful.
   for (const path of Object.values(ASSET_PATHS)) {
     if (!existsSync(path)) {
-      console.error(`[motionforge] missing asset: ${path}`);
+      console.error(`[davidup] missing asset: ${path}`);
       process.exit(1);
     }
   }
@@ -56,15 +56,15 @@ async function main(): Promise<void> {
   );
   const missingEasings = EASING_NAMES.filter((e) => !usedEasings.has(e));
   if (missingEasings.length > 0) {
-    console.error(`[motionforge] easing coverage incomplete — missing: ${missingEasings.join(", ")}`);
+    console.error(`[davidup] easing coverage incomplete — missing: ${missingEasings.join(", ")}`);
     process.exit(1);
   }
   console.log(
-    `[motionforge] using all ${EASING_NAMES.length} easings across ${composition.tweens.length} tweens`,
+    `[davidup] using all ${EASING_NAMES.length} easings across ${composition.tweens.length} tweens`,
   );
 
   // 1) Validate.
-  console.log("[motionforge] validating composition...");
+  console.log("[davidup] validating composition...");
   const result = validate(composition);
   if (!result.valid) {
     console.error("validation failed:");
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     console.warn(`  warning [${w.code}] ${w.message}`);
   }
   console.log(
-    `[motionforge] valid: ${Object.keys(composition.items).length} items, ` +
+    `[davidup] valid: ${Object.keys(composition.items).length} items, ` +
       `${composition.layers.length} layers, ${composition.tweens.length} tweens, ` +
       `${composition.assets.length} assets`,
   );
@@ -85,9 +85,9 @@ async function main(): Promise<void> {
   // 2) Render.
   await mkdir(OUTPUT_DIR, { recursive: true });
   const ffmpegPath = await resolveFfmpegPath();
-  if (ffmpegPath) console.log(`[motionforge] using ffmpeg at ${ffmpegPath}`);
+  if (ffmpegPath) console.log(`[davidup] using ffmpeg at ${ffmpegPath}`);
   console.log(
-    `[motionforge] rendering ${composition.composition.duration}s @ ${composition.composition.fps}fps → ${VIDEO_PATH}`,
+    `[davidup] rendering ${composition.composition.duration}s @ ${composition.composition.fps}fps → ${VIDEO_PATH}`,
   );
 
   const startedAt = performance.now();
@@ -100,18 +100,18 @@ async function main(): Promise<void> {
   });
   const wallMs = performance.now() - startedAt;
   console.log(
-    `[motionforge] ${out.frameCount} frames in ${out.durationMs.toFixed(0)}ms ` +
+    `[davidup] ${out.frameCount} frames in ${out.durationMs.toFixed(0)}ms ` +
       `(wall ${wallMs.toFixed(0)}ms; ${(out.frameCount / (out.durationMs / 1000)).toFixed(1)} fps)`,
   );
 
   const fileSize = await stat(VIDEO_PATH).then((s) => s.size).catch(() => 0);
   if (fileSize === 0) {
     console.error(
-      `[motionforge] WARNING: ffmpeg reported success but ${VIDEO_PATH} is missing or empty.`,
+      `[davidup] WARNING: ffmpeg reported success but ${VIDEO_PATH} is missing or empty.`,
     );
     process.exit(2);
   }
-  console.log(`[motionforge] done — ${humanBytes(fileSize)}`);
+  console.log(`[davidup] done — ${humanBytes(fileSize)}`);
 }
 
 async function loadComposition(): Promise<Composition> {
@@ -120,7 +120,7 @@ async function loadComposition(): Promise<Composition> {
   for (const asset of json.assets) {
     const abs = ASSET_PATHS[asset.id];
     if (!abs) {
-      console.error(`[motionforge] no filesystem mapping for asset id "${asset.id}"`);
+      console.error(`[davidup] no filesystem mapping for asset id "${asset.id}"`);
       process.exit(1);
     }
     asset.src = abs;
@@ -144,6 +144,6 @@ function humanBytes(bytes: number): string {
 }
 
 main().catch((err) => {
-  console.error("[motionforge] fatal:", err);
+  console.error("[davidup] fatal:", err);
   process.exit(1);
 });

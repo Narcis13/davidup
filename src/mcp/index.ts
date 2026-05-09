@@ -47,7 +47,7 @@ export {
 export {
   createServer,
   type CreateServerOptions,
-  type MotionForgeServer,
+  type DavidupServer,
 } from "./server.js";
 
 export {

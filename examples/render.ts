@@ -1,5 +1,5 @@
 /**
- * MotionForge — JS API tour
+ * Davidup — JS API tour
  * =========================
  *
  * This script exercises every public surface of the v0.1 engine end-to-end:
@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 //   "./mcp"     → renderPreviewFrame (single-frame PNG/JPEG to base64)
 //
 // We use file paths here because the example runs from a checkout, but in a
-// downstream consumer you'd write `from "motionforge/schema"` etc.
+// downstream consumer you'd write `from "davidup/schema"` etc.
 import { validate, type Composition } from "../src/schema/index.js";
 import { computeStateAt } from "../src/engine/index.js";
 import { renderToFile } from "../src/drivers/node/index.js";
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
     .catch(() => 0);
   if (fileSize === 0) {
     console.error(
-      `\n[motionforge] WARNING: ffmpeg reported success but ${VIDEO_MP4_PATH} ` +
+      `\n[davidup] WARNING: ffmpeg reported success but ${VIDEO_MP4_PATH} ` +
         `is missing or empty. Your local ffmpeg likely failed to start (broken ` +
         `dynamic library, missing codec). Try: ffmpeg -version on the CLI.`,
     );
@@ -187,7 +187,7 @@ async function resolveFfmpegPath(): Promise<string | undefined> {
 }
 
 function log(...args: unknown[]): void {
-  console.log("[motionforge]", ...args);
+  console.log("[davidup]", ...args);
 }
 
 function humanBytes(bytes: number): string {
@@ -197,6 +197,6 @@ function humanBytes(bytes: number): string {
 }
 
 main().catch((err) => {
-  console.error("[motionforge] fatal:", err);
+  console.error("[davidup] fatal:", err);
   process.exit(1);
 });

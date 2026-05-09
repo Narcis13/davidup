@@ -157,7 +157,7 @@ describe("renderToFile — hello-world MP4 (integration)", () => {
   let outPath: string;
 
   beforeAll(() => {
-    workDir = mkdtempSync(join(tmpdir(), "motionforge-phase6-"));
+    workDir = mkdtempSync(join(tmpdir(), "davidup-phase6-"));
     outPath = join(workDir, "hello-world.mp4");
   });
 

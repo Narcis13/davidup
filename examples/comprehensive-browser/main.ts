@@ -38,7 +38,7 @@ const ASSET_URLS: Record<string, string> = {
 const composition = structuredClone(compositionJson) as Composition;
 for (const asset of composition.assets) {
   const url = ASSET_URLS[asset.id];
-  if (!url) throw new Error(`[motionforge] no URL mapping for asset "${asset.id}"`);
+  if (!url) throw new Error(`[davidup] no URL mapping for asset "${asset.id}"`);
   asset.src = url;
 }
 
@@ -49,19 +49,19 @@ const usedEasings = new Set<EasingName>(
 );
 const missing = EASING_NAMES.filter((e) => !usedEasings.has(e));
 if (missing.length > 0) {
-  console.error("[motionforge] missing easings:", missing);
+  console.error("[davidup] missing easings:", missing);
 } else {
   console.log(
-    `[motionforge] using all ${EASING_NAMES.length} easings across ${composition.tweens.length} tweens`,
+    `[davidup] using all ${EASING_NAMES.length} easings across ${composition.tweens.length} tweens`,
   );
 }
 
 const result = validate(composition);
 if (!result.valid) {
-  console.error("[motionforge] validation failed:", result.errors);
+  console.error("[davidup] validation failed:", result.errors);
   throw new Error("composition invalid — see console");
 }
-for (const w of result.warnings) console.warn("[motionforge] warning:", w);
+for (const w of result.warnings) console.warn("[davidup] warning:", w);
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const replayBtn = document.getElementById("replay") as HTMLButtonElement;
