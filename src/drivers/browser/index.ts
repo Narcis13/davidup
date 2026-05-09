@@ -6,6 +6,10 @@
 //   3. renderFrame(comp, t, ctx) — same engine as the server driver.
 //   4. Schedule next frame via requestAnimationFrame.
 //
+// Before the loop starts, the driver runs `precompile()` (COMPOSITION_PRIMITIVES
+// §10.3) so callers can hand authored v0.2 JSON containing `$ref` / `$behavior`
+// markers directly. For canonical v0.1 input the precompile call is a no-op.
+//
 // Asset preloading runs once before the loop starts: returning the handle is
 // awaited on, so callers can rely on images/fonts being ready by the time the
 // promise resolves. The tween index is computed once and reused (per §5.7).
@@ -19,6 +23,8 @@ import {
   BrowserAssetLoader,
   type AssetLoader,
 } from "../../assets/index.js";
+import { precompile } from "../../compose/index.js";
+import type { ReadFile } from "../../compose/imports.js";
 import { indexTweens, renderFrame } from "../../engine/index.js";
 import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
@@ -35,6 +41,19 @@ export interface AttachOptions {
   cancelAnimationFrame?: (id: number) => void;
   // Test injection point. Defaults to a DOM <canvas>; tests pass a fake.
   createOffscreen?: (w: number, h: number) => OffscreenSurface;
+
+  /**
+   * Path of the file the composition was loaded from. Required only when the
+   * composition contains `$ref` markers — relative refs resolve against this
+   * file's directory (COMPOSITION_PRIMITIVES.md §5.3).
+   */
+  sourcePath?: string;
+  /**
+   * Custom file reader used by the `$ref` resolver. The browser has no
+   * file system; pass an in-memory map (e.g. `(p) => Promise.resolve(map[p])`)
+   * to satisfy this when authored compositions reference external files.
+   */
+  readFile?: ReadFile;
 }
 
 export interface AttachHandle {
@@ -52,15 +71,20 @@ export async function attach(
     throw new Error("attach: canvas.getContext('2d') returned null");
   }
 
+  const compiled = (await precompile(comp, {
+    ...(options.sourcePath !== undefined ? { sourcePath: options.sourcePath } : {}),
+    ...(options.readFile !== undefined ? { readFile: options.readFile } : {}),
+  })) as Composition;
+
   const loader = options.loader ?? new BrowserAssetLoader();
-  await loader.preloadAll(comp.assets);
+  await loader.preloadAll(compiled.assets);
 
   const now = options.now ?? defaultNow;
   const raf = options.requestAnimationFrame ?? defaultRaf;
   const caf = options.cancelAnimationFrame ?? defaultCaf;
   const createOffscreen = options.createOffscreen ?? defaultCreateOffscreen;
-  const tweenIndex = indexTweens(comp);
-  const duration = comp.composition.duration;
+  const tweenIndex = indexTweens(compiled);
+  const duration = compiled.composition.duration;
 
   let startTime = now() - (options.startAt ?? 0) * 1000;
   let rafId: number | null = null;
@@ -71,7 +95,7 @@ export async function attach(
     if (cancelled) return;
     const t = (now() - startTime) / 1000;
     if (t > duration) return;
-    renderFrame(comp, t, ctx, {
+    renderFrame(compiled, t, ctx, {
       assets: loader,
       index: tweenIndex,
       createOffscreen,

@@ -1,0 +1,35 @@
+{
+  "version": "0.1",
+  "composition": {
+    "$ref": "./meta.json#/composition"
+  },
+  "assets": {
+    "$ref": "./meta.json#/assets"
+  },
+  "layers": {
+    "$ref": "./meta.json#/layers"
+  },
+  "items": {
+    "$ref": "./meta.json#/items"
+  },
+  "tweens": [
+    {
+      "$ref": "./acts/act-1-title.json"
+    },
+    {
+      "$ref": "./acts/act-2-shapes.json"
+    },
+    {
+      "$ref": "./acts/act-3-ball-bounce.json"
+    },
+    {
+      "$ref": "./acts/act-4-orbit.json"
+    },
+    {
+      "$ref": "./acts/act-5-glow.json"
+    },
+    {
+      "$ref": "./acts/act-6-outro.json"
+    }
+  ]
+}

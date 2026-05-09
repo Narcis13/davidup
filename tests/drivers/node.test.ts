@@ -211,3 +211,68 @@ describe("renderToFile — error paths", () => {
     ).rejects.toThrow(/ffmpeg exited with code 1[\s\S]*Unknown encoder 'libx999'/);
   });
 });
+
+describe("renderToFile — v0.2 pre-compile auto-run (COMPOSITION_PRIMITIVES.md §10.3)", () => {
+  it("auto-expands $behavior tweens before encoding (no sourcePath needed)", async () => {
+    // Authored input: behavior block in `tweens`. If precompile didn't run,
+    // indexTweens / renderFrame would crash on the unexpanded marker.
+    const authored = {
+      ...tinyComp({ duration: 0.4, fps: 5 }),
+      tweens: [{ $behavior: "fadeIn", target: "s", start: 0, duration: 0.2 }],
+    } as unknown as Composition;
+    const skia = makeFakeSkia();
+    const harness = makeFakeSpawn({ exitCode: 0 });
+
+    const result = await renderToFile(authored, "/tmp/out.mp4", {
+      skiaCanvas: skia,
+      spawn: harness.spawn,
+    });
+
+    expect(result.frameCount).toBe(2);
+    expect(harness.calls[0]!.ffmpeg.stdin.writes).toHaveLength(2);
+  });
+
+  it("resolves $ref via the supplied readFile then encodes", async () => {
+    const fakeFiles: Record<string, string> = {
+      "/proj/tweens.json": JSON.stringify([
+        { $behavior: "fadeIn", target: "s", start: 0, duration: 0.2 },
+      ]),
+    };
+    const authored = {
+      ...tinyComp({ duration: 0.4, fps: 5 }),
+      tweens: [{ $ref: "./tweens.json" }],
+    } as unknown as Composition;
+    const skia = makeFakeSkia();
+    const harness = makeFakeSpawn({ exitCode: 0 });
+
+    const result = await renderToFile(authored, "/tmp/out.mp4", {
+      skiaCanvas: skia,
+      spawn: harness.spawn,
+      sourcePath: "/proj/root.json",
+      readFile: async (p) => {
+        const v = fakeFiles[p];
+        if (v === undefined) throw new Error(`no such virtual file: ${p}`);
+        return v;
+      },
+    });
+
+    expect(result.frameCount).toBe(2);
+    expect(harness.calls[0]!.ffmpeg.stdin.writes).toHaveLength(2);
+  });
+
+  it("rejects authored compositions with $ref but no sourcePath", async () => {
+    const authored = {
+      ...tinyComp(),
+      tweens: [{ $ref: "./tweens.json" }],
+    } as unknown as Composition;
+    const skia = makeFakeSkia();
+    const harness = makeFakeSpawn({ exitCode: 0 });
+
+    await expect(
+      renderToFile(authored, "/tmp/out.mp4", {
+        skiaCanvas: skia,
+        spawn: harness.spawn,
+      }),
+    ).rejects.toThrow(/\$ref.*sourcePath/);
+  });
+});

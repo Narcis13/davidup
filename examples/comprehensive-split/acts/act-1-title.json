@@ -1,0 +1,212 @@
+[
+  {
+    "id": "tw_0_bg_fillColor",
+    "target": "bg",
+    "property": "fillColor",
+    "from": "#05060e",
+    "to": "#0a0e27",
+    "start": 0,
+    "duration": 1.5,
+    "easing": "easeOutCubic"
+  },
+  {
+    "id": "tw_1_bg_fillColor",
+    "target": "bg",
+    "property": "fillColor",
+    "from": "#0a0e27",
+    "to": "#1a1244",
+    "start": 6,
+    "duration": 4,
+    "easing": "easeInOutSine"
+  },
+  {
+    "id": "tw_2_bg_fillColor",
+    "target": "bg",
+    "property": "fillColor",
+    "from": "#1a1244",
+    "to": "#0a0e27",
+    "start": 12,
+    "duration": 4,
+    "easing": "easeInOutQuart"
+  },
+  {
+    "id": "tw_3_bg_fillColor",
+    "target": "bg",
+    "property": "fillColor",
+    "from": "#0a0e27",
+    "to": "#000000",
+    "start": 18.5,
+    "duration": 1.5,
+    "easing": "easeInQuad"
+  },
+  {
+    "id": "tw_4_title_transform_opacity",
+    "target": "title",
+    "property": "transform.opacity",
+    "from": 0,
+    "to": 1,
+    "start": 0.2,
+    "duration": 1,
+    "easing": "easeOutQuad"
+  },
+  {
+    "id": "tw_5_title_transform_scaleX",
+    "target": "title",
+    "property": "transform.scaleX",
+    "from": 0.2,
+    "to": 1,
+    "start": 0.2,
+    "duration": 1.4,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_6_title_transform_scaleY",
+    "target": "title",
+    "property": "transform.scaleY",
+    "from": 0.2,
+    "to": 1,
+    "start": 0.2,
+    "duration": 1.4,
+    "easing": "easeInOutBack"
+  },
+  {
+    "id": "tw_7_title_color",
+    "target": "title",
+    "property": "color",
+    "from": "#ff6b35",
+    "to": "#ffd166",
+    "start": 1.6,
+    "duration": 1.8,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_8_title_fontSize",
+    "target": "title",
+    "property": "fontSize",
+    "from": 110,
+    "to": 128,
+    "start": 1.6,
+    "duration": 1.8,
+    "easing": "easeInOutCubic"
+  },
+  {
+    "id": "tw_9_subtitle_transform_opacity",
+    "target": "subtitle",
+    "property": "transform.opacity",
+    "from": 0,
+    "to": 1,
+    "start": 1.4,
+    "duration": 0.9,
+    "easing": "easeOutSine"
+  },
+  {
+    "id": "tw_10_subtitle_transform_y",
+    "target": "subtitle",
+    "property": "transform.y",
+    "from": 460,
+    "to": 420,
+    "start": 1.4,
+    "duration": 0.9,
+    "easing": "easeOutCubic"
+  },
+  {
+    "id": "tw_11_card_transform_opacity",
+    "target": "card",
+    "property": "transform.opacity",
+    "from": 0,
+    "to": 1,
+    "start": 0.6,
+    "duration": 1.4,
+    "easing": "easeOutQuart"
+  },
+  {
+    "id": "tw_12_card_width",
+    "target": "card",
+    "property": "width",
+    "from": 0,
+    "to": 1080,
+    "start": 0.6,
+    "duration": 1.4,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_13_card_cornerRadius",
+    "target": "card",
+    "property": "cornerRadius",
+    "from": 0,
+    "to": 36,
+    "start": 0.6,
+    "duration": 1.4,
+    "easing": "easeOutQuad"
+  },
+  {
+    "id": "tw_14_card_strokeWidth",
+    "target": "card",
+    "property": "strokeWidth",
+    "from": 0,
+    "to": 4,
+    "start": 1.2,
+    "duration": 1,
+    "easing": "easeOutQuad"
+  },
+  {
+    "id": "tw_15_title_transform_y",
+    "target": "title",
+    "property": "transform.y",
+    "from": 340,
+    "to": 90,
+    "start": 4,
+    "duration": 0.8,
+    "easing": "easeInOutQuart"
+  },
+  {
+    "id": "tw_16_title_transform_scaleX",
+    "target": "title",
+    "property": "transform.scaleX",
+    "from": 1,
+    "to": 0.55,
+    "start": 4,
+    "duration": 0.8,
+    "easing": "easeInOutCubic"
+  },
+  {
+    "id": "tw_17_title_transform_scaleY",
+    "target": "title",
+    "property": "transform.scaleY",
+    "from": 1,
+    "to": 0.55,
+    "start": 4,
+    "duration": 0.8,
+    "easing": "easeInOutCubic"
+  },
+  {
+    "id": "tw_18_subtitle_transform_opacity",
+    "target": "subtitle",
+    "property": "transform.opacity",
+    "from": 1,
+    "to": 0,
+    "start": 4,
+    "duration": 0.5,
+    "easing": "easeInQuad"
+  },
+  {
+    "id": "tw_19_card_transform_opacity",
+    "target": "card",
+    "property": "transform.opacity",
+    "from": 1,
+    "to": 0,
+    "start": 4,
+    "duration": 0.7,
+    "easing": "easeInOutQuad"
+  },
+  {
+    "id": "tw_20_card_cornerRadius",
+    "target": "card",
+    "property": "cornerRadius",
+    "from": 36,
+    "to": 180,
+    "start": 4,
+    "duration": 0.7,
+    "easing": "easeInOutSine"
+  }
+]

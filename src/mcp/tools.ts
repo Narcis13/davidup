@@ -15,6 +15,11 @@
 
 import { z } from "zod";
 
+import {
+  expandBehavior,
+  listBehaviors,
+  type BehaviorBlock,
+} from "../compose/behaviors.js";
 import { renderToFile } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
 import { MCPToolError } from "./errors.js";
@@ -609,6 +614,78 @@ const listTweens = defineTool({
   },
 });
 
+// ──────────────── 4.5b Behaviors (§6.7) ────────────────
+
+const applyBehavior = defineTool({
+  name: "apply_behavior",
+  title: "Apply behavior",
+  description:
+    "Expand a built-in behavior into one or more tweens. Each emitted tween is added to the store under a deterministic id; ordinary overlap and property-validity checks apply.",
+  inputSchema: {
+    target: z.string().min(1),
+    behavior: z.string().min(1),
+    start: z.number().nonnegative(),
+    duration: z.number().positive(),
+    params: z.record(z.string(), z.unknown()).optional(),
+    easing: z.enum(EASING_NAMES).optional(),
+    id: z.string().min(1).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const block: BehaviorBlock = {
+      target: args.target,
+      behavior: args.behavior,
+      start: args.start,
+      duration: args.duration,
+    };
+    if (args.easing !== undefined) block.easing = args.easing;
+    if (args.params !== undefined) block.params = args.params;
+    if (args.id !== undefined) block.id = args.id;
+    const tweens = expandBehavior(block);
+    const tweenIds: string[] = [];
+    try {
+      for (const t of tweens) {
+        store.addTween(
+          {
+            id: t.id,
+            target: t.target,
+            property: t.property,
+            from: t.from,
+            to: t.to,
+            start: t.start,
+            duration: t.duration,
+            ...(t.easing !== undefined ? { easing: t.easing } : {}),
+          },
+          args.compositionId,
+        );
+        tweenIds.push(t.id);
+      }
+    } catch (err) {
+      // Roll back any partially-added tweens so apply_behavior is atomic.
+      for (const id of tweenIds) {
+        try {
+          store.removeTween(id, args.compositionId);
+        } catch {
+          // best-effort cleanup; ignore
+        }
+      }
+      throw err;
+    }
+    return { tweenIds };
+  },
+});
+
+const listBehaviorsTool = defineTool({
+  name: "list_behaviors",
+  title: "List behaviors",
+  description:
+    "List the built-in behaviors available to apply_behavior, with their parameters and produced tween suffixes.",
+  inputSchema: {},
+  handler: () => {
+    return { behaviors: listBehaviors() };
+  },
+});
+
 // ──────────────── 4.6 Render ────────────────
 
 function ensureValidForRender(store: CompositionStore, compositionId?: string): void {
@@ -744,6 +821,9 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   updateTween,
   removeTween,
   listTweens,
+  // 4.5b — behaviors
+  applyBehavior,
+  listBehaviorsTool,
   // 4.6
   renderPreviewFrameTool,
   renderThumbnailStripTool,

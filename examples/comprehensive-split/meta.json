@@ -1,0 +1,397 @@
+{
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "duration": 20,
+    "background": "#000000"
+  },
+  "assets": [
+    {
+      "id": "ball",
+      "type": "image",
+      "src": "./ball.png"
+    },
+    {
+      "id": "font-display",
+      "type": "font",
+      "src": "./fonts/BebasNeue-Regular.ttf",
+      "family": "DavidupDisplay"
+    },
+    {
+      "id": "font-mono",
+      "type": "font",
+      "src": "./fonts/JetBrainsMono-Bold.ttf",
+      "family": "DavidupMono"
+    }
+  ],
+  "layers": [
+    {
+      "id": "bg-layer",
+      "z": 0,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "bg"
+      ]
+    },
+    {
+      "id": "card-layer",
+      "z": 5,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "card"
+      ]
+    },
+    {
+      "id": "shapes-layer",
+      "z": 10,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "circle",
+        "triangle",
+        "star"
+      ]
+    },
+    {
+      "id": "ball-layer",
+      "z": 15,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "ball"
+      ]
+    },
+    {
+      "id": "orbit-layer",
+      "z": 20,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "orbit"
+      ]
+    },
+    {
+      "id": "glow-layer",
+      "z": 25,
+      "opacity": 0.9,
+      "blendMode": "screen",
+      "items": [
+        "glow"
+      ]
+    },
+    {
+      "id": "text-layer",
+      "z": 30,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "title",
+        "subtitle",
+        "footer"
+      ]
+    }
+  ],
+  "items": {
+    "bg": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 1280,
+      "height": 720,
+      "fillColor": "#05060e",
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    },
+    "card": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 0,
+      "height": 360,
+      "cornerRadius": 0,
+      "fillColor": "rgba(255,255,255,0.06)",
+      "strokeColor": "#ffd166",
+      "strokeWidth": 0,
+      "transform": {
+        "x": 640,
+        "y": 400,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "title": {
+      "type": "text",
+      "text": "Davidup",
+      "font": "font-display",
+      "fontSize": 110,
+      "color": "#ff6b35",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 340,
+        "scaleX": 0.2,
+        "scaleY": 0.2,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "subtitle": {
+      "type": "text",
+      "text": "Comprehensive Feature Demo",
+      "font": "font-mono",
+      "fontSize": 32,
+      "color": "#9aa5d6",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 420,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "circle": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 220,
+      "fillColor": "#118ab2",
+      "strokeColor": "#ffffff",
+      "strokeWidth": 0,
+      "transform": {
+        "x": 320,
+        "y": 400,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "triangle": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          -110
+        ],
+        [
+          95,
+          60
+        ],
+        [
+          -95,
+          60
+        ]
+      ],
+      "fillColor": "#06d6a0",
+      "strokeColor": "#0a0e27",
+      "strokeWidth": 6,
+      "transform": {
+        "x": 640,
+        "y": 400,
+        "scaleX": 0.5,
+        "scaleY": 0.5,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "star": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          6.735557395310443e-15,
+          -110
+        ],
+        [
+          29.38926261462366,
+          -40.450849718747364
+        ],
+        [
+          104.61621679246689,
+          -33.991869381244214
+        ],
+        [
+          47.552825814757675,
+          15.450849718747369
+        ],
+        [
+          64.65637775217206,
+          88.99186938124421
+        ],
+        [
+          3.061616997868383e-15,
+          50
+        ],
+        [
+          -64.65637775217203,
+          88.99186938124421
+        ],
+        [
+          -47.552825814757675,
+          15.450849718747376
+        ],
+        [
+          -104.6162167924669,
+          -33.9918693812442
+        ],
+        [
+          -29.38926261462366,
+          -40.450849718747364
+        ]
+      ],
+      "fillColor": "#ffd166",
+      "strokeColor": "#ef476f",
+      "strokeWidth": 4,
+      "transform": {
+        "x": 960,
+        "y": 400,
+        "scaleX": 0.6,
+        "scaleY": 0.6,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "ball": {
+      "type": "sprite",
+      "asset": "ball",
+      "width": 200,
+      "height": 200,
+      "tint": "#ffffff",
+      "transform": {
+        "x": -150,
+        "y": 260,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "orbit-a": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 80,
+      "fillColor": "#ef476f",
+      "transform": {
+        "x": -200,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    },
+    "orbit-b": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 80,
+      "fillColor": "#06d6a0",
+      "transform": {
+        "x": 100,
+        "y": 173,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    },
+    "orbit-c": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 80,
+      "fillColor": "#ffd166",
+      "transform": {
+        "x": 100,
+        "y": -173,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    },
+    "orbit": {
+      "type": "group",
+      "items": [
+        "orbit-a",
+        "orbit-b",
+        "orbit-c"
+      ],
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 0.7,
+        "scaleY": 0.7,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "glow": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 360,
+      "fillColor": "#ff6b35",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 0.5,
+        "scaleY": 0.5,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "footer": {
+      "type": "text",
+      "text": "20s · 1280x720 · 60fps · 19 easings · 4 item types",
+      "font": "font-mono",
+      "fontSize": 22,
+      "color": "#888888",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 672,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    }
+  }
+}
