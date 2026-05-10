@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Davidup — 30s · two templates</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #0b0d12;
+        color: #e8eaf0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        gap: 12px;
+      }
+      header {
+        text-align: center;
+        max-width: 880px;
+      }
+      header h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0;
+        font-size: 13px;
+        color: #9aa3b2;
+        line-height: 1.5;
+      }
+      canvas {
+        border-radius: 6px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+        max-width: 100%;
+        height: auto;
+        background: #000;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+      }
+      button {
+        background: #2a3142;
+        color: #e8eaf0;
+        border: 1px solid #3b4458;
+        border-radius: 4px;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      button:hover {
+        background: #353d52;
+      }
+      .status {
+        font-size: 12px;
+        color: #9aa3b2;
+        font-variant-numeric: tabular-nums;
+        min-width: 140px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Davidup — 30s clip · 2 templates · &lt;100 lines of source</h1>
+      <p>
+        <code>titleCard</code> + <code>lowerThird</code> from
+        <code>two-templates-30s.json</code>. Drivers run <code>precompile()</code>
+        before render, so authored <code>$template</code> instances expand the
+        same way in the browser and on the node MP4 path.
+      </p>
+    </header>
+    <canvas id="stage" width="1280" height="720"></canvas>
+    <div class="controls">
+      <button id="replay">Replay</button>
+      <button id="seek0">Seek 0s</button>
+      <button id="seek5">Seek 5s</button>
+      <button id="seek14">Seek 14s</button>
+      <button id="seek22">Seek 22s</button>
+      <button id="stop">Stop</button>
+      <span class="status" id="status">loading…</span>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
