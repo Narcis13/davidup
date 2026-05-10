@@ -17,4 +17,20 @@ export {
   type BehaviorParamDescriptor,
   type BehaviorParamType,
 } from "./behaviors.js";
+export {
+  expandTemplate,
+  expandTemplates,
+  getTemplateDefinition,
+  hasTemplate,
+  listTemplates,
+  registerTemplate,
+  type ExpandedTemplate,
+  type TemplateDefinition,
+  type TemplateDescriptor,
+  type TemplateInstance,
+  type TemplateParamDescriptor,
+  type TemplateParamType,
+} from "./templates.js";
+export { BUILT_IN_TEMPLATE_IDS } from "./builtInTemplates.js";
+export { substitute, type SubstitutionContext } from "./params.js";
 export { precompile, type PrecompileOptions } from "./precompile.js";

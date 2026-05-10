@@ -17,11 +17,24 @@ import { z } from "zod";
 
 import {
   expandBehavior,
+  expandBehaviors,
   listBehaviors,
   type BehaviorBlock,
 } from "../compose/behaviors.js";
+// Side-effect import: registers v0.3 built-in templates with the global
+// registry so `apply_template` and `list_templates` see them out of the box.
+import "../compose/builtInTemplates.js";
+import {
+  expandTemplate,
+  listTemplates,
+  registerTemplate,
+  type TemplateDefinition,
+  type TemplateInstance,
+  type TemplateParamDescriptor,
+} from "../compose/templates.js";
 import { renderToFile } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
+import type { Tween } from "../schema/types.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -686,6 +699,146 @@ const listBehaviorsTool = defineTool({
   },
 });
 
+// ──────────────── 4.5c Templates (§7.8) ────────────────
+
+const TEMPLATE_PARAM_TYPE = z.enum(["number", "string", "color", "boolean"]);
+
+const TEMPLATE_PARAM_DESCRIPTOR = z.object({
+  name: z.string().min(1),
+  type: TEMPLATE_PARAM_TYPE,
+  required: z.boolean().optional(),
+  default: z.unknown().optional(),
+  description: z.string().optional(),
+});
+
+const applyTemplate = defineTool({
+  name: "apply_template",
+  title: "Apply template",
+  description:
+    "Expand a template instance into items + tweens, atomically adding them to the composition. " +
+    "Tweens authored as `$behavior` blocks inside the template are expanded to literal tweens. " +
+    "On any validation/overlap error every item and tween added during the call is rolled back.",
+  inputSchema: {
+    templateId: z.string().min(1),
+    layerId: z.string().min(1),
+    start: z.number().nonnegative().optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+    id: z.string().min(1).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const instanceId = args.id ?? `${args.templateId}_${args.start ?? 0}`;
+    const instance: TemplateInstance = {
+      template: args.templateId,
+      layerId: args.layerId,
+      ...(args.params !== undefined ? { params: args.params } : {}),
+      ...(args.start !== undefined ? { start: args.start } : {}),
+    };
+    const expanded = expandTemplate(instanceId, instance);
+    // Run the §10.4 behavior pass on the template's tween array so any
+    // `$behavior` blocks the template emitted resolve to literal tweens.
+    const literalTweens = (
+      expandBehaviors({ tweens: expanded.tweens }) as { tweens: Tween[] }
+    ).tweens;
+
+    const itemIds: string[] = [];
+    const tweenIds: string[] = [];
+    try {
+      for (const localId of Object.keys(expanded.items)) {
+        store.addRawItem(
+          {
+            id: localId,
+            layerId: args.layerId,
+            item: expanded.items[localId],
+          },
+          args.compositionId,
+        );
+        itemIds.push(localId);
+      }
+      for (const t of literalTweens) {
+        store.addTween(
+          {
+            id: t.id,
+            target: t.target,
+            property: t.property,
+            from: t.from,
+            to: t.to,
+            start: t.start,
+            duration: t.duration,
+            ...(t.easing !== undefined ? { easing: t.easing } : {}),
+          },
+          args.compositionId,
+        );
+        tweenIds.push(t.id);
+      }
+    } catch (err) {
+      // Rollback: tweens first (they reference items), then items. Best-effort
+      // — removeTween/removeItem only fail if already gone, which is fine.
+      for (let i = tweenIds.length - 1; i >= 0; i -= 1) {
+        try {
+          store.removeTween(tweenIds[i] as string, args.compositionId);
+        } catch {
+          /* already gone */
+        }
+      }
+      for (let i = itemIds.length - 1; i >= 0; i -= 1) {
+        try {
+          store.removeItem(itemIds[i] as string, args.compositionId);
+        } catch {
+          /* already gone */
+        }
+      }
+      throw err;
+    }
+    return { instanceId, items: itemIds, tweens: tweenIds };
+  },
+});
+
+const listTemplatesTool = defineTool({
+  name: "list_templates",
+  title: "List templates",
+  description:
+    "List the registered templates (built-ins plus any user templates registered via define_user_template), with their parameters and the local item ids each one emits.",
+  inputSchema: {},
+  handler: () => {
+    return { templates: listTemplates() };
+  },
+});
+
+const defineUserTemplate = defineTool({
+  name: "define_user_template",
+  title: "Define user template",
+  description:
+    "Register a user-defined template on the global registry. Last write wins per id, so a built-in can be shadowed by re-registering under the same id.",
+  inputSchema: {
+    id: z.string().min(1),
+    description: z.string().optional(),
+    params: z.array(TEMPLATE_PARAM_DESCRIPTOR).optional(),
+    items: z.record(z.string().min(1), z.unknown()),
+    tweens: z.array(z.unknown()).optional(),
+  },
+  handler: (args) => {
+    const params: TemplateParamDescriptor[] = (args.params ?? []).map((p) => {
+      const desc: TemplateParamDescriptor = { name: p.name, type: p.type };
+      if (p.required === true) desc.required = true;
+      if (Object.prototype.hasOwnProperty.call(p, "default")) {
+        desc.default = p.default;
+      }
+      if (p.description !== undefined) desc.description = p.description;
+      return desc;
+    });
+    const def: TemplateDefinition = {
+      id: args.id,
+      params,
+      items: args.items,
+      tweens: args.tweens ?? [],
+    };
+    if (args.description !== undefined) def.description = args.description;
+    registerTemplate(def);
+    return { id: args.id };
+  },
+});
+
 // ──────────────── 4.6 Render ────────────────
 
 function ensureValidForRender(store: CompositionStore, compositionId?: string): void {
@@ -824,6 +977,10 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   // 4.5b — behaviors
   applyBehavior,
   listBehaviorsTool,
+  // 4.5c — templates
+  applyTemplate,
+  listTemplatesTool,
+  defineUserTemplate,
   // 4.6
   renderPreviewFrameTool,
   renderThumbnailStripTool,

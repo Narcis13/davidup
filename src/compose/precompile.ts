@@ -1,7 +1,8 @@
-// Pre-compile pipeline driver — orchestrates the v0.2 authoring → canonical
-// passes from COMPOSITION_PRIMITIVES.md §10. Today that's just two passes
-// (resolveImports, expandBehaviors); §10 reserves room for templates and
-// scenes (v0.3+) which will slot in here as additional steps.
+// Pre-compile pipeline driver — orchestrates the v0.2/v0.3 authoring →
+// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's three
+// passes: resolveImports → expandTemplates → expandBehaviors. §10 reserves
+// room for `expandSceneInstances` (v0.4+) which will slot in between
+// templates and behaviors.
 //
 // Drivers (`renderToFile`, `attach`) call this transparently so callers can
 // hand authored JSON straight to the engine without thinking about a
@@ -10,6 +11,11 @@
 
 import { expandBehaviors } from "./behaviors.js";
 import { resolveImports, type ReadFile } from "./imports.js";
+import { expandTemplates } from "./templates.js";
+// Side-effect import: registers the v0.3 built-in templates with the global
+// registry so any caller that goes through `precompile` (drivers, MCP tools,
+// tests) sees them, even if they never reached the public `compose/index.js`.
+import "./builtInTemplates.js";
 
 export interface PrecompileOptions {
   /**
@@ -29,10 +35,13 @@ export interface PrecompileOptions {
 /**
  * Run the authoring → canonical compile pipeline:
  *   1. resolveImports  — inline every `$ref`
- *   2. expandBehaviors — replace each `{ $behavior }` tween with its expansion
+ *   2. expandTemplates — replace each `items[*].$template` instance with its
+ *                        items + tweens (templates can emit `$behavior`
+ *                        blocks which the next pass handles)
+ *   3. expandBehaviors — replace each `{ $behavior }` tween with its expansion
  *
- * Returns the input unchanged when no v0.2 markers are present, so calling
- * this on a canonical v0.1 composition is a near-zero-cost no-op.
+ * Returns the input unchanged when no v0.2/v0.3 markers are present, so
+ * calling this on a canonical v0.1 composition is a near-zero-cost no-op.
  *
  * Throws if `$ref` markers exist but no `sourcePath` was supplied (relative
  * refs cannot otherwise be resolved).
@@ -56,6 +65,7 @@ export async function precompile(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
+  current = expandTemplates(current);
   current = expandBehaviors(current);
   return current;
 }
