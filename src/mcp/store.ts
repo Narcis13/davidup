@@ -26,6 +26,7 @@ import type {
   Transform,
   Tween,
 } from "../schema/types.js";
+import { ItemSchema } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
 import { MCPToolError } from "./errors.js";
 
@@ -584,6 +585,38 @@ export class CompositionStore {
     comp.itemLayer.set(id, layer.id);
     pushUnique(layer.items, id);
     return id;
+  }
+
+  /**
+   * Add a fully-formed canonical Item under an explicit id and layer. Bypasses
+   * the type-specific input shapes used by `addSprite` / `addText` / etc.,
+   * which deliberately omit fields like `transform.scaleX` for ergonomic
+   * reasons. Template expansion needs the full transform fidelity, so it
+   * routes through this entrypoint instead. Validates the item shape against
+   * the canonical Zod schema.
+   */
+  addRawItem(
+    input: { id: string; layerId: string; item: unknown },
+    compositionId?: string,
+  ): void {
+    const comp = this.requireComposition(compositionId);
+    const layer = this.requireLayer(comp, input.layerId);
+    if (typeof input.id !== "string" || input.id.length === 0) {
+      throw new MCPToolError("E_INVALID_VALUE", "Item id must be a non-empty string.");
+    }
+    this.ensureNoItem(comp, input.id);
+    const parsed = ItemSchema.safeParse(input.item);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const path = issue?.path?.join(".") ?? "";
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Item "${input.id}" has invalid shape${path ? ` at ${path}` : ""}: ${issue?.message ?? "schema mismatch"}.`,
+      );
+    }
+    comp.items.set(input.id, parsed.data as Item);
+    comp.itemLayer.set(input.id, layer.id);
+    pushUnique(layer.items, input.id);
   }
 
   updateItem(id: string, props: UpdateItemProps, compositionId?: string): void {

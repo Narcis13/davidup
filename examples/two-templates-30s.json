@@ -1,0 +1,86 @@
+{
+  "$comment": [
+    "Davidup v0.3 — 30-second demo composed from exactly two built-in templates.",
+    "  intro   = titleCard   (built-in, COMPOSITION_PRIMITIVES.md §7)",
+    "  chapter = lowerThird  (built-in, idem)",
+    "Both engine drivers run precompile() before rendering, so the $template",
+    "instances below expand into concrete items + tweens at runtime — same",
+    "JSON, browser preview and MP4. No hand-written tweens beyond the empty",
+    "top-level array: every motion on screen comes from the templates."
+  ],
+
+  "version": "0.1",
+
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 30.0,
+    "background": "#0b0d12"
+  },
+
+  "assets": [
+    {
+      "id": "font-display",
+      "type": "font",
+      "src": "./fonts/BebasNeue-Regular.ttf",
+      "family": "DavidupDisplay"
+    },
+    {
+      "id": "font-mono",
+      "type": "font",
+      "src": "./fonts/JetBrainsMono-Bold.ttf",
+      "family": "DavidupMono"
+    }
+  ],
+
+  "layers": [
+    {
+      "id": "stage",
+      "z": 10,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": ["intro", "chapter"]
+    }
+  ],
+
+  "items": {
+    "intro": {
+      "$template": "titleCard",
+      "start": 0.5,
+      "params": {
+        "title": "DAVIDUP",
+        "subtitle": "two templates · thirty seconds",
+        "fontDisplay": "font-display",
+        "fontMono": "font-mono",
+        "titleSize": 192,
+        "subtitleSize": 28,
+        "y": 320,
+        "subtitleY": 410,
+        "color": "#ffffff",
+        "accentColor": "#ffd166"
+      }
+    },
+
+    "chapter": {
+      "$template": "lowerThird",
+      "start": 14.0,
+      "params": {
+        "name": "v0.3 · templates",
+        "role": "$template expansion · same JSON, browser + MP4",
+        "fontDisplay": "font-display",
+        "fontMono": "font-mono",
+        "x": 80,
+        "y": 600,
+        "roleY": 640,
+        "barY": 680,
+        "barWidth": 720,
+        "nameSize": 84,
+        "roleSize": 24,
+        "color": "#ff6b35"
+      }
+    }
+  },
+
+  "tweens": []
+}
