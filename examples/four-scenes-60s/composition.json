@@ -1,0 +1,82 @@
+{
+  "$comment": [
+    "Davidup v0.4 — 60-second clip built from 4 scenes (intro / two sections / outro).",
+    "The root file is the whole video at a glance: pure sequencing + crossfades.",
+    "Each scene file lives next door and owns its own ~50-line motion script.",
+    "",
+    "How it stitches together:",
+    "  imports[]  — pulls each scene definition file in via $ref (§5)",
+    "  scenes     — receives those definitions keyed by their `id`",
+    "  items[*].type='scene' — places each scene as an instance with params + transform",
+    "  tweens[]   — only crossfades on the wrapper-group's transform.opacity",
+    "",
+    "Tween count for sequencing: 7. Total motion shipped on screen: ~30 (the rest",
+    "live inside scene files). Compare to the v0.1 one-file approach which would",
+    "need every motion authored at the root."
+  ],
+
+  "version": "0.2",
+
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 60,
+    "background": "#000000"
+  },
+
+  "assets": [
+    { "id": "font-display", "type": "font", "src": "../fonts/BebasNeue-Regular.ttf", "family": "DavidupDisplay" }
+  ],
+
+  "scenes": {
+    "introCard": { "$ref": "./scenes/intro.json" },
+    "sectionOne": { "$ref": "./scenes/section-one.json" },
+    "sectionTwo": { "$ref": "./scenes/section-two.json" },
+    "outroCard": { "$ref": "./scenes/outro.json" }
+  },
+
+  "layers": [
+    { "id": "stage", "z": 0, "opacity": 1, "blendMode": "normal", "items": ["intro", "act1", "act2", "outro"] }
+  ],
+
+  "items": {
+    "intro": {
+      "type": "scene",
+      "scene": "introCard",
+      "params": { "title": "DAVIDUP", "subtitle": "v0.4 · scenes", "fontDisplay": "font-display" },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "act1": {
+      "type": "scene",
+      "scene": "sectionOne",
+      "start": 12,
+      "params": { "header": "I. Bouncing rail", "fontDisplay": "font-display" },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "act2": {
+      "type": "scene",
+      "scene": "sectionTwo",
+      "start": 30,
+      "params": { "header": "II. Spinning satellite", "fontDisplay": "font-display" },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "outro": {
+      "type": "scene",
+      "scene": "outroCard",
+      "start": 48,
+      "params": { "footer": "60s · 4 scenes · 1280x720 · 30fps", "fontDisplay": "font-display" },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    }
+  },
+
+  "tweens": [
+    { "id": "intro_in", "target": "intro", "property": "transform.opacity", "from": 0, "to": 1, "start": 0, "duration": 0.5 },
+    { "id": "intro_out", "target": "intro", "property": "transform.opacity", "from": 1, "to": 0, "start": 11.5, "duration": 0.5 },
+    { "id": "act1_in", "target": "act1", "property": "transform.opacity", "from": 0, "to": 1, "start": 12, "duration": 0.5 },
+    { "id": "act1_out", "target": "act1", "property": "transform.opacity", "from": 1, "to": 0, "start": 29.5, "duration": 0.5 },
+    { "id": "act2_in", "target": "act2", "property": "transform.opacity", "from": 0, "to": 1, "start": 30, "duration": 0.5 },
+    { "id": "act2_out", "target": "act2", "property": "transform.opacity", "from": 1, "to": 0, "start": 47.5, "duration": 0.5 },
+    { "id": "outro_in", "target": "outro", "property": "transform.opacity", "from": 0, "to": 1, "start": 48, "duration": 0.5 }
+  ]
+}

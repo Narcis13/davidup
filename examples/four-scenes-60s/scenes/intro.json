@@ -1,0 +1,74 @@
+{
+  "id": "introCard",
+  "duration": 12,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#0b0d12",
+  "params": [
+    { "name": "title", "type": "string", "required": true },
+    { "name": "subtitle", "type": "string", "default": "" },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "accent", "type": "color", "default": "#ffd166" }
+  ],
+  "items": {
+    "headline": {
+      "type": "text",
+      "text": "${params.title}",
+      "font": "${params.fontDisplay}",
+      "fontSize": 168,
+      "color": "#ffffff",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 320,
+        "scaleX": 0.6,
+        "scaleY": 0.6,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "subtitle": {
+      "type": "text",
+      "text": "${params.subtitle}",
+      "font": "${params.fontDisplay}",
+      "fontSize": 32,
+      "color": "${params.accent}",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 410,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "underline": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 0,
+      "height": 4,
+      "fillColor": "${params.accent}",
+      "transform": {
+        "x": 360,
+        "y": 460,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": [
+    { "target": "headline", "property": "transform.opacity", "from": 0, "to": 1, "start": 0.4, "duration": 0.8, "easing": "easeOutQuad" },
+    { "target": "headline", "property": "transform.scaleX", "from": 0.6, "to": 1, "start": 0.4, "duration": 0.8, "easing": "easeOutBack" },
+    { "target": "headline", "property": "transform.scaleY", "from": 0.6, "to": 1, "start": 0.4, "duration": 0.8, "easing": "easeOutBack" },
+    { "target": "subtitle", "property": "transform.opacity", "from": 0, "to": 1, "start": 1.0, "duration": 0.6, "easing": "easeOutQuad" },
+    { "target": "underline", "property": "width", "from": 0, "to": 560, "start": 1.2, "duration": 0.8, "easing": "easeOutBack" }
+  ]
+}

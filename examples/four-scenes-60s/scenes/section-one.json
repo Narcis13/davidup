@@ -1,0 +1,75 @@
+{
+  "id": "sectionOne",
+  "duration": 18,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#102030",
+  "params": [
+    { "name": "header", "type": "string", "required": true },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "accent", "type": "color", "default": "#4cc9f0" }
+  ],
+  "items": {
+    "header": {
+      "type": "text",
+      "text": "${params.header}",
+      "font": "${params.fontDisplay}",
+      "fontSize": 92,
+      "color": "#ffffff",
+      "align": "left",
+      "transform": {
+        "x": 80,
+        "y": 200,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "ball": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 80,
+      "height": 80,
+      "fillColor": "${params.accent}",
+      "transform": {
+        "x": 200,
+        "y": 500,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    },
+    "rail": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 1080,
+      "height": 4,
+      "fillColor": "#ffffff",
+      "transform": {
+        "x": 100,
+        "y": 580,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0.4
+      }
+    }
+  },
+  "tweens": [
+    { "$behavior": "fadeIn", "target": "header", "start": 0.3, "duration": 0.8, "easing": "easeOutQuad" },
+    { "target": "ball", "property": "transform.x", "from": 200, "to": 1080, "start": 1.0, "duration": 7.0, "easing": "easeInOutQuad" },
+    { "target": "ball", "property": "transform.x", "from": 1080, "to": 200, "start": 8.5, "duration": 7.0, "easing": "easeInOutQuad" },
+    { "target": "ball", "property": "transform.scaleX", "from": 1, "to": 1.5, "start": 4.0, "duration": 0.5 },
+    { "target": "ball", "property": "transform.scaleX", "from": 1.5, "to": 1, "start": 4.5, "duration": 0.5 },
+    { "target": "ball", "property": "transform.scaleY", "from": 1, "to": 1.5, "start": 4.0, "duration": 0.5 },
+    { "target": "ball", "property": "transform.scaleY", "from": 1.5, "to": 1, "start": 4.5, "duration": 0.5 },
+    { "$behavior": "colorCycle", "target": "ball", "start": 0, "duration": 16, "params": { "colors": ["#4cc9f0", "#f72585", "#ffd166", "#06d6a0", "#4cc9f0"], "property": "fillColor" } }
+  ]
+}

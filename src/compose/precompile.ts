@@ -11,6 +11,7 @@
 
 import { expandBehaviors } from "./behaviors.js";
 import { resolveImports, type ReadFile } from "./imports.js";
+import { expandSceneInstances } from "./scenes.js";
 import { expandTemplates } from "./templates.js";
 // Side-effect import: registers the v0.3 built-in templates with the global
 // registry so any caller that goes through `precompile` (drivers, MCP tools,
@@ -34,13 +35,17 @@ export interface PrecompileOptions {
 
 /**
  * Run the authoring → canonical compile pipeline:
- *   1. resolveImports  — inline every `$ref`
- *   2. expandTemplates — replace each `items[*].$template` instance with its
- *                        items + tweens (templates can emit `$behavior`
- *                        blocks which the next pass handles)
- *   3. expandBehaviors — replace each `{ $behavior }` tween with its expansion
+ *   1. resolveImports        — inline every `$ref`
+ *   2. expandTemplates       — replace each `items[*].$template` instance with
+ *                              its items + tweens (templates can emit
+ *                              `$behavior` blocks which the next passes handle)
+ *   3. expandSceneInstances  — lower each `items[*].type === "scene"` into a
+ *                              synthetic group + namespaced inner items +
+ *                              shifted tweens; merge scene assets into root
+ *   4. expandBehaviors       — replace each `{ $behavior }` tween with its
+ *                              expansion (now includes scene-internal tweens)
  *
- * Returns the input unchanged when no v0.2/v0.3 markers are present, so
+ * Returns the input unchanged when no v0.2/v0.3/v0.4 markers are present, so
  * calling this on a canonical v0.1 composition is a near-zero-cost no-op.
  *
  * Throws if `$ref` markers exist but no `sourcePath` was supplied (relative
@@ -66,6 +71,7 @@ export async function precompile(
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
   current = expandTemplates(current);
+  current = expandSceneInstances(current);
   current = expandBehaviors(current);
   return current;
 }

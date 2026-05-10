@@ -1,0 +1,78 @@
+{
+  "id": "sectionTwo",
+  "duration": 18,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#1a1426",
+  "params": [
+    { "name": "header", "type": "string", "required": true },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "accent", "type": "color", "default": "#ff6b35" }
+  ],
+  "items": {
+    "header": {
+      "type": "text",
+      "text": "${params.header}",
+      "font": "${params.fontDisplay}",
+      "fontSize": 92,
+      "color": "#ffffff",
+      "align": "left",
+      "transform": {
+        "x": 80,
+        "y": 200,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "orbitCenter": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 30,
+      "height": 30,
+      "fillColor": "${params.accent}",
+      "transform": {
+        "x": 640,
+        "y": 460,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    },
+    "satellite": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 60,
+      "height": 60,
+      "fillColor": "#ffffff",
+      "cornerRadius": 12,
+      "transform": {
+        "x": 800,
+        "y": 460,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": [
+    { "$behavior": "fadeIn", "target": "header", "start": 0.3, "duration": 0.8 },
+    { "$behavior": "rotateSpin", "target": "satellite", "start": 1.0, "duration": 14.0, "params": { "turns": 2 } },
+    { "target": "orbitCenter", "property": "transform.scaleX", "from": 1, "to": 1.6, "start": 2, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleX", "from": 1.6, "to": 1, "start": 3.5, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleY", "from": 1, "to": 1.6, "start": 2, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleY", "from": 1.6, "to": 1, "start": 3.5, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleX", "from": 1, "to": 1.6, "start": 8, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleX", "from": 1.6, "to": 1, "start": 9.5, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleY", "from": 1, "to": 1.6, "start": 8, "duration": 1.5 },
+    { "target": "orbitCenter", "property": "transform.scaleY", "from": 1.6, "to": 1, "start": 9.5, "duration": 1.5 }
+  ]
+}

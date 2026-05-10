@@ -84,7 +84,7 @@ describe("MCP server — end-to-end over stdio", () => {
     const names = list.tools.map((t) => t.name).sort();
     const expected = [...TOOL_NAMES].sort();
     expect(names).toEqual(expected);
-    expect(names).toHaveLength(30);
+    expect(names).toHaveLength(37);
     // Spot-check that each surface area is covered.
     for (const required of [
       "create_composition",
@@ -101,6 +101,13 @@ describe("MCP server — end-to-end over stdio", () => {
       "apply_template",
       "list_templates",
       "define_user_template",
+      "define_scene",
+      "import_scene",
+      "list_scenes",
+      "remove_scene",
+      "add_scene_instance",
+      "update_scene_instance",
+      "remove_scene_instance",
       "render_preview_frame",
       "render_thumbnail_strip",
       "render_to_video",

@@ -32,5 +32,23 @@ export {
   type TemplateParamType,
 } from "./templates.js";
 export { BUILT_IN_TEMPLATE_IDS } from "./builtInTemplates.js";
+export {
+  expandSceneInstance,
+  expandSceneInstances,
+  getSceneDefinition,
+  hasScene,
+  listScenes,
+  readSceneDefinition,
+  registerScene,
+  unregisterScene,
+  type ExpandedScene,
+  type ExpandSceneOptions,
+  type SceneDefinition,
+  type SceneDescriptor,
+  type SceneInstance,
+  type SceneParamDescriptor,
+  type SceneParamType,
+  type SceneSize,
+} from "./scenes.js";
 export { substitute, type SubstitutionContext } from "./params.js";
 export { precompile, type PrecompileOptions } from "./precompile.js";

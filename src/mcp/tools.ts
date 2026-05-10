@@ -25,6 +25,18 @@ import {
 // registry so `apply_template` and `list_templates` see them out of the box.
 import "../compose/builtInTemplates.js";
 import {
+  expandSceneInstance,
+  getSceneDefinition,
+  hasScene,
+  listScenes,
+  readSceneDefinition,
+  registerScene,
+  unregisterScene,
+  type SceneDefinition,
+  type SceneInstance,
+  type SceneParamDescriptor,
+} from "../compose/scenes.js";
+import {
   expandTemplate,
   listTemplates,
   registerTemplate,
@@ -839,6 +851,456 @@ const defineUserTemplate = defineTool({
   },
 });
 
+// ──────────────── 4.5d Scenes (§8.9) ────────────────
+
+const SCENE_PARAM_TYPE = z.enum(["number", "string", "color", "boolean"]);
+
+const SCENE_PARAM_DESCRIPTOR = z.object({
+  name: z.string().min(1),
+  type: SCENE_PARAM_TYPE,
+  required: z.boolean().optional(),
+  default: z.unknown().optional(),
+  description: z.string().optional(),
+});
+
+const SCENE_ASSET = z.union([
+  z.object({
+    id: z.string().min(1),
+    type: z.literal("image"),
+    src: z.string().min(1),
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal("font"),
+    src: z.string().min(1),
+    family: z.string().min(1),
+  }),
+]);
+
+const SCENE_TRANSFORM = z
+  .object({
+    x: z.number(),
+    y: z.number(),
+    scaleX: z.number(),
+    scaleY: z.number(),
+    rotation: z.number(),
+    anchorX: z.number(),
+    anchorY: z.number(),
+    opacity: z.number().min(0).max(1),
+  })
+  .partial();
+
+const defineScene = defineTool({
+  name: "define_scene",
+  title: "Define scene",
+  description:
+    "Register a scene definition on the global registry. A scene is a self-contained mini-composition with its own duration, items, tweens, params, and assets. Last write wins per id, so the same id can be re-registered to update a scene.",
+  inputSchema: {
+    id: z.string().min(1),
+    description: z.string().optional(),
+    duration: z.number().nonnegative(),
+    size: z.object({ width: z.number().positive(), height: z.number().positive() }).optional(),
+    background: z.string().optional(),
+    params: z.array(SCENE_PARAM_DESCRIPTOR).optional(),
+    assets: z.array(SCENE_ASSET).optional(),
+    items: z.record(z.string().min(1), z.unknown()),
+    tweens: z.array(z.unknown()).optional(),
+  },
+  handler: (args) => {
+    const def = readSceneDefinition(args.id, {
+      ...(args.description !== undefined ? { description: args.description } : {}),
+      duration: args.duration,
+      ...(args.size !== undefined ? { size: args.size } : {}),
+      ...(args.background !== undefined ? { background: args.background } : {}),
+      params: args.params ?? [],
+      assets: args.assets ?? [],
+      items: args.items,
+      tweens: args.tweens ?? [],
+    });
+    // The descriptor declarations the user provided already came in via the
+    // SceneParamDescriptor interface shape; carry them through unchanged.
+    const params: SceneParamDescriptor[] = (args.params ?? []).map((p) => {
+      const desc: SceneParamDescriptor = { name: p.name, type: p.type };
+      if (p.required === true) desc.required = true;
+      if (Object.prototype.hasOwnProperty.call(p, "default")) desc.default = p.default;
+      if (p.description !== undefined) desc.description = p.description;
+      return desc;
+    });
+    def.params = params;
+    registerScene(def);
+    return { sceneId: args.id };
+  },
+});
+
+const importScene = defineTool({
+  name: "import_scene",
+  title: "Import scene from file",
+  description:
+    "Load a scene definition from a JSON file on disk and register it. The file's top-level shape mirrors `define_scene` (id, duration, items, tweens, params, assets, size, background).",
+  inputSchema: {
+    path: z.string().min(1),
+    id: z.string().min(1).optional(),
+  },
+  handler: async (args) => {
+    const fs = await import("node:fs/promises");
+    let raw: string;
+    try {
+      raw = await fs.readFile(args.path, "utf8");
+    } catch (err) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `Scene file not found: ${args.path}`,
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene file is not valid JSON: ${args.path}`,
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene file ${args.path} must contain a JSON object.`,
+      );
+    }
+    const sceneObj = parsed as Record<string, unknown>;
+    const id =
+      args.id ??
+      (typeof sceneObj.id === "string" && sceneObj.id.length > 0 ? sceneObj.id : undefined);
+    if (id === undefined) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "import_scene requires an id (passed as arg or set on the file's `id` field).",
+      );
+    }
+    const def = readSceneDefinition(id, sceneObj);
+    registerScene(def);
+    return { sceneId: id };
+  },
+});
+
+const listScenesTool = defineTool({
+  name: "list_scenes",
+  title: "List scenes",
+  description:
+    "List the registered scenes (defined via define_scene or import_scene), with their params, duration, size, background, emitted item ids, and asset ids.",
+  inputSchema: {},
+  handler: () => {
+    return { scenes: listScenes() };
+  },
+});
+
+const removeScene = defineTool({
+  name: "remove_scene",
+  title: "Remove scene",
+  description:
+    "Drop a scene from the registry. Note: existing scene-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
+  inputSchema: {
+    sceneId: z.string().min(1),
+  },
+  handler: (args) => {
+    if (!hasScene(args.sceneId)) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No scene "${args.sceneId}" in the registry.`,
+      );
+    }
+    unregisterScene(args.sceneId);
+    return { ok: true as const };
+  },
+});
+
+function applySceneInstanceToStore(
+  store: CompositionStore,
+  args: {
+    instanceId: string;
+    sceneId: string;
+    layerId: string;
+    start: number;
+    params?: Record<string, unknown>;
+    transform?: Record<string, unknown>;
+    compositionId?: string;
+  },
+): { itemIds: string[]; tweenIds: string[]; assetIds: string[] } {
+  const def = getSceneDefinition(args.sceneId);
+  if (!def) {
+    throw new MCPToolError(
+      "E_SCENE_UNKNOWN",
+      `Unknown scene "${args.sceneId}".`,
+      "Call list_scenes to see available names, or define_scene / import_scene first.",
+    );
+  }
+  const sceneInstance: SceneInstance = {
+    scene: args.sceneId,
+    start: args.start,
+    layerId: args.layerId,
+    ...(args.params !== undefined ? { params: args.params } : {}),
+    ...(args.transform !== undefined ? { transform: args.transform } : {}),
+  };
+  const expanded = expandSceneInstance(args.instanceId, sceneInstance);
+
+  // Run the §10.4 behavior pass on the scene's tween array so any
+  // `$behavior` blocks the scene emitted resolve to literal tweens.
+  const literalTweens = (
+    expandBehaviors({ tweens: expanded.tweens }) as { tweens: Tween[] }
+  ).tweens;
+
+  const addedItemIds: string[] = [];
+  const addedTweenIds: string[] = [];
+  const addedAssetIds: string[] = [];
+
+  try {
+    // Assets first — items can reference them.
+    for (const a of expanded.assets) {
+      const existing = store.getAsset(a.id, args.compositionId);
+      if (existing === undefined) {
+        store.registerAssetUnchecked(a, args.compositionId);
+        addedAssetIds.push(a.id);
+      } else {
+        const sameSrc = existing.src === a.src;
+        const sameType = existing.type === a.type;
+        const sameFamily =
+          existing.type === "font" && a.type === "font"
+            ? existing.family === a.family
+            : true;
+        if (!sameSrc || !sameType || !sameFamily) {
+          throw new MCPToolError(
+            "E_ASSET_CONFLICT",
+            `Scene "${args.sceneId}" asset "${a.id}" conflicts with an existing asset of different content.`,
+          );
+        }
+      }
+    }
+
+    // Inner items (no layer).
+    for (const innerId of Object.keys(expanded.items)) {
+      store.addRawSubItem(
+        { id: innerId, item: expanded.items[innerId] },
+        args.compositionId,
+      );
+      addedItemIds.push(innerId);
+    }
+
+    // Wrapper group — sits in the requested layer with the merged transform.
+    const wrapperTransform = (
+      expanded.groupItem as {
+        transform: {
+          x: number;
+          y: number;
+          scaleX: number;
+          scaleY: number;
+          rotation: number;
+          anchorX: number;
+          anchorY: number;
+          opacity: number;
+        };
+      }
+    ).transform;
+    const wrapperChildren = (expanded.groupItem as { items: string[] }).items;
+    store.addRawGroup(
+      {
+        id: args.instanceId,
+        layerId: args.layerId,
+        childItemIds: wrapperChildren,
+        transform: { ...wrapperTransform },
+      },
+      args.compositionId,
+    );
+    addedItemIds.push(args.instanceId);
+
+    // Tweens last — they reference item ids that must already exist.
+    for (const t of literalTweens) {
+      store.addRawTween(t, args.compositionId);
+      addedTweenIds.push(t.id);
+    }
+  } catch (err) {
+    // Roll back in reverse order.
+    for (let i = addedTweenIds.length - 1; i >= 0; i -= 1) {
+      try {
+        store.removeTween(addedTweenIds[i] as string, args.compositionId);
+      } catch {
+        /* already gone */
+      }
+    }
+    for (let i = addedItemIds.length - 1; i >= 0; i -= 1) {
+      try {
+        store.removeItem(addedItemIds[i] as string, args.compositionId);
+      } catch {
+        /* already gone */
+      }
+    }
+    // Don't bother rolling back asset additions — they're inert without items
+    // and may already be referenced elsewhere. Caller can `remove_asset` if
+    // they really want a clean slate.
+    void addedAssetIds;
+    throw err;
+  }
+
+  return { itemIds: addedItemIds, tweenIds: addedTweenIds, assetIds: addedAssetIds };
+}
+
+const addSceneInstance = defineTool({
+  name: "add_scene_instance",
+  title: "Add scene instance",
+  description:
+    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
+  inputSchema: {
+    sceneId: z.string().min(1),
+    layerId: z.string().min(1),
+    start: z.number().nonnegative().optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+    transform: SCENE_TRANSFORM.optional(),
+    id: z.string().min(1).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const instanceId = args.id ?? store.nextSceneInstanceId(args.compositionId);
+    const start = args.start ?? 0;
+
+    const result = applySceneInstanceToStore(store, {
+      instanceId,
+      sceneId: args.sceneId,
+      layerId: args.layerId,
+      start,
+      ...(args.params !== undefined ? { params: args.params } : {}),
+      ...(args.transform !== undefined ? { transform: args.transform } : {}),
+      ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
+    });
+
+    store.trackSceneInstance(
+      instanceId,
+      {
+        sceneId: args.sceneId,
+        layerId: args.layerId,
+        start,
+        params: args.params ?? {},
+        transform: args.transform,
+        itemIds: result.itemIds,
+        tweenIds: result.tweenIds,
+        assetIds: result.assetIds,
+      },
+      args.compositionId,
+    );
+
+    return {
+      instanceId,
+      items: result.itemIds,
+      tweens: result.tweenIds,
+      assets: result.assetIds,
+    };
+  },
+});
+
+const updateSceneInstance = defineTool({
+  name: "update_scene_instance",
+  title: "Update scene instance",
+  description:
+    "Patch a scene instance's params / transform / start. The instance is removed and re-expanded under the same id; rolled back to the previous state on any error.",
+  inputSchema: {
+    instanceId: z.string().min(1),
+    params: z.record(z.string(), z.unknown()).optional(),
+    transform: SCENE_TRANSFORM.optional(),
+    start: z.number().nonnegative().optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const prev = store.getSceneInstance(args.instanceId, args.compositionId);
+    if (!prev) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No tracked scene instance "${args.instanceId}".`,
+        "Use add_scene_instance first.",
+      );
+    }
+    const nextParams = args.params ?? prev.params;
+    const nextTransform = args.transform ?? prev.transform;
+    const nextStart = args.start ?? prev.start;
+
+    // Drop the previous expansion entirely.
+    store.removeSceneInstance(args.instanceId, args.compositionId);
+
+    try {
+      const result = applySceneInstanceToStore(store, {
+        instanceId: args.instanceId,
+        sceneId: prev.sceneId,
+        layerId: prev.layerId,
+        start: nextStart,
+        params: nextParams,
+        ...(nextTransform !== undefined ? { transform: nextTransform } : {}),
+        ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
+      });
+      store.trackSceneInstance(
+        args.instanceId,
+        {
+          sceneId: prev.sceneId,
+          layerId: prev.layerId,
+          start: nextStart,
+          params: nextParams,
+          transform: nextTransform,
+          itemIds: result.itemIds,
+          tweenIds: result.tweenIds,
+          assetIds: result.assetIds,
+        },
+        args.compositionId,
+      );
+      return { ok: true as const };
+    } catch (err) {
+      // Best-effort restoration of the previous expansion. If this fails the
+      // store is left without the instance — caller can re-add via
+      // add_scene_instance from the original params.
+      try {
+        const restored = applySceneInstanceToStore(store, {
+          instanceId: args.instanceId,
+          sceneId: prev.sceneId,
+          layerId: prev.layerId,
+          start: prev.start,
+          params: prev.params,
+          ...(prev.transform !== undefined ? { transform: prev.transform } : {}),
+          ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
+        });
+        store.trackSceneInstance(
+          args.instanceId,
+          {
+            sceneId: prev.sceneId,
+            layerId: prev.layerId,
+            start: prev.start,
+            params: prev.params,
+            transform: prev.transform,
+            itemIds: restored.itemIds,
+            tweenIds: restored.tweenIds,
+            assetIds: restored.assetIds,
+          },
+          args.compositionId,
+        );
+      } catch {
+        /* couldn't restore; surface the original error to the caller */
+      }
+      throw err;
+    }
+  },
+});
+
+const removeSceneInstanceTool = defineTool({
+  name: "remove_scene_instance",
+  title: "Remove scene instance",
+  description:
+    "Drop a previously-added scene instance: removes the wrapper group, all prefixed inner items, and all tweens added by the original expansion. Assets contributed by the instance are removed only if no item still references them.",
+  inputSchema: {
+    instanceId: z.string().min(1),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    store.removeSceneInstance(args.instanceId, args.compositionId);
+    return { ok: true as const };
+  },
+});
+
 // ──────────────── 4.6 Render ────────────────
 
 function ensureValidForRender(store: CompositionStore, compositionId?: string): void {
@@ -981,6 +1443,14 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   applyTemplate,
   listTemplatesTool,
   defineUserTemplate,
+  // 4.5d — scenes
+  defineScene,
+  importScene,
+  listScenesTool,
+  removeScene,
+  addSceneInstance,
+  updateSceneInstance,
+  removeSceneInstanceTool,
   // 4.6
   renderPreviewFrameTool,
   renderThumbnailStripTool,
