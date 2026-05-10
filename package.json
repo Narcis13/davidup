@@ -13,6 +13,8 @@
     "build:browser": "vite build --config examples/browser-demo/vite.config.ts",
     "dev:comprehensive": "vite --config examples/comprehensive-browser/vite.config.ts",
     "build:comprehensive": "vite build --config examples/comprehensive-browser/vite.config.ts",
+    "dev:comprehensive-split": "vite --config examples/comprehensive-split-browser/vite.config.ts",
+    "build:comprehensive-split": "vite build --config examples/comprehensive-split-browser/vite.config.ts",
     "mcp": "bun run src/mcp/bin.ts"
   },
   "bin": {

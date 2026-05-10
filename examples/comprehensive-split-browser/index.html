@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Davidup — comprehensive 20s demo (split files, v0.2 $ref)</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #0b0d12;
+        color: #e8eaf0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        gap: 12px;
+      }
+      header {
+        text-align: center;
+        max-width: 880px;
+      }
+      header h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0;
+        font-size: 13px;
+        color: #9aa3b2;
+        line-height: 1.5;
+      }
+      header code {
+        background: #1a2030;
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+      canvas {
+        border-radius: 6px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+        max-width: 100%;
+        height: auto;
+        background: #000;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+      }
+      button {
+        background: #2a3142;
+        color: #e8eaf0;
+        border: 1px solid #3b4458;
+        border-radius: 4px;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      button:hover {
+        background: #353d52;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .status {
+        font-size: 12px;
+        color: #9aa3b2;
+        font-variant-numeric: tabular-nums;
+        min-width: 110px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Davidup — comprehensive 20s demo (split files, v0.2 <code>$ref</code>)</h1>
+      <p>
+        Same composition as the canonical <code>comprehensive-browser</code> demo,
+        but the JSON is split across <code>meta.json</code> + 6 act files under
+        <code>examples/comprehensive-split/</code>, stitched at runtime by the
+        v0.2 <code>$ref</code> precompile pass. Validation, easings, and the
+        renderer are unchanged.
+      </p>
+    </header>
+    <canvas id="stage" width="1280" height="720"></canvas>
+    <div class="controls">
+      <button id="replay">Replay</button>
+      <button id="seek0">Seek 0s</button>
+      <button id="seek4">Seek 4s</button>
+      <button id="seek8">Seek 8s</button>
+      <button id="seek12">Seek 12s</button>
+      <button id="seek16">Seek 16s</button>
+      <button id="stop">Stop</button>
+      <span class="status" id="status">loading…</span>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -24,8 +24,10 @@
 //   - Each file is parsed once per compile pass; resolved subtrees are
 //     cached by `(absolutePath, pointer)`.
 
-import { readFile as fsReadFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+// Path utilities are inlined as POSIX-style string operations so this module
+// stays browser-safe (Vite externalizes `node:path` and leaves named imports
+// undefined, breaking the bundle even when no $ref is ever resolved). The
+// default file reader lazy-imports `node:fs/promises` for the same reason.
 import { evaluatePointer, JsonPointerError } from "./jsonPointer.js";
 
 export type RefErrorCode =
@@ -194,8 +196,84 @@ export async function resolveImports(
   return walk(json, rootDir, []);
 }
 
-function defaultReadFile(absolutePath: string): Promise<string> {
-  return fsReadFile(absolutePath, "utf8");
+async function defaultReadFile(absolutePath: string): Promise<string> {
+  // Lazy-import so browser bundlers don't have to resolve node:fs/promises
+  // at build time. Callers that supply their own `readFile` (the common case
+  // outside of Node CLI) never reach this branch.
+  const fs = (await import(/* @vite-ignore */ "node:fs/promises")) as {
+    readFile: (path: string, encoding: string) => Promise<string>;
+  };
+  return fs.readFile(absolutePath, "utf8");
+}
+
+// Minimal POSIX path helpers. `imports.ts` only needs three operations:
+//   - test whether a string is absolute
+//   - join a base dir with a relative ref
+//   - take the directory of a path
+// We keep them lean and inlined to avoid pulling in `node:path` at top level.
+function isAbsolute(p: string): boolean {
+  if (p.length === 0) return false;
+  if (p.startsWith("/")) return true;
+  // Windows-style absolute paths (C:\..., C:/...). Tolerated so node-side
+  // callers on Windows don't trip; the rest of the helpers operate posix-style.
+  return /^[A-Za-z]:[\\/]/.test(p);
+}
+
+function dirname(p: string): string {
+  // Normalize backslashes so Windows paths flow through the same logic.
+  const normalized = p.replace(/\\/g, "/");
+  const idx = normalized.lastIndexOf("/");
+  if (idx < 0) return ".";
+  if (idx === 0) return "/";
+  return normalized.slice(0, idx);
+}
+
+function resolve(...parts: string[]): string {
+  // Resolve segments left-to-right, restarting whenever an absolute segment
+  // appears (matches node:path's `path.resolve` semantics for the cases this
+  // module actually feeds it: an absolute root + relative children). We
+  // deliberately do NOT consult process.cwd(); callers always supply an
+  // absolute anchor (the file the JSON came from) before adding relatives.
+  let acc = "";
+  for (const raw of parts) {
+    if (!raw) continue;
+    const seg = raw.replace(/\\/g, "/");
+    if (isAbsolute(seg)) {
+      acc = seg;
+    } else if (acc === "") {
+      acc = seg;
+    } else {
+      acc = acc.endsWith("/") ? acc + seg : acc + "/" + seg;
+    }
+  }
+  return normalizePosix(acc);
+}
+
+function normalizePosix(p: string): string {
+  if (p === "") return "";
+  const isAbs = p.startsWith("/");
+  const winRoot = /^[A-Za-z]:\//.exec(p);
+  let prefix = "";
+  let body = p;
+  if (winRoot) {
+    prefix = winRoot[0];
+    body = p.slice(prefix.length);
+  } else if (isAbs) {
+    prefix = "/";
+    body = p.slice(1);
+  }
+  const out: string[] = [];
+  for (const part of body.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
+      else if (!prefix) out.push("..");
+      // If we're rooted (`/` or `C:/`), `..` past the root collapses to the root.
+      continue;
+    }
+    out.push(part);
+  }
+  return prefix + out.join("/");
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
