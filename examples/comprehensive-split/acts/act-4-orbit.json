@@ -1,0 +1,92 @@
+[
+  {
+    "id": "tw_67_orbit_transform_opacity",
+    "target": "orbit",
+    "property": "transform.opacity",
+    "from": 0,
+    "to": 1,
+    "start": 12,
+    "duration": 0.7,
+    "easing": "easeOutQuad"
+  },
+  {
+    "id": "tw_68_orbit_transform_scaleX",
+    "target": "orbit",
+    "property": "transform.scaleX",
+    "from": 0.7,
+    "to": 1,
+    "start": 12,
+    "duration": 1,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_69_orbit_transform_scaleY",
+    "target": "orbit",
+    "property": "transform.scaleY",
+    "from": 0.7,
+    "to": 1,
+    "start": 12,
+    "duration": 1,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_70_orbit_transform_rotation",
+    "target": "orbit",
+    "property": "transform.rotation",
+    "from": 0,
+    "to": 6.283185307179586,
+    "start": 12.2,
+    "duration": 3.4,
+    "easing": "easeInOutSine"
+  },
+  {
+    "id": "tw_71_orbit-a_fillColor",
+    "target": "orbit-a",
+    "property": "fillColor",
+    "from": "#ef476f",
+    "to": "#ffd166",
+    "start": 12.5,
+    "duration": 2.5,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_72_orbit-b_fillColor",
+    "target": "orbit-b",
+    "property": "fillColor",
+    "from": "#06d6a0",
+    "to": "#118ab2",
+    "start": 12.5,
+    "duration": 2.5,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_73_orbit-c_fillColor",
+    "target": "orbit-c",
+    "property": "fillColor",
+    "from": "#ffd166",
+    "to": "#ef476f",
+    "start": 12.5,
+    "duration": 2.5,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_74_orbit-a_width",
+    "target": "orbit-a",
+    "property": "width",
+    "from": 80,
+    "to": 110,
+    "start": 13,
+    "duration": 0.6,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_75_orbit-a_width",
+    "target": "orbit-a",
+    "property": "width",
+    "from": 110,
+    "to": 80,
+    "start": 13.6,
+    "duration": 0.6,
+    "easing": "easeInOutQuad"
+  }
+]

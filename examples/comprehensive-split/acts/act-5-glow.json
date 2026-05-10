@@ -1,0 +1,82 @@
+[
+  {
+    "id": "tw_76_glow_transform_opacity",
+    "target": "glow",
+    "property": "transform.opacity",
+    "from": 0,
+    "to": 0.85,
+    "start": 13,
+    "duration": 0.8,
+    "easing": "easeOutQuad"
+  },
+  {
+    "id": "tw_77_glow_transform_scaleX",
+    "target": "glow",
+    "property": "transform.scaleX",
+    "from": 0.5,
+    "to": 1.6,
+    "start": 13,
+    "duration": 1.5,
+    "easing": "easeOutQuart"
+  },
+  {
+    "id": "tw_78_glow_transform_scaleY",
+    "target": "glow",
+    "property": "transform.scaleY",
+    "from": 0.5,
+    "to": 1.6,
+    "start": 13,
+    "duration": 1.5,
+    "easing": "easeOutQuart"
+  },
+  {
+    "id": "tw_79_glow_fillColor",
+    "target": "glow",
+    "property": "fillColor",
+    "from": "#ff6b35",
+    "to": "#06d6a0",
+    "start": 13.5,
+    "duration": 2,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_80_glow_transform_opacity",
+    "target": "glow",
+    "property": "transform.opacity",
+    "from": 0.85,
+    "to": 0,
+    "start": 15.6,
+    "duration": 0.5,
+    "easing": "easeInOutQuad"
+  },
+  {
+    "id": "tw_81_orbit_transform_opacity",
+    "target": "orbit",
+    "property": "transform.opacity",
+    "from": 1,
+    "to": 0,
+    "start": 15.6,
+    "duration": 0.5,
+    "easing": "easeInOutQuad"
+  },
+  {
+    "id": "tw_82_orbit_transform_scaleX",
+    "target": "orbit",
+    "property": "transform.scaleX",
+    "from": 1,
+    "to": 0.3,
+    "start": 15.6,
+    "duration": 0.5,
+    "easing": "easeInBack"
+  },
+  {
+    "id": "tw_83_orbit_transform_scaleY",
+    "target": "orbit",
+    "property": "transform.scaleY",
+    "from": 1,
+    "to": 0.3,
+    "start": 15.6,
+    "duration": 0.5,
+    "easing": "easeInBack"
+  }
+]

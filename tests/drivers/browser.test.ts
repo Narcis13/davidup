@@ -383,4 +383,79 @@ describe("attach", () => {
       attach(tinyComp(), canvas, { loader: noopLoader() }),
     ).rejects.toThrow(/getContext\('2d'\) returned null/);
   });
+
+  // --- v0.2 pre-compile auto-run (COMPOSITION_PRIMITIVES.md §10.3) ---
+
+  it("auto-expands $behavior tweens before the first paint (no sourcePath needed)", async () => {
+    // Authored input: opacity is animated via a fadeIn behavior block that
+    // would crash the engine if not expanded (engine only knows raw tweens).
+    const authored = {
+      ...tinyComp({ duration: 1 }),
+      tweens: [
+        { $behavior: "fadeIn", target: "s", start: 0, duration: 0.5 },
+      ],
+    } as unknown as Composition;
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(1000);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(authored, canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    // First paint must complete without throwing — proves the engine saw a
+    // canonical tween, not an unexpanded `$behavior` block.
+    expect(fillRectCount(canvas.ctx)).toBeGreaterThanOrEqual(1);
+    handle.stop();
+  });
+
+  it("resolves $ref via the supplied readFile and proceeds to paint", async () => {
+    // The whole `tweens` array is imported from a virtual file. The compiler
+    // spreads the resolved array in place of the `$ref` entry, then expands
+    // the behavior. End result: the loop must paint successfully.
+    const fakeFiles: Record<string, string> = {
+      "/proj/tweens.json": JSON.stringify([
+        { $behavior: "fadeIn", target: "s", start: 0, duration: 0.4 },
+      ]),
+    };
+    const readFile = async (absPath: string): Promise<string> => {
+      const v = fakeFiles[absPath];
+      if (v === undefined) throw new Error(`no such virtual file: ${absPath}`);
+      return v;
+    };
+
+    const authored = {
+      ...tinyComp({ duration: 1 }),
+      tweens: [{ $ref: "./tweens.json" }],
+    } as unknown as Composition;
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(authored, canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+      sourcePath: "/proj/root.json",
+      readFile,
+    });
+
+    expect(fillRectCount(canvas.ctx)).toBeGreaterThanOrEqual(1);
+    handle.stop();
+  });
+
+  it("rejects authored compositions with $ref but no sourcePath", async () => {
+    const authored = {
+      ...tinyComp(),
+      tweens: [{ $ref: "./tweens.json" }],
+    } as unknown as Composition;
+    const canvas = new FakeCanvas();
+    await expect(
+      attach(authored, canvas, { loader: noopLoader() }),
+    ).rejects.toThrow(/\$ref.*sourcePath/);
+  });
 });

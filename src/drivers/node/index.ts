@@ -7,6 +7,10 @@
 //   4. backpressure: when stdin.write returns false, await 'drain' before the
 //      next frame so a slow encoder cannot let the buffer grow without bound.
 //
+// Before any rendering, the driver runs `precompile()` (COMPOSITION_PRIMITIVES
+// §10.3) so callers can hand authored v0.2 JSON containing `$ref` / `$behavior`
+// markers directly. For canonical v0.1 input the precompile call is a no-op.
+//
 // skia-canvas is lazy-imported (indirect specifier) so this module is safe to
 // reference from environments where the native binary is absent — tests inject
 // a fake module to exercise behaviour without the dependency.
@@ -21,6 +25,8 @@ import {
   type AssetLoader,
   type SkiaCanvasModule,
 } from "../../assets/index.js";
+import { precompile } from "../../compose/index.js";
+import type { ReadFile } from "../../compose/imports.js";
 import { indexTweens, renderFrame } from "../../engine/index.js";
 import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
@@ -44,6 +50,18 @@ export interface RenderToFileOptions {
   ffmpegPath?: string;
   movflagsFaststart?: boolean;
 
+  /**
+   * Path of the file the composition was loaded from. Required only when the
+   * composition contains `$ref` markers — relative refs resolve against this
+   * file's directory (COMPOSITION_PRIMITIVES.md §5.3).
+   */
+  sourcePath?: string;
+  /**
+   * Custom file reader used by the `$ref` resolver. Defaults to
+   * `fs/promises#readFile` with utf-8 encoding.
+   */
+  readFile?: ReadFile;
+
   // Injection points (primarily for tests; production callers leave unset).
   skiaCanvas?: SkiaDriverModule;
   loader?: AssetLoader;
@@ -64,23 +82,27 @@ export async function renderToFile(
   opts: RenderToFileOptions = {},
 ): Promise<RenderToFileResult> {
   const startedAt = nowMs();
+  const compiled = (await precompile(comp, {
+    ...(opts.sourcePath !== undefined ? { sourcePath: opts.sourcePath } : {}),
+    ...(opts.readFile !== undefined ? { readFile: opts.readFile } : {}),
+  })) as Composition;
   const skia = opts.skiaCanvas ?? (await importSkiaCanvas());
   const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
 
-  await loader.preloadAll(comp.assets);
+  await loader.preloadAll(compiled.assets);
 
-  const meta = comp.composition;
+  const meta = compiled.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
   const ctx = canvas.getContext("2d");
-  const tweenIndex = indexTweens(comp);
+  const tweenIndex = indexTweens(compiled);
   const createOffscreen = (w: number, h: number): OffscreenSurface => {
     const off = new skia.Canvas(w, h);
     return { context: off.getContext("2d"), source: off };
   };
 
-  const totalFrames = frameCount(comp);
+  const totalFrames = frameCount(compiled);
 
-  const args = buildFfmpegArgs(comp, outPath, opts);
+  const args = buildFfmpegArgs(compiled, outPath, opts);
   const spawnFn = opts.spawn ?? defaultSpawn;
   const ffmpeg = spawnFn(opts.ffmpegPath ?? "ffmpeg", args);
 
@@ -113,7 +135,7 @@ export async function renderToFile(
       if (stdinErrored) throw stdinErrored;
       const t = i / meta.fps;
       ctx.clearRect(0, 0, meta.width, meta.height);
-      renderFrame(comp, t, ctx, {
+      renderFrame(compiled, t, ctx, {
         assets: loader,
         index: tweenIndex,
         createOffscreen,

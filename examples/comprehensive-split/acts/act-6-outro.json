@@ -1,0 +1,92 @@
+[
+  {
+    "id": "tw_84_title_transform_y",
+    "target": "title",
+    "property": "transform.y",
+    "from": 90,
+    "to": 340,
+    "start": 16.2,
+    "duration": 1,
+    "easing": "easeInOutBack"
+  },
+  {
+    "id": "tw_85_title_transform_scaleX",
+    "target": "title",
+    "property": "transform.scaleX",
+    "from": 0.55,
+    "to": 1.4,
+    "start": 16.2,
+    "duration": 1,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_86_title_transform_scaleY",
+    "target": "title",
+    "property": "transform.scaleY",
+    "from": 0.55,
+    "to": 1.4,
+    "start": 16.2,
+    "duration": 1,
+    "easing": "easeOutBack"
+  },
+  {
+    "id": "tw_87_title_color",
+    "target": "title",
+    "property": "color",
+    "from": "#ffd166",
+    "to": "#06d6a0",
+    "start": 16.5,
+    "duration": 1.5,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_88_footer_transform_opacity",
+    "target": "footer",
+    "property": "transform.opacity",
+    "from": 0,
+    "to": 1,
+    "start": 18,
+    "duration": 0.7,
+    "easing": "easeOutQuad"
+  },
+  {
+    "id": "tw_89_footer_transform_anchorY",
+    "target": "footer",
+    "property": "transform.anchorY",
+    "from": 0,
+    "to": -0.4,
+    "start": 18,
+    "duration": 0.7,
+    "easing": "easeOutCubic"
+  },
+  {
+    "id": "tw_90_footer_color",
+    "target": "footer",
+    "property": "color",
+    "from": "#888888",
+    "to": "#ef476f",
+    "start": 18.5,
+    "duration": 1,
+    "easing": "linear"
+  },
+  {
+    "id": "tw_91_title_transform_opacity",
+    "target": "title",
+    "property": "transform.opacity",
+    "from": 1,
+    "to": 0,
+    "start": 19,
+    "duration": 1,
+    "easing": "easeInOutQuad"
+  },
+  {
+    "id": "tw_92_footer_transform_opacity",
+    "target": "footer",
+    "property": "transform.opacity",
+    "from": 1,
+    "to": 0,
+    "start": 19.2,
+    "duration": 0.8,
+    "easing": "easeInOutQuad"
+  }
+]
