@@ -1,0 +1,53 @@
+{
+  "id": "outroCard",
+  "duration": 12,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#0b0d12",
+  "params": [
+    { "name": "footer", "type": "string", "default": "" },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "accent", "type": "color", "default": "#ffd166" }
+  ],
+  "items": {
+    "headline": {
+      "type": "text",
+      "text": "Thanks for watching",
+      "font": "${params.fontDisplay}",
+      "fontSize": 124,
+      "color": "#ffffff",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 320,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "footer": {
+      "type": "text",
+      "text": "${params.footer}",
+      "font": "${params.fontDisplay}",
+      "fontSize": 28,
+      "color": "${params.accent}",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 420,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    }
+  },
+  "tweens": [
+    { "$behavior": "popIn", "target": "headline", "start": 0.3, "duration": 0.7, "easing": "easeOutBack" },
+    { "$behavior": "fadeIn", "target": "footer", "start": 1.2, "duration": 0.6 }
+  ]
+}

@@ -46,6 +46,20 @@ const DEFAULT_TRANSFORM: Transform = {
   opacity: 1,
 };
 
+interface SceneInstanceRecord {
+  sceneId: string;
+  layerId: string;
+  start: number;
+  params: Record<string, unknown>;
+  transform: Record<string, unknown> | undefined;
+  /** Item ids added by this scene instance (wrapper group + prefixed inner items). */
+  itemIds: string[];
+  /** Tween ids added by this scene instance. */
+  tweenIds: string[];
+  /** Asset ids added by this scene instance (those NOT pre-existing in root). */
+  assetIds: string[];
+}
+
 interface MutableComposition {
   readonly id: string;
   meta: CompositionMeta;
@@ -59,8 +73,12 @@ interface MutableComposition {
   // group children that are created without a layer assignment in future.
   itemLayer: Map<string, string>;
   tweens: Map<string, Tween>;
+  // Scene instance tracking — populated by add_scene_instance / cleared by
+  // update_scene_instance + remove. Lets scene-instance MCP tools roll back
+  // exactly the items/tweens/assets a prior call added without scanning.
+  sceneInstances: Map<string, SceneInstanceRecord>;
   // Monotonic counters used when an explicit id is not supplied.
-  nextSeq: { layer: number; item: number; tween: number; comp: number };
+  nextSeq: { layer: number; item: number; tween: number; comp: number; scene: number };
 }
 
 export interface CreateCompositionInput {
@@ -246,7 +264,8 @@ export class CompositionStore {
       items: new Map(),
       itemLayer: new Map(),
       tweens: new Map(),
-      nextSeq: { layer: 0, item: 0, tween: 0, comp: 0 },
+      sceneInstances: new Map(),
+      nextSeq: { layer: 0, item: 0, tween: 0, comp: 0, scene: 0 },
     };
     this.compositions.set(id, comp);
     if (this.defaultId === null) this.defaultId = id;
@@ -800,6 +819,233 @@ export class CompositionStore {
       out.push(cloneTween(tween));
     }
     return out;
+  }
+
+  // ──────────────── Scene instances ────────────────
+
+  /**
+   * Reserve a fresh scene-instance id. Used by `add_scene_instance` when the
+   * caller doesn't supply one explicitly.
+   */
+  nextSceneInstanceId(compositionId?: string): string {
+    const comp = this.requireComposition(compositionId);
+    let candidate: string;
+    do {
+      candidate = `scene-${++comp.nextSeq.scene}`;
+    } while (comp.items.has(candidate));
+    return candidate;
+  }
+
+  /**
+   * Register a scene-instance expansion result against the store. Caller is
+   * responsible for actually adding the items/tweens/assets via the regular
+   * mutation primitives — this tracker just remembers the bookkeeping so a
+   * later update / remove can roll back exactly those ids.
+   */
+  trackSceneInstance(
+    instanceId: string,
+    record: SceneInstanceRecord,
+    compositionId?: string,
+  ): void {
+    const comp = this.requireComposition(compositionId);
+    if (comp.sceneInstances.has(instanceId)) {
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Scene instance "${instanceId}" already tracked.`,
+      );
+    }
+    comp.sceneInstances.set(instanceId, record);
+  }
+
+  hasSceneInstance(instanceId: string, compositionId?: string): boolean {
+    const comp = this.requireComposition(compositionId);
+    return comp.sceneInstances.has(instanceId);
+  }
+
+  getSceneInstance(
+    instanceId: string,
+    compositionId?: string,
+  ): SceneInstanceRecord | undefined {
+    const comp = this.requireComposition(compositionId);
+    return comp.sceneInstances.get(instanceId);
+  }
+
+  /**
+   * Drop everything a prior `trackSceneInstance` call added: tweens first
+   * (they reference items), then items (a group's children are dropped via
+   * normal `removeItemImpl`), then any assets the instance contributed
+   * exclusively. Best-effort — every removal is wrapped in a try/catch so a
+   * partially-rolled-back state doesn't trap subsequent calls.
+   */
+  removeSceneInstance(instanceId: string, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    const record = comp.sceneInstances.get(instanceId);
+    if (!record) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No scene instance "${instanceId}" to remove.`,
+      );
+    }
+    for (const tid of record.tweenIds) {
+      comp.tweens.delete(tid);
+    }
+    for (const iid of record.itemIds) {
+      if (comp.items.has(iid)) {
+        try {
+          this.removeItemImpl(comp, iid);
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+    for (const aid of record.assetIds) {
+      // Drop only if no item references the asset (e.g. concurrent additions
+      // by other tools may pin it). The protective check matches removeAsset.
+      if (!comp.assets.has(aid)) continue;
+      let inUse = false;
+      for (const item of comp.items.values()) {
+        if (item.type === "sprite" && item.asset === aid) {
+          inUse = true;
+          break;
+        }
+        if (item.type === "text" && item.font === aid) {
+          inUse = true;
+          break;
+        }
+      }
+      if (!inUse) comp.assets.delete(aid);
+    }
+    comp.sceneInstances.delete(instanceId);
+  }
+
+  /**
+   * Append an asset that's already known to be unique-by-id+content. Used by
+   * scene-instance expansion which validates conflicts upstream.
+   */
+  registerAssetUnchecked(asset: Asset, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    if (comp.assets.has(asset.id)) {
+      // Already merged by an earlier instance; skip to keep dedupe behavior.
+      return;
+    }
+    comp.assets.set(asset.id, asset.type === "image"
+      ? { id: asset.id, type: "image", src: asset.src }
+      : { id: asset.id, type: "font", src: asset.src, family: asset.family });
+  }
+
+  /**
+   * Read-only access to the asset map keyed by id — used by scene-instance
+   * expansion to detect existing conflicts.
+   */
+  getAsset(id: string, compositionId?: string): Asset | undefined {
+    const comp = this.requireComposition(compositionId);
+    return comp.assets.get(id);
+  }
+
+  /**
+   * Add a fully-formed canonical Item under an explicit id WITHOUT placing it
+   * in any layer. Used by scene-instance expansion for inner items that are
+   * referenced through the synthetic group wrapper instead of a layer's
+   * `items` list. Validates the item shape against the canonical Zod schema.
+   */
+  addRawSubItem(
+    input: { id: string; item: unknown },
+    compositionId?: string,
+  ): void {
+    const comp = this.requireComposition(compositionId);
+    if (typeof input.id !== "string" || input.id.length === 0) {
+      throw new MCPToolError("E_INVALID_VALUE", "Item id must be a non-empty string.");
+    }
+    this.ensureNoItem(comp, input.id);
+    const parsed = ItemSchema.safeParse(input.item);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const path = issue?.path?.join(".") ?? "";
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Item "${input.id}" has invalid shape${path ? ` at ${path}` : ""}: ${issue?.message ?? "schema mismatch"}.`,
+      );
+    }
+    comp.items.set(input.id, parsed.data as Item);
+  }
+
+  /** Required for scene-instance handlers that need to add a fully-formed wrapper group with explicit transform + child ids. */
+  addRawGroup(
+    input: { id: string; layerId: string; childItemIds: ReadonlyArray<string>; transform: Transform },
+    compositionId?: string,
+  ): void {
+    const comp = this.requireComposition(compositionId);
+    const layer = this.requireLayer(comp, input.layerId);
+    if (typeof input.id !== "string" || input.id.length === 0) {
+      throw new MCPToolError("E_INVALID_VALUE", "Group id must be a non-empty string.");
+    }
+    this.ensureNoItem(comp, input.id);
+    const group: GroupItem = {
+      type: "group",
+      items: [...input.childItemIds],
+      transform: { ...input.transform },
+    };
+    comp.items.set(input.id, group);
+    comp.itemLayer.set(input.id, layer.id);
+    pushUnique(layer.items, input.id);
+  }
+
+  /** Add a tween from a fully-formed object (used by scene expansion). */
+  addRawTween(tween: Tween, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    if (comp.tweens.has(tween.id)) {
+      throw new MCPToolError("E_DUPLICATE_ID", `Tween id "${tween.id}" already exists.`);
+    }
+    const item = comp.items.get(tween.target);
+    if (!item) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `Tween target item "${tween.target}" not found.`,
+      );
+    }
+    const desc = getTweenable(item.type, tween.property);
+    if (!desc) {
+      throw new MCPToolError(
+        "E_INVALID_PROPERTY",
+        `Property "${tween.property}" is not tweenable on ${item.type}.`,
+      );
+    }
+    if (desc.kind === "number" && (typeof tween.from !== "number" || typeof tween.to !== "number")) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Property "${tween.property}" expects numeric from/to.`,
+      );
+    }
+    if (desc.kind === "color" && (typeof tween.from !== "string" || typeof tween.to !== "string")) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Property "${tween.property}" expects color string from/to.`,
+      );
+    }
+    if (tween.duration <= 0) {
+      throw new MCPToolError("E_INVALID_VALUE", "Tween duration must be > 0.");
+    }
+    if (tween.start < 0) {
+      throw new MCPToolError("E_INVALID_VALUE", "Tween start must be ≥ 0.");
+    }
+    this.ensureNoOverlap(
+      comp,
+      tween.target,
+      tween.property,
+      tween.start,
+      tween.duration,
+      null,
+    );
+    comp.tweens.set(tween.id, {
+      id: tween.id,
+      target: tween.target,
+      property: tween.property,
+      from: tween.from,
+      to: tween.to,
+      start: tween.start,
+      duration: tween.duration,
+      ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
+    });
   }
 
   // ──────────────── Internals ────────────────
