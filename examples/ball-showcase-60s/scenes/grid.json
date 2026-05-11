@@ -1,0 +1,70 @@
+{
+  "$comment": [
+    "Behavior grid — 12s. Three balls side-by-side, each running a different",
+    "behavior in parallel, with the built-in `bulletList` template captioning",
+    "what each column does. Demonstrates:",
+    "  • A second built-in template instance inside a scene (bulletList).",
+    "  • shake (axis-y), rotateSpin, colorCycle (on `tint`), pulse — four more",
+    "    behaviors checked off the §6 catalogue.",
+    "  • Independent simultaneous animation on three sprites that share the",
+    "    same asset — proves the loader/cache path stays singular for a single",
+    "    image id."
+  ],
+
+  "id": "featureGrid",
+  "duration": 12,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#0d1933",
+
+  "params": [
+    { "name": "header",      "type": "string", "required": true, "description": "Reserved for future header text (not used today)." },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "fontMono",    "type": "string", "required": true },
+    { "name": "ballAsset",   "type": "string", "required": true },
+    { "name": "accent",      "type": "color",  "default": "#4cc9f0" }
+  ],
+
+  "assets": [],
+
+  "items": {
+    "bullets": {
+      "$template": "bulletList",
+      "params": {
+        "bullet1": "shake — axis-Y oscillation, 4 cycles",
+        "bullet2": "rotateSpin — 3 full turns over 9s",
+        "bullet3": "colorCycle — tint walks 5 stops",
+        "font": "${params.fontMono}",
+        "color": "#e8eaf0",
+        "x": 280, "y1": 110, "y2": 160, "y3": 210,
+        "fontSize": 28,
+        "stagger": 0.4, "stagger2": 0.8
+      }
+    },
+    "ballA": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 280, "y": 460, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    },
+    "ballB": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 640, "y": 460, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    },
+    "ballC": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 1000, "y": 460, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    }
+  },
+
+  "tweens": [
+    { "$behavior": "fadeIn",     "target": "ballA", "start": 0.4, "duration": 0.4, "easing": "easeOutQuad" },
+    { "$behavior": "fadeIn",     "target": "ballB", "start": 0.4, "duration": 0.4, "easing": "easeOutQuad" },
+    { "$behavior": "fadeIn",     "target": "ballC", "start": 0.4, "duration": 0.4, "easing": "easeOutQuad" },
+
+    { "$behavior": "shake",       "target": "ballA", "start": 1.4, "duration": 9.0, "params": { "amplitude": 60, "cycles": 5, "axis": "y", "center": 460 } },
+    { "$behavior": "rotateSpin",  "target": "ballB", "start": 1.4, "duration": 9.0, "easing": "easeInOutSine", "params": { "turns": 3 } },
+    { "$behavior": "colorCycle",  "target": "ballC", "start": 1.4, "duration": 9.0, "params": { "property": "tint", "colors": ["#4cc9f0", "#f72585", "#ffd166", "#06d6a0", "#4cc9f0"] } },
+    { "$behavior": "pulse",       "target": "ballC", "start": 10.6, "duration": 1.0, "params": { "peakScale": 1.4, "fromScale": 1.0 } }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "Crossfade tween snippet — pulled into composition.json via",
+    "  { \"$ref\": \"./snippets/crossfades.json#/tweens\" }",
+    "which selects the `tweens` array below; because the $ref sits inside an",
+    "array context AND the resolved value is itself an array, the import",
+    "resolver spreads the elements in place (see imports.ts walk: array+array =",
+    "splice). Demonstrates §5 pointer mode + array-spread in one go.",
+    "",
+    "Each entry targets a scene-instance wrapper-group id (never an internal",
+    "scene id) so the sealed-instance rule from §8.7 stays satisfied."
+  ],
+  "tweens": [
+    { "id": "xfade_intro_in",   "target": "intro",   "property": "transform.opacity", "from": 0, "to": 1, "start": 0.0,  "duration": 0.5, "easing": "easeOutQuad" },
+    { "id": "xfade_intro_out",  "target": "intro",   "property": "transform.opacity", "from": 1, "to": 0, "start": 9.5,  "duration": 0.5, "easing": "easeInQuad"  },
+    { "id": "xfade_grid_in",    "target": "grid",    "property": "transform.opacity", "from": 0, "to": 1, "start": 10.0, "duration": 0.5, "easing": "easeOutQuad" },
+    { "id": "xfade_grid_out",   "target": "grid",    "property": "transform.opacity", "from": 1, "to": 0, "start": 21.5, "duration": 0.5, "easing": "easeInQuad"  },
+    { "id": "xfade_physics_in", "target": "physics", "property": "transform.opacity", "from": 0, "to": 1, "start": 22.0, "duration": 0.5, "easing": "easeOutQuad" },
+    { "id": "xfade_physics_out","target": "physics", "property": "transform.opacity", "from": 1, "to": 0, "start": 39.5, "duration": 0.5, "easing": "easeInQuad"  },
+    { "id": "xfade_ballet_in",  "target": "ballet",  "property": "transform.opacity", "from": 0, "to": 1, "start": 40.0, "duration": 0.5, "easing": "easeOutQuad" },
+    { "id": "xfade_ballet_out", "target": "ballet",  "property": "transform.opacity", "from": 1, "to": 0, "start": 51.5, "duration": 0.5, "easing": "easeInQuad"  },
+    { "id": "xfade_finale_in",  "target": "finale",  "property": "transform.opacity", "from": 0, "to": 1, "start": 52.0, "duration": 0.5, "easing": "easeOutQuad" }
+  ]
+}

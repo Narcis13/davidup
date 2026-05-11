@@ -1,0 +1,63 @@
+{
+  "$comment": [
+    "Intro card — 10s. Shows:",
+    "  • Built-in `titleCard` template instance INSIDE the scene's items map.",
+    "    Triple-prefix at render time: intro__card__title / intro__card__subtitle.",
+    "  • Color-typed scene params forwarded into a template via",
+    "    `\"color\": \"${params.accent}\"` (whole-string substitution, §7.4).",
+    "  • A literal ball sprite with popIn → pulse → shake → fadeOut, exercising",
+    "    four of the eleven built-in behaviors back-to-back on one item.",
+    "",
+    "Behaviors covered here: popIn, pulse, shake, fadeOut, plus titleCard's own",
+    "popIn + fadeIn (subtitle)."
+  ],
+
+  "id": "introCard",
+  "duration": 10,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#0a1024",
+
+  "params": [
+    { "name": "title",       "type": "string", "required": true },
+    { "name": "subtitle",    "type": "string", "default": "" },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "fontMono",    "type": "string", "required": true },
+    { "name": "ballAsset",   "type": "string", "required": true },
+    { "name": "accent",      "type": "color",  "default": "#ffd166" }
+  ],
+
+  "assets": [],
+
+  "items": {
+    "card": {
+      "$template": "titleCard",
+      "params": {
+        "title": "${params.title}",
+        "subtitle": "${params.subtitle}",
+        "fontDisplay": "${params.fontDisplay}",
+        "fontMono": "${params.fontMono}",
+        "color": "#ffffff",
+        "accentColor": "${params.accent}"
+      }
+    },
+    "ball": {
+      "type": "sprite",
+      "asset": "${params.ballAsset}",
+      "width": 120,
+      "height": 120,
+      "transform": {
+        "x": 640, "y": 540,
+        "scaleX": 1, "scaleY": 1, "rotation": 0,
+        "anchorX": 0.5, "anchorY": 0.5,
+        "opacity": 0
+      }
+    }
+  },
+
+  "tweens": [
+    { "$behavior": "popIn",   "target": "ball", "start": 1.4,  "duration": 0.6, "easing": "easeOutBack" },
+    { "$behavior": "pulse",   "target": "ball", "start": 3.0,  "duration": 0.8, "params": { "peakScale": 1.3, "fromScale": 1.0 } },
+    { "$behavior": "shake",   "target": "ball", "start": 5.0,  "duration": 1.6, "params": { "amplitude": 28, "cycles": 4, "axis": "x", "center": 640 } },
+    { "$behavior": "fadeOut", "target": "ball", "start": 8.5,  "duration": 1.0 }
+  ]
+}

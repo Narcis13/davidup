@@ -1,0 +1,89 @@
+{
+  "$comment": [
+    "Ballet — 12s. Four balls dance in parallel, each on a different",
+    "behavior, plus two template instances: the built-in `captionBurst` and",
+    "the user-defined `labeledBall` from composition.json's `templates`",
+    "block. Demonstrates:",
+    "  • A user-defined template instanced inside a scene (NOT just a built-in).",
+    "  • Built-in `captionBurst` template inside a scene.",
+    "  • All four columns running different behaviors at once: kenburns,",
+    "    rotateSpin, shake, colorCycle.",
+    "  • The wrapper-group is also tweened from the ROOT (a `pulse` block on",
+    "    target=\"ballet\") — that root pulse touches transform.scaleX of the",
+    "    synthetic group, which is sealed-instance compliant (only addresses",
+    "    the instance id, never an internal id)."
+  ],
+
+  "id": "balletScene",
+  "duration": 12,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#1f0d33",
+
+  "params": [
+    { "name": "caption",     "type": "string", "required": true },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "fontMono",    "type": "string", "required": true },
+    { "name": "ballAsset",   "type": "string", "required": true },
+    { "name": "accent",      "type": "color",  "default": "#06d6a0" }
+  ],
+
+  "assets": [],
+
+  "items": {
+    "cap": {
+      "$template": "captionBurst",
+      "params": {
+        "text": "${params.caption}",
+        "font": "${params.fontDisplay}",
+        "color": "#ffffff",
+        "x": 640, "y": 130,
+        "fontSize": 72,
+        "fromScale": 0.3,
+        "duration": 0.6
+      }
+    },
+    "guide": {
+      "$template": "labeledBall",
+      "params": {
+        "asset": "${params.ballAsset}",
+        "label": "user template",
+        "font": "${params.fontMono}",
+        "labelColor": "${params.accent}",
+        "x": 160, "y": 380, "labelY": 460,
+        "size": 70
+      }
+    },
+    "b1": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 420, "y": 380, "scaleX": 0.9, "scaleY": 0.9, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    },
+    "b2": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 660, "y": 380, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    },
+    "b3": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 900, "y": 380, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    },
+    "b4": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 110, "height": 110,
+      "transform": { "x": 1130, "y": 380, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    }
+  },
+
+  "tweens": [
+    { "$behavior": "fadeIn", "target": "b1", "start": 0.6, "duration": 0.4, "easing": "easeOutQuad" },
+    { "$behavior": "fadeIn", "target": "b2", "start": 0.6, "duration": 0.4, "easing": "easeOutQuad" },
+    { "$behavior": "fadeIn", "target": "b3", "start": 0.6, "duration": 0.4, "easing": "easeOutQuad" },
+    { "$behavior": "fadeIn", "target": "b4", "start": 0.6, "duration": 0.4, "easing": "easeOutQuad" },
+
+    { "$behavior": "kenburns",   "target": "b1", "start": 1.2, "duration": 9.5, "easing": "easeInOutSine", "params": { "axis": "y", "fromPosition": 380, "pan": 80, "fromScale": 0.9, "toScale": 1.3 } },
+    { "$behavior": "rotateSpin", "target": "b2", "start": 1.2, "duration": 9.5, "easing": "easeInOutSine", "params": { "turns": 3 } },
+    { "$behavior": "shake",      "target": "b3", "start": 1.2, "duration": 9.5, "params": { "amplitude": 35, "cycles": 6, "axis": "x", "center": 900 } },
+    { "$behavior": "colorCycle", "target": "b4", "start": 1.2, "duration": 9.5, "params": { "property": "tint", "colors": ["#ffffff", "#4cc9f0", "#f72585", "#ffd166", "#06d6a0", "#ffffff"] } }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "$comment": [
+    "Physics lab — 18s. The marquee scene: ONE ball, eight tween phases,",
+    "every overlap-friendly property used at least once. Sequenced so the",
+    "validator (§3.5) never sees two tweens on the same (target, property)",
+    "with a positive intersection.",
+    "",
+    "Timeline (scene-local seconds):",
+    "  0.0–0.6  popIn               (opacity, scaleX, scaleY)",
+    "  0.0–0.6  slideIn  axis=x     (transform.x  -160→320)",
+    "  0.8–1.4  manual y-drop       (transform.y   220→540, easeInQuad)",
+    "  1.4–2.6  shake    axis=y     (transform.y  ±18 around 540, 3 cycles)",
+    "  3.0–6.0  rotateSpin          (transform.rotation 0→4π, 2 turns)",
+    "  3.0–8.0  colorCycle on tint  (5 stops over 4 segments)",
+    "  6.6–7.4  pulse               (scaleX 1→1.4→1)",
+    "  9.0–14.0 kenburns axis=x     (transform.x 320→1020, scaleX 1→1.6)",
+    "  16.0–17.0 popOut             (opacity 1→0, scaleX 1.6→0.2, scaleY 1→0.2)",
+    "",
+    "Also embeds a built-in `lowerThird` template — its bar/name/role get",
+    "triple-prefixed at compile time to physics__lt__bar / __name / __role.",
+    "Demonstrates §6.5 template-inside-scene with both string params and a",
+    "color param forwarded from the scene-instance via `${params.X}`.",
+    "",
+    "Asset note: re-declares font-display with the same id+src as the root.",
+    "Same id + equivalent src = dedup (§8 asset-merging happy path)."
+  ],
+
+  "id": "physicsLab",
+  "duration": 18,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#102040",
+
+  "params": [
+    { "name": "header",      "type": "string", "required": true, "description": "Reserved for header layout (not rendered today)." },
+    { "name": "name",        "type": "string", "required": true },
+    { "name": "role",        "type": "string", "required": true },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "fontMono",    "type": "string", "required": true },
+    { "name": "ballAsset",   "type": "string", "required": true },
+    { "name": "accent",      "type": "color",  "default": "#f72585" }
+  ],
+
+  "assets": [
+    { "id": "font-display", "type": "font", "src": "../fonts/BebasNeue-Regular.ttf", "family": "DavidupDisplay" }
+  ],
+
+  "items": {
+    "floor": {
+      "type": "shape", "kind": "rect",
+      "width": 1080, "height": 4, "fillColor": "#ffffff",
+      "transform": { "x": 100, "y": 600, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0.35 }
+    },
+    "lt": {
+      "$template": "lowerThird",
+      "params": {
+        "name": "${params.name}",
+        "role": "${params.role}",
+        "color": "${params.accent}",
+        "fontDisplay": "${params.fontDisplay}",
+        "fontMono": "${params.fontMono}",
+        "x": 100, "y": 120, "roleY": 158, "barY": 175,
+        "barWidth": 420,
+        "nameSize": 56, "roleSize": 20
+      }
+    },
+    "ball": {
+      "type": "sprite", "asset": "${params.ballAsset}",
+      "width": 120, "height": 120,
+      "transform": { "x": -160, "y": 220, "scaleX": 0.2, "scaleY": 0.2, "rotation": 0, "anchorX": 0.5, "anchorY": 0.5, "opacity": 0 }
+    }
+  },
+
+  "tweens": [
+    { "$behavior": "popIn",   "target": "ball", "start": 0.0, "duration": 0.6, "easing": "easeOutBack" },
+    { "$behavior": "slideIn", "target": "ball", "start": 0.0, "duration": 0.6, "easing": "easeOutQuad", "params": { "axis": "x", "from": -160, "to": 320 } },
+
+    { "id": "ball_drop",      "target": "ball", "property": "transform.y", "from": 220, "to": 540, "start": 0.8, "duration": 0.6, "easing": "easeInQuad" },
+
+    { "$behavior": "shake",      "target": "ball", "start": 1.4, "duration": 1.2, "params": { "amplitude": 18, "cycles": 3, "axis": "y", "center": 540 } },
+
+    { "$behavior": "rotateSpin", "target": "ball", "start": 3.0, "duration": 3.0, "easing": "easeInOutSine", "params": { "turns": 2 } },
+
+    { "$behavior": "colorCycle", "target": "ball", "start": 3.0, "duration": 5.0, "params": { "property": "tint", "colors": ["#ffffff", "#f72585", "#ffd166", "#06d6a0", "#4cc9f0"] } },
+
+    { "$behavior": "pulse",      "target": "ball", "start": 6.6, "duration": 0.8, "params": { "peakScale": 1.4, "fromScale": 1.0 } },
+
+    { "$behavior": "kenburns",   "target": "ball", "start": 9.0, "duration": 5.0, "easing": "easeInOutSine", "params": { "axis": "x", "fromPosition": 320, "pan": 700, "fromScale": 1.0, "toScale": 1.6 } },
+
+    { "$behavior": "popOut",     "target": "ball", "start": 16.0, "duration": 1.0, "easing": "easeInBack", "params": { "fromScale": 1.6, "toScale": 0.2, "fromOpacity": 1, "toOpacity": 0 } },
+
+    { "id": "floor_in",       "target": "floor", "property": "transform.opacity", "from": 0, "to": 0.35, "start": 0.2, "duration": 0.6, "easing": "easeOutQuad" },
+    { "id": "floor_out",      "target": "floor", "property": "transform.opacity", "from": 0.35, "to": 0, "start": 16.0, "duration": 1.0, "easing": "easeInQuad" }
+  ]
+}

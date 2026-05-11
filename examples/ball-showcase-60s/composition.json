@@ -1,0 +1,174 @@
+{
+  "$comment": [
+    "Davidup ball-showcase — a 60-second clip that exercises EVERY composability",
+    "primitive on a single recurring motif (ball.png).",
+    "",
+    "Authoring features touched:",
+    "  • $ref imports (whole-file)  — 5 scene defs under ./scenes/ (§5)",
+    "  • $ref imports (pointer + array-spread)  — crossfades snippet (§5)",
+    "  • templates block (user-defined)  — `labeledBall` defined inline (§7)",
+    "  • Built-in templates (5)  — titleCard, lowerThird, bulletList,",
+    "                              kenburnsImage, captionBurst (all in-scene)",
+    "  • Scenes (§8)  — 5 scene instances, each sealed via wrapper-group fades",
+    "  • Templates-INSIDE-scenes  — every scene uses at least one $template",
+    "                              instance, exercising the new lowering pass",
+    "  • All 11 built-in behaviors  — fadeIn, fadeOut, popIn, popOut,",
+    "                                 slideIn, slideOut, rotateSpin, kenburns,",
+    "                                 shake, colorCycle, pulse",
+    "  • Asset merging  — physics scene re-declares the display font (dedup)",
+    "  • Sealed-instance compliance  — root tweens only address wrapper-group",
+    "                                  transform fields (opacity + scaleX pulse)",
+    "",
+    "Scene boundaries on the 60s parent timeline:",
+    "  intro    0–10s   • title card + ball entry",
+    "  grid    10–22s   • bullet list + three balls (shake/rotateSpin/colorCycle)",
+    "  physics 22–40s   • the main ball: slide-in → drop → shake → spin →",
+    "                     colour-cycle → pulse → kenburns → popOut",
+    "  ballet  40–52s   • 4 balls in parallel + user-template + captionBurst",
+    "  finale  52–60s   • kenburnsImage sprite-template + slideOut + fadeOut"
+  ],
+
+  "version": "0.4",
+
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "duration": 60,
+    "background": "#05070d"
+  },
+
+  "assets": [
+    { "id": "font-display", "type": "font", "src": "../fonts/BebasNeue-Regular.ttf", "family": "DavidupDisplay" },
+    { "id": "font-mono",    "type": "font", "src": "../fonts/JetBrainsMono-Bold.ttf", "family": "DavidupMono" },
+    { "id": "ball",         "type": "image", "src": "../ball.png" }
+  ],
+
+  "templates": {
+    "labeledBall": {
+      "description": "Small ball sprite with a caption below — used to call out demo features.",
+      "params": [
+        { "name": "asset", "type": "string", "required": true, "description": "Image asset id." },
+        { "name": "label", "type": "string", "required": true, "description": "Caption text." },
+        { "name": "font",  "type": "string", "required": true, "description": "Caption font asset id." },
+        { "name": "labelColor", "type": "color", "default": "#ffd166" },
+        { "name": "x",     "type": "number", "default": 200 },
+        { "name": "y",     "type": "number", "default": 360 },
+        { "name": "labelY","type": "number", "default": 440, "description": "Caption baseline y. Compute as y + size/2 + 30." },
+        { "name": "size",  "type": "number", "default": 80 }
+      ],
+      "items": {
+        "ball": {
+          "type": "sprite",
+          "asset": "${params.asset}",
+          "width": "${params.size}",
+          "height": "${params.size}",
+          "transform": {
+            "x": "${params.x}", "y": "${params.y}",
+            "scaleX": 1, "scaleY": 1, "rotation": 0,
+            "anchorX": 0.5, "anchorY": 0.5,
+            "opacity": 0
+          }
+        },
+        "label": {
+          "type": "text",
+          "text": "${params.label}",
+          "font": "${params.font}",
+          "fontSize": 22,
+          "color": "${params.labelColor}",
+          "align": "center",
+          "transform": {
+            "x": "${params.x}", "y": "${params.labelY}",
+            "scaleX": 1, "scaleY": 1, "rotation": 0,
+            "anchorX": 0, "anchorY": 0,
+            "opacity": 0
+          }
+        }
+      },
+      "tweens": [
+        { "$behavior": "fadeIn", "target": "ball",  "start": 0.0, "duration": 0.4, "easing": "easeOutQuad" },
+        { "$behavior": "fadeIn", "target": "label", "start": 0.2, "duration": 0.4, "easing": "easeOutQuad" }
+      ]
+    }
+  },
+
+  "scenes": {
+    "introCard":    { "$ref": "./scenes/intro.json" },
+    "featureGrid":  { "$ref": "./scenes/grid.json" },
+    "physicsLab":   { "$ref": "./scenes/physics.json" },
+    "balletScene":  { "$ref": "./scenes/ballet.json" },
+    "finaleScene":  { "$ref": "./scenes/finale.json" }
+  },
+
+  "layers": [
+    { "id": "stage", "z": 0, "opacity": 1, "blendMode": "normal", "items": ["intro", "grid", "physics", "ballet", "finale"] }
+  ],
+
+  "items": {
+    "intro": {
+      "type": "scene", "scene": "introCard", "start": 0,
+      "params": {
+        "title": "DAVIDUP",
+        "subtitle": "every composability primitive · one ball",
+        "fontDisplay": "font-display", "fontMono": "font-mono",
+        "ballAsset": "ball",
+        "accent": "#ffd166"
+      },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "grid": {
+      "type": "scene", "scene": "featureGrid", "start": 10,
+      "params": {
+        "header": "I. behaviour grid",
+        "fontDisplay": "font-display", "fontMono": "font-mono",
+        "ballAsset": "ball",
+        "accent": "#4cc9f0"
+      },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "physics": {
+      "type": "scene", "scene": "physicsLab", "start": 22,
+      "params": {
+        "header": "II. physics lab",
+        "name": "the ball",
+        "role": "slide · drop · shake · spin · tint · pulse · kenburns",
+        "fontDisplay": "font-display", "fontMono": "font-mono",
+        "ballAsset": "ball",
+        "accent": "#f72585"
+      },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "ballet": {
+      "type": "scene", "scene": "balletScene", "start": 40,
+      "params": {
+        "caption": "III. parallel motion",
+        "fontDisplay": "font-display", "fontMono": "font-mono",
+        "ballAsset": "ball",
+        "accent": "#06d6a0"
+      },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    },
+    "finale": {
+      "type": "scene", "scene": "finaleScene", "start": 52,
+      "params": {
+        "footer": "60s · 5 scenes · 11 behaviours · 6 templates",
+        "fontDisplay": "font-display", "fontMono": "font-mono",
+        "ballAsset": "ball",
+        "accent": "#ffd166"
+      },
+      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+    }
+  },
+
+  "tweens": [
+    { "$ref": "./snippets/crossfades.json#/tweens" },
+    {
+      "$behavior": "pulse",
+      "target": "ballet",
+      "start": 41.0,
+      "duration": 10.0,
+      "params": { "peakScale": 1.04, "fromScale": 1.0 },
+      "id": "ballet_wrapper_breath"
+    }
+  ]
+}

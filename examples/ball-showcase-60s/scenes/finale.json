@@ -1,0 +1,62 @@
+{
+  "$comment": [
+    "Finale — 8s. Closes the showcase with the two remaining built-in",
+    "templates and the two remaining behaviors:",
+    "  • `kenburnsImage` template — instances a sprite directly (this is the",
+    "    template-friendly way to drop the ball.png into a comp; it bundles",
+    "    a fadeIn + a kenburns into one declaration).",
+    "  • `captionBurst` template — caption pops in over the closing scene.",
+    "  • slideOut and fadeOut behaviors applied to the template-expanded",
+    "    inner items (cap__caption and bigBall__img) — legal from WITHIN the",
+    "    scene because those ids exist in the scene's local-items map after",
+    "    `expandTemplatesInScene` runs, even though they'd be sealed off from",
+    "    parent-authored tweens by §8.7."
+  ],
+
+  "id": "finaleScene",
+  "duration": 8,
+  "size": { "width": 1280, "height": 720 },
+  "background": "#2a1040",
+
+  "params": [
+    { "name": "footer",      "type": "string", "required": true },
+    { "name": "fontDisplay", "type": "string", "required": true },
+    { "name": "fontMono",    "type": "string", "required": true },
+    { "name": "ballAsset",   "type": "string", "required": true },
+    { "name": "accent",      "type": "color",  "default": "#ffd166" }
+  ],
+
+  "assets": [],
+
+  "items": {
+    "bigBall": {
+      "$template": "kenburnsImage",
+      "params": {
+        "asset": "${params.ballAsset}",
+        "width": 360, "height": 360,
+        "x": 380, "y": 130,
+        "fromScale": 0.9, "toScale": 1.15,
+        "pan": 60, "axis": "x",
+        "fadeDuration": 0.8,
+        "duration": 6.0
+      }
+    },
+    "cap": {
+      "$template": "captionBurst",
+      "params": {
+        "text": "${params.footer}",
+        "font": "${params.fontMono}",
+        "color": "${params.accent}",
+        "x": 640, "y": 620,
+        "fontSize": 30,
+        "fromScale": 0.4,
+        "duration": 0.6
+      }
+    }
+  },
+
+  "tweens": [
+    { "$behavior": "fadeOut",   "target": "bigBall__img",  "start": 6.5, "duration": 1.5, "easing": "easeInQuad" },
+    { "$behavior": "slideOut",  "target": "cap__caption",  "start": 6.5, "duration": 1.5, "easing": "easeInBack", "params": { "axis": "y", "from": 620, "to": 900 } }
+  ]
+}

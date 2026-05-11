@@ -187,15 +187,19 @@ export function expandTemplate(
  *      - Rewire any layer that referenced the instance id: replace the
  *        instance id with the expanded id list in declaration order.
  *      - If no layer referenced the instance, fall back to `instance.layerId`.
- *   3. Drop the top-level `templates` key from the output (it's compile-time
+ *   3. Walk `comp.scenes[*]` and lower any `$template` blocks in each scene's
+ *      `items` map (the scene's own `items`/`tweens` are rewritten in place,
+ *      without layer rewiring — scenes have no layers).
+ *   4. Drop the top-level `templates` key from the output (it's compile-time
  *      only — the canonical engine never sees it).
  *
- * If the composition has no `$template` instances AND no `templates` key, the
- * input is returned unchanged (cheap short-circuit).
+ * If the composition has no `$template` instances anywhere AND no `templates`
+ * key, the input is returned unchanged (cheap short-circuit).
  */
 export function expandTemplates(comp: unknown): unknown {
   if (!isPlainObject(comp)) return comp;
   const itemsRaw = (comp as { items?: unknown }).items;
+  const scenesRaw = (comp as { scenes?: unknown }).scenes;
   const templatesRaw = (comp as { templates?: unknown }).templates;
 
   const userTemplates: Record<string, TemplateDefinition> = {};
@@ -218,13 +222,17 @@ export function expandTemplates(comp: unknown): unknown {
     }
   }
 
-  const hasInstance =
+  const hasRootInstance =
     isPlainObject(itemsRaw) &&
     Object.values(itemsRaw).some(
       (v) => isPlainObject(v) && typeof v.$template === "string",
     );
 
-  if (!hasInstance) {
+  const hasSceneInstance =
+    isPlainObject(scenesRaw) &&
+    Object.values(scenesRaw).some((s) => sceneHasTemplateInstance(s));
+
+  if (!hasRootInstance && !hasSceneInstance) {
     if (templatesRaw === undefined) return comp;
     // Strip compile-time-only `templates` key so the canonical output stays
     // v0.1-shaped for downstream validation.
@@ -235,6 +243,42 @@ export function expandTemplates(comp: unknown): unknown {
     return rest;
   }
 
+  // Phase 1 — root-level `$template` expansion (if any).
+  let out: Record<string, unknown>;
+  if (hasRootInstance) {
+    out = expandRootTemplates(comp, itemsRaw as Record<string, unknown>, userTemplates);
+  } else {
+    // No root-level instances — just clone the comp, stripping `templates`.
+    out = {};
+    for (const [k, v] of Object.entries(comp)) {
+      if (k !== "templates") out[k] = v;
+    }
+  }
+
+  // Phase 2 — scene-internal `$template` expansion.
+  if (hasSceneInstance && isPlainObject(scenesRaw)) {
+    const newScenes: Record<string, unknown> = {};
+    for (const id of Object.keys(scenesRaw).sort()) {
+      const sceneRaw = scenesRaw[id];
+      if (!isPlainObject(sceneRaw)) {
+        newScenes[id] = sceneRaw;
+        continue;
+      }
+      newScenes[id] = expandTemplatesInScene(sceneRaw, userTemplates, id);
+    }
+    out.scenes = newScenes;
+  }
+
+  return out;
+}
+
+// ──────────────── Root-level expansion (extracted) ────────────────
+
+function expandRootTemplates(
+  comp: Record<string, unknown>,
+  itemsRaw: Record<string, unknown>,
+  userTemplates: Record<string, TemplateDefinition>,
+): Record<string, unknown> {
   const newItems: Record<string, unknown> = {};
   const expansions: Array<{
     instanceId: string;
@@ -243,8 +287,8 @@ export function expandTemplates(comp: unknown): unknown {
   }> = [];
   const newTweenAdditions: unknown[] = [];
 
-  for (const key of Object.keys(itemsRaw as Record<string, unknown>).sort()) {
-    const v = (itemsRaw as Record<string, unknown>)[key];
+  for (const key of Object.keys(itemsRaw).sort()) {
+    const v = itemsRaw[key];
     if (isPlainObject(v) && typeof v.$template === "string") {
       const instance = readTemplateInstance(key, v);
       const expanded = expandTemplate(key, instance, { templates: userTemplates });
@@ -272,19 +316,6 @@ export function expandTemplates(comp: unknown): unknown {
         );
       }
       newItems[key] = v;
-    }
-  }
-
-  // Catch the post-merge collision: a non-template item shares an id that a
-  // template instance also produced. Iterate sorted keys of itemsRaw — but we
-  // already merged in instance order. So any conflict shows up via the check
-  // above. A separate sweep guards against the inverse direction:
-  for (const exp of expansions) {
-    for (const newId of exp.expandedIds) {
-      // The literal-vs-expanded collision is already rejected at insertion
-      // time. This loop is intentionally a no-op placeholder so future
-      // additional checks have an obvious home.
-      void newId;
     }
   }
 
@@ -343,10 +374,6 @@ export function expandTemplates(comp: unknown): unknown {
       }
     }
     newLayers = layerCopies;
-  } else {
-    // No layers to rewire — but instances still need a layerId for the
-    // validator to be happy downstream. We don't error here: the schema /
-    // §3.5 validator owns that complaint with better context than we have.
   }
 
   // Build canonical output: drop `templates`, swap items/layers/tweens.
@@ -364,6 +391,86 @@ export function expandTemplates(comp: unknown): unknown {
   out.layers = newLayers;
   out.tweens = newTweens;
   return out;
+}
+
+// ──────────────── Scene-internal expansion ────────────────
+
+/**
+ * Lower every `$template` block inside a scene definition's `items` map.
+ *
+ * The scene is still raw at this point — the scenes pass (which calls
+ * `readSceneDefinition`) runs *after* templates. Inside a scene definition
+ * there are no layers, so no layer-rewiring step is needed; the wrapper-group
+ * that `expandSceneInstance` builds reads the (expanded) scene `items` map
+ * directly, so the expanded ids are automatically picked up as group children.
+ *
+ * Template params on the instance may reference scene params via
+ * `${params.X}` — those placeholders pass through `expandTemplate` untouched
+ * (templates only run `substitute` with their own param context), then resolve
+ * later when `expandSceneInstance` substitutes against the scene-instance's
+ * params.
+ *
+ * IDs follow the double-prefix rule: a template instance keyed `lower` whose
+ * template emits local id `bar` produces `lower__bar` here. The outer scene
+ * expansion adds its own `${instanceId}__` prefix on top later
+ * (`intro__lower__bar`).
+ *
+ * Returns the input scene unchanged when no instances are present.
+ */
+function expandTemplatesInScene(
+  scene: Record<string, unknown>,
+  userTemplates: Record<string, TemplateDefinition>,
+  sceneId: string,
+): Record<string, unknown> {
+  const itemsRaw = scene.items;
+  if (!isPlainObject(itemsRaw)) return scene;
+  if (!sceneHasTemplateInstance(scene)) return scene;
+
+  const newItems: Record<string, unknown> = {};
+  const newTweenAdditions: unknown[] = [];
+
+  for (const key of Object.keys(itemsRaw).sort()) {
+    const v = itemsRaw[key];
+    if (isPlainObject(v) && typeof v.$template === "string") {
+      const instance = readTemplateInstance(key, v);
+      const expanded = expandTemplate(key, instance, { templates: userTemplates });
+      for (const newId of Object.keys(expanded.items)) {
+        if (newId in newItems) {
+          throw new MCPToolError(
+            "E_DUPLICATE_ID",
+            `Scene "${sceneId}" template instance "${key}" produced item id "${newId}" that collides with another id in the scene.`,
+          );
+        }
+        newItems[newId] = expanded.items[newId];
+      }
+      for (const t of expanded.tweens) newTweenAdditions.push(t);
+    } else {
+      if (key in newItems) {
+        throw new MCPToolError(
+          "E_DUPLICATE_ID",
+          `Scene "${sceneId}" item id "${key}" collides with a template-expanded id.`,
+        );
+      }
+      newItems[key] = v;
+    }
+  }
+
+  const existingTweens = scene.tweens;
+  const newTweens = Array.isArray(existingTweens)
+    ? [...existingTweens, ...newTweenAdditions]
+    : newTweenAdditions;
+
+  return { ...scene, items: newItems, tweens: newTweens };
+}
+
+function sceneHasTemplateInstance(scene: unknown): boolean {
+  if (!isPlainObject(scene)) return false;
+  const items = scene.items;
+  if (!isPlainObject(items)) return false;
+  for (const v of Object.values(items)) {
+    if (isPlainObject(v) && typeof v.$template === "string") return true;
+  }
+  return false;
 }
 
 // ──────────────── Helpers ────────────────
