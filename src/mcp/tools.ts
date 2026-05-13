@@ -35,6 +35,7 @@ import {
   type SceneDefinition,
   type SceneInstance,
   type SceneParamDescriptor,
+  type TimeMapping,
 } from "../compose/scenes.js";
 import {
   expandTemplate,
@@ -890,6 +891,26 @@ const SCENE_TRANSFORM = z
   })
   .partial();
 
+// v0.5 time-mapping spec for scene instances (§8.5). Range/sanity checks
+// happen inside expandSceneInstance once the scene's `duration` is known —
+// here we only enforce shape.
+const TIME_MAPPING_SCHEMA = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("identity") }),
+  z.object({
+    mode: z.literal("clip"),
+    fromTime: z.number().nonnegative(),
+    toTime: z.number().positive(),
+  }),
+  z.object({
+    mode: z.literal("loop"),
+    count: z.number().int().min(1),
+  }),
+  z.object({
+    mode: z.literal("timeScale"),
+    scale: z.number().positive(),
+  }),
+]);
+
 const defineScene = defineTool({
   name: "define_scene",
   title: "Define scene",
@@ -1025,6 +1046,7 @@ function applySceneInstanceToStore(
     start: number;
     params?: Record<string, unknown>;
     transform?: Record<string, unknown>;
+    time?: TimeMapping;
     compositionId?: string;
   },
 ): { itemIds: string[]; tweenIds: string[]; assetIds: string[] } {
@@ -1042,6 +1064,7 @@ function applySceneInstanceToStore(
     layerId: args.layerId,
     ...(args.params !== undefined ? { params: args.params } : {}),
     ...(args.transform !== undefined ? { transform: args.transform } : {}),
+    ...(args.time !== undefined ? { time: args.time } : {}),
   };
   const expanded = expandSceneInstance(args.instanceId, sceneInstance);
 
@@ -1149,13 +1172,14 @@ const addSceneInstance = defineTool({
   name: "add_scene_instance",
   title: "Add scene instance",
   description:
-    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
+    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
   inputSchema: {
     sceneId: z.string().min(1),
     layerId: z.string().min(1),
     start: z.number().nonnegative().optional(),
     params: z.record(z.string(), z.unknown()).optional(),
     transform: SCENE_TRANSFORM.optional(),
+    time: TIME_MAPPING_SCHEMA.optional(),
     id: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -1170,6 +1194,7 @@ const addSceneInstance = defineTool({
       start,
       ...(args.params !== undefined ? { params: args.params } : {}),
       ...(args.transform !== undefined ? { transform: args.transform } : {}),
+      ...(args.time !== undefined ? { time: args.time } : {}),
       ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
     });
 
@@ -1181,6 +1206,7 @@ const addSceneInstance = defineTool({
         start,
         params: args.params ?? {},
         transform: args.transform,
+        time: args.time,
         itemIds: result.itemIds,
         tweenIds: result.tweenIds,
         assetIds: result.assetIds,
@@ -1201,12 +1227,13 @@ const updateSceneInstance = defineTool({
   name: "update_scene_instance",
   title: "Update scene instance",
   description:
-    "Patch a scene instance's params / transform / start. The instance is removed and re-expanded under the same id; rolled back to the previous state on any error.",
+    "Patch a scene instance's params / transform / start / time. The instance is removed and re-expanded under the same id; rolled back to the previous state on any error.",
   inputSchema: {
     instanceId: z.string().min(1),
     params: z.record(z.string(), z.unknown()).optional(),
     transform: SCENE_TRANSFORM.optional(),
     start: z.number().nonnegative().optional(),
+    time: TIME_MAPPING_SCHEMA.optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -1221,6 +1248,7 @@ const updateSceneInstance = defineTool({
     const nextParams = args.params ?? prev.params;
     const nextTransform = args.transform ?? prev.transform;
     const nextStart = args.start ?? prev.start;
+    const nextTime = args.time ?? prev.time;
 
     // Drop the previous expansion entirely.
     store.removeSceneInstance(args.instanceId, args.compositionId);
@@ -1233,6 +1261,7 @@ const updateSceneInstance = defineTool({
         start: nextStart,
         params: nextParams,
         ...(nextTransform !== undefined ? { transform: nextTransform } : {}),
+        ...(nextTime !== undefined ? { time: nextTime } : {}),
         ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
       });
       store.trackSceneInstance(
@@ -1243,6 +1272,7 @@ const updateSceneInstance = defineTool({
           start: nextStart,
           params: nextParams,
           transform: nextTransform,
+          time: nextTime,
           itemIds: result.itemIds,
           tweenIds: result.tweenIds,
           assetIds: result.assetIds,
@@ -1262,6 +1292,7 @@ const updateSceneInstance = defineTool({
           start: prev.start,
           params: prev.params,
           ...(prev.transform !== undefined ? { transform: prev.transform } : {}),
+          ...(prev.time !== undefined ? { time: prev.time } : {}),
           ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
         });
         store.trackSceneInstance(
@@ -1272,6 +1303,7 @@ const updateSceneInstance = defineTool({
             start: prev.start,
             params: prev.params,
             transform: prev.transform,
+            time: prev.time,
             itemIds: restored.itemIds,
             tweenIds: restored.tweenIds,
             assetIds: restored.assetIds,

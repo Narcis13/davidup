@@ -576,19 +576,55 @@ transform inheritance via Canvas2D `save/restore`.
 
 ### 8.5 Time mapping options
 
-For v0.4 ship only the simplest mode: **identity time** (1:1).
+Four modes ship. `identity` is the default; the three v0.5 modes are
+additive and opt-in via a `time` field on the scene instance.
 
-| Mode | What it does | Ship in |
-|---|---|---|
-| `identity` (default) | scene-local `t=0` plays at parent `instance.start` | v0.4 |
-| `clip` | trim to `[fromTime, toTime]` of scene-local time | v0.5 |
-| `loop` | repeat scene N times (or until parent end) | v0.5 |
-| `timeScale` | play scene at K× speed (K∈ℝ+) | v0.5 |
-| `reverse` | play scene backwards | v0.6 |
+| Mode | What it does | Ship in | Status |
+|---|---|---|---|
+| `identity` (default) | scene-local `t=0` plays at parent `instance.start` | v0.4 | shipped |
+| `clip` | trim to `[fromTime, toTime]` of scene-local time | v0.5 | **shipped** |
+| `loop` | repeat scene N times | v0.5 | **shipped** |
+| `timeScale` | play scene at K× speed (K∈ℝ+) | v0.5 | **shipped** |
+| `reverse` | play scene backwards | v0.6 | deferred |
 
-`identity` covers the 80% case and is easy to reason about. The exotic
-modes need careful spec to be deterministic and to interact with tween
-overlap rules — defer them.
+Authored shape — attach to the scene instance:
+
+```json
+{ "type": "scene", "scene": "introCard", "time": { "mode": "identity" } }
+{ "type": "scene", "scene": "introCard", "time": { "mode": "clip", "fromTime": 1.0, "toTime": 3.0 } }
+{ "type": "scene", "scene": "introCard", "time": { "mode": "loop", "count": 3 } }
+{ "type": "scene", "scene": "introCard", "time": { "mode": "timeScale", "scale": 2.0 } }
+```
+
+Per-mode semantics:
+
+- **identity** — every scene tween's `start` is shifted by
+  `instance.start`. Effective span = `scene.duration`.
+
+- **clip** `{ fromTime, toTime }` — drop tweens fully outside
+  `[fromTime, toTime]`; keep fully-contained tweens shifted by
+  `(instance.start − fromTime)`. Tweens that straddle a clip boundary
+  reject with `E_TIME_MAPPING_TWEEN_SPLIT`; the author must split the
+  tween at the boundary in the scene definition or move the window.
+  (Automatic trimming with easing-aware boundary values is intentionally
+  deferred — see §16-O17 in spirit; the v0.5 rule is "predictable, no
+  silent approximation.")
+
+- **loop** `{ count }` (positive integer) — emit `count` copies of every
+  scene tween, with starts `instance.start + i * scene.duration + tweenStart`.
+  Item ids are shared across iterations (the scene's items live once);
+  per-iteration tween id collisions are avoided with a `__loop${i}`
+  suffix. Numeric drift is bounded by a single multiply per iteration
+  (no chained adds). Adjacent iterations touching at exact boundaries
+  pass the validator's 1µs `OVERLAP_EPS` guard.
+
+- **timeScale** `{ scale }` (scale > 0) — divide every scene tween's
+  `start` and `duration` by `scale`. Easing curves compress/stretch with
+  the tween (same `easing` field; the curve still maps progress 0→1).
+
+`E_TIME_MAPPING_INVALID` covers shape and range errors: clip outside
+`[0, scene.duration]`, non-positive `count`, non-integer `count`,
+`scale <= 0`, unknown mode.
 
 ### 8.6 Sequencing scenes (the common shape for 1-min videos)
 
@@ -1188,9 +1224,17 @@ disk.
 - Test: mid-instance scene-internal tween + parent transform.opacity tween
   multiply correctly (golden frame).
 
-### v0.5 — Time mapping (~1 week, optional)
-- `clip`, `loop`, `timeScale` for scene instances
-- Validator updates for overlap rules under non-identity time
+### v0.5 — Time mapping (~1 week, optional) — **shipped**
+- `clip`, `loop`, `timeScale` for scene instances (§8.5)
+- `TimeMapping` type exported from `src/compose/scenes.ts`; consumed by
+  `expandSceneInstance`, MCP `add_scene_instance` / `update_scene_instance`,
+  and the precompile pipeline
+- New errors: `E_TIME_MAPPING_INVALID`, `E_TIME_MAPPING_TWEEN_SPLIT`
+- Validator: the existing post-compile overlap detection (`E_TWEEN_OVERLAP`,
+  with a 1µs EPS for touching endpoints) is sufficient — non-identity time
+  output is plain v0.1 tweens after the compile pass
+- Tests: `tests/compose/scenes-time-mapping.test.ts` exercises each mode,
+  boundary errors, post-compile validator passes, and determinism
 
 ### v1.0 — Visual editor (separate stream)
 - Operates on the v0.4 source format

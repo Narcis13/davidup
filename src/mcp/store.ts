@@ -28,6 +28,7 @@ import type {
 } from "../schema/types.js";
 import { ItemSchema } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
+import type { TimeMapping } from "../compose/scenes.js";
 import { MCPToolError } from "./errors.js";
 
 const COMPOSITION_VERSION = "0.1";
@@ -52,6 +53,8 @@ interface SceneInstanceRecord {
   start: number;
   params: Record<string, unknown>;
   transform: Record<string, unknown> | undefined;
+  /** v0.5 time-mapping spec. Undefined means identity. */
+  time: TimeMapping | undefined;
   /** Item ids added by this scene instance (wrapper group + prefixed inner items). */
   itemIds: string[];
   /** Tween ids added by this scene instance. */

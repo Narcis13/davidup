@@ -49,6 +49,7 @@ export {
   type SceneParamDescriptor,
   type SceneParamType,
   type SceneSize,
+  type TimeMapping,
 } from "./scenes.js";
 export { substitute, type SubstitutionContext } from "./params.js";
 export { precompile, type PrecompileOptions } from "./precompile.js";

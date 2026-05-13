@@ -23,10 +23,37 @@
 // scene-internal ids — that's the §8.7 sealed-instance principle, enforced
 // here as `E_SCENE_INSTANCE_DEEP_TARGET`.
 //
-// Time mapping: v0.4 ships only the identity mode (§8.5). `clip` / `loop` /
-// `timeScale` / `reverse` are deferred. Scene-local `start = 0` plays at
-// `instance.start` in the parent timeline; every scene tween is shifted by
-// `instance.start`.
+// Time mapping (§8.5): four modes are now supported.
+//
+//   - `identity` (default): scene-local `t=0` plays at `instance.start`. Every
+//     scene tween is shifted by `instance.start`. Effective span =
+//     `scene.duration`.
+//
+//   - `clip { fromTime, toTime }`: trim playback to the half-open scene-local
+//     window `[fromTime, toTime)`. Tweens entirely outside the window are
+//     dropped. Tweens fully inside are shifted by
+//     `(instance.start - fromTime)`. Boundary-crossing tweens throw
+//     `E_TIME_MAPPING_TWEEN_SPLIT` — the author must shape the scene so its
+//     tweens don't straddle the clip edges. Effective span =
+//     `toTime - fromTime`.
+//
+//   - `loop { count }`: play the scene N times back-to-back. Each iteration
+//     gets a deterministic id suffix (`__loop${i}`) so the canonical output
+//     never collides on tween ids. Items are shared across iterations — the
+//     scene's items live once in the canonical store and the tween copies
+//     drive them through each pass. Effective span = `scene.duration * count`.
+//     Tween starts use `instanceStart + i * scene.duration + localStart` so
+//     drift across iterations is bounded by a single multiply rather than
+//     accumulating with sequential adds.
+//
+//   - `timeScale { scale }`: play the scene at `scale×` speed (scale ∈ ℝ+).
+//     Each tween's local `start` and `duration` are divided by `scale`.
+//     Easing curves are preserved (the curve compresses/stretches with the
+//     tween). Effective span = `scene.duration / scale`.
+//
+// `reverse` is still deferred — would require flipping `from` ↔ `to` per
+// tween and re-sorting them, which interacts awkwardly with sealed-instance
+// parent tweens.
 //
 // Assets: scene-declared assets are merged into the root `assets` array at
 // expansion time. Same id + same src = dedupe. Same id + different src =
@@ -84,6 +111,17 @@ export interface SceneDescriptor {
   assets: string[];
 }
 
+/**
+ * Time-mapping spec attached to a scene instance. Drives how the scene's own
+ * tweens are time-shifted into the parent timeline. See file header for
+ * per-mode semantics.
+ */
+export type TimeMapping =
+  | { mode: "identity" }
+  | { mode: "clip"; fromTime: number; toTime: number }
+  | { mode: "loop"; count: number }
+  | { mode: "timeScale"; scale: number };
+
 export interface SceneInstance {
   /** Scene name (matches a `SceneDefinition.id`). */
   scene: string;
@@ -95,6 +133,8 @@ export interface SceneInstance {
   layerId?: string;
   /** Optional explicit transform for the wrapper group. */
   transform?: Record<string, unknown>;
+  /** Time-mapping spec. Defaults to identity when absent. */
+  time?: TimeMapping;
 }
 
 export interface ExpandedScene {
@@ -292,9 +332,21 @@ export function expandSceneInstance(
     transform: normalizeTransform(instance.transform),
   };
 
-  // 4. Tweens: this scene's own tweens, plus child expansions' tweens. All get
-  //    shifted by `start`. Targets that match scene-local ids get prefixed.
-  const ownTweens: unknown[] = [];
+  // 4. Tweens: this scene's own tweens, plus child expansions' tweens. The
+  //    time-mapping spec (identity/clip/loop/timeScale) determines how each
+  //    scene-local tween gets shifted, scaled, dropped, or replicated. The
+  //    spec is validated against `def.duration` once up front so per-tween
+  //    code only deals with already-sane numbers.
+  const timeMapping = validateTimeMapping(
+    instance.time ?? { mode: "identity" },
+    def.id,
+    def.duration,
+  );
+
+  // First pass: lower every scene-local tween into a target/start/id pair
+  // expressed in *scene-local* time (start of scene = t=0). Time-mapping is
+  // applied uniformly to both own and nested-child tweens afterwards.
+  const localTweens: Array<Record<string, unknown>> = [];
   for (let i = 0; i < def.tweens.length; i += 1) {
     const tweenRaw = def.tweens[i];
     if (!isPlainObject(tweenRaw)) {
@@ -305,16 +357,33 @@ export function expandSceneInstance(
     }
     const path = `scenes.${def.id}.tweens[${i}]`;
     const substituted = substitute(tweenRaw, ctx, path) as Record<string, unknown>;
-    ownTweens.push(rewriteTween(substituted, instanceId, def.id, localIds, start, i));
+    localTweens.push(
+      rewriteTween(substituted, instanceId, def.id, localIds, 0, i),
+    );
   }
-  // Nested scene tweens are already prefixed and shifted by *their own*
-  // instance start (which we set to 0 for nested expansions). Now shift them
-  // by *this* scene's start so they land on the parent timeline correctly.
+  // Nested scene tweens already carry prefixed targets and ids; their `start`
+  // is in *nested-scene-local* time (we expanded the nested instance with
+  // start=0). They are therefore at this scene's local time too, ready for
+  // time-mapping.
   for (const child of childExpansions) {
     for (const t of child.tweens) {
-      ownTweens.push(shiftTweenStart(t, start));
+      if (isPlainObject(t)) localTweens.push({ ...t });
+      else {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Nested scene expansion produced a non-object tween in scene "${def.id}".`,
+        );
+      }
     }
   }
+
+  const ownTweens = applyTimeMapping(
+    localTweens,
+    timeMapping,
+    start,
+    def.duration,
+    def.id,
+  );
 
   // 5. Asset merging. Validate per-instance; the caller does cross-instance
   //    de-dup against the root composition's assets.
@@ -659,13 +728,184 @@ function rewriteTween(
   return out;
 }
 
-function shiftTweenStart(tween: unknown, delta: number): unknown {
-  if (!isPlainObject(tween)) return tween;
-  const out: Record<string, unknown> = { ...tween };
-  if (typeof out.start === "number" && Number.isFinite(out.start)) {
-    out.start = out.start + delta;
+// ──────────────── Time mapping (§8.5) ────────────────
+
+/**
+ * Validate a {@link TimeMapping} against the scene's own duration. Returns a
+ * canonicalised spec (loop count coerced to integer) so callers don't need to
+ * re-check.
+ *
+ * Throws `E_TIME_MAPPING_INVALID` on:
+ *   - clip: fromTime >= toTime, fromTime < 0, toTime > scene.duration
+ *   - loop: count < 1 or not an integer
+ *   - timeScale: scale <= 0
+ */
+function validateTimeMapping(
+  spec: TimeMapping,
+  sceneId: string,
+  sceneDuration: number,
+): TimeMapping {
+  switch (spec.mode) {
+    case "identity":
+      return spec;
+    case "clip": {
+      const { fromTime, toTime } = spec;
+      if (fromTime < 0) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" clip.fromTime (${fromTime}) must be >= 0.`,
+        );
+      }
+      if (toTime <= fromTime) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" clip.toTime (${toTime}) must be greater than fromTime (${fromTime}).`,
+        );
+      }
+      if (toTime > sceneDuration + 1e-9) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" clip.toTime (${toTime}) exceeds scene duration (${sceneDuration}).`,
+        );
+      }
+      return spec;
+    }
+    case "loop": {
+      const { count } = spec;
+      if (count < 1 || !Number.isInteger(count)) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" loop.count must be a positive integer; got ${count}.`,
+        );
+      }
+      return spec;
+    }
+    case "timeScale": {
+      const { scale } = spec;
+      if (scale <= 0) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" timeScale.scale must be > 0; got ${scale}.`,
+        );
+      }
+      return spec;
+    }
   }
+}
+
+/**
+ * Apply a time-mapping spec to a flat list of scene-local tweens, producing
+ * the tweens that should appear on the parent timeline starting at
+ * `parentStart`.
+ *
+ * Each input tween must already have its target/id prefixed by the scene
+ * instance id and its `start` in scene-local time (0 = the moment the scene
+ * begins). Behavior blocks (`$behavior`) pass through with target/id intact
+ * and only get their `start`/`duration` transformed.
+ *
+ * `sceneDuration` is the scene's authored span — only the `loop` branch
+ * consumes it (to compute the per-iteration time offset without drift from
+ * chained adds).
+ *
+ * For loop, behavior blocks pin their parent id from `${target}_${behavior}_${start}`
+ * (see behaviors.ts `deriveParentId`). Since each iteration's `start` differs,
+ * behavior ids are naturally unique without a suffix; user-supplied behavior
+ * ids do still get the iteration suffix to preserve uniqueness.
+ */
+function applyTimeMapping(
+  localTweens: ReadonlyArray<Record<string, unknown>>,
+  spec: TimeMapping,
+  parentStart: number,
+  sceneDuration: number,
+  sceneId: string,
+): unknown[] {
+  switch (spec.mode) {
+    case "identity":
+      return localTweens.map((t) => shiftStart(t, parentStart));
+    case "timeScale": {
+      const inv = 1 / spec.scale;
+      return localTweens.map((t) => {
+        const out = { ...t };
+        const s = readNumber(out.start);
+        const d = readNumber(out.duration);
+        if (s !== undefined) out.start = parentStart + s * inv;
+        if (d !== undefined) out.duration = d * inv;
+        return out;
+      });
+    }
+    case "clip": {
+      const { fromTime, toTime } = spec;
+      const out: unknown[] = [];
+      for (const t of localTweens) {
+        const s = readNumber(t.start);
+        const d = readNumber(t.duration);
+        if (s === undefined || d === undefined) {
+          // No timing fields to clip against — pass through after start-shift.
+          // (Behavior blocks always carry start+duration, so this branch
+          // should be unreachable in well-formed input.)
+          out.push(shiftStart(t, parentStart));
+          continue;
+        }
+        const end = s + d;
+        // Fully outside the clip window → drop.
+        if (end <= fromTime + 1e-9) continue;
+        if (s >= toTime - 1e-9) continue;
+        // Boundary-crossing → not supported in v0.5. Authors must shape the
+        // scene so tweens align with the clip window. Future versions may
+        // add automatic trimming.
+        if (s < fromTime - 1e-9 || end > toTime + 1e-9) {
+          throw new MCPToolError(
+            "E_TIME_MAPPING_TWEEN_SPLIT",
+            `Scene "${sceneId}" tween "${String(t.id ?? "<anonymous>")}" straddles the clip window [${fromTime}, ${toTime}].`,
+            "Split the tween at the clip boundary in the scene definition, or adjust fromTime/toTime so the tween falls fully inside or outside.",
+          );
+        }
+        const next = { ...t };
+        next.start = parentStart + (s - fromTime);
+        out.push(next);
+      }
+      return out;
+    }
+    case "loop": {
+      const out: unknown[] = [];
+      for (let i = 0; i < spec.count; i += 1) {
+        // Multiply once per iteration rather than chaining adds so drift
+        // doesn't accumulate across loops (`i * sceneDuration` keeps a
+        // single rounding step; `prev + sceneDuration` would compound).
+        const iterShift = parentStart + i * sceneDuration;
+        const suffix = `loop${pad(i, spec.count)}`;
+        for (const t of localTweens) {
+          const next = { ...t };
+          const s = readNumber(next.start);
+          if (s !== undefined) next.start = iterShift + s;
+          if (typeof next.id === "string" && next.id.length > 0) {
+            next.id = `${next.id}__${suffix}`;
+          }
+          out.push(next);
+        }
+      }
+      return out;
+    }
+  }
+}
+
+function shiftStart(
+  tween: Record<string, unknown>,
+  delta: number,
+): Record<string, unknown> {
+  const out = { ...tween };
+  const s = readNumber(out.start);
+  if (s !== undefined && delta !== 0) out.start = s + delta;
   return out;
+}
+
+function readNumber(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function pad(i: number, total: number): string {
+  const width = String(Math.max(1, total - 1)).length;
+  return String(i).padStart(width, "0");
 }
 
 function isSceneInstance(v: unknown): v is Record<string, unknown> {
@@ -725,7 +965,72 @@ function readSceneInstanceFromItem(
     }
     inst.transform = raw.transform;
   }
+  if (raw.time !== undefined) {
+    inst.time = readTimeMappingFromRaw(instanceId, raw.time);
+  }
   return inst;
+}
+
+/**
+ * Parse + sanity-check a raw `time` field from a scene-instance item.
+ * Defers to {@link validateTimeMapping} for range checks (those depend on
+ * scene.duration which isn't known here).
+ */
+function readTimeMappingFromRaw(instanceId: string, raw: unknown): TimeMapping {
+  if (!isPlainObject(raw)) {
+    throw new MCPToolError(
+      "E_TIME_MAPPING_INVALID",
+      `Scene instance "${instanceId}" time must be an object with a "mode" field.`,
+    );
+  }
+  const mode = raw.mode;
+  switch (mode) {
+    case "identity":
+      return { mode: "identity" };
+    case "clip": {
+      const fromTime = raw.fromTime;
+      const toTime = raw.toTime;
+      if (typeof fromTime !== "number" || !Number.isFinite(fromTime)) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene instance "${instanceId}" clip.fromTime must be a finite number.`,
+        );
+      }
+      if (typeof toTime !== "number" || !Number.isFinite(toTime)) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene instance "${instanceId}" clip.toTime must be a finite number.`,
+        );
+      }
+      return { mode: "clip", fromTime, toTime };
+    }
+    case "loop": {
+      const count = raw.count;
+      if (typeof count !== "number" || !Number.isFinite(count)) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene instance "${instanceId}" loop.count must be a finite number.`,
+        );
+      }
+      return { mode: "loop", count };
+    }
+    case "timeScale": {
+      const scale = raw.scale;
+      if (typeof scale !== "number" || !Number.isFinite(scale)) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene instance "${instanceId}" timeScale.scale must be a finite number.`,
+        );
+      }
+      return { mode: "timeScale", scale };
+    }
+    default:
+      throw new MCPToolError(
+        "E_TIME_MAPPING_INVALID",
+        `Scene instance "${instanceId}" has unsupported time mode "${String(mode)}".`,
+        'Supported modes: "identity", "clip", "loop", "timeScale".',
+      );
+  }
 }
 
 export function readSceneDefinition(
