@@ -1,0 +1,1725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>davidup v1.0 — Visual Editor PRD &amp; Build Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #F4EEDE;
+    --paper-2: #EEE6D2;
+    --ink: #171410;
+    --ink-2: #2A241D;
+    --mute: #6F665A;
+    --line: #1714101A;
+    --line-2: #17141014;
+    --accent: #B5471F;
+    --accent-2: #7A2F14;
+    --green: #29503A;
+    --gold: #957229;
+    --blue: #2C4A6E;
+    --shadow: 0 1px 0 #171410, 0 6px 0 -2px #B5471F22;
+    --display: "Fraunces", Georgia, "Times New Roman", serif;
+    --body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--paper); color: var(--ink); }
+  body {
+    margin: 0;
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(8px);
+    background: color-mix(in oklab, var(--paper) 88%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: 1280px; margin: 0 auto;
+    padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px;
+  }
+  .logo {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .logo .dot { color: var(--accent); }
+  .topnav { display: flex; gap: 20px; font-size: 13px; color: var(--mute); flex-wrap: wrap; }
+  .topnav a { color: inherit; text-decoration: none; }
+  .topnav a:hover { color: var(--ink); }
+  .topbar .stamp {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--mute);
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+  .wrap-narrow { max-width: 860px; margin: 0 auto; padding: 0 28px; }
+
+  section { padding: 84px 0; border-bottom: 1px solid var(--line); }
+  section:last-of-type { border-bottom: 0; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--display);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--ink);
+  }
+  h1 { font-size: clamp(44px, 6.4vw, 84px); line-height: 0.96; }
+  h2 { font-size: clamp(30px, 4vw, 50px); line-height: 1.04; margin: 0 0 16px; }
+  h3 { font-size: 22px; line-height: 1.2; }
+  h4 { font-size: 18px; line-height: 1.25; font-weight: 500; }
+  p { margin: 0 0 14px; }
+  p.lead {
+    font-family: var(--display);
+    font-weight: 300;
+    font-size: clamp(19px, 1.8vw, 23px);
+    line-height: 1.4;
+    color: var(--ink-2);
+  }
+
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid #B5471F44; }
+  a:hover { border-bottom-color: var(--accent); }
+
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+  code { background: var(--paper-2); padding: 1px 6px; border-radius: 4px; }
+  pre {
+    background: #1A1714; color: #E9DFCB;
+    padding: 18px 20px; border-radius: 6px;
+    overflow-x: auto;
+    font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.55;
+    border: 1px solid #2A241D;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  .tok-k { color: #E2BE5C; }
+  .tok-c { color: #6F665A; font-style: italic; }
+  .tok-s { color: #B7C97B; }
+  .tok-a { color: var(--accent); }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper-2);
+    color: var(--mute);
+  }
+  .pill.accent { color: var(--accent); border-color: #B5471F33; background: #B5471F0F; }
+  .pill.green { color: var(--green); border-color: #29503A33; background: #29503A0F; }
+  .pill.gold  { color: var(--gold); border-color: #95722933; background: #9572290F; }
+
+  /* Hero */
+  .hero { padding: 90px 0 96px; position: relative; overflow: hidden; }
+  .hero h1 small {
+    display: block;
+    font-family: var(--display);
+    font-size: clamp(18px, 1.6vw, 22px);
+    color: var(--accent);
+    margin-bottom: 12px;
+    letter-spacing: -0.01em;
+    font-weight: 400;
+  }
+  .hero h1 em { font-style: italic; color: var(--accent-2); }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    margin-top: 28px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--mute);
+  }
+  .hero-meta span { display: inline-flex; gap: 8px; align-items: center; }
+  .hero-meta span::before {
+    content: ""; display: inline-block; width: 6px; height: 6px;
+    background: var(--accent); border-radius: 50%;
+  }
+
+  .twoup {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 56px;
+  }
+  .twoup .side { color: var(--mute); font-size: 14px; }
+  .twoup .side h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 800px) {
+    .twoup { grid-template-columns: 1fr; gap: 18px; }
+  }
+
+  /* Verdict box */
+  .verdict {
+    margin-top: 18px;
+    border: 1px solid var(--ink);
+    border-left: 4px solid var(--accent);
+    background: #fff8ec;
+    padding: 22px 26px;
+    border-radius: 4px;
+    box-shadow: 0 8px 0 -6px var(--accent);
+  }
+  .verdict h3 {
+    font-size: 24px; font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .verdict p { margin: 0 0 6px; color: var(--ink-2); font-size: 15px; }
+  .verdict .tldr {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 6px;
+  }
+
+  /* Stack comparison */
+  .stack-table {
+    margin-top: 28px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--paper);
+  }
+  .stack-table .row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr 1.5fr;
+    border-top: 1px solid var(--line);
+  }
+  .stack-table .row:first-child {
+    background: var(--paper-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--mute);
+  }
+  .stack-table .row > div {
+    padding: 14px 16px;
+    border-right: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .stack-table .row > div:last-child { border-right: 0; }
+  .stack-table .row .factor { font-weight: 500; color: var(--ink); }
+  .stack-table .row .win { color: var(--green); font-family: var(--mono); font-size: 12px; }
+  .stack-table .row .meh { color: var(--mute); font-family: var(--mono); font-size: 12px; }
+  .stack-table .row .lose { color: var(--accent-2); font-family: var(--mono); font-size: 12px; }
+  @media (max-width: 760px) {
+    .stack-table .row { grid-template-columns: 1fr; }
+    .stack-table .row > div { border-right: 0; border-top: 1px dashed var(--line); }
+    .stack-table .row > div:first-child { border-top: 0; }
+  }
+
+  /* Argument cards */
+  .args {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 1px; background: var(--line);
+    margin-top: 24px; border: 1px solid var(--line);
+    border-radius: 4px; overflow: hidden;
+  }
+  .args .arg {
+    background: var(--paper);
+    padding: 22px 22px;
+    min-height: 180px;
+  }
+  .args .arg .num {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    letter-spacing: 0.12em;
+  }
+  .args .arg h4 {
+    font-family: var(--display); font-weight: 500;
+    font-size: 20px; margin: 6px 0 8px;
+    letter-spacing: -0.01em;
+  }
+  .args .arg p { color: var(--mute); font-size: 13.5px; line-height: 1.55; margin: 0; }
+  @media (max-width: 880px) { .args { grid-template-columns: 1fr; } }
+
+  /* Goals two-column */
+  .goals {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+    margin-top: 24px;
+  }
+  .goals .col {
+    padding: 22px 24px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+  }
+  .goals .col.do { border-left: 3px solid var(--green); }
+  .goals .col.dont { border-left: 3px solid var(--accent); background: var(--paper-2); }
+  .goals h4 {
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.18em;
+    margin-bottom: 12px;
+  }
+  .goals.do h4 { color: var(--green); }
+  .goals .dont h4 { color: var(--accent); }
+  .goals ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
+  .goals ul li { margin-bottom: 6px; line-height: 1.5; }
+  @media (max-width: 760px) { .goals { grid-template-columns: 1fr; } }
+
+  /* Persona cards */
+  .personas {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+    margin-top: 24px;
+  }
+  .persona {
+    border: 1px solid var(--line);
+    background: var(--paper);
+    border-radius: 6px;
+    padding: 22px 22px;
+  }
+  .persona .tag {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .persona h4 {
+    font-family: var(--display); font-weight: 500;
+    font-size: 20px; margin: 4px 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .persona .role {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--mute); margin-bottom: 12px;
+  }
+  .persona p { font-size: 13.5px; color: var(--ink-2); margin: 0 0 6px; line-height: 1.5; }
+  .persona .wants {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+    font-size: 12.5px; color: var(--mute);
+  }
+  .persona .wants strong {
+    display: block;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--accent); letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  @media (max-width: 880px) { .personas { grid-template-columns: 1fr; } }
+
+  /* Functional requirements */
+  .freq {
+    margin-top: 24px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .freq .feature {
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+    padding: 22px 26px;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 24px;
+  }
+  .freq .feature:first-child { border-top: 0; }
+  .freq .feature .id {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--accent); letter-spacing: 0.12em;
+  }
+  .freq .feature .id .pri {
+    display: block; margin-top: 6px;
+    color: var(--mute); font-size: 10px;
+  }
+  .freq .feature h4 {
+    font-family: var(--display); font-size: 19px;
+    margin: 0 0 6px; font-weight: 500; letter-spacing: -0.01em;
+  }
+  .freq .feature p { margin: 0 0 8px; color: var(--ink-2); font-size: 14px; }
+  .freq .feature .ac {
+    margin-top: 8px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--mute);
+    border-left: 2px solid var(--green);
+    padding: 4px 0 4px 12px;
+  }
+  .freq .feature .ac strong {
+    color: var(--green); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    font-size: 10px;
+  }
+
+  /* Architecture diagram */
+  .arch {
+    margin-top: 24px;
+    border: 1px solid var(--ink);
+    border-radius: 8px;
+    background: #1A1714;
+    color: #E9DFCB;
+    padding: 32px 36px;
+    box-shadow: 0 12px 0 -8px var(--accent);
+  }
+  .arch h4 {
+    font-family: var(--mono); font-size: 11px;
+    color: #C9BEA5; letter-spacing: 0.16em;
+    text-transform: uppercase; margin-bottom: 18px;
+    font-weight: 500;
+  }
+  .arch-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: #FFFFFF14;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .arch-grid .layer {
+    background: #1F1B16;
+    padding: 18px 18px;
+  }
+  .arch-grid .layer .tag {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--accent); letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .arch-grid .layer h5 {
+    font-family: var(--display); font-size: 17px;
+    color: #F4EEDE; margin: 6px 0 8px; font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .arch-grid .layer p {
+    font-size: 12.5px; color: #C9BEA5; margin: 0 0 6px;
+    line-height: 1.55;
+  }
+  .arch-grid .layer ul { margin: 4px 0 0; padding-left: 16px; color: #9C8F76; font-size: 12px; }
+  .arch-grid .layer ul li { margin-bottom: 3px; font-family: var(--mono); }
+  .arch-flow {
+    margin-top: 20px;
+    padding: 14px 18px;
+    border: 1px solid #FFFFFF14;
+    border-radius: 4px;
+    background: #14110E;
+    font-family: var(--mono); font-size: 11.5px;
+    color: #C9BEA5; line-height: 1.7;
+  }
+  .arch-flow .step { color: var(--accent); }
+  @media (max-width: 880px) {
+    .arch-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Phases roadmap */
+  .phases {
+    margin-top: 24px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .phases .phase {
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+    display: grid;
+    grid-template-columns: 180px 1fr 1fr;
+  }
+  .phases .phase:first-child {
+    background: var(--paper-2);
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--mute);
+  }
+  .phases .phase > div {
+    padding: 18px 22px;
+    border-right: 1px solid var(--line);
+  }
+  .phases .phase > div:last-child { border-right: 0; }
+  .phases .phase .when {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--accent);
+  }
+  .phases .phase .when small {
+    display: block; margin-top: 4px;
+    color: var(--mute); font-size: 11px;
+  }
+  .phases .phase .what {
+    font-family: var(--display); font-size: 19px;
+    letter-spacing: -0.01em; font-weight: 500;
+  }
+  .phases .phase .what p {
+    margin: 6px 0 0; font-size: 13px;
+    color: var(--ink-2); font-family: var(--body);
+    line-height: 1.5;
+  }
+  .phases .phase .deliv {
+    font-size: 13px; color: var(--ink-2);
+  }
+  .phases .phase .deliv ul {
+    margin: 0; padding-left: 16px;
+  }
+  .phases .phase .deliv li {
+    margin-bottom: 4px; line-height: 1.5;
+  }
+  @media (max-width: 880px) {
+    .phases .phase { grid-template-columns: 1fr; }
+    .phases .phase > div { border-right: 0; border-top: 1px dashed var(--line); }
+    .phases .phase > div:first-child { border-top: 0; }
+  }
+
+  /* Step list */
+  .steps {
+    margin-top: 24px;
+    counter-reset: step;
+  }
+  .step {
+    position: relative;
+    padding: 22px 22px 22px 88px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+    margin-bottom: 14px;
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step, decimal-leading-zero);
+    position: absolute;
+    top: 22px; left: 22px;
+    font-family: var(--mono); font-size: 26px;
+    color: var(--accent);
+    font-weight: 500;
+    line-height: 1;
+  }
+  .step h4 {
+    font-family: var(--display); font-size: 20px;
+    margin: 0 0 6px; font-weight: 500; letter-spacing: -0.01em;
+  }
+  .step p { margin: 0 0 6px; font-size: 14px; color: var(--ink-2); line-height: 1.55; }
+  .step .meta {
+    margin-top: 10px;
+    display: flex; flex-wrap: wrap; gap: 10px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--mute);
+  }
+  .step .meta span {
+    padding: 3px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper-2);
+  }
+  .step .meta span.out { color: var(--green); border-color: #29503A33; }
+  .step .meta span.dep { color: var(--accent-2); border-color: #B5471F33; }
+  .step .files {
+    margin-top: 10px;
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--mute);
+    line-height: 1.55;
+  }
+  .step .files code {
+    background: var(--paper-2);
+    color: var(--ink-2);
+    padding: 1px 5px; border-radius: 3px;
+    font-size: 11px;
+  }
+
+  /* Risk grid */
+  .risks {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+    margin-top: 24px;
+  }
+  .risk {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    padding: 18px 22px;
+    background: var(--paper-2);
+    border-radius: 0 6px 6px 0;
+  }
+  .risk h4 {
+    font-family: var(--display); font-size: 18px;
+    margin: 0 0 6px; letter-spacing: -0.01em; font-weight: 500;
+  }
+  .risk p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+  .risk .mitig {
+    margin-top: 8px; font-size: 13px; color: var(--mute); line-height: 1.55;
+  }
+  .risk .mitig strong {
+    color: var(--green); font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  @media (max-width: 760px) { .risks { grid-template-columns: 1fr; } }
+
+  /* Checklist (DoD) */
+  .dod {
+    margin-top: 24px;
+    padding: 28px 32px;
+    background: #1A1714;
+    color: #E9DFCB;
+    border-radius: 8px;
+    box-shadow: 0 12px 0 -8px var(--accent);
+  }
+  .dod h3 {
+    color: #F4EEDE; font-family: var(--display);
+    font-size: 24px; font-weight: 500; margin-bottom: 14px;
+    letter-spacing: -0.01em;
+  }
+  .dod ol { margin: 0; padding: 0 0 0 22px; }
+  .dod ol li { margin-bottom: 9px; line-height: 1.55; font-size: 14px; }
+  .dod ol li strong {
+    color: var(--accent); font-family: var(--display);
+    font-weight: 500;
+  }
+
+  /* Evaluation table */
+  .eval {
+    margin-top: 24px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .eval .row {
+    display: grid;
+    grid-template-columns: 220px 1fr 180px;
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .eval .row:first-child {
+    background: var(--paper-2);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--mute); letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .eval .row > div {
+    padding: 14px 18px;
+    border-right: 1px solid var(--line);
+    font-size: 13.5px; color: var(--ink-2);
+  }
+  .eval .row > div:last-child { border-right: 0; }
+  .eval .area { font-weight: 500; color: var(--ink); }
+  .eval .grade { font-family: var(--mono); font-size: 12px; }
+  .eval .grade.green { color: var(--green); }
+  .eval .grade.gold { color: var(--gold); }
+  .eval .grade.accent { color: var(--accent); }
+  @media (max-width: 760px) {
+    .eval .row { grid-template-columns: 1fr; }
+    .eval .row > div { border-right: 0; border-top: 1px dashed var(--line); }
+    .eval .row > div:first-child { border-top: 0; }
+  }
+
+  footer {
+    padding: 60px 0 80px;
+    text-align: center;
+    color: var(--mute);
+    font-family: var(--mono); font-size: 12px;
+  }
+  footer .sig {
+    font-family: var(--display); font-size: 16px;
+    font-style: italic; color: var(--ink-2);
+    margin-bottom: 6px;
+  }
+
+  .underline-accent {
+    background: linear-gradient(transparent 70%, #B5471F30 70%);
+  }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo">davidup<span class="dot">.</span></div>
+    <div class="topnav">
+      <a href="#eval">Eval</a>
+      <a href="#stack">Stack</a>
+      <a href="#prd">PRD</a>
+      <a href="#arch">Architecture</a>
+      <a href="#phases">Phases</a>
+      <a href="#steps">Steps</a>
+      <a href="#risks">Risks</a>
+      <a href="#dod">DoD</a>
+    </div>
+    <span class="stamp">v1.0 PRD · 2026-05-14 · narcis75@gmail.com</span>
+  </div>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">v1.0 — Visual Editor · PRD &amp; build plan · companion to davidup-saas-vision.html</p>
+    <h1>
+      <small>From a deterministic JSON engine to a tool a human actually wants to open.</small>
+      Build the editor on the stack that <em>already lives inside the engine</em> —
+      not the one optimised for someone else's market.
+    </h1>
+    <p class="lead" style="margin-top:32px; max-width: 820px;">
+      This document does three things. <strong>One</strong>, it evaluates what davidup is today against what v1.0 has to be.
+      <strong>Two</strong>, it argues — explicitly, with receipts — that <span class="underline-accent">AdonisJS 6 (soon 7) is the right SaaS shell</span> for davidup, even though Laravel is the right answer for the EU-B2B CRMs that the boring-saas research targets.
+      <strong>Three</strong>, it lays out a PRD, an architecture sketch, and a phased build plan tight enough to commit to.
+    </p>
+    <div class="hero-meta">
+      <span>One TypeScript runtime, end to end</span>
+      <span>Engine is already the renderer; editor just orchestrates it</span>
+      <span>MCP server keeps a process, not a translation layer</span>
+      <span>Local-first v1.0 — SaaS-ready architecture from day one</span>
+    </div>
+  </div>
+</section>
+
+<!-- EVALUATION OF CURRENT CODE -->
+<section id="eval">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>01 — Where davidup actually is</h3>
+        <p>A blunt audit of the engine as it stands on <code>main</code> today, mapped against what v1.0 needs.</p>
+      </div>
+      <div>
+        <p class="eyebrow">State of the codebase, 2026-05-14</p>
+        <h2>The engine is roughly 80% of v1.0. The other 20% is a UI.</h2>
+        <p style="color: var(--ink-2); max-width: 700px;">
+          The repo contains a real, working composition runtime: dual-driver renderer (Node skia-canvas + ffmpeg / Browser Canvas2D + RAF), a canonical Zod schema, a precompile pipeline that handles templates, scenes, behaviors, <code>$ref</code> and params, an MCP server, and a comprehensive 20s example that exercises 17 items / 7 layers / 93 tweens. The composability layer is specified down to error codes (<code>ARCHITECTURE.md</code> §8) and the v0.2 primitive proposal is fully written (<code>COMPOSITION_PRIMITIVES.md</code>). What's missing is the surface a human authoring through clicks would touch.
+        </p>
+
+        <div class="eval">
+          <div class="row">
+            <div>Area</div><div>What's there</div><div>Readiness</div>
+          </div>
+          <div class="row">
+            <div class="area">Engine core</div>
+            <div><code>computeStateAt</code>, polymorphic <code>lerp</code>, hold-after-end, group/anchor transform stack. Determinism is a load-bearing invariant.</div>
+            <div class="grade green">100% — production</div>
+          </div>
+          <div class="row">
+            <div class="area">Schema &amp; validator</div>
+            <div>Zod-typed composition; 8 validation rules including tween-overlap and group-cycle detection.</div>
+            <div class="grade green">95% — versioning TBD</div>
+          </div>
+          <div class="row">
+            <div class="area">Renderer (Node)</div>
+            <div>skia-canvas → ffmpeg stdin pipe, backpressure handled, canvas reuse. Real MP4 output validated.</div>
+            <div class="grade green">90% — codec edge cases</div>
+          </div>
+          <div class="row">
+            <div class="area">Renderer (Browser)</div>
+            <div><code>attach()</code> + RAF loop; same <code>Canvas2DContext</code> contract as Node. Vite-served demos in <code>examples/</code>.</div>
+            <div class="grade green">90% — same code path</div>
+          </div>
+          <div class="row">
+            <div class="area">Composability (v0.2)</div>
+            <div>Templates, scenes (sealed), behaviors, <code>$ref</code>, params, precompile — implemented in <code>src/compose</code>.</div>
+            <div class="grade gold">75% — content-addressed library still on paper</div>
+          </div>
+          <div class="row">
+            <div class="area">MCP server</div>
+            <div>22 tools dispatched (add_*, update_*, define_scene, render_preview_frame, render_to_video, validate, etc.). stdio transport. In-memory store.</div>
+            <div class="grade green">85% — persistence layer missing</div>
+          </div>
+          <div class="row">
+            <div class="area">Visual editor</div>
+            <div>Nothing yet. The browser examples are <em>viewers</em>, not editors — no inspector, no timeline UI, no drag, no source-map.</div>
+            <div class="grade accent">0% — v1.0 work</div>
+          </div>
+          <div class="row">
+            <div class="area">Persistence / multi-doc</div>
+            <div>JSON files on disk, manually authored. No project model, no asset registry, no library index.</div>
+            <div class="grade accent">10% — needs a real store</div>
+          </div>
+          <div class="row">
+            <div class="area">Source maps (authored → resolved)</div>
+            <div>Mentioned in vision as the "killer demo"; no implementation. Precompile currently throws away authorship.</div>
+            <div class="grade accent">0% — explicit v1.0 scope</div>
+          </div>
+          <div class="row">
+            <div class="area">Render queue / progress</div>
+            <div>Synchronous CLI render today. No job model, no progress events, no SSE.</div>
+            <div class="grade accent">5% — v1.0 deferred to v1.1</div>
+          </div>
+          <div class="row">
+            <div class="area">Auth / multi-tenancy</div>
+            <div>None — single user, local. Correct for v1.0; will be the v2.0 turn.</div>
+            <div class="grade green">N/A for v1.0</div>
+          </div>
+        </div>
+
+        <hr class="rule" />
+        <p style="color: var(--ink-2);">
+          <strong>The takeaway:</strong> the engine is not the bottleneck. The work for v1.0 is a <em>shell</em> — a project model, a library index, a four-panel editor surface that talks to the engine, and source maps so "click in stage → highlight in JSON" actually works. None of that requires re-engineering the runtime; all of it lives <em>on top</em> of code that already exists.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STACK ARGUMENT -->
+<section id="stack">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>02 — Stack decision</h3>
+        <p>Why AdonisJS feels at home for davidup specifically — even though the boring-saas research correctly recommends Laravel for Romanian B2B CRMs.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Validating your intuition</p>
+        <h2>Your gut is right. Here's the explicit case.</h2>
+
+        <div class="verdict">
+          <div class="tldr">Verdict</div>
+          <h3>Use AdonisJS 6 (or v7 if it's stable when you start) + Inertia + Vue 3 + Postgres on Hetzner Falkenstein.</h3>
+          <p>The boring-saas docs recommend Laravel because they assume forms-heavy, ANAF/e-Factura-heavy, Filament-shaped CRM products. Davidup is none of those. It is a <strong>highly interactive single-page editor</strong> whose <strong>core domain logic is already TypeScript</strong> and whose <strong>extensibility surface is MCP</strong>. Those three properties flip the default.</p>
+        </div>
+
+        <div class="args">
+          <div class="arg">
+            <div class="num">ARG 01 — DOMAIN LOGIC IS TS</div>
+            <h4>The engine, schema, and MCP server are all TypeScript.</h4>
+            <p>Pick Laravel and you build a translation layer: Zod schemas re-expressed in PHP, the engine running in a sidecar Node process, two type systems drifting. Pick AdonisJS and the editor server <em>imports</em> <code>davidup/schema</code>. The same <code>Composition</code> type validates a POST body and runs the renderer.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 02 — THE UI IS A SPA</div>
+            <h4>Inertia + Vue 3 is the right shape for a video editor.</h4>
+            <p>Timeline drag, stage-canvas hit-testing, inspector reactivity, panel resizing, undo/redo — this is rich client-state territory. Livewire round-trips per interaction would hurt. The boring-saas docs literally name this case: <em>"App is frontend-interactive — Inertia + Vue 3 beats Livewire here."</em></p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 03 — MCP STAYS A PROCESS</div>
+            <h4>The MCP server is already TS. Mount it, don't proxy it.</h4>
+            <p>In AdonisJS, the existing MCP entry point is just another <code>start/</code> file. The agent talks to the same composition store the editor mutates. In a Laravel world it would be a separate Node process behind an HTTP wall — extra moving parts for zero benefit.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 04 — RENDER QUEUE PRIMITIVES</div>
+            <h4>BullMQ + Redis (Node-native) maps cleanly to per-frame work.</h4>
+            <p>Skia-canvas + ffmpeg already lives in Node. A worker is <code>node ace queue:work</code> + an existing function call. With Laravel/Horizon you'd shell out, parse stdout, lose backpressure on the ffmpeg stdin pipe, and gain nothing.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 05 — SSE FOR RENDER PROGRESS</div>
+            <h4>AdonisJS Transmit is first-party. Laravel Reverb is overkill.</h4>
+            <p>Render progress is one-way (server → editor), low-volume, per-job. Transmit's SSE model is exactly the right shape and survives Cloudflare proxying cleanly. Reverb adds a WebSocket server and a broadcaster you don't need.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 06 — NO E-FACTURA / NO FILAMENT</div>
+            <h4>Davidup's domain isn't Romanian invoicing.</h4>
+            <p>The two strongest Laravel wins in the boring-saas comparison — mature ANAF/e-Factura libs and Filament admin — don't apply to a content platform. Filament's CRUD-table aesthetic is the wrong shape for a video editor surface, period.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 07 — ASSETS &amp; STREAMING</div>
+            <h4>Node handles uploads, video transcodes, and stdin pipes natively.</h4>
+            <p>Multipart upload → ffprobe → thumbnail extraction → S3/R2 put. In Node this is a single async pipeline with backpressure. In PHP-FPM it's a chain of shell-outs you babysit with timeouts.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 08 — CLAUDE WRITES CODE FOR THIS</div>
+            <h4>AI-code quality on AdonisJS is excellent in 2026.</h4>
+            <p>The Laravel-has-more-training-data argument is real for raw CRUD scaffolds, but AdonisJS 6 is documented well enough that Claude handles it cleanly — and the rest of davidup is TypeScript anyway, where Claude is strongest. No translation overhead.</p>
+          </div>
+          <div class="arg">
+            <div class="num">ARG 09 — ONE BINARY MENTAL MODEL</div>
+            <h4>Local dev is <code>bun</code>, prod is <code>node</code>, both runs share a tsconfig.</h4>
+            <p>Your engine already targets Bun in dev. AdonisJS runs cleanly on Node 22 (or 24 with v7). One language, one package manager, one lockfile, one type-checker. The cost of the PHP context-switch every time you cross the server/engine boundary disappears.</p>
+          </div>
+        </div>
+
+        <hr class="rule" />
+
+        <h3 style="margin-top: 32px;">Stack comparison — for davidup specifically</h3>
+        <p style="color: var(--mute); font-size: 13.5px; margin-top: 8px;">Same axes as the boring-saas decision matrix, re-scored against davidup's actual constraints.</p>
+
+        <div class="stack-table">
+          <div class="row">
+            <div>Factor</div>
+            <div>Laravel + Livewire + Filament</div>
+            <div>AdonisJS 6 + Inertia + Vue</div>
+            <div>Tiebreaker</div>
+          </div>
+          <div class="row">
+            <div class="factor">Share schema with TS engine</div>
+            <div class="lose">re-implement in PHP</div>
+            <div class="win">import <code>davidup/schema</code></div>
+            <div>AdonisJS — by miles</div>
+          </div>
+          <div class="row">
+            <div class="factor">Mount existing MCP server in-process</div>
+            <div class="lose">requires sidecar</div>
+            <div class="win">native</div>
+            <div>AdonisJS</div>
+          </div>
+          <div class="row">
+            <div class="factor">Highly interactive editor UI</div>
+            <div class="meh">Livewire workable</div>
+            <div class="win">Inertia + Vue native</div>
+            <div>AdonisJS</div>
+          </div>
+          <div class="row">
+            <div class="factor">Render worker invokes the engine</div>
+            <div class="lose">shell-out to Node</div>
+            <div class="win">direct function call</div>
+            <div>AdonisJS</div>
+          </div>
+          <div class="row">
+            <div class="factor">SSE render-progress streaming</div>
+            <div class="meh">Reverb</div>
+            <div class="win">Transmit (first-party)</div>
+            <div>AdonisJS</div>
+          </div>
+          <div class="row">
+            <div class="factor">Admin / staff panel</div>
+            <div class="win">Filament 4 — strong</div>
+            <div class="meh">build a Vue page</div>
+            <div>Laravel (but not v1.0 priority)</div>
+          </div>
+          <div class="row">
+            <div class="factor">Romanian e-Factura</div>
+            <div class="win">mature libs</div>
+            <div class="meh">DIY if ever needed</div>
+            <div>N/A — davidup isn't EU B2B invoicing</div>
+          </div>
+          <div class="row">
+            <div class="factor">Forms-heavy CRUD</div>
+            <div class="win">Filament generators</div>
+            <div class="meh">hand-rolled</div>
+            <div>N/A — editor isn't forms</div>
+          </div>
+          <div class="row">
+            <div class="factor">Asset uploads / ffprobe / thumbnails</div>
+            <div class="meh">PHP-FPM + shell-out</div>
+            <div class="win">native Node streams</div>
+            <div>AdonisJS</div>
+          </div>
+          <div class="row">
+            <div class="factor">Memory footprint per app</div>
+            <div class="meh">~150 MB / FPM worker</div>
+            <div class="win">~60 MB RSS / PM2 instance</div>
+            <div>AdonisJS — matters for cheap VPS</div>
+          </div>
+          <div class="row">
+            <div class="factor">One mental model across stack</div>
+            <div class="lose">PHP server + TS engine</div>
+            <div class="win">TS end-to-end</div>
+            <div>AdonisJS</div>
+          </div>
+          <div class="row">
+            <div class="factor">Solo founder deploy automation</div>
+            <div class="win">Ploi €8/mo</div>
+            <div class="meh">Coolify or GitHub Actions + SSH</div>
+            <div>Laravel — but a one-time cost</div>
+          </div>
+        </div>
+
+        <hr class="rule" />
+        <p style="color: var(--ink-2);">
+          <strong>The shape of the decision:</strong> Laravel wins on <em>ecosystem maturity</em> for B2B-CRM specifics that davidup doesn't have. AdonisJS wins on <em>structural fit</em> for the product davidup actually is. Structural fit beats ecosystem maturity when the ecosystem advantages don't apply to your domain. They don't.
+        </p>
+        <p style="color: var(--mute); margin-top: 14px; font-size: 13.5px;">
+          One caveat from the boring-saas docs worth importing: <em>"AdonisJS v7 shipped Feb 25 2026 … incremental upgrade to v6 with minimal breaking changes."</em> If you start the editor in May/June 2026 and v7's plugin ecosystem is healthy, start on v7. Otherwise start on v6 and migrate after Filament-style stabilisation (~6 months post-release).
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRD -->
+<section id="prd">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>03 — PRD</h3>
+        <p>What v1.0 is, who it is for, what it must do, and what it explicitly will not do.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Product Requirements — v1.0 Visual Editor (local-first, SaaS-ready)</p>
+        <h2>An editor that earns the right to exist by being the fastest way to ship a deterministic clip.</h2>
+
+        <h3 style="margin-top: 28px;">Goals &amp; non-goals</h3>
+        <div class="goals">
+          <div class="col do">
+            <h4>Goals</h4>
+            <ul>
+              <li>One-line install runs a local server with a real editor in the browser.</li>
+              <li>Open / create / save a <code>composition.json</code> project as a first-class document.</li>
+              <li>Per-scene tabbed editing surface over canonical JSON — never a raw-text editor.</li>
+              <li>Three-panel layout: Library (left), Stage (center), Inspector (right), Timeline (bottom).</li>
+              <li>Drag-to-add for templates, behaviors, scenes from a local library index.</li>
+              <li>Click stage item → highlight in inspector + reveal source line (source-map driven).</li>
+              <li>Render to MP4 from the editor with progress feedback.</li>
+              <li>Single-binary distribution: <code>npx davidup edit ./my-project</code>.</li>
+              <li>Engine determinism preserved end-to-end — pixels match server render.</li>
+              <li>Architecture chosen so v2.0 SaaS turn is a deploy + auth bolt-on, not a rewrite.</li>
+            </ul>
+          </div>
+          <div class="col dont">
+            <h4>Non-goals (v1.0)</h4>
+            <ul>
+              <li>Multi-user collaboration, auth, billing, multi-tenancy — that's v2.0.</li>
+              <li>Hosted render farm — v1.0 renders on the user's machine.</li>
+              <li>Marketplace / public library publishing — that's v2.1.</li>
+              <li>AI brain inline — deferred to v1.2 (MCP is wired, but no UI strip).</li>
+              <li>Brand-kit enforcement — deferred to v1.1.</li>
+              <li>Comments / review links / shareable preview URLs — v2.0+.</li>
+              <li>Mobile / tablet — desktop Chromium-class browser only.</li>
+              <li>Beating After Effects on motion depth — wrong battle.</li>
+              <li>A new audio engine. Audio is v0.2+ engine work, not editor work.</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 36px;">Personas</h3>
+        <p style="color: var(--mute); font-size: 13.5px; margin-top: 6px;">Three concrete archetypes — designed to disambiguate "who is the editor really for in v1.0?"</p>
+        <div class="personas">
+          <div class="persona">
+            <div class="tag">P1 · the dogfooder</div>
+            <h4>Narcis</h4>
+            <div class="role">solo founder / engine author</div>
+            <p>Builds davidup, runs the experiments listed in the vision doc, ships personal launch videos and investor updates using the engine he wrote. Has been authoring JSON by hand and feels the pain.</p>
+            <div class="wants">
+              <strong>Wants from v1.0</strong>
+              "Stop forcing me to alt-tab between VS Code and a viewer. Show me my JSON visually. Let me drop a kenburnsImage on a scene without re-reading the spec."
+            </div>
+          </div>
+          <div class="persona">
+            <div class="tag">P2 · the dev-adjacent creator</div>
+            <h4>Iulia</h4>
+            <div class="role">indie creator, ships YouTube intros</div>
+            <p>Comfortable in a terminal, can read JSON, won't write JSX. Has a portfolio site, wants reproducible, parameterised motion graphics for her video channel.</p>
+            <div class="wants">
+              <strong>Wants from v1.0</strong>
+              "Drop my logo, my fonts, my colors once — then make me ten 15-second intros without touching code. Render locally; my laptop can handle it."
+            </div>
+          </div>
+          <div class="persona">
+            <div class="tag">P3 · the LLM</div>
+            <h4>Claude</h4>
+            <div class="role">agent driving via MCP</div>
+            <p>Already drives the engine via the existing MCP server. In v1.0 it stays a first-class peer — the editor surface is one of two ways to mutate the same in-memory composition store; the MCP is the other.</p>
+            <div class="wants">
+              <strong>Wants from v1.0</strong>
+              "When the user clicks a tween in the timeline and I'm asked to modify it, give me the exact same handle the UI used. Don't fork the data model."
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 36px;">Functional requirements</h3>
+        <p style="color: var(--mute); font-size: 13.5px; margin-top: 6px;">Numbered for traceability. Priority: <strong style="color: var(--accent);">P0</strong> = must, <strong style="color: var(--gold);">P1</strong> = should, <strong style="color: var(--mute);">P2</strong> = nice.</p>
+
+        <div class="freq">
+          <div class="feature">
+            <div class="id">FR-01<span class="pri">P0</span></div>
+            <div>
+              <h4>Local project model</h4>
+              <p>A "project" is a directory: <code>composition.json</code>, <code>library/</code>, <code>assets/</code>, <code>renders/</code>. Editor opens any directory containing a valid <code>composition.json</code>; <code>davidup new</code> scaffolds one.</p>
+              <div class="ac"><strong>Acceptance</strong> · open + save round-trips byte-equal canonical JSON; broken JSON shows error overlay, doesn't crash editor.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-02<span class="pri">P0</span></div>
+            <div>
+              <h4>Three-panel editor shell</h4>
+              <p>Library (left), Stage (center), Inspector (right), Timeline (bottom). Panels resizable; layout persisted per-project. Matches the mockup in the vision doc — same panel taxonomy, same color-code legend.</p>
+              <div class="ac"><strong>Acceptance</strong> · all four panels render against the comprehensive demo composition with no errors.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-03<span class="pri">P0</span></div>
+            <div>
+              <h4>Stage: live preview through the production engine</h4>
+              <p>Center stage uses the <em>existing</em> browser driver (<code>attach()</code> + Canvas2D) — never a parallel renderer. Playhead scrub seeks deterministically. Hit-testing on click identifies the topmost item by id.</p>
+              <div class="ac"><strong>Acceptance</strong> · pixel-diff between <code>attach()</code> at <code>t=2.4s</code> and <code>renderFrame()</code> at <code>t=2.4s</code> is byte-identical for the demo comps.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-04<span class="pri">P0</span></div>
+            <div>
+              <h4>Inspector: typed param editing</h4>
+              <p>Reads the Zod schema for the selected item; renders each field with a typed input (number, color picker, enum, percent, time). Overridden values are visually distinct from defaults. Edits debounce-write through the same mutator the MCP uses.</p>
+              <div class="ac"><strong>Acceptance</strong> · changing <code>opacity</code> to 0.5 immediately updates the stage; reload re-applies it from disk.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-05<span class="pri">P0</span></div>
+            <div>
+              <h4>Timeline: semantic, color-coded bars</h4>
+              <p>One row per item; bars are templates (orange), behaviors (green), scenes (gold). Drag-to-move, drag-to-resize, snap to 0.25s grid. Sealed scenes are non-editable from the timeline; double-click tabs into them.</p>
+              <div class="ac"><strong>Acceptance</strong> · drag a behavior bar 0.5s right → tween's <code>from</code> and <code>to</code> shift; serialised JSON matches expectation.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-06<span class="pri">P0</span></div>
+            <div>
+              <h4>Library panel: search &amp; drag-to-add</h4>
+              <p>Tabs: Templates, Behaviors, Scenes, Assets, Fonts. Cards show name, source pack, 1-second auto-generated preview. Drag a template onto a track → emits typed instance with brand defaults pre-bound.</p>
+              <div class="ac"><strong>Acceptance</strong> · dropping <code>brand::titleCard</code> on an empty track creates a valid composition; engine renders it without warnings.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-07<span class="pri">P0</span></div>
+            <div>
+              <h4>Local library index</h4>
+              <p>Project-scoped: <code>library/index.json</code> lists every behavior / template / scene / asset / font available in this project. <code>davidup pack add &lt;path&gt;</code> imports a third-party pack; the index regenerates on watch.</p>
+              <div class="ac"><strong>Acceptance</strong> · adding a new <code>.behavior.json</code> to <code>library/</code> appears in the Library panel within 1s.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-08<span class="pri">P0</span></div>
+            <div>
+              <h4>Source maps: authored ↔ resolved</h4>
+              <p>The precompile pipeline emits a per-item map: resolved item / tween → originating template instance / behavior call / source line. Clicking an item in the stage reveals (and scrolls to) its source location.</p>
+              <div class="ac"><strong>Acceptance</strong> · the "Reveal in source ⌘J" shortcut in the mockup actually works on the comprehensive demo.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-09<span class="pri">P0</span></div>
+            <div>
+              <h4>Undo / redo (linear, project-scoped)</h4>
+              <p>Every mutation goes through a single command bus. Undo stack is 50 deep, in-memory. AI-driven mutations and UI-driven mutations share the same stack.</p>
+              <div class="ac"><strong>Acceptance</strong> · 10 mixed edits + 10 undos restores byte-equal JSON.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-10<span class="pri">P0</span></div>
+            <div>
+              <h4>Render-to-file from the editor</h4>
+              <p>"Render ▸" button kicks off a local skia-canvas + ffmpeg render. Progress strip shows frame N / total, ETA, current bitrate. Output lands in <code>renders/&lt;timestamp&gt;.mp4</code>.</p>
+              <div class="ac"><strong>Acceptance</strong> · 12s comp at 1080p30 renders, file opens in QuickTime, ffprobe metadata is sane.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-11<span class="pri">P1</span></div>
+            <div>
+              <h4>Per-scene tab navigation</h4>
+              <p>Top tabs list all scenes in the composition. Switching tabs changes the focused stage / timeline / inspector to that scene's contents. Tabs are reorderable.</p>
+              <div class="ac"><strong>Acceptance</strong> · the four-scenes example loads with four tabs; each scene previews correctly.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-12<span class="pri">P1</span></div>
+            <div>
+              <h4>Assets panel — drag-in upload</h4>
+              <p>Drop a PNG/JPG/MP3/MP4 on the editor → copied to <code>assets/</code>, registered in <code>library/index.json</code>, hash-named for dedupe. Thumbnail extracted (video → ffprobe; audio → waveform).</p>
+              <div class="ac"><strong>Acceptance</strong> · drop a logo, drag it to the stage, reload — same hash, same pixels.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-13<span class="pri">P1</span></div>
+            <div>
+              <h4>Diff overlay for AI edits (foundation only)</h4>
+              <p>When a mutation enters the command bus tagged <code>source: "mcp"</code>, the inspector shows a one-line rationale and a "what changed" diff. Full AI strip is v1.2; the plumbing ships in v1.0.</p>
+              <div class="ac"><strong>Acceptance</strong> · MCP-driven <code>update_item</code> call shows in undo-stack with <code>source: "mcp"</code>.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-14<span class="pri">P1</span></div>
+            <div>
+              <h4>Validation surfacing</h4>
+              <p>The 8 validator rules run on every save. Errors render in a bottom status bar; warnings in a sidebar. Clicking an error reveals the source location.</p>
+              <div class="ac"><strong>Acceptance</strong> · introduce a tween overlap → red dot in timeline + error in status bar.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-15<span class="pri">P2</span></div>
+            <div>
+              <h4>Thumbnail strip in timeline</h4>
+              <p>Below the ruler, a horizontal strip of 8–16 rendered thumbnails of the current scene. Re-rendered on idle. Same code path as <code>render_thumbnail_strip</code>.</p>
+              <div class="ac"><strong>Acceptance</strong> · strip generates &lt;500ms after scene becomes idle.</div>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">FR-16<span class="pri">P2</span></div>
+            <div>
+              <h4>Keyboard-first shortcuts</h4>
+              <p>Play/pause: Space. Split clip: S. Delete: Backspace. Fit timeline: ⌘0. Reveal in source: ⌘J. Render: ⌘R. Save: ⌘S.</p>
+              <div class="ac"><strong>Acceptance</strong> · documented in a help overlay; all P0 shortcuts implemented.</div>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 36px;">Non-functional requirements</h3>
+        <div class="freq" style="margin-top: 12px;">
+          <div class="feature">
+            <div class="id">NFR-01<span class="pri">P0</span></div>
+            <div>
+              <h4>Stage frame budget</h4>
+              <p>Playback &gt;= 30 fps on a 2023 MacBook Air for the comprehensive demo (17 items, 7 layers, 93 tweens). Scrubbing the playhead is sub-100ms perceived.</p>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">NFR-02<span class="pri">P0</span></div>
+            <div>
+              <h4>Determinism preserved</h4>
+              <p>Edits made through the UI must produce JSON byte-identical to the equivalent edits made via MCP. Pixel output of stage at time <code>t</code> equals server render at <code>t</code>.</p>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">NFR-03<span class="pri">P0</span></div>
+            <div>
+              <h4>Cold-start to first edit</h4>
+              <p>From <code>npx davidup edit .</code> to the editor showing the project &lt; 3 seconds on a warm cache.</p>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">NFR-04<span class="pri">P1</span></div>
+            <div>
+              <h4>One-binary distribution</h4>
+              <p>Editor server, engine, MCP, and the Vite-built frontend ship as a single Node-compatible package on npm. No separate frontend deploy.</p>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="id">NFR-05<span class="pri">P1</span></div>
+            <div>
+              <h4>Stack discipline</h4>
+              <p>Server: AdonisJS 6 (or v7) on Node 22, session auth scaffolded but no-op locally. Frontend: Inertia + Vue 3 + Vite. DB: SQLite locally (Lucid + better-sqlite3), Postgres-ready for v2.0. Same project structure as the boring-saas-template's <code>adonis-app</code>.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="arch">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>04 — Architecture sketch</h3>
+        <p>How the engine you already have, the AdonisJS shell, and the Vue editor fit into a single binary.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Architecture — v1.0</p>
+        <h2>Three layers. One process. No translation.</h2>
+        <p style="color: var(--ink-2); max-width: 720px; margin-bottom: 8px;">
+          The editor is an AdonisJS HTTP + WebSocket server that owns the project's <em>session state</em>, imports the engine package directly, and serves an Inertia + Vue 3 SPA. The MCP server is the same composition store, exposed over stdio. Renders run in-process for the first frame, in a worker thread for the full file.
+        </p>
+
+        <div class="arch">
+          <h4>Components — v1.0</h4>
+          <div class="arch-grid">
+            <div class="layer">
+              <div class="tag">Client</div>
+              <h5>Editor SPA</h5>
+              <p>Inertia + Vue 3 + Vite. Owns: panel layout, timeline drag, stage canvas (mounts the engine's browser driver), inspector, library panel, undo/redo.</p>
+              <ul>
+                <li>inertia/pages/editor.vue</li>
+                <li>composables/useStage.ts</li>
+                <li>composables/useCommandBus.ts</li>
+                <li>davidup/browser → attach()</li>
+              </ul>
+            </div>
+            <div class="layer">
+              <div class="tag">Server</div>
+              <h5>AdonisJS shell</h5>
+              <p>Loads a project from disk on boot, exposes HTTP routes (open / save / render-start / asset-upload), an SSE channel for render progress, and an in-process command bus that mediates all mutations.</p>
+              <ul>
+                <li>app/controllers/projects_controller.ts</li>
+                <li>app/controllers/renders_controller.ts</li>
+                <li>app/services/command_bus.ts</li>
+                <li>app/services/project_store.ts</li>
+              </ul>
+            </div>
+            <div class="layer">
+              <div class="tag">Engine</div>
+              <h5>davidup core (unchanged)</h5>
+              <p>Imported as <code>davidup/engine</code>, <code>davidup/schema</code>, <code>davidup/browser</code>, <code>davidup/node</code>, <code>davidup/mcp</code>. The editor is a consumer; no engine APIs change for v1.0.</p>
+              <ul>
+                <li>src/schema (Zod)</li>
+                <li>src/compose (precompile)</li>
+                <li>src/engine (resolver)</li>
+                <li>src/drivers/{browser,node}</li>
+                <li>src/mcp (stdio)</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="arch-flow">
+            <span class="step">[1]</span> user drops <code>brand::titleCard</code> on a track →
+            <span class="step">[2]</span> Vue component dispatches <code>command.addTemplate</code> →
+            <span class="step">[3]</span> AdonisJS command bus validates against Zod, applies to <code>project_store</code> (in-memory), writes to disk debounced →
+            <span class="step">[4]</span> stage observable emits → browser driver's <code>seek()</code> re-renders →
+            <span class="step">[5]</span> on Render ▸, controller spawns worker thread → engine + ffmpeg → SSE progress events → editor strip updates.
+          </div>
+        </div>
+
+        <h3 style="margin-top: 36px;">Why one bus, two clients</h3>
+        <p style="color: var(--ink-2); max-width: 680px;">
+          Every mutation — from the UI <em>or</em> from the MCP server — goes through the same <code>command_bus</code>. The UI client opens a WebSocket; the MCP client opens stdio. Both produce typed <code>Command</code> objects validated by the same Zod schema as the composition itself. Determinism, undo, and source-tagging all fall out of this naturally.
+        </p>
+
+        <pre><code><span class="tok-c">// app/services/command_bus.ts</span>
+<span class="tok-k">export type</span> Command =
+  | { kind: <span class="tok-s">'addItem'</span>, payload: AddItemInput, source: <span class="tok-s">'ui'</span> | <span class="tok-s">'mcp'</span> }
+  | { kind: <span class="tok-s">'updateItem'</span>, payload: UpdateItemInput, source: <span class="tok-s">'ui'</span> | <span class="tok-s">'mcp'</span> }
+  | { kind: <span class="tok-s">'addTween'</span>, payload: AddTweenInput, source: <span class="tok-s">'ui'</span> | <span class="tok-s">'mcp'</span> }
+  | <span class="tok-c">/* ...22 of these, one per existing MCP tool */</span>
+
+<span class="tok-k">export class</span> <span class="tok-a">CommandBus</span> {
+  <span class="tok-k">async</span> <span class="tok-a">apply</span>(cmd: Command): Promise&lt;CommandResult&gt; {
+    <span class="tok-k">const</span> validated = commandSchema.parse(cmd)
+    <span class="tok-k">const</span> next = applyCommand(<span class="tok-k">this</span>.store.composition, validated)
+    <span class="tok-k">const</span> errors = validateComposition(next)         <span class="tok-c">// engine's existing validator</span>
+    <span class="tok-k">if</span> (errors.length) <span class="tok-k">throw new</span> <span class="tok-a">ValidationError</span>(errors)
+    <span class="tok-k">this</span>.undoStack.push(<span class="tok-k">this</span>.store.composition)
+    <span class="tok-k">this</span>.store.composition = next
+    <span class="tok-k">this</span>.observers.emit(<span class="tok-s">'change'</span>, { cmd, next })
+    <span class="tok-k">await this</span>.store.persistDebounced()
+    <span class="tok-k">return</span> { ok: <span class="tok-k">true</span>, sourceMap: <span class="tok-k">this</span>.store.sourceMap }
+  }
+}</code></pre>
+
+        <h3 style="margin-top: 36px;">Persistence — local v1.0 vs hosted v2.0</h3>
+        <p style="color: var(--ink-2); max-width: 680px;">
+          v1.0 reads/writes <code>composition.json</code> directly on disk and uses SQLite (via Lucid) only for the local editor's session state — open panels, last cursor position, recent projects. v2.0 swaps the SQLite session store for Postgres, the filesystem project loader for an S3/R2 object store, and bolts <code>@adonisjs/auth</code> onto the existing controllers. <em>No controller signature changes.</em>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PHASES -->
+<section id="phases">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>05 — Implementation phases</h3>
+        <p>Five phases. Each one ends in a demo on real comps from the <code>examples/</code> directory.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Phased build — v1.0</p>
+        <h2>Three months, five phases, each demo-able.</h2>
+        <p style="color: var(--ink-2); max-width: 680px;">
+          The phasing is goal-backwards from the vision doc's v1.0 deadline (now → +3 mo). Each phase produces something runnable; no phase is "infrastructure only." Demos are the existing <code>examples/</code> comps — they're already the validation set.
+        </p>
+
+        <div class="phases">
+          <div class="phase">
+            <div>When</div>
+            <div>Phase &amp; goal</div>
+            <div>Deliverables</div>
+          </div>
+
+          <div class="phase">
+            <div class="when">Weeks 1–2<small>setup + shell</small></div>
+            <div class="what">
+              P1 · AdonisJS shell + project model
+              <p>Bootstrap the AdonisJS 6 app from the boring-saas-template scaffold. Wire the engine packages, the project loader, and one Inertia page that renders the comprehensive demo via <code>attach()</code>.</p>
+            </div>
+            <div class="deliv">
+              <ul>
+                <li>Repo scaffold: <code>apps/editor/</code></li>
+                <li><code>davidup edit .</code> CLI</li>
+                <li>Open / save / autosave to disk</li>
+                <li>Inertia page mounts the engine's browser driver</li>
+                <li>Demo: comprehensive comp plays end-to-end in the editor window</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="phase">
+            <div class="when">Weeks 3–5<small>three panels live</small></div>
+            <div class="what">
+              P2 · Library / Inspector / Timeline panels
+              <p>Build the three panels against the existing composition schema. Inspector reads Zod, renders typed inputs. Timeline reads tweens, renders semantic bars. Library reads <code>library/index.json</code>, renders cards.</p>
+            </div>
+            <div class="deliv">
+              <ul>
+                <li>Library panel reads local index</li>
+                <li>Inspector reflects selection, edits flow through command bus</li>
+                <li>Timeline drag-to-move + drag-to-resize</li>
+                <li>Undo/redo bus shared by all three panels</li>
+                <li>Demo: edit titleCard params live; reload preserves edits</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="phase">
+            <div class="when">Weeks 6–7<small>source maps + reveal</small></div>
+            <div class="what">
+              P3 · Source maps end-to-end
+              <p>The killer feature in the vision doc. Modify the precompile pipeline to emit a resolved-item → authored-location map. Stage hit-testing uses it. Inspector "Reveal in source" jumps to the originating template instance / behavior call.</p>
+            </div>
+            <div class="deliv">
+              <ul>
+                <li>Source-map output from <code>precompile()</code></li>
+                <li>Stage click → inspector selects + scrolls source pane</li>
+                <li>"Reveal in source ⌘J" shortcut</li>
+                <li>Diff overlay placeholder for AI edits</li>
+                <li>Demo: click a pixel in a sealed scene → highlights the scene definition file + the offending behavior call</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="phase">
+            <div class="when">Weeks 8–10<small>library + drag + assets</small></div>
+            <div class="what">
+              P4 · Drag-to-compose + assets pipeline
+              <p>Library cards become draggable. Drop on track / stage emits typed instances with brand defaults bound. Drop a file on the editor → asset upload pipeline runs ffprobe / thumbnail extraction, writes to <code>assets/</code>, registers in the library index.</p>
+            </div>
+            <div class="deliv">
+              <ul>
+                <li>Drag-to-add for templates / behaviors / scenes</li>
+                <li>Asset upload pipeline (image / video / audio)</li>
+                <li>Auto-thumbnail strip on library cards</li>
+                <li>Validation surfacing in status bar</li>
+                <li>Demo: build a 30s clip from scratch by dragging only — no manual JSON</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="phase">
+            <div class="when">Weeks 11–12<small>render + ship</small></div>
+            <div class="what">
+              P5 · Render-from-editor + polish + ship
+              <p>Render ▸ button kicks off worker-thread render with SSE progress. Keyboard shortcuts. Validation polish. <code>npx davidup edit</code> as a single-binary install. README + a 90-second demo video (rendered with the editor, naturally).</p>
+            </div>
+            <div class="deliv">
+              <ul>
+                <li>Worker-thread render path</li>
+                <li>SSE progress channel via Transmit</li>
+                <li>Keyboard shortcuts (all P0)</li>
+                <li>Help overlay</li>
+                <li><code>npx davidup edit ./project</code> as the install path</li>
+                <li>Demo: 90s clip rendered, exported, posted</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="phase">
+            <div class="when">+1 wk buffer<small>validation experiments</small></div>
+            <div class="what">
+              P6 · Run the five vision-doc experiments
+              <p>The vision doc names five experiments that gate any SaaS work. Use the editor to run them — every experiment is a real project authored in the editor you just built.</p>
+            </div>
+            <div class="deliv">
+              <ul>
+                <li>One real personal project shipped (Experiment 1)</li>
+                <li>One brand kit + three scenes self-authored (Experiment 2)</li>
+                <li>Three AI-driven videos via MCP (Experiment 3)</li>
+                <li>Three target-buyer demo sessions (Experiment 4)</li>
+                <li>One paid render delivery (Experiment 5)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STEPS -->
+<section id="steps">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>06 — Step-by-step for v1.0</h3>
+        <p>Concrete sequenced tasks. Each one is a commit or a short PR. Each ends in something runnable.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Build sequence — first 20 steps</p>
+        <h2>Twenty steps. Each one is a one-day task or smaller.</h2>
+        <p style="color: var(--ink-2); max-width: 680px;">
+          Designed for solo execution with Claude as co-engineer. Each step has explicit inputs, outputs, and files touched. No step depends on a future step's design decisions.
+        </p>
+
+        <div class="steps">
+          <div class="step">
+            <h4>Bootstrap the AdonisJS editor app</h4>
+            <p>From the boring-saas-template's adonis-app scaffold (or fresh <code>npm init adonisjs@latest editor -- --kit=inertia --adapter=vue --ssr</code>), create <code>apps/editor/</code>. Drop Filament / e-Factura / Ploi config — none of it applies. Keep Postgres scaffold disabled; SQLite for local.</p>
+            <div class="meta">
+              <span class="dep">depends · none</span>
+              <span class="out">out · runnable adonis app on :3333</span>
+            </div>
+            <div class="files">files · <code>apps/editor/</code>, <code>apps/editor/start/routes.ts</code>, <code>apps/editor/config/database.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Workspace the engine into the editor app</h4>
+            <p>Make the davidup root a workspace; <code>apps/editor</code> depends on the engine packages via path imports. <code>davidup/schema</code>, <code>davidup/browser</code>, <code>davidup/node</code>, <code>davidup/mcp</code> resolve in TypeScript from the editor's <code>tsconfig.json</code>.</p>
+            <div class="meta">
+              <span class="dep">depends · step 01</span>
+              <span class="out">out · editor can <code>import &#123; validateComposition &#125; from 'davidup/schema'</code></span>
+            </div>
+            <div class="files">files · root <code>package.json</code> (workspaces), <code>apps/editor/package.json</code>, <code>apps/editor/tsconfig.json</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Project loader service</h4>
+            <p>An AdonisJS service that, given a directory, validates a <code>composition.json</code> + finds <code>library/index.json</code> + <code>assets/</code>. Loaded project is held in <code>ProjectStore</code> — single in-memory composition with a debounced disk writer.</p>
+            <div class="meta">
+              <span class="dep">depends · step 02</span>
+              <span class="out">out · GET <code>/api/project</code> returns the loaded composition</span>
+            </div>
+            <div class="files">files · <code>app/services/project_store.ts</code>, <code>app/controllers/projects_controller.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>The <code>davidup edit</code> CLI</h4>
+            <p>A thin CLI: <code>davidup edit ./path</code> → boots the AdonisJS server, opens the browser, watches the project directory. <code>davidup new ./path</code> scaffolds a project from a template.</p>
+            <div class="meta">
+              <span class="dep">depends · step 03</span>
+              <span class="out">out · <code>davidup edit examples/comprehensive-browser</code> opens working editor</span>
+            </div>
+            <div class="files">files · <code>src/cli/bin.ts</code>, root <code>bin</code> entry in <code>package.json</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Single Inertia page that mounts the engine</h4>
+            <p>One Vue 3 page: <code>pages/editor.vue</code>. Inside it, instantiate the browser driver's <code>attach(composition, canvasEl)</code>. No panels yet — full-bleed canvas. Confirms the engine renders inside the editor process.</p>
+            <div class="meta">
+              <span class="dep">depends · step 04</span>
+              <span class="out">out · comprehensive demo plays in the editor window</span>
+            </div>
+            <div class="files">files · <code>inertia/pages/editor.vue</code>, <code>inertia/composables/useStage.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Command bus &amp; mutation contracts</h4>
+            <p>Define the <code>Command</code> discriminated union — one variant per existing MCP tool. Implement <code>applyCommand</code> as a pure function on a composition. Wrap in a CommandBus service with undo stack + Zod validation + change emission.</p>
+            <div class="meta">
+              <span class="dep">depends · step 03</span>
+              <span class="out">out · POST <code>/api/command</code> applies a typed mutation and returns next state</span>
+            </div>
+            <div class="files">files · <code>app/services/command_bus.ts</code>, <code>app/services/apply_command.ts</code>, <code>app/types/commands.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Mount MCP inside the editor process</h4>
+            <p>The existing MCP server's tools route to <code>commandBus.apply()</code> instead of mutating directly. Now the UI client and the agent share the same store — sourced as <code>"ui"</code> vs <code>"mcp"</code>.</p>
+            <div class="meta">
+              <span class="dep">depends · step 06</span>
+              <span class="out">out · Claude Code can edit the same composition the editor shows</span>
+            </div>
+            <div class="files">files · <code>app/services/mcp_bridge.ts</code>, <code>src/mcp/dispatch.ts</code> (route changes)</div>
+          </div>
+
+          <div class="step">
+            <h4>Three-panel layout shell</h4>
+            <p>CSS-grid layout matching the mockup: Library (left) / Stage (center) / Inspector (right) / Timeline (bottom). Resize handles. Persisted to <code>~/.davidup/state.json</code>.</p>
+            <div class="meta">
+              <span class="dep">depends · step 05</span>
+              <span class="out">out · resizable layout with empty Library / Inspector / Timeline placeholders</span>
+            </div>
+            <div class="files">files · <code>inertia/layouts/editor.vue</code>, <code>inertia/composables/usePanelLayout.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Inspector v1 — typed param editing</h4>
+            <p>Inspector reads the Zod schema for the selected item type, renders one input per param (number, string, color, enum, time). Edits dispatch <code>updateItem</code> commands. Overridden values get the orange dot.</p>
+            <div class="meta">
+              <span class="dep">depends · step 06, 08</span>
+              <span class="out">out · changing <code>opacity</code> updates the stage live</span>
+            </div>
+            <div class="files">files · <code>inertia/components/Inspector.vue</code>, <code>inertia/components/inputs/{Number,Color,Time,Enum}.vue</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Timeline v1 — render bars from tweens</h4>
+            <p>One track per item. Bars colored by source: template (orange), behavior (green), scene (gold). Ruler at top. Playhead synced to <code>useStage()</code>. Click bar → selects target in inspector.</p>
+            <div class="meta">
+              <span class="dep">depends · step 08</span>
+              <span class="out">out · comprehensive demo timeline visualises all 93 tweens correctly</span>
+            </div>
+            <div class="files">files · <code>inertia/components/Timeline.vue</code>, <code>inertia/components/TimelineTrack.vue</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Timeline drag-to-move + resize</h4>
+            <p>Pointer events on bars: drag horizontally → emit <code>updateTween {from,to}</code>; resize handles on bar edges. Snap to 0.25s grid (configurable). Visual feedback during drag.</p>
+            <div class="meta">
+              <span class="dep">depends · step 10, 06</span>
+              <span class="out">out · drag a behavior bar → JSON reflects new times exactly</span>
+            </div>
+            <div class="files">files · <code>inertia/components/Timeline.vue</code>, <code>inertia/composables/useTimelineDrag.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Library index reader</h4>
+            <p>Service watches <code>library/index.json</code> + <code>library/**/*.{behavior,template,scene}.json</code>. Builds an in-memory library catalog. Exposes a search-able list to the Library panel via a JSON endpoint.</p>
+            <div class="meta">
+              <span class="dep">depends · step 03</span>
+              <span class="out">out · GET <code>/api/library</code> returns catalog; updates within 1s of file edit</span>
+            </div>
+            <div class="files">files · <code>app/services/library_index.ts</code>, <code>app/controllers/library_controller.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Library panel v1</h4>
+            <p>Vue panel with tabs (Templates / Behaviors / Scenes / Assets / Fonts), search box, cards with name + provenance + auto-generated 1s preview thumbnail. Thumbnails generated via the existing <code>render_preview_frame</code> path.</p>
+            <div class="meta">
+              <span class="dep">depends · step 12</span>
+              <span class="out">out · library renders catalog cards for the comprehensive demo's library</span>
+            </div>
+            <div class="files">files · <code>inertia/components/Library.vue</code>, <code>inertia/components/LibraryCard.vue</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Drag from library → timeline / stage</h4>
+            <p>HTML5 drag-and-drop. Drop on a track → <code>addTemplate</code> / <code>addBehavior</code> with brand defaults pre-bound. Drop on stage → places at drop coordinates. Hit zones visualised during drag.</p>
+            <div class="meta">
+              <span class="dep">depends · step 13, 11</span>
+              <span class="out">out · drop <code>brand::titleCard</code> on empty track → valid instance appears, renders</span>
+            </div>
+            <div class="files">files · <code>inertia/composables/useLibraryDrag.ts</code>, <code>inertia/components/{Timeline,Stage}.vue</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Source-map emission in precompile</h4>
+            <p>Modify <code>src/compose/precompile.ts</code> to thread an authorship trail through every emitted item / tween. Resolved object gets a <code>__source: { file, jsonPointer, originKind }</code> sidecar (stripped before validation runs).</p>
+            <div class="meta">
+              <span class="dep">depends · none (engine work)</span>
+              <span class="out">out · <code>precompile()</code> returns <code>&#123; resolved, sourceMap &#125;</code></span>
+            </div>
+            <div class="files">files · <code>src/compose/precompile.ts</code>, <code>src/compose/index.ts</code>, <code>src/engine/types.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Stage hit-testing → inspector selection</h4>
+            <p>Browser driver exposes a <code>pickItemAt(x, y, t)</code> method — uses a hidden ID-buffer canvas to read pixel-perfect item IDs. Click on stage → resolves to item id → inspector selects + emits source-map info to client.</p>
+            <div class="meta">
+              <span class="dep">depends · step 09, 15</span>
+              <span class="out">out · click ball in stage → inspector shows ball's params</span>
+            </div>
+            <div class="files">files · <code>src/drivers/browser/index.ts</code>, <code>inertia/components/Stage.vue</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Reveal-in-source pane</h4>
+            <p>A bottom drawer (toggle: ⌘J) showing the <em>authored</em> JSON pane with the originating source location highlighted for the current selection. Read-only for v1.0; editing the JSON is v1.1 territory.</p>
+            <div class="meta">
+              <span class="dep">depends · step 16</span>
+              <span class="out">out · click in stage → ⌘J opens drawer scrolled to the right line</span>
+            </div>
+            <div class="files">files · <code>inertia/components/SourceDrawer.vue</code>, <code>inertia/composables/useSelection.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Asset upload pipeline</h4>
+            <p>HTTP POST <code>/api/assets</code> accepts a multipart upload. Compute content hash → name file → run ffprobe (video / audio) → extract thumbnail → register in <code>library/index.json</code> → return the asset record.</p>
+            <div class="meta">
+              <span class="dep">depends · step 12</span>
+              <span class="out">out · drop a PNG on the editor → it appears in Library / Assets within 2s</span>
+            </div>
+            <div class="files">files · <code>app/controllers/assets_controller.ts</code>, <code>app/services/asset_pipeline.ts</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Render-from-editor + SSE progress</h4>
+            <p>Render ▸ button → POST <code>/api/renders</code> kicks off a worker thread invoking the existing Node driver. Worker emits progress messages; controller pipes them to a Transmit SSE channel; editor strip subscribes and updates.</p>
+            <div class="meta">
+              <span class="dep">depends · step 05</span>
+              <span class="out">out · 12s comp renders end-to-end, file at <code>renders/&lt;ts&gt;.mp4</code>, progress bar reflects reality</span>
+            </div>
+            <div class="files">files · <code>app/controllers/renders_controller.ts</code>, <code>app/workers/render_worker.ts</code>, <code>inertia/components/RenderStrip.vue</code></div>
+          </div>
+
+          <div class="step">
+            <h4>Polish, validation surfacing, ship</h4>
+            <p>Status bar shows validator errors / warnings live. Keyboard shortcuts wired. Help overlay. README + a 90-second demo video shot using the editor itself. <code>npm publish</code> the package; <code>npx davidup edit</code> works from a clean machine.</p>
+            <div class="meta">
+              <span class="dep">depends · all prior</span>
+              <span class="out">out · v1.0 shipped, vision-doc Experiment 1 ready to run</span>
+            </div>
+            <div class="files">files · <code>inertia/components/StatusBar.vue</code>, <code>inertia/components/HelpOverlay.vue</code>, <code>README.md</code>, <code>package.json</code> (publish config)</div>
+          </div>
+        </div>
+
+        <p style="margin-top: 28px; color: var(--mute); font-size: 13.5px;">
+          Steps 21+ are P1/P2 polish: per-scene tabs, thumbnail strip in timeline, more inspector input types, diff overlay for AI edits. None gate the 1.0 ship.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RISKS -->
+<section id="risks">
+  <div class="wrap">
+    <p class="eyebrow">Risks worth naming, again</p>
+    <h2>Five v1.0-specific risks. Each has a mitigation that fits the phase plan.</h2>
+
+    <div class="risks">
+      <div class="risk">
+        <h4>R1 — Source maps add scope creep to the engine</h4>
+        <p>Threading authorship through <code>precompile()</code> changes a hot, well-tested code path. Every existing test must keep passing byte-equal; new tests assert that the sidecar matches.</p>
+        <p class="mitig"><strong>Mitigation</strong> Source-map data lives on a sidecar, never in the resolved object that the renderer sees. Add it under an opt-in flag (<code>precompile(comp, &#123; emitSourceMap: true &#125;)</code>). The renderer still hashes byte-identical input.</p>
+      </div>
+      <div class="risk">
+        <h4>R2 — Inspector schema reflection isn't free</h4>
+        <p>Auto-generating typed inputs from Zod is fine for primitives. Discriminated unions, conditional <code>refine</code>s, and the polymorphic Item type make it harder than it looks.</p>
+        <p class="mitig"><strong>Mitigation</strong> Ship a registry: one Vue input component per Zod meta-type, with a fallback raw-JSON editor for cases the registry doesn't cover yet. Cover ~80% of fields in P2; the rest of v1.0.</p>
+      </div>
+      <div class="risk">
+        <h4>R3 — Stage hit-testing on Canvas2D is annoying</h4>
+        <p>Canvas2D doesn't expose a "what item is at this pixel" API. Either re-render to an ID buffer (off-screen canvas, integer IDs as colors) or maintain a JS-side scene graph in parallel.</p>
+        <p class="mitig"><strong>Mitigation</strong> ID-buffer approach. Same render pipeline, second pass to a hidden offscreen canvas. Adds &lt; 1ms per frame. Implementation lives entirely in the browser driver — no engine API change.</p>
+      </div>
+      <div class="risk">
+        <h4>R4 — AdonisJS 6 → 7 transition lands mid-build</h4>
+        <p>v7 stable in Feb 2026; some plugins lag. Starting on v6 means a v7 upgrade in months 6–12; starting on v7 means betting on early ecosystem maturity.</p>
+        <p class="mitig"><strong>Mitigation</strong> Default to v6 unless the v7 Inertia adapter is healthy when you start (check Adonis Discord, GitHub issue counts). The boring-saas-template explicitly handles this branch.</p>
+      </div>
+      <div class="risk">
+        <h4>R5 — Solo founder bandwidth (still)</h4>
+        <p>Same risk as the vision doc's R6. The editor is 12 weeks of focused work. Distractions (one-off renders, Twitter, the engine's audio backlog) will try to extend that.</p>
+        <p class="mitig"><strong>Mitigation</strong> Each phase ends in a demo. Each demo is on a real existing example comp. If a phase slips past its 2–3 week window, drop the lowest-priority FR rather than cut the demo.</p>
+      </div>
+      <div class="risk">
+        <h4>R6 — Determinism regressions during UI development</h4>
+        <p>Every UI mutation runs the same code as the MCP server, but the order of operations differs. Subtle floating-point or insertion-order bugs could make UI-built comps render differently from MCP-built comps.</p>
+        <p class="mitig"><strong>Mitigation</strong> Property-based tests on the command bus: random sequences of commands must produce byte-identical compositions regardless of source. Add to CI from step 06.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEFINITION OF DONE -->
+<section id="dod">
+  <div class="wrap-narrow">
+    <p class="eyebrow">Definition of done — read this last</p>
+    <h2>v1.0 ships when, and only when, all eight are green.</h2>
+    <p style="color: var(--ink-2);">
+      Each item is binary, observable, and demoable. Half-done counts as not done.
+    </p>
+
+    <div class="dod">
+      <h3>Eight gates. Each one un-skippable.</h3>
+      <ol>
+        <li><strong>D1 · npx works.</strong> <code>npx davidup edit ./examples/comprehensive-browser</code> from a clean machine, network only, opens the editor with the demo loaded in &lt; 3 seconds.</li>
+        <li><strong>D2 · Three panels live.</strong> Library, Inspector, Timeline render meaningfully against every example comp in <code>examples/</code>. No "todo" placeholders.</li>
+        <li><strong>D3 · Stage uses production engine.</strong> Pixel-diff between <code>attach()</code> output at <code>t</code> and Node-driver <code>renderFrame()</code> at <code>t</code> is zero for the four-scenes comp.</li>
+        <li><strong>D4 · UI ↔ MCP parity.</strong> A sequence of UI edits and the equivalent MCP edits produce byte-identical <code>composition.json</code>. Property-based test in CI proves it.</li>
+        <li><strong>D5 · Reveal-in-source works.</strong> Click any pixel in the stage → ⌘J → source drawer opens at the correct file + JSON pointer for that resolved item. Sealed-scene case included.</li>
+        <li><strong>D6 · Render from editor.</strong> 12s comp at 1080p30 renders end-to-end via the Render ▸ button, file plays in QuickTime, ffprobe reports sane metadata. Progress bar reflects reality &plusmn; 1 frame.</li>
+        <li><strong>D7 · Architecture is SaaS-ready.</strong> Diff between local-v1.0 and a hypothetical hosted-v2.0 is documented to be: swap SQLite → Postgres, swap filesystem loader → object store, mount <code>@adonisjs/auth</code>. <em>No controller signature changes.</em></li>
+        <li><strong>D8 · Experiment 1 from the vision doc has been run.</strong> One real personal project — launch reel, portfolio video, investor update — was authored in the editor and shipped publicly. The hurt points are documented as the v1.1 backlog.</li>
+      </ol>
+    </div>
+
+    <p style="margin-top: 24px; color: var(--mute); font-size: 14px;">
+      D7 is the architectural promise; the others are user-facing. Together they make v1.0 a real product instead of a tech demo.
+      The good news, again: <span style="color: var(--accent);">none of D1–D8 requires capability the engine doesn't already have.</span>
+      The editor is a shell around code that works.
+    </p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="sig">davidup v1.0 — visual editor, deterministic to the pixel.</div>
+  <div>PRD &amp; build plan · 2026-05-14 · drafted as a self-test for narcis75@gmail.com</div>
+</footer>
+
+</body>
+</html>
