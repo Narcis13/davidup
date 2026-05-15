@@ -4,5 +4,12 @@
     "rootDir": "./",
     "outDir": "./build"
   },
-  "exclude": ["./inertia/**/*", "node_modules", "build"]
+  "exclude": ["./inertia/**/*", "node_modules", "build"],
+  "ts-node": {
+    "swc": true,
+    "transpileOnly": true,
+    "ignore": [
+      "(?:^|/)node_modules/(?!.*davidup)"
+    ]
+  }
 }

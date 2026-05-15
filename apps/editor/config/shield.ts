@@ -17,7 +17,9 @@ const shieldConfig = defineConfig({
    */
   csrf: {
     enabled: true,
-    exceptRoutes: [],
+    // API routes are for programmatic clients (CLI, MCP, tests). Browser CSRF
+    // protection only applies to session-form routes; skip it for /api/*.
+    exceptRoutes: (ctx) => ctx.request.url().startsWith('/api/'),
     enableXsrfCookie: true,
     methods: ['POST', 'PUT', 'PATCH', 'DELETE'],
   },
