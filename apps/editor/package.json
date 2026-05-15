@@ -52,6 +52,7 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "davidup": "file:../..",
     "@adonisjs/auth": "^9.4.0",
     "@adonisjs/core": "^6.18.0",
     "@adonisjs/cors": "^2.2.1",

@@ -4,6 +4,9 @@
   "description": "Deterministic 2D programmatic video engine with MCP tools for AI agents",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

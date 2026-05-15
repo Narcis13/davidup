@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./validator.js";
+export { validate as validateComposition } from "./validator.js";
 export {
   AssetSchema,
   CompositionMetaSchema,
