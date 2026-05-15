@@ -1,0 +1,62 @@
+{
+  "version": "0.1",
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "duration": 3,
+    "background": "#0a0e27"
+  },
+  "assets": [],
+  "layers": [
+    {
+      "id": "fg",
+      "z": 10,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": ["badge"]
+    }
+  ],
+  "items": {
+    "badge": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 480,
+      "height": 240,
+      "fillColor": "#ff6b35",
+      "cornerRadius": 32,
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": [
+    {
+      "id": "fade-in",
+      "target": "badge",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0,
+      "duration": 0.8,
+      "easing": "easeOutQuad"
+    },
+    {
+      "id": "rise",
+      "target": "badge",
+      "property": "transform.y",
+      "from": 420,
+      "to": 360,
+      "start": 0,
+      "duration": 1.2,
+      "easing": "easeOutCubic"
+    }
+  ]
+}
