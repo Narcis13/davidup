@@ -58,6 +58,21 @@ export async function applyCommand(
   composition: Composition,
   command: Command
 ): Promise<Composition> {
+  const { next } = await applyCommandWithResult(composition, command)
+  return next
+}
+
+/**
+ * Same as `applyCommand` but also returns the underlying MCP tool's payload
+ * (e.g. `{ itemId }`, `{ tweenId }`). The MCP bridge needs that so it can
+ * return what a direct MCP call would have returned — `applyCommand`'s
+ * Composition-only return is the right shape for the property-based tests
+ * that compare byte-identical states between UI and MCP edit sequences.
+ */
+export async function applyCommandWithResult(
+  composition: Composition,
+  command: Command
+): Promise<{ next: Composition; toolResult: unknown }> {
   const store = new CompositionStore()
   hydrateStore(store, composition, HYDRATION_ID)
 
@@ -79,7 +94,7 @@ export async function applyCommand(
     throw new ApplyCommandError(result.error.code, result.error.message, result.error.hint)
   }
 
-  return store.toJSON(HYDRATION_ID)
+  return { next: store.toJSON(HYDRATION_ID), toolResult: result.result }
 }
 
 // ──────────────── Hydration ────────────────

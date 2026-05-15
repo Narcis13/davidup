@@ -67,6 +67,7 @@ export default defineConfig({
     () => import('#start/routes'),
     () => import('#start/kernel'),
     () => import('#start/preload_project'),
+    () => import('#start/preload_mcp_stdio'),
   ],
 
   /*

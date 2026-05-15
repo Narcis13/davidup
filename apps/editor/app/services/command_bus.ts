@@ -27,7 +27,7 @@ import {
   type Command,
   type CommandSource,
 } from '#types/commands'
-import { applyCommand, ApplyCommandError } from '#services/apply_command'
+import { applyCommandWithResult, ApplyCommandError } from '#services/apply_command'
 
 const DEFAULT_UNDO_DEPTH = 50
 
@@ -76,6 +76,12 @@ export interface ApplyResult {
   composition: Composition
   command: Command
   undoStackSize: number
+  /**
+   * The payload the underlying MCP tool would have returned (e.g. `{ itemId }`
+   * for `add_sprite`, `{ tweenIds }` for `apply_behavior`). Surfaced for the
+   * MCP bridge so it can return what a direct MCP call would have produced.
+   */
+  toolResult: unknown
 }
 
 type Subscriber = (event: ChangeEvent) => void
@@ -123,8 +129,11 @@ export class CommandBus {
     }
 
     let next: Composition
+    let toolResult: unknown
     try {
-      next = await applyCommand(current, command)
+      const applied = await applyCommandWithResult(current, command)
+      next = applied.next
+      toolResult = applied.toolResult
     } catch (err) {
       if (err instanceof ApplyCommandError) {
         throw new CommandRejectedError(err.code, err.message, err.hint)
@@ -153,6 +162,7 @@ export class CommandBus {
       composition: next,
       command,
       undoStackSize: this.#undoStack.length,
+      toolResult,
     }
   }
 

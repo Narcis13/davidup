@@ -42,6 +42,7 @@ export {
 export {
   dispatchTool,
   type DispatchResult,
+  type DispatchRouter,
 } from "./dispatch.js";
 
 export {
