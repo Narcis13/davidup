@@ -12,6 +12,7 @@ import router from '@adonisjs/core/services/router'
 const ProjectsController = () => import('#controllers/projects_controller')
 const EditorController = () => import('#controllers/editor_controller')
 const CommandsController = () => import('#controllers/commands_controller')
+const EditorStateController = () => import('#controllers/editor_state_controller')
 
 router.on('/').renderInertia('home')
 
@@ -23,5 +24,7 @@ router
     router.get('/project', [ProjectsController, 'show'])
     router.post('/project', [ProjectsController, 'load'])
     router.post('/command', [CommandsController, 'apply'])
+    router.get('/editor-state', [EditorStateController, 'show'])
+    router.put('/editor-state', [EditorStateController, 'update'])
   })
   .prefix('/api')

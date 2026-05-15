@@ -1,12 +1,16 @@
 <script setup lang="ts">
-// Editor page — step 05 of the editor build plan.
-// One Vue 3 page, no panels yet: instantiate the davidup browser driver
-// against a single full-bleed canvas. Confirms the engine renders inside
-// the editor process; layout shell and panels come in later steps.
+// Editor page — step 08 wires the engine into the three-panel shell.
+//
+// Step 05 mounted the davidup browser driver against a single full-bleed
+// canvas. Step 08 keeps that responsibility but moves the canvas into the
+// `stage` slot of `layouts/editor.vue`, so the Library / Inspector /
+// Timeline panels surround it. Panel sizes are persisted via
+// `usePanelLayout()` to `~/.davidup/state.json`.
 
 import { computed, ref } from 'vue'
 import { Head } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
+import EditorLayout from '~/layouts/editor.vue'
 
 type Composition = {
   composition: { width: number; height: number; duration: number; background?: string }
@@ -38,53 +42,42 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
 <template>
   <Head title="Editor" />
 
-  <div class="editor-host">
-    <div v-if="composition" class="stage-wrap">
-      <canvas
-        ref="canvas"
-        class="stage-canvas"
-        :width="canvasWidth"
-        :height="canvasHeight"
-        :style="{ aspectRatio: aspect }"
-      />
-      <div class="stage-status" :data-status="stage.status.value">
-        <span>{{ stage.status.value }}</span>
-        <span v-if="stage.error.value"> · {{ stage.error.value }}</span>
-        <span v-if="project" class="stage-status-project">· {{ project.root }}</span>
+  <EditorLayout
+    :status="composition ? stage.status.value : null"
+    :status-error="composition ? stage.error.value : null"
+    :project-root="project?.root ?? null"
+  >
+    <template #stage>
+      <div v-if="composition" class="stage-wrap">
+        <canvas
+          ref="canvas"
+          class="stage-canvas"
+          :width="canvasWidth"
+          :height="canvasHeight"
+          :style="{ aspectRatio: aspect }"
+        />
       </div>
-    </div>
-
-    <div v-else class="empty">
-      <h1>davidup editor</h1>
-      <p v-if="error">{{ error.message }}</p>
-      <p v-else>No project loaded.</p>
-      <p class="hint">
-        Boot the editor with <code>davidup edit &lt;project-dir&gt;</code>.
-      </p>
-    </div>
-  </div>
+      <div v-else class="empty">
+        <h1>davidup editor</h1>
+        <p v-if="error">{{ error.message }}</p>
+        <p v-else>No project loaded.</p>
+        <p class="hint">
+          Boot the editor with <code>davidup edit &lt;project-dir&gt;</code>.
+        </p>
+      </div>
+    </template>
+  </EditorLayout>
 </template>
 
 <style scoped>
-.editor-host {
-  position: fixed;
-  inset: 0;
-  background: #0a0a0a;
-  color: #e5e5e5;
-  font-family: 'Instrument Sans', system-ui, sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
 .stage-wrap {
-  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .stage-canvas {
@@ -98,32 +91,12 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-.stage-status {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  font-size: 12px;
-  color: #a3a3a3;
-  background: rgba(0, 0, 0, 0.55);
-  padding: 4px 8px;
-  border-radius: 4px;
-  pointer-events: none;
-  font-feature-settings: 'tnum';
-}
-
-.stage-status[data-status='error'] {
-  color: #ff6b6b;
-}
-
-.stage-status-project {
-  margin-left: 8px;
-  opacity: 0.7;
-}
-
 .empty {
   text-align: center;
   max-width: 520px;
   padding: 32px;
+  color: #e5e5e5;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
 }
 
 .empty h1 {
