@@ -2,7 +2,10 @@ export type {
   AssetRegistry,
   Canvas2DContext,
   OffscreenSurface,
+  OriginKind,
   RenderOptions,
+  SourceLocation,
+  SourceMap,
 } from "./types.js";
 export {
   computeStateAt,

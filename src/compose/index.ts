@@ -52,4 +52,16 @@ export {
   type TimeMapping,
 } from "./scenes.js";
 export { substitute, type SubstitutionContext } from "./params.js";
-export { precompile, type PrecompileOptions } from "./precompile.js";
+export {
+  precompile,
+  type PrecompileOptions,
+  type PrecompileResult,
+} from "./precompile.js";
+// Source-map types live on the engine layer so engine-side consumers can
+// import them without a dependency on compose; re-exported here for callers
+// already importing from `compose`.
+export type {
+  OriginKind,
+  SourceLocation,
+  SourceMap,
+} from "../engine/types.js";
