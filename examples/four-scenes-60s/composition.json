@@ -1,22 +1,5 @@
 {
-  "$comment": [
-    "Davidup v0.4 — 60-second clip built from 4 scenes (intro / two sections / outro).",
-    "The root file is the whole video at a glance: pure sequencing + crossfades.",
-    "Each scene file lives next door and owns its own ~50-line motion script.",
-    "",
-    "How it stitches together:",
-    "  imports[]  — pulls each scene definition file in via $ref (§5)",
-    "  scenes     — receives those definitions keyed by their `id`",
-    "  items[*].type='scene' — places each scene as an instance with params + transform",
-    "  tweens[]   — only crossfades on the wrapper-group's transform.opacity",
-    "",
-    "Tween count for sequencing: 7. Total motion shipped on screen: ~30 (the rest",
-    "live inside scene files). Compare to the v0.1 one-file approach which would",
-    "need every motion authored at the root."
-  ],
-
-  "version": "0.2",
-
+  "version": "0.1",
   "composition": {
     "width": 1280,
     "height": 720,
@@ -24,59 +7,711 @@
     "duration": 60,
     "background": "#000000"
   },
-
   "assets": [
-    { "id": "font-display", "type": "font", "src": "./fonts/BebasNeue-Regular.ttf", "family": "DavidupDisplay" }
+    {
+      "id": "font-display",
+      "type": "font",
+      "src": "./fonts/BebasNeue-Regular.ttf",
+      "family": "DavidupDisplay"
+    }
   ],
-
-  "scenes": {
-    "introCard": { "$ref": "./scenes/intro.json" },
-    "sectionOne": { "$ref": "./scenes/section-one.json" },
-    "sectionTwo": { "$ref": "./scenes/section-two.json" },
-    "outroCard": { "$ref": "./scenes/outro.json" }
-  },
-
   "layers": [
-    { "id": "stage", "z": 0, "opacity": 1, "blendMode": "normal", "items": ["intro", "act1", "act2", "outro"] }
+    {
+      "id": "stage",
+      "z": 0,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "intro",
+        "act1",
+        "act2",
+        "outro"
+      ]
+    }
   ],
-
   "items": {
     "intro": {
-      "type": "scene",
-      "scene": "introCard",
-      "params": { "title": "DAVIDUP", "subtitle": "v0.4 · scenes", "fontDisplay": "font-display" },
-      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+      "type": "group",
+      "items": [
+        "intro__$bg",
+        "intro__headline",
+        "intro__subtitle",
+        "intro__underline"
+      ],
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
     },
     "act1": {
-      "type": "scene",
-      "scene": "sectionOne",
-      "start": 12,
-      "params": { "header": "I. Bouncing rail", "fontDisplay": "font-display" },
-      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+      "type": "group",
+      "items": [
+        "act1__$bg",
+        "act1__ball",
+        "act1__header",
+        "act1__rail"
+      ],
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
     },
     "act2": {
-      "type": "scene",
-      "scene": "sectionTwo",
-      "start": 30,
-      "params": { "header": "II. Spinning satellite", "fontDisplay": "font-display" },
-      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+      "type": "group",
+      "items": [
+        "act2__$bg",
+        "act2__header",
+        "act2__orbitCenter",
+        "act2__satellite"
+      ],
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
     },
     "outro": {
-      "type": "scene",
-      "scene": "outroCard",
-      "start": 48,
-      "params": { "footer": "60s · 4 scenes · 1280x720 · 30fps", "fontDisplay": "font-display" },
-      "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0, "anchorX": 0, "anchorY": 0, "opacity": 0 }
+      "type": "group",
+      "items": [
+        "outro__$bg",
+        "outro__footer",
+        "outro__headline"
+      ],
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      }
+    },
+    "act1__ball": {
+      "type": "shape",
+      "kind": "circle",
+      "transform": {
+        "x": 200,
+        "y": 500,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 80,
+      "height": 80,
+      "fillColor": "#4cc9f0"
+    },
+    "act1__header": {
+      "type": "text",
+      "text": "I. Bouncing rail",
+      "font": "font-display",
+      "fontSize": 92,
+      "color": "#ffffff",
+      "transform": {
+        "x": 80,
+        "y": 200,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      },
+      "align": "left"
+    },
+    "act1__rail": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 100,
+        "y": 580,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0.73
+      },
+      "width": 1080,
+      "height": 16,
+      "fillColor": "#ffffff"
+    },
+    "act1__$bg": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 1280,
+      "height": 720,
+      "fillColor": "#102030"
+    },
+    "act2__header": {
+      "type": "text",
+      "text": "II. Spinning satellite",
+      "font": "font-display",
+      "fontSize": 92,
+      "color": "#ffffff",
+      "transform": {
+        "x": 80,
+        "y": 200,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      },
+      "align": "left"
+    },
+    "act2__orbitCenter": {
+      "type": "shape",
+      "kind": "circle",
+      "transform": {
+        "x": 640,
+        "y": 460,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 30,
+      "height": 30,
+      "fillColor": "#ff6b35"
+    },
+    "act2__satellite": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 800,
+        "y": 460,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 60,
+      "height": 60,
+      "fillColor": "#ffffff",
+      "cornerRadius": 12
+    },
+    "act2__$bg": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 1280,
+      "height": 720,
+      "fillColor": "#1a1426"
+    },
+    "intro__headline": {
+      "type": "text",
+      "text": "DAVIDUP",
+      "font": "font-display",
+      "fontSize": 168,
+      "color": "#ffffff",
+      "transform": {
+        "x": 640,
+        "y": 320,
+        "scaleX": 0.6,
+        "scaleY": 0.6,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      },
+      "align": "center"
+    },
+    "intro__subtitle": {
+      "type": "text",
+      "text": "v0.4 · scenes",
+      "font": "font-display",
+      "fontSize": 32,
+      "color": "#ffd166",
+      "transform": {
+        "x": 640,
+        "y": 410,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      },
+      "align": "center"
+    },
+    "intro__underline": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 360,
+        "y": 460,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 0,
+      "height": 4,
+      "fillColor": "#ffd166"
+    },
+    "intro__$bg": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 1280,
+      "height": 720,
+      "fillColor": "#0b0d12"
+    },
+    "outro__footer": {
+      "type": "text",
+      "text": "60s · 4 scenes · 1280x720 · 30fps",
+      "font": "font-display",
+      "fontSize": 28,
+      "color": "#ffd166",
+      "transform": {
+        "x": 640,
+        "y": 420,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      },
+      "align": "center"
+    },
+    "outro__headline": {
+      "type": "text",
+      "text": "Thanks for watching",
+      "font": "font-display",
+      "fontSize": 124,
+      "color": "#ffffff",
+      "transform": {
+        "x": 640,
+        "y": 320,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0
+      },
+      "align": "center"
+    },
+    "outro__$bg": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 1280,
+      "height": 720,
+      "fillColor": "#0b0d12"
     }
   },
-
   "tweens": [
-    { "id": "intro_in", "target": "intro", "property": "transform.opacity", "from": 0, "to": 1, "start": 0, "duration": 0.5 },
-    { "id": "intro_out", "target": "intro", "property": "transform.opacity", "from": 1, "to": 0, "start": 11.5, "duration": 0.5 },
-    { "id": "act1_in", "target": "act1", "property": "transform.opacity", "from": 0, "to": 1, "start": 12, "duration": 0.5 },
-    { "id": "act1_out", "target": "act1", "property": "transform.opacity", "from": 1, "to": 0, "start": 29.5, "duration": 0.5 },
-    { "id": "act2_in", "target": "act2", "property": "transform.opacity", "from": 0, "to": 1, "start": 30, "duration": 0.5 },
-    { "id": "act2_out", "target": "act2", "property": "transform.opacity", "from": 1, "to": 0, "start": 47.5, "duration": 0.5 },
-    { "id": "outro_in", "target": "outro", "property": "transform.opacity", "from": 0, "to": 1, "start": 48, "duration": 0.5 }
+    {
+      "id": "act1__header_fadeIn_12.3__opacity",
+      "target": "act1__header",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 12.3,
+      "duration": 0.8,
+      "easing": "easeOutQuad"
+    },
+    {
+      "id": "act1__t1",
+      "target": "act1__ball",
+      "property": "transform.x",
+      "from": 200,
+      "to": 1080,
+      "start": 13,
+      "duration": 7,
+      "easing": "easeInOutQuad"
+    },
+    {
+      "id": "act1__t2",
+      "target": "act1__ball",
+      "property": "transform.x",
+      "from": 1080,
+      "to": 200,
+      "start": 20.5,
+      "duration": 7,
+      "easing": "easeInOutQuad"
+    },
+    {
+      "id": "act1__t3",
+      "target": "act1__ball",
+      "property": "transform.scaleX",
+      "from": 1,
+      "to": 1.5,
+      "start": 16,
+      "duration": 0.5
+    },
+    {
+      "id": "act1__t4",
+      "target": "act1__ball",
+      "property": "transform.scaleX",
+      "from": 1.5,
+      "to": 1,
+      "start": 16.5,
+      "duration": 0.5
+    },
+    {
+      "id": "act1__t5",
+      "target": "act1__ball",
+      "property": "transform.scaleY",
+      "from": 1,
+      "to": 1.5,
+      "start": 16,
+      "duration": 0.5
+    },
+    {
+      "id": "act1__t6",
+      "target": "act1__ball",
+      "property": "transform.scaleY",
+      "from": 1.5,
+      "to": 1,
+      "start": 16.5,
+      "duration": 0.5
+    },
+    {
+      "id": "act1__ball_colorCycle_12__seg_0",
+      "target": "act1__ball",
+      "property": "fillColor",
+      "from": "#4cc9f0",
+      "to": "#f72585",
+      "start": 12,
+      "duration": 4
+    },
+    {
+      "id": "act1__ball_colorCycle_12__seg_1",
+      "target": "act1__ball",
+      "property": "fillColor",
+      "from": "#f72585",
+      "to": "#ffd166",
+      "start": 16,
+      "duration": 4
+    },
+    {
+      "id": "act1__ball_colorCycle_12__seg_2",
+      "target": "act1__ball",
+      "property": "fillColor",
+      "from": "#ffd166",
+      "to": "#06d6a0",
+      "start": 20,
+      "duration": 4
+    },
+    {
+      "id": "act1__ball_colorCycle_12__seg_3",
+      "target": "act1__ball",
+      "property": "fillColor",
+      "from": "#06d6a0",
+      "to": "#4cc9f0",
+      "start": 24,
+      "duration": 4
+    },
+    {
+      "id": "act2__header_fadeIn_30.3__opacity",
+      "target": "act2__header",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 30.3,
+      "duration": 0.8
+    },
+    {
+      "id": "act2__satellite_rotateSpin_31__rotation",
+      "target": "act2__satellite",
+      "property": "transform.rotation",
+      "from": 0,
+      "to": 12.566370614359172,
+      "start": 31,
+      "duration": 14
+    },
+    {
+      "id": "act2__t2",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleX",
+      "from": 1,
+      "to": 1.6,
+      "start": 32,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t3",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleX",
+      "from": 1.6,
+      "to": 1,
+      "start": 33.5,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t4",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleY",
+      "from": 1,
+      "to": 1.6,
+      "start": 32,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t5",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleY",
+      "from": 1.6,
+      "to": 1,
+      "start": 33.5,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t6",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleX",
+      "from": 1,
+      "to": 1.6,
+      "start": 38,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t7",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleX",
+      "from": 1.6,
+      "to": 1,
+      "start": 39.5,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t8",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleY",
+      "from": 1,
+      "to": 1.6,
+      "start": 38,
+      "duration": 1.5
+    },
+    {
+      "id": "act2__t9",
+      "target": "act2__orbitCenter",
+      "property": "transform.scaleY",
+      "from": 1.6,
+      "to": 1,
+      "start": 39.5,
+      "duration": 1.5
+    },
+    {
+      "id": "intro__t0",
+      "target": "intro__headline",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0.4,
+      "duration": 0.8,
+      "easing": "easeOutQuad"
+    },
+    {
+      "id": "intro__t1",
+      "target": "intro__headline",
+      "property": "transform.scaleX",
+      "from": 0.6,
+      "to": 1,
+      "start": 0.4,
+      "duration": 0.8,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "intro__t2",
+      "target": "intro__headline",
+      "property": "transform.scaleY",
+      "from": 0.6,
+      "to": 1,
+      "start": 0.4,
+      "duration": 0.8,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "intro__t3",
+      "target": "intro__subtitle",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 1,
+      "duration": 0.6,
+      "easing": "easeOutQuad"
+    },
+    {
+      "id": "intro__t4",
+      "target": "intro__underline",
+      "property": "width",
+      "from": 0,
+      "to": 560,
+      "start": 1.2,
+      "duration": 0.8,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "outro__headline_popIn_48.3__opacity",
+      "target": "outro__headline",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 48.3,
+      "duration": 0.7,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "outro__headline_popIn_48.3__scaleX",
+      "target": "outro__headline",
+      "property": "transform.scaleX",
+      "from": 0.2,
+      "to": 1,
+      "start": 48.3,
+      "duration": 0.7,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "outro__headline_popIn_48.3__scaleY",
+      "target": "outro__headline",
+      "property": "transform.scaleY",
+      "from": 0.2,
+      "to": 1,
+      "start": 48.3,
+      "duration": 0.7,
+      "easing": "easeOutBack"
+    },
+    {
+      "id": "outro__footer_fadeIn_49.2__opacity",
+      "target": "outro__footer",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 49.2,
+      "duration": 0.6
+    },
+    {
+      "id": "intro_in",
+      "target": "intro",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0,
+      "duration": 0.5
+    },
+    {
+      "id": "intro_out",
+      "target": "intro",
+      "property": "transform.opacity",
+      "from": 1,
+      "to": 0,
+      "start": 11.5,
+      "duration": 0.5
+    },
+    {
+      "id": "act1_in",
+      "target": "act1",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 12,
+      "duration": 0.5
+    },
+    {
+      "id": "act1_out",
+      "target": "act1",
+      "property": "transform.opacity",
+      "from": 1,
+      "to": 0,
+      "start": 29.5,
+      "duration": 0.5
+    },
+    {
+      "id": "act2_in",
+      "target": "act2",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 30,
+      "duration": 0.5
+    },
+    {
+      "id": "act2_out",
+      "target": "act2",
+      "property": "transform.opacity",
+      "from": 1,
+      "to": 0,
+      "start": 47.5,
+      "duration": 0.5
+    },
+    {
+      "id": "outro_in",
+      "target": "outro",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 48,
+      "duration": 0.5
+    }
   ]
 }

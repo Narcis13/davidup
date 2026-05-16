@@ -137,7 +137,7 @@ describe("cli · runEdit", () => {
       host: "127.0.0.1",
     });
     expect(handle.url).toBe("http://127.0.0.1:4242");
-    expect(opened).toEqual(["http://127.0.0.1:4242"]);
+    expect(opened).toEqual(["http://127.0.0.1:4242/editor"]);
     await handle.close();
   });
 

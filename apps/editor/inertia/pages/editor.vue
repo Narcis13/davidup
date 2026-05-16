@@ -1,21 +1,24 @@
 <script setup lang="ts">
-// Editor page — step 08 wires the engine into the three-panel shell.
+// Editor page — step 09 wires the Inspector into the three-panel shell.
 //
 // Step 05 mounted the davidup browser driver against a single full-bleed
-// canvas. Step 08 keeps that responsibility but moves the canvas into the
-// `stage` slot of `layouts/editor.vue`, so the Library / Inspector /
-// Timeline panels surround it. Panel sizes are persisted via
-// `usePanelLayout()` to `~/.davidup/state.json`.
+// canvas. Step 08 moved that canvas into the `stage` slot of the
+// three-panel layout. Step 09 now adds the Inspector to the `inspector`
+// slot: it reads the selected item via `useSelection`, dispatches typed
+// `update_item` commands through `useCommandBus`, and the live response
+// flows back into `useStage` which re-attaches at the preserved playhead.
+//
+// Local composition state lives in `useCommandBus` so command results
+// can replace it in-place. The original payload is also retained as a
+// baseline so the Inspector can render the orange "overridden" dot.
 
 import { computed, ref } from 'vue'
 import { Head } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
+import { useCommandBus, type Composition } from '~/composables/useCommandBus'
+import { provideSelection } from '~/composables/useSelection'
 import EditorLayout from '~/layouts/editor.vue'
-
-type Composition = {
-  composition: { width: number; height: number; duration: number; background?: string }
-  [k: string]: unknown
-}
+import Inspector from '~/components/Inspector.vue'
 
 const props = defineProps<{
   composition: Composition | null
@@ -29,13 +32,16 @@ const props = defineProps<{
   error: { code: string; message: string } | null
 }>()
 
+provideSelection(null)
+
+const bus = useCommandBus({ initial: props.composition })
+
 const canvas = ref<HTMLCanvasElement | null>(null)
-const composition = computed(() => props.composition)
 
-const stage = useStage({ composition, canvas })
+const stage = useStage({ composition: bus.composition, canvas })
 
-const canvasWidth = computed(() => props.composition?.composition.width ?? 1280)
-const canvasHeight = computed(() => props.composition?.composition.height ?? 720)
+const canvasWidth = computed(() => bus.composition.value?.composition.width ?? 1280)
+const canvasHeight = computed(() => bus.composition.value?.composition.height ?? 720)
 const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
 </script>
 
@@ -43,12 +49,12 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
   <Head title="Editor" />
 
   <EditorLayout
-    :status="composition ? stage.status.value : null"
-    :status-error="composition ? stage.error.value : null"
+    :status="bus.composition.value ? stage.status.value : null"
+    :status-error="bus.composition.value ? stage.error.value : null"
     :project-root="project?.root ?? null"
   >
     <template #stage>
-      <div v-if="composition" class="stage-wrap">
+      <div v-if="bus.composition.value" class="stage-wrap">
         <canvas
           ref="canvas"
           class="stage-canvas"
@@ -65,6 +71,16 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
           Boot the editor with <code>davidup edit &lt;project-dir&gt;</code>.
         </p>
       </div>
+    </template>
+
+    <template #inspector>
+      <Inspector
+        :composition="bus.composition.value"
+        :baseline="bus.baseline.value"
+        :pending="bus.pending.value"
+        :error="bus.error.value"
+        @apply="bus.apply"
+      />
     </template>
   </EditorLayout>
 </template>

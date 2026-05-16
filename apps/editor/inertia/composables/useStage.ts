@@ -48,6 +48,12 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   const handle = ref<AttachHandle | null>(null)
   let endTimer: ReturnType<typeof setTimeout> | null = null
   let cancelled = false
+  // Wall-clock at which the current attach assumed t=0. Used to preserve the
+  // playhead when the composition mutates (Inspector edits, MCP commands)
+  // and we need to re-attach — without this, every edit would jump back to
+  // the start of the comp.
+  let lastAttachStartMs = 0
+  let lastAttachStartAt = 0
 
   function clearEndTimer(): void {
     if (endTimer !== null) {
@@ -61,9 +67,16 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     return c && typeof c === 'object' && 'value' in c ? c.value : options.composition
   }
 
-  async function start(): Promise<void> {
+  function readCurrentPlayhead(): number {
+    if (!handle.value || lastAttachStartMs === 0) return 0
+    const elapsed = (Date.now() - lastAttachStartMs) / 1000
+    return Math.max(0, lastAttachStartAt + elapsed)
+  }
+
+  async function start(opts: { resume?: boolean } = {}): Promise<void> {
     const canvasEl = options.canvas.value
     const comp = readComposition()
+    const resumeAt = opts.resume ? readCurrentPlayhead() : 0
     stopInternal()
     if (!canvasEl) {
       status.value = 'error'
@@ -82,6 +95,8 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       // Dynamic import keeps the DOM-only browser driver out of the SSR bundle.
       const mod = await import('davidup/browser')
       if (cancelled) return
+      const duration = readDuration(comp)
+      const startAt = duration > 0 ? Math.min(resumeAt, Math.max(0, duration - 0.001)) : resumeAt
       // HTMLCanvasElement's getContext returns CanvasRenderingContext2D, whose
       // setters (fillStyle, strokeStyle, font) accept gradients/patterns too.
       // The engine's `Canvas2DContext` narrows those to `string` because that's
@@ -90,19 +105,22 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       const h = await mod.attach(
         comp as Parameters<typeof mod.attach>[0],
         canvasEl as unknown as Parameters<typeof mod.attach>[1],
+        { startAt },
       )
       if (cancelled) {
         h.stop()
         return
       }
       handle.value = h
+      lastAttachStartMs = Date.now()
+      lastAttachStartAt = startAt
       status.value = 'playing'
-      const duration = readDuration(comp)
       if (duration > 0) {
+        const remaining = Math.max(0, duration - startAt)
         endTimer = setTimeout(() => {
           if (status.value === 'playing') status.value = 'ended'
           endTimer = null
-        }, duration * 1000 + 50)
+        }, remaining * 1000 + 50)
       }
     } catch (err) {
       if (cancelled) return
@@ -128,14 +146,27 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     void start()
   })
 
-  // Re-attach when either the canvas or composition reference changes.
+  // Re-attach when either the canvas or composition reference changes. The
+  // canvas swap (page navigation) starts from t=0; a composition mutation
+  // (Inspector edit, MCP command) preserves the current playhead so the
+  // user doesn't lose their place every time they nudge a value.
   watch(
-    [options.canvas, () => readComposition()],
+    options.canvas,
     () => {
       if (status.value === 'idle' && handle.value === null && !options.canvas.value) {
         return
       }
       void start()
+    },
+    { flush: 'post' },
+  )
+  watch(
+    () => readComposition(),
+    () => {
+      if (status.value === 'idle' && handle.value === null && !options.canvas.value) {
+        return
+      }
+      void start({ resume: true })
     },
     { flush: 'post' },
   )
@@ -154,6 +185,8 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     },
     seek(t: number) {
       handle.value?.seek(t)
+      lastAttachStartMs = Date.now()
+      lastAttachStartAt = t
       if (status.value === 'ended') status.value = 'playing'
       clearEndTimer()
       const comp = readComposition()

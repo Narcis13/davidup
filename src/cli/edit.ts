@@ -135,7 +135,7 @@ export async function runEdit(
   deps.log(`davidup edit · ready at ${url}`);
 
   if (!opts.noOpen) {
-    deps.openBrowser(url).catch((err) => {
+    deps.openBrowser(`${url}/editor`).catch((err) => {
       deps.log(
         `davidup edit · warning: failed to open browser (${(err as Error).message})`,
       );
