@@ -37,7 +37,8 @@
     "./assets": "./src/assets/index.ts",
     "./node": "./src/drivers/node/index.ts",
     "./browser": "./src/drivers/browser/index.ts",
-    "./mcp": "./src/mcp/index.ts"
+    "./mcp": "./src/mcp/index.ts",
+    "./compose": "./src/compose/index.ts"
   },
   "engines": {
     "bun": ">=1.1.0"

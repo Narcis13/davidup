@@ -182,6 +182,78 @@ test.group('Project loader · service', (group) => {
     const store = new ProjectStore()
     assert.throws(() => store.update(VALID_COMP), /No project loaded/)
   })
+
+  test('load() lowers authoring-form scene instances before validating', async ({ assert }) => {
+    const authoring = {
+      version: '0.4',
+      composition: {
+        width: 640,
+        height: 360,
+        fps: 30,
+        duration: 4,
+        background: '#000000',
+      },
+      assets: [],
+      scenes: {
+        card: {
+          id: 'card',
+          size: { width: 640, height: 360 },
+          duration: 4,
+          params: [],
+          items: {
+            bg: {
+              type: 'shape',
+              kind: 'rect',
+              width: 640,
+              height: 360,
+              fillColor: '#112233',
+              transform: {
+                x: 0,
+                y: 0,
+                scaleX: 1,
+                scaleY: 1,
+                rotation: 0,
+                anchorX: 0,
+                anchorY: 0,
+                opacity: 1,
+              },
+            },
+          },
+          tweens: [],
+        },
+      },
+      layers: [{ id: 'stage', z: 0, opacity: 1, blendMode: 'normal', items: ['intro'] }],
+      items: {
+        intro: {
+          type: 'scene',
+          scene: 'card',
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0,
+            anchorY: 0,
+            opacity: 1,
+          },
+        },
+      },
+      tweens: [],
+    }
+    const dir = await makeProject({ composition: authoring })
+    try {
+      await projectStore.load(dir)
+      const loaded = projectStore.composition as { items: Record<string, { type: string }> }
+      // After precompile, `type: "scene"` has been lowered to a wrapper group;
+      // the validator only accepts sprite|text|shape|group, so a green load
+      // implies the lowering happened.
+      assert.equal(loaded.items.intro?.type, 'group')
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 test.group('Project loader · HTTP', (group) => {

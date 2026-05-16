@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { join, resolve } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
+import { precompile } from 'davidup/compose'
 import { validateComposition, type ValidationResult } from 'davidup/schema'
 
 export type LoadedProject = {
@@ -101,7 +102,22 @@ export class ProjectStore {
       )
     }
 
-    const result: ValidationResult = validateComposition(parsed)
+    // Lower authoring-form constructs ($ref / $template / type:"scene" / $behavior)
+    // into the canonical form the engine + validator + editor commands expect.
+    // For canonical-v0.1 input every pass short-circuits, returning the same
+    // object reference — so this is a near-zero-cost no-op.
+    let compiled: unknown
+    try {
+      compiled = await precompile(parsed, { sourcePath: compositionPath })
+    } catch (err) {
+      throw new ProjectLoadError(
+        'E_COMPOSITION_INVALID',
+        `composition.json failed to precompile: ${(err as Error).message}`,
+        { precompileError: (err as Error).message }
+      )
+    }
+
+    const result: ValidationResult = validateComposition(compiled)
     if (!result.valid) {
       throw new ProjectLoadError(
         'E_COMPOSITION_INVALID',
@@ -127,7 +143,7 @@ export class ProjectStore {
       compositionPath,
       libraryIndexPath: hasLibrary ? libraryIndexPath : null,
       assetsDir: hasAssets ? assetsDir : null,
-      composition: parsed,
+      composition: compiled,
       loadedAt: Date.now(),
     }
 

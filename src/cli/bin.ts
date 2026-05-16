@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Entrypoint for the `davidup` CLI installed via `npm install -g davidup`
 // or invoked through `npx davidup`. Stays as thin as possible: parse argv,
 // dispatch to `runCli`, propagate the exit code.
