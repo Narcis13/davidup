@@ -13,6 +13,14 @@ import { promises as fs } from 'node:fs'
 import { watch, type FSWatcher } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
+import {
+  readSceneDefinition,
+  registerScene,
+  registerTemplate,
+  type TemplateDefinition,
+  type TemplateParamDescriptor,
+  type TemplateParamType,
+} from 'davidup/compose'
 
 export type LibraryItemKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
 
@@ -364,6 +372,33 @@ export class LibraryIndex {
       return a.id.localeCompare(b.id)
     })
 
+    // Surface library templates and scenes to the engine registry so the
+    // drag-from-library flow (step 14) can dispatch `apply_template` /
+    // `add_scene_instance` against them by id. Built-in templates registered
+    // at import time are not overwritten unless the library defines the same
+    // id — that mirrors the "last write wins" semantics of MCP
+    // define_user_template / define_scene.
+    for (const item of items) {
+      if (item.kind === 'template') {
+        try {
+          const def = libraryTemplateToDefinition(item.id, item.raw)
+          if (def) registerTemplate(def)
+        } catch (err) {
+          errors.push({ file: item.source, message: (err as Error).message })
+        }
+      } else if (item.kind === 'scene') {
+        try {
+          const raw = item.raw as Record<string, unknown> | undefined
+          if (raw && typeof raw === 'object') {
+            const def = readSceneDefinition(item.id, raw)
+            registerScene(def)
+          }
+        } catch (err) {
+          errors.push({ file: item.source, message: (err as Error).message })
+        }
+      }
+    }
+
     this.#catalog = {
       root,
       loadedAt: Date.now(),
@@ -371,6 +406,49 @@ export class LibraryIndex {
       errors,
     }
   }
+}
+
+const TEMPLATE_PARAM_TYPES: ReadonlySet<TemplateParamType> = new Set([
+  'number',
+  'string',
+  'color',
+  'boolean',
+])
+
+function libraryTemplateToDefinition(
+  id: string,
+  raw: unknown,
+): TemplateDefinition | null {
+  const obj = asObject(raw)
+  if (!obj) return null
+  const params: TemplateParamDescriptor[] = []
+  const rawParams = asArray(obj.params)
+  for (const p of rawParams) {
+    const po = asObject(p)
+    if (!po) continue
+    const name = asString(po.name)
+    const type = asString(po.type)
+    if (!name || !type) continue
+    if (!TEMPLATE_PARAM_TYPES.has(type as TemplateParamType)) continue
+    const desc: TemplateParamDescriptor = { name, type: type as TemplateParamType }
+    if (po.required === true) desc.required = true
+    if (Object.prototype.hasOwnProperty.call(po, 'default')) desc.default = po.default
+    const description = asString(po.description)
+    if (description) desc.description = description
+    params.push(desc)
+  }
+  const items = asObject(obj.items)
+  if (!items) return null
+  const tweensRaw = asArray(obj.tweens)
+  const def: TemplateDefinition = {
+    id,
+    params,
+    items: items as Record<string, unknown>,
+    tweens: tweensRaw,
+  }
+  const description = asString(obj.description)
+  if (description) def.description = description
+  return def
 }
 
 const libraryIndex = new LibraryIndex()

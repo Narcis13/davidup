@@ -14,12 +14,29 @@
 
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { LibraryItem } from '~/composables/useLibrary'
+import { useLibraryDrag } from '~/composables/useLibraryDrag'
 
 const props = defineProps<{
   item: LibraryItem
   /** Cache-buster bumped when the catalog reloads. */
   generation?: number
 }>()
+
+// Step 14: library cards are draggable. We push the catalog payload onto the
+// shared `useLibraryDrag` state and the dataTransfer MIME so Stage / Timeline
+// drop targets can resolve it.
+const libraryDrag = useLibraryDrag()
+const isDragging = ref(false)
+
+function onDragStart(event: DragEvent): void {
+  libraryDrag.onDragStart(props.item, event)
+  isDragging.value = true
+}
+
+function onDragEnd(): void {
+  libraryDrag.onDragEnd()
+  isDragging.value = false
+}
 
 const root = ref<HTMLElement | null>(null)
 const inView = ref(false)
@@ -81,7 +98,11 @@ const kindLabel = computed(() => props.item.kind)
     class="library-card"
     :data-kind="item.kind"
     :data-item-id="item.id"
+    :data-dragging="isDragging ? 'true' : null"
+    draggable="true"
     tabindex="0"
+    @dragstart="onDragStart"
+    @dragend="onDragEnd"
   >
     <div class="thumb-wrap">
       <img
@@ -134,6 +155,11 @@ const kindLabel = computed(() => props.item.kind)
 .library-card:focus-visible {
   border-color: rgba(91, 124, 250, 0.65);
   box-shadow: 0 0 0 2px rgba(91, 124, 250, 0.25);
+}
+
+.library-card[data-dragging='true'] {
+  opacity: 0.45;
+  transform: scale(0.98);
 }
 
 .thumb-wrap {

@@ -28,6 +28,11 @@ import { computed, ref, watch, type Ref } from 'vue'
 import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
+import {
+  buildCommandsForNewTrackDrop,
+  buildCommandsForTrackDrop,
+  useLibraryDrag,
+} from '~/composables/useLibraryDrag'
 import TimelineTrack, {
   type BarPointerDownPayload,
   type TimelineItemRow,
@@ -258,6 +263,97 @@ function onRulerClick(event: MouseEvent): void {
   emit('seek', ratio * d)
 }
 
+// Library drag-and-drop (step 14). Two zones:
+//   - per-row: dropping a behavior card lands `apply_behavior` against that
+//     row's target item. Dropping a template/scene on a row is treated as a
+//     new-track drop (we don't merge a template into an existing item).
+//   - new-track gutter at the bottom of the tracks list: drops a template
+//     or scene as a fresh instance on the first layer.
+const libraryDrag = useLibraryDrag()
+const tracksHostEl: Ref<HTMLDivElement | null> = ref(null)
+const layerForDropId = computed<string | null>(() => {
+  const comp = props.composition
+  if (!comp || !Array.isArray(comp.layers)) return null
+  const first = comp.layers.find((l: { id?: unknown }) => typeof l?.id === 'string')
+  return first ? ((first as { id: string }).id ?? null) : null
+})
+const dragHoverActive = computed(() => libraryDrag.isActive.value)
+
+function tweenAcceptsDrop(): boolean {
+  const p = libraryDrag.payload.value
+  return !!p && (p.kind === 'behavior' || p.kind === 'template' || p.kind === 'scene')
+}
+
+function onTrackDragOver(event: DragEvent, targetItemId: string): void {
+  if (!tweenAcceptsDrop()) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  const p = libraryDrag.payload.value
+  // Behaviors require an existing target; templates/scenes fall through to
+  // the new-track zone but still highlight the row for feedback.
+  if (p?.kind === 'behavior') {
+    libraryDrag.setHover('track', targetItemId)
+  } else {
+    libraryDrag.setHover('new-track', null)
+  }
+}
+
+function onTrackDragLeave(_event: DragEvent, targetItemId: string): void {
+  libraryDrag.clearHover('track', targetItemId)
+}
+
+function onTrackDrop(event: DragEvent, targetItemId: string): void {
+  event.preventDefault()
+  const payload = libraryDrag.readDropPayload(event)
+  libraryDrag.onDragEnd()
+  if (!payload) return
+  const layerId = layerForDropId.value
+  if (!layerId) return
+  const start = roundToSnap(Math.max(0, props.playhead))
+  let commands: Command[] = []
+  if (payload.kind === 'behavior') {
+    commands = buildCommandsForTrackDrop(payload, {
+      targetItemId,
+      defaultLayerId: layerId,
+      start,
+    })
+  } else {
+    // template/scene dropped over a row → spawn a new track instead.
+    commands = buildCommandsForNewTrackDrop(payload, { layerId, start })
+  }
+  for (const cmd of commands) emit('apply', cmd)
+}
+
+function onNewTrackDragOver(event: DragEvent): void {
+  const p = libraryDrag.payload.value
+  if (!p || (p.kind !== 'template' && p.kind !== 'scene')) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  libraryDrag.setHover('new-track', null)
+}
+
+function onNewTrackDragLeave(): void {
+  libraryDrag.clearHover('new-track', null)
+}
+
+function onNewTrackDrop(event: DragEvent): void {
+  event.preventDefault()
+  const payload = libraryDrag.readDropPayload(event)
+  libraryDrag.onDragEnd()
+  if (!payload) return
+  const layerId = layerForDropId.value
+  if (!layerId) return
+  const start = roundToSnap(Math.max(0, props.playhead))
+  const commands = buildCommandsForNewTrackDrop(payload, { layerId, start })
+  for (const cmd of commands) emit('apply', cmd)
+}
+
+function roundToSnap(t: number): number {
+  const step = snapStepRef.value
+  if (!step || step <= 0) return t
+  return Math.round(t / step) * step
+}
+
 // Scroll the most-recently-selected row into view so the user can find it
 // after clicking an item in the Inspector dropdown.
 const trackList: Ref<HTMLDivElement | null> = ref(null)
@@ -312,7 +408,7 @@ watch(
           />
         </div>
       </div>
-      <div ref="trackList" class="tracks">
+      <div ref="trackList" class="tracks" data-testid="timeline-tracks">
         <TimelineTrack
           v-for="row in rows"
           :key="row.id"
@@ -320,14 +416,39 @@ watch(
           :duration="duration"
           :selected-id="selection.selectedItemId.value"
           :drag-active="drag.active.value"
+          :library-hover="
+            libraryDrag.hover.value === 'track' &&
+            libraryDrag.hoverTargetId.value === row.id
+              ? libraryDrag.payload.value?.kind ?? null
+              : null
+          "
+          :library-drag-active="dragHoverActive"
           @select-item="onSelectItem"
           @bar-pointer-down="onBarPointerDown"
+          @library-drag-over="(e) => onTrackDragOver(e, row.id)"
+          @library-drag-leave="(e) => onTrackDragLeave(e, row.id)"
+          @library-drop="(e) => onTrackDrop(e, row.id)"
         />
         <div
           v-if="duration > 0"
           class="playhead playhead-line"
           :style="{ left: `calc(160px + (100% - 160px) * ${playhead / duration})` }"
         />
+        <div
+          v-if="libraryDrag.isActive.value"
+          class="new-track-drop"
+          :data-active="libraryDrag.hover.value === 'new-track' ? 'true' : 'false'"
+          :data-payload-kind="libraryDrag.payload.value?.kind ?? null"
+          data-testid="timeline-new-track-drop"
+          @dragenter.prevent="onNewTrackDragOver"
+          @dragover="onNewTrackDragOver"
+          @dragleave="onNewTrackDragLeave"
+          @drop="onNewTrackDrop"
+        >
+          <span class="new-track-label">
+            Drop {{ libraryDrag.payload.value?.kind ?? 'item' }} to add a new track
+          </span>
+        </div>
         <p v-if="rows.length === 0" class="empty">No items in this composition.</p>
       </div>
     </div>
@@ -522,5 +643,37 @@ watch(
   padding: 12px;
   color: #707070;
   font-size: 12px;
+}
+
+.new-track-drop {
+  position: relative;
+  margin: 6px 8px 10px;
+  border: 1px dashed rgba(91, 124, 250, 0.45);
+  border-radius: 6px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(91, 124, 250, 0.7);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(91, 124, 250, 0.04);
+  pointer-events: auto;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.new-track-drop[data-active='true'] {
+  background: rgba(91, 124, 250, 0.18);
+  border-color: rgba(91, 124, 250, 0.95);
+  color: #e5e5e5;
+}
+
+.new-track-drop[data-payload-kind='behavior'] {
+  display: none;
+}
+
+.new-track-label {
+  pointer-events: none;
 }
 </style>

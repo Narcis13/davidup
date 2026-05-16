@@ -17,10 +17,16 @@ const bodyParserConfig = defineConfig({
   },
 
   /**
-   * Config for the JSON parser
+   * Config for the JSON parser. We disable the form-compat
+   * `convertEmptyStringsToNull` for JSON bodies because the editor's
+   * /api/command endpoint relies on empty strings staying empty strings
+   * (e.g. the `titleCard` template's `subtitle: ""` default is a legitimate
+   * value; coercing it to `null` breaks the engine's typed param resolver
+   * with E_TEMPLATE_PARAM_TYPE). HTML form encodings keep the conversion
+   * because form fields have no way to express the distinction.
    */
   json: {
-    convertEmptyStringsToNull: true,
+    convertEmptyStringsToNull: false,
     types: [
       'application/json',
       'application/json-patch+json',

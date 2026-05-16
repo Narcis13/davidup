@@ -279,6 +279,70 @@ test.group('LibraryIndex · service', (group) => {
     }
   })
 
+  test('attach() registers library templates with the engine registry (step 14)', async ({
+    assert,
+  }) => {
+    const { hasTemplate, hasScene } = await import('davidup/compose')
+    const dir = await makeProject({ withLibrary: true })
+    const lib = join(dir, 'library')
+    await mkdir(join(lib, 'templates'), { recursive: true })
+    await mkdir(join(lib, 'scenes'), { recursive: true })
+    await writeFile(
+      join(lib, 'templates', 'spec14-card.template.json'),
+      JSON.stringify({
+        id: 'spec14Card',
+        description: 'Card for step-14 spec',
+        params: [
+          { name: 'title', type: 'string', required: true },
+          { name: 'color', type: 'color', default: '#ffffff' },
+        ],
+        items: {
+          title: {
+            type: 'text',
+            text: '${params.title}',
+            font: 'DavidupDisplay',
+            fontSize: 64,
+            color: '${params.color}',
+            align: 'center',
+            transform: {
+              x: 640,
+              y: 360,
+              scaleX: 1,
+              scaleY: 1,
+              rotation: 0,
+              anchorX: 0.5,
+              anchorY: 0.5,
+              opacity: 1,
+            },
+          },
+        },
+        tweens: [],
+      }),
+      'utf8'
+    )
+    await writeFile(
+      join(lib, 'scenes', 'spec14-scene.scene.json'),
+      JSON.stringify({
+        id: 'spec14Scene',
+        duration: 2,
+        params: [],
+        items: { bg: { type: 'shape' } },
+        tweens: [],
+      }),
+      'utf8'
+    )
+
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      await idx.attach(lib)
+      assert.isTrue(hasTemplate('spec14Card'), 'library template registered globally')
+      assert.isTrue(hasScene('spec14Scene'), 'library scene registered globally')
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('malformed JSON is recorded as an error, not thrown', async ({ assert }) => {
     const dir = await makeProject({ withLibrary: true })
     const lib = join(dir, 'library')

@@ -61,12 +61,34 @@ const props = defineProps<{
   pixelsPerSecond?: number
   /** Live drag preview from `useTimelineDrag.active`, or null. */
   dragActive?: DragActive | null
+  /**
+   * Step 14 — library drag overlay state. `libraryHover` is the kind of the
+   * drag (behavior/template/scene/asset) when the user is hovering this
+   * specific track; `libraryDragActive` is true for any in-flight library
+   * drag so we can show a subtle "this is a drop zone" affordance even
+   * before the pointer enters our lane.
+   */
+  libraryHover?: string | null
+  libraryDragActive?: boolean
 }>()
 
 const emit = defineEmits<{
   (event: 'selectItem', id: string, tweenId?: string): void
   (event: 'barPointerDown', payload: BarPointerDownPayload): void
+  (event: 'libraryDragOver', native: DragEvent): void
+  (event: 'libraryDragLeave', native: DragEvent): void
+  (event: 'libraryDrop', native: DragEvent): void
 }>()
+
+function onLibraryDragOver(event: DragEvent): void {
+  emit('libraryDragOver', event)
+}
+function onLibraryDragLeave(event: DragEvent): void {
+  emit('libraryDragLeave', event)
+}
+function onLibraryDrop(event: DragEvent): void {
+  emit('libraryDrop', event)
+}
 
 const isSelected = computed(() => props.selectedId === props.row.id)
 
@@ -133,7 +155,13 @@ function liveBadge(t: TimelineTween): string | null {
     class="track"
     :class="{ selected: isSelected }"
     :data-item-id="row.id"
+    :data-library-hover="libraryHover ?? null"
+    :data-library-drag-active="libraryDragActive ? 'true' : null"
     @click="onRowClick"
+    @dragenter.prevent="onLibraryDragOver"
+    @dragover="onLibraryDragOver"
+    @dragleave="onLibraryDragLeave"
+    @drop="onLibraryDrop"
   >
     <div class="track-label">
       <span class="label-id">{{ row.id }}</span>
@@ -193,6 +221,30 @@ function liveBadge(t: TimelineTween): string | null {
 
 .track.selected {
   background: rgba(91, 124, 250, 0.12);
+}
+
+/* Library drag hit-zone affordances (step 14). */
+.track[data-library-drag-active='true'] {
+  outline: 1px dashed rgba(91, 124, 250, 0.18);
+  outline-offset: -2px;
+}
+
+.track[data-library-hover='behavior'] {
+  background: rgba(6, 214, 160, 0.18);
+  outline: 2px solid rgba(6, 214, 160, 0.75);
+  outline-offset: -2px;
+}
+
+.track[data-library-hover='template'] {
+  background: rgba(255, 107, 53, 0.18);
+  outline: 2px solid rgba(255, 107, 53, 0.7);
+  outline-offset: -2px;
+}
+
+.track[data-library-hover='scene'] {
+  background: rgba(255, 209, 102, 0.2);
+  outline: 2px solid rgba(255, 209, 102, 0.8);
+  outline-offset: -2px;
 }
 
 .track-label {

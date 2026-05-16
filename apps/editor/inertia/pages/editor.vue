@@ -21,6 +21,7 @@ import { provideSelection } from '~/composables/useSelection'
 import EditorLayout from '~/layouts/editor.vue'
 import Inspector from '~/components/Inspector.vue'
 import Library from '~/components/Library.vue'
+import Stage from '~/components/Stage.vue'
 import Timeline from '~/components/Timeline.vue'
 
 const props = defineProps<{
@@ -39,13 +40,12 @@ provideSelection(null)
 
 const bus = useCommandBus({ initial: props.composition })
 
-const canvas = ref<HTMLCanvasElement | null>(null)
+// Stage.vue owns the canvas element; we forward its inner ref out via
+// `defineExpose` so the engine attach loop still binds to it.
+const stageRef = ref<{ canvas: HTMLCanvasElement | null } | null>(null)
+const canvas = computed<HTMLCanvasElement | null>(() => stageRef.value?.canvas ?? null)
 
 const stage = useStage({ composition: bus.composition, canvas })
-
-const canvasWidth = computed(() => bus.composition.value?.composition.width ?? 1280)
-const canvasHeight = computed(() => bus.composition.value?.composition.height ?? 720)
-const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
 </script>
 
 <template>
@@ -61,15 +61,13 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
     </template>
 
     <template #stage>
-      <div v-if="bus.composition.value" class="stage-wrap">
-        <canvas
-          ref="canvas"
-          class="stage-canvas"
-          :width="canvasWidth"
-          :height="canvasHeight"
-          :style="{ aspectRatio: aspect }"
-        />
-      </div>
+      <Stage
+        v-if="bus.composition.value"
+        ref="stageRef"
+        :composition="bus.composition.value"
+        :playhead="stage.playhead.value"
+        @apply="bus.apply"
+      />
       <div v-else class="empty">
         <h1>davidup editor</h1>
         <p v-if="error">{{ error.message }}</p>
@@ -103,27 +101,6 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
 </template>
 
 <style scoped>
-.stage-wrap {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  box-sizing: border-box;
-}
-
-.stage-canvas {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  background: #000;
-  image-rendering: auto;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
 .empty {
   text-align: center;
   max-width: 520px;

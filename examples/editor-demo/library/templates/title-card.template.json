@@ -11,7 +11,7 @@
     "title": {
       "type": "text",
       "text": "${params.title}",
-      "font": "DavidupDisplay",
+      "font": "font-display",
       "fontSize": 96,
       "color": "${params.color}",
       "align": "center",
