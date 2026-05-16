@@ -25,9 +25,11 @@
 // expansion output.
 
 import { computed, ref, watch, type Ref } from 'vue'
-import type { Composition } from '~/composables/useCommandBus'
+import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
+import { useTimelineDrag } from '~/composables/useTimelineDrag'
 import TimelineTrack, {
+  type BarPointerDownPayload,
   type TimelineItemRow,
   type TimelineTween,
   type TweenSource,
@@ -39,10 +41,13 @@ const props = defineProps<{
   playhead: number
   /** Stage status string — controls the playhead indicator label. */
   status?: string | null
+  /** Snap step in seconds. Defaults to 0.25. */
+  snapStep?: number
 }>()
 
 const emit = defineEmits<{
   (event: 'seek', t: number): void
+  (event: 'apply', command: Command): void
 }>()
 
 const selection = useSelection()
@@ -51,6 +56,36 @@ const duration = computed<number>(() => {
   const d = props.composition?.composition?.duration
   return typeof d === 'number' && d > 0 ? d : 0
 })
+
+const snapStepRef = computed<number>(() => {
+  const s = props.snapStep
+  return typeof s === 'number' && s > 0 ? s : 0.25
+})
+
+// Step 11 — drag/resize coordinator. `onCommit` only fires once per drag
+// (pointerup), so we issue exactly one `update_tween` per gesture. The
+// composable also exposes `active` which we forward to TimelineTrack so the
+// in-flight bar repaints at the snapped preview position.
+const drag = useTimelineDrag({
+  duration,
+  snapStep: snapStepRef,
+  onCommit(tweenId, patch) {
+    emit('apply', {
+      kind: 'update_tween',
+      payload: { id: tweenId, props: patch },
+      source: 'ui',
+    })
+  },
+})
+
+function onBarPointerDown(payload: BarPointerDownPayload): void {
+  drag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    tween: payload.tween,
+    mode: payload.mode,
+  })
+}
 
 // Behavior catalogue (kept in sync with src/compose/behaviors.ts). Stored as
 // a Set so the per-tween classifier is O(1) per probe.
@@ -284,7 +319,9 @@ watch(
           :row="row"
           :duration="duration"
           :selected-id="selection.selectedItemId.value"
+          :drag-active="drag.active.value"
           @select-item="onSelectItem"
+          @bar-pointer-down="onBarPointerDown"
         />
         <div
           v-if="duration > 0"

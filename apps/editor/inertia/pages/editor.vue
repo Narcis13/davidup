@@ -91,6 +91,7 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
         :playhead="stage.playhead.value"
         :status="bus.composition.value ? stage.status.value : null"
         @seek="(t) => stage.seek(t)"
+        @apply="bus.apply"
       />
     </template>
   </EditorLayout>

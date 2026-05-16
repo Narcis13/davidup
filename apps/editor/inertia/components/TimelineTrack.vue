@@ -1,17 +1,26 @@
 <script setup lang="ts">
-// TimelineTrack — step 10 of the editor build plan.
+// TimelineTrack — step 10 originally, extended in step 11 with bar dragging.
 //
 // One row per composition item: a left-hand label + a track lane that paints
 // every tween targeting this item as a positioned bar. Bars are colored by
 // {@link TweenSource source heuristic} (template / behavior / scene / plain)
 // so the user can read provenance at a glance — see {@link classifyTween}.
 //
-// Click a bar → emits `selectItem` with the tween's target. Until step 15's
-// source-map lands, that's the same item the row already represents, but
-// emitting the target (not the row's item id) keeps the API correct for
-// future behavior-on-group expansions that may target a synthetic child.
+// Step 11 adds three pointer affordances per bar:
+//   - the bar body emits `barPointerDown` with mode `'move'`
+//   - the left/right edge handles emit `'resize-left'` / `'resize-right'`
+// The parent Timeline owns the drag composable (`useTimelineDrag`) and a
+// reactive `dragActive` it pipes back to us. When `dragActive.tweenId` matches
+// one of our bars, we render it at the live preview position instead of its
+// canonical {start, duration}.
+//
+// Click semantics: pointerdown/up without movement still fires the bar's
+// `@click`, which keeps the legacy "click bar to select target" behaviour. A
+// real drag installs a one-shot click suppressor in the composable so the
+// trailing click after a release does not bleed into selection.
 
 import { computed } from 'vue'
+import type { DragActive, DragMode } from '~/composables/useTimelineDrag'
 
 export type TweenSource = 'template' | 'behavior' | 'scene' | 'plain'
 
@@ -31,6 +40,13 @@ export interface TimelineItemRow {
   tweens: ReadonlyArray<TimelineTween>
 }
 
+export interface BarPointerDownPayload {
+  event: PointerEvent
+  laneEl: HTMLElement
+  tween: TimelineTween
+  mode: DragMode
+}
+
 const props = defineProps<{
   row: TimelineItemRow
   /** Composition duration in seconds. Used to scale bar positions/widths. */
@@ -43,24 +59,41 @@ const props = defineProps<{
    * still emitted as percentages so the same component works in both modes.
    */
   pixelsPerSecond?: number
+  /** Live drag preview from `useTimelineDrag.active`, or null. */
+  dragActive?: DragActive | null
 }>()
 
 const emit = defineEmits<{
   (event: 'selectItem', id: string, tweenId?: string): void
+  (event: 'barPointerDown', payload: BarPointerDownPayload): void
 }>()
 
 const isSelected = computed(() => props.selectedId === props.row.id)
 
+function effectiveValues(t: TimelineTween): { start: number; duration: number } {
+  const a = props.dragActive
+  if (a && a.tweenId === t.id) {
+    return { start: a.currentStart, duration: a.currentDuration }
+  }
+  return { start: t.start, duration: t.duration }
+}
+
 function barLeftPct(t: TimelineTween): string {
   const d = props.duration
   if (d <= 0) return '0%'
-  return `${(t.start / d) * 100}%`
+  const { start } = effectiveValues(t)
+  return `${(start / d) * 100}%`
 }
 
 function barWidthPct(t: TimelineTween): string {
   const d = props.duration
   if (d <= 0) return '0%'
-  return `${(t.duration / d) * 100}%`
+  const { duration } = effectiveValues(t)
+  return `${(duration / d) * 100}%`
+}
+
+function isDragging(t: TimelineTween): boolean {
+  return !!props.dragActive && props.dragActive.tweenId === t.id
 }
 
 function onRowClick(): void {
@@ -72,10 +105,26 @@ function onBarClick(t: TimelineTween, event: MouseEvent): void {
   emit('selectItem', t.target, t.id)
 }
 
+function onBarPointerDown(t: TimelineTween, event: PointerEvent, mode: DragMode): void {
+  if (event.button !== 0) return
+  const laneEl = (event.currentTarget as HTMLElement).closest('.track-lane') as HTMLElement | null
+  if (!laneEl) return
+  event.stopPropagation()
+  emit('barPointerDown', { event, laneEl, tween: t, mode })
+}
+
 function barTitle(t: TimelineTween): string {
-  const end = t.start + t.duration
+  const v = effectiveValues(t)
+  const end = v.start + v.duration
   const easing = t.easing ? ` · ${t.easing}` : ''
-  return `${t.id}\n${t.property} · ${t.source}${easing}\n${t.start.toFixed(2)}s → ${end.toFixed(2)}s (${t.duration.toFixed(2)}s)`
+  return `${t.id}\n${t.property} · ${t.source}${easing}\n${v.start.toFixed(2)}s → ${end.toFixed(2)}s (${v.duration.toFixed(2)}s)`
+}
+
+function liveBadge(t: TimelineTween): string | null {
+  const a = props.dragActive
+  if (!a || a.tweenId !== t.id) return null
+  const end = a.currentStart + a.currentDuration
+  return `${a.currentStart.toFixed(2)}s → ${end.toFixed(2)}s`
 }
 </script>
 
@@ -96,14 +145,33 @@ function barTitle(t: TimelineTween): string {
         :key="tween.id"
         type="button"
         class="bar"
-        :class="`bar-${tween.source}`"
+        :class="[`bar-${tween.source}`, { dragging: isDragging(tween) }]"
         :style="{ left: barLeftPct(tween), width: barWidthPct(tween) }"
         :title="barTitle(tween)"
         :data-tween-id="tween.id"
         :data-tween-source="tween.source"
+        :data-dragging="isDragging(tween) ? 'true' : null"
+        @pointerdown="(e) => onBarPointerDown(tween, e, 'move')"
         @click="(e) => onBarClick(tween, e)"
       >
+        <span
+          class="resize-handle resize-left"
+          :data-resize="'left'"
+          @pointerdown.stop="(e) => onBarPointerDown(tween, e, 'resize-left')"
+          @click.stop
+        />
         <span class="bar-label">{{ tween.property }}</span>
+        <span
+          class="resize-handle resize-right"
+          :data-resize="'right'"
+          @pointerdown.stop="(e) => onBarPointerDown(tween, e, 'resize-right')"
+          @click.stop
+        />
+        <span
+          v-if="liveBadge(tween)"
+          class="drag-badge"
+          :data-drag-badge="tween.id"
+        >{{ liveBadge(tween) }}</span>
       </button>
     </div>
   </div>
@@ -180,17 +248,25 @@ function barTitle(t: TimelineTween): string {
   color: rgba(255, 255, 255, 0.9);
   font: 10px/1 'JetBrains Mono', ui-monospace, monospace;
   text-align: left;
-  cursor: pointer;
-  overflow: hidden;
+  cursor: grab;
+  overflow: visible;
   white-space: nowrap;
-  text-overflow: ellipsis;
   display: flex;
   align-items: center;
+  touch-action: none;
 }
 
 .bar:hover {
   filter: brightness(1.15);
   border-color: rgba(255, 255, 255, 0.35);
+}
+
+.bar.dragging {
+  cursor: grabbing;
+  filter: brightness(1.2);
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18), 0 4px 14px rgba(0, 0, 0, 0.5);
+  z-index: 3;
 }
 
 .bar-label {
@@ -199,6 +275,51 @@ function barTitle(t: TimelineTween): string {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: rgba(0, 0, 0, 0.18);
+  z-index: 1;
+}
+
+.resize-handle.resize-left {
+  left: 0;
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+.resize-handle.resize-right {
+  right: 0;
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+
+.bar:hover .resize-handle,
+.bar.dragging .resize-handle {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.drag-badge {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 20, 20, 0.95);
+  color: #e5e5e5;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font: 10px/1 'JetBrains Mono', ui-monospace, monospace;
+  white-space: nowrap;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  z-index: 4;
 }
 
 /* PRD FR-05: bars are templates (orange), behaviors (green), scenes (gold). */
