@@ -1,0 +1,36 @@
+{
+  "version": "0.1",
+  "templates": [],
+  "behaviors": [],
+  "scenes": [],
+  "assets": [
+    {
+      "id": "ball",
+      "name": "Bouncing ball",
+      "description": "Reference PNG used by demo compositions.",
+      "url": "../assets/ball.png"
+    },
+    {
+      "id": "logo-orange",
+      "name": "Orange logo card",
+      "description": "Placeholder solid card (no on-disk file yet).",
+      "url": "../assets/ball.png"
+    }
+  ],
+  "fonts": [
+    {
+      "id": "davidup-display",
+      "name": "Davidup Display",
+      "family": "DavidupDisplay",
+      "url": "../fonts/BebasNeue-Regular.ttf",
+      "description": "Bebas Neue Regular — display weight"
+    },
+    {
+      "id": "davidup-mono",
+      "name": "Davidup Mono",
+      "family": "DavidupMono",
+      "url": "../fonts/JetBrainsMono-Bold.ttf",
+      "description": "JetBrains Mono Bold — code captions"
+    }
+  ]
+}

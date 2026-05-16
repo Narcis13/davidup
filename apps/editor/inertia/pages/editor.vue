@@ -20,6 +20,7 @@ import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
 import EditorLayout from '~/layouts/editor.vue'
 import Inspector from '~/components/Inspector.vue'
+import Library from '~/components/Library.vue'
 import Timeline from '~/components/Timeline.vue'
 
 const props = defineProps<{
@@ -55,6 +56,10 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
     :status-error="bus.composition.value ? stage.error.value : null"
     :project-root="project?.root ?? null"
   >
+    <template #library>
+      <Library />
+    </template>
+
     <template #stage>
       <div v-if="bus.composition.value" class="stage-wrap">
         <canvas

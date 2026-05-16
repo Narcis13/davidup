@@ -1,0 +1,125 @@
+{
+  "version": "0.1",
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "duration": 6.0,
+    "background": "#0a0e27"
+  },
+  "assets": [
+    {
+      "id": "ball",
+      "type": "image",
+      "src": "./assets/ball.png"
+    },
+    {
+      "id": "font-display",
+      "type": "font",
+      "src": "./fonts/BebasNeue-Regular.ttf",
+      "family": "DavidupDisplay"
+    }
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "z": 0,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": ["card"]
+    },
+    {
+      "id": "fg",
+      "z": 10,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": ["title", "ball"]
+    }
+  ],
+  "items": {
+    "card": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 720,
+      "height": 200,
+      "cornerRadius": 24,
+      "fillColor": "#1b2451",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0.9
+      }
+    },
+    "title": {
+      "type": "text",
+      "text": "Library demo",
+      "font": "font-display",
+      "fontSize": 96,
+      "color": "#ffffff",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    },
+    "ball": {
+      "type": "sprite",
+      "asset": "ball",
+      "width": 120,
+      "height": 120,
+      "transform": {
+        "x": 200,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": [
+    {
+      "id": "title-fade",
+      "target": "title",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0.4,
+      "duration": 0.8,
+      "easing": "easeOutQuad"
+    },
+    {
+      "id": "ball-roll",
+      "target": "ball",
+      "property": "transform.x",
+      "from": 200,
+      "to": 1080,
+      "start": 0.0,
+      "duration": 4.0,
+      "easing": "easeInOutQuad"
+    },
+    {
+      "id": "ball-spin",
+      "target": "ball",
+      "property": "transform.rotation",
+      "from": 0,
+      "to": 6.283,
+      "start": 0.0,
+      "duration": 4.0,
+      "easing": "linear"
+    }
+  ]
+}

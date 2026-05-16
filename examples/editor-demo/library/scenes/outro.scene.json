@@ -1,0 +1,28 @@
+{
+  "id": "outro",
+  "name": "Outro scene",
+  "description": "Closing scene with a single circle and a fade-out hook.",
+  "duration": 2,
+  "size": { "width": 1280, "height": 720 },
+  "params": [],
+  "items": {
+    "dot": {
+      "type": "shape",
+      "kind": "circle",
+      "width": 240,
+      "height": 240,
+      "fillColor": "#ff6b35",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": []
+}

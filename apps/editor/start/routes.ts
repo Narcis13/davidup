@@ -28,5 +28,6 @@ router
     router.get('/editor-state', [EditorStateController, 'show'])
     router.put('/editor-state', [EditorStateController, 'update'])
     router.get('/library', [LibraryController, 'index'])
+    router.get('/library/thumbnail', [LibraryController, 'thumbnail'])
   })
   .prefix('/api')

@@ -1,0 +1,48 @@
+{
+  "id": "intro",
+  "name": "Intro scene",
+  "description": "Three-second intro with a centered card and a brand line.",
+  "duration": 3,
+  "size": { "width": 1280, "height": 720 },
+  "params": [
+    { "name": "brand", "type": "string", "default": "davidup" }
+  ],
+  "items": {
+    "bg": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 1280,
+      "height": 720,
+      "fillColor": "#0a0e27",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    },
+    "card": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 640,
+      "height": 160,
+      "cornerRadius": 16,
+      "fillColor": "#1b2451",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": []
+}

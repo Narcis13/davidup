@@ -1,0 +1,42 @@
+{
+  "id": "titleCard",
+  "name": "Title card",
+  "description": "Centered title with optional subtitle. Title pops in; subtitle fades in shortly after.",
+  "params": [
+    { "name": "title", "type": "string", "required": true, "description": "Headline text." },
+    { "name": "subtitle", "type": "string", "default": "", "description": "Supporting line." },
+    { "name": "color", "type": "color", "default": "#ffffff" }
+  ],
+  "items": {
+    "title": {
+      "type": "text",
+      "text": "${params.title}",
+      "font": "DavidupDisplay",
+      "fontSize": 96,
+      "color": "${params.color}",
+      "align": "center",
+      "transform": {
+        "x": 640,
+        "y": 320,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      }
+    }
+  },
+  "tweens": [
+    {
+      "id": "title-pop",
+      "target": "title",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0,
+      "duration": 0.6,
+      "easing": "easeOutBack"
+    }
+  ]
+}

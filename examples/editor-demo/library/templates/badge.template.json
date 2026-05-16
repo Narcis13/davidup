@@ -1,0 +1,30 @@
+{
+  "id": "badge",
+  "name": "Pill badge",
+  "description": "Rounded pill with a label inside. Brand-tinted by default.",
+  "params": [
+    { "name": "label", "type": "string", "required": true },
+    { "name": "color", "type": "color", "default": "#ff6b35" }
+  ],
+  "items": {
+    "pill": {
+      "type": "shape",
+      "kind": "rect",
+      "width": 320,
+      "height": 96,
+      "cornerRadius": 48,
+      "fillColor": "${params.color}",
+      "transform": {
+        "x": 640,
+        "y": 360,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": []
+}
