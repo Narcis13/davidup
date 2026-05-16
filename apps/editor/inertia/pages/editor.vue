@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// Editor page — step 09 wires the Inspector into the three-panel shell.
+// Editor page — step 10 adds the Timeline to the three-panel shell.
 //
 // Step 05 mounted the davidup browser driver against a single full-bleed
 // canvas. Step 08 moved that canvas into the `stage` slot of the
-// three-panel layout. Step 09 now adds the Inspector to the `inspector`
-// slot: it reads the selected item via `useSelection`, dispatches typed
-// `update_item` commands through `useCommandBus`, and the live response
-// flows back into `useStage` which re-attaches at the preserved playhead.
+// three-panel layout. Step 09 added the Inspector to the `inspector` slot.
+// Step 10 now fills the `timeline` slot: tweens become semantic, color-
+// coded bars (template / behavior / scene / plain), the ruler shows the
+// composition's seconds grid, and the playhead is driven by
+// `useStage().playhead` so it tracks the engine's real RAF clock.
 //
 // Local composition state lives in `useCommandBus` so command results
 // can replace it in-place. The original payload is also retained as a
@@ -19,6 +20,7 @@ import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
 import EditorLayout from '~/layouts/editor.vue'
 import Inspector from '~/components/Inspector.vue'
+import Timeline from '~/components/Timeline.vue'
 
 const props = defineProps<{
   composition: Composition | null
@@ -80,6 +82,15 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
         :pending="bus.pending.value"
         :error="bus.error.value"
         @apply="bus.apply"
+      />
+    </template>
+
+    <template #timeline>
+      <Timeline
+        :composition="bus.composition.value"
+        :playhead="stage.playhead.value"
+        :status="bus.composition.value ? stage.status.value : null"
+        @seek="(t) => stage.seek(t)"
       />
     </template>
   </EditorLayout>

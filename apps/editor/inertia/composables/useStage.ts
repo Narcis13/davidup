@@ -34,6 +34,12 @@ export interface UseStageReturn {
   error: Ref<string | null>
   /** Current driver handle. Null until `attach()` resolves. */
   handle: Ref<AttachHandle | null>
+  /**
+   * Reactive playhead time in seconds. Advances via RAF while
+   * `status === 'playing'`; latches at the last value otherwise (ended,
+   * stopped, error, idle).
+   */
+  playhead: Ref<number>
   /** Re-attach against the canvas, replacing any active handle. */
   restart: () => Promise<void>
   /** Seek to `t` seconds (no-op when not attached). */
@@ -46,7 +52,9 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   const status = ref<StageStatus>('idle')
   const error = ref<string | null>(null)
   const handle = ref<AttachHandle | null>(null)
+  const playhead = ref(0)
   let endTimer: ReturnType<typeof setTimeout> | null = null
+  let rafId: number | null = null
   let cancelled = false
   // Wall-clock at which the current attach assumed t=0. Used to preserve the
   // playhead when the composition mutates (Inspector edits, MCP commands)
@@ -54,6 +62,34 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   // the start of the comp.
   let lastAttachStartMs = 0
   let lastAttachStartAt = 0
+
+  function cancelRaf(): void {
+    if (rafId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(rafId)
+    }
+    rafId = null
+  }
+
+  function tickPlayhead(): void {
+    if (status.value !== 'playing' || lastAttachStartMs === 0) {
+      rafId = null
+      return
+    }
+    const elapsed = (Date.now() - lastAttachStartMs) / 1000
+    const duration = readDuration(readComposition())
+    let next = Math.max(0, lastAttachStartAt + elapsed)
+    if (duration > 0 && next > duration) next = duration
+    playhead.value = next
+    if (typeof requestAnimationFrame !== 'undefined') {
+      rafId = requestAnimationFrame(tickPlayhead)
+    }
+  }
+
+  function startTicking(): void {
+    cancelRaf()
+    if (typeof requestAnimationFrame === 'undefined') return
+    rafId = requestAnimationFrame(tickPlayhead)
+  }
 
   function clearEndTimer(): void {
     if (endTimer !== null) {
@@ -114,7 +150,9 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       handle.value = h
       lastAttachStartMs = Date.now()
       lastAttachStartAt = startAt
+      playhead.value = startAt
       status.value = 'playing'
+      startTicking()
       if (duration > 0) {
         const remaining = Math.max(0, duration - startAt)
         endTimer = setTimeout(() => {
@@ -132,6 +170,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
 
   function stopInternal(): void {
     clearEndTimer()
+    cancelRaf()
     if (handle.value) {
       try {
         handle.value.stop()
@@ -187,6 +226,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       handle.value?.seek(t)
       lastAttachStartMs = Date.now()
       lastAttachStartAt = t
+      playhead.value = t
       if (status.value === 'ended') status.value = 'playing'
       clearEndTimer()
       const comp = readComposition()
@@ -200,11 +240,13 @@ export function useStage(options: UseStageOptions): UseStageReturn {
           (duration - t) * 1000 + 50,
         )
       }
+      if (status.value === 'playing') startTicking()
     },
     stop() {
       stopInternal()
       status.value = 'stopped'
     },
+    playhead,
   }
 }
 
