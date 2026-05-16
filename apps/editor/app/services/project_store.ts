@@ -1,8 +1,9 @@
 import { promises as fs } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
 import { precompile } from 'davidup/compose'
 import { validateComposition, type ValidationResult } from 'davidup/schema'
+import libraryIndex from '#services/library_index'
 
 export type LoadedProject = {
   root: string
@@ -157,6 +158,14 @@ export class ProjectStore {
       'project_store: loaded'
     )
 
+    if (hasLibrary) {
+      await libraryIndex.attach(dirname(libraryIndexPath)).catch((err) => {
+        logger.warn({ err }, 'project_store: library_index attach failed')
+      })
+    } else {
+      await libraryIndex.detach()
+    }
+
     return this.#project
   }
 
@@ -222,6 +231,7 @@ export class ProjectStore {
   async unload(): Promise<void> {
     await this.flush()
     this.#project = null
+    await libraryIndex.detach()
   }
 }
 

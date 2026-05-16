@@ -13,6 +13,7 @@ const ProjectsController = () => import('#controllers/projects_controller')
 const EditorController = () => import('#controllers/editor_controller')
 const CommandsController = () => import('#controllers/commands_controller')
 const EditorStateController = () => import('#controllers/editor_state_controller')
+const LibraryController = () => import('#controllers/library_controller')
 
 router.on('/').renderInertia('home')
 
@@ -26,5 +27,6 @@ router
     router.post('/command', [CommandsController, 'apply'])
     router.get('/editor-state', [EditorStateController, 'show'])
     router.put('/editor-state', [EditorStateController, 'update'])
+    router.get('/library', [LibraryController, 'index'])
   })
   .prefix('/api')
