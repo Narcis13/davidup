@@ -1,11 +1,14 @@
 <script setup lang="ts">
-// Stage — step 14 of the editor build plan extracts the canvas + drop
-// surface into its own component. The canvas itself was previously inline
-// in `pages/editor.vue` (steps 05 / 08). Pulling it out gives us a clean
-// place to wire the library drag-and-drop drop zone and the matching
-// hit-zone overlay without polluting the editor page with HTML5 DnD glue.
+// Stage — step 14 extracted the canvas + drop surface into its own
+// component, step 16 adds click-based hit-testing.
 //
-// The canvas ref is forwarded back to the page via `defineExpose` so
+// Click flow:
+//   1. user clicks somewhere on the canvas
+//   2. event clientX/Y → composition pixels via getBoundingClientRect
+//   3. pickItemAt(x, y) (current playhead) → { itemId, source? } | null
+//   4. setSelectionFromPick(itemId, source) — Inspector switches to it
+//
+// The canvas ref is still forwarded back to the page via `defineExpose` so
 // `useStage` can keep its existing `Ref<HTMLCanvasElement | null>` contract.
 
 import { computed, ref } from 'vue'
@@ -14,16 +17,30 @@ import {
   buildCommandsForStageDrop,
   useLibraryDrag,
 } from '~/composables/useLibraryDrag'
+import { useSelection, type PickSourceInfo } from '~/composables/useSelection'
+
+interface PickHit {
+  itemId: string
+  source?: PickSourceInfo
+}
 
 const props = defineProps<{
   composition: Composition | null
   /** Current playhead time in seconds — used for the drop's `start` field. */
   playhead: number
+  /**
+   * Hit-test fn supplied by the parent (the editor page wires
+   * `stage.pickItemAt`). Optional so this component still mounts in
+   * contexts where the driver isn't attached (SSR, empty project).
+   */
+  pickItemAt?: (x: number, y: number, t?: number) => PickHit | null
 }>()
 
 const emit = defineEmits<{
   (event: 'apply', command: Command): void
 }>()
+
+const selection = useSelection()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const stageWrap = ref<HTMLDivElement | null>(null)
@@ -106,6 +123,41 @@ function onDrop(event: DragEvent): void {
   })
   for (const cmd of commands) emit('apply', cmd)
 }
+
+function clickCoordsToCanvas(event: MouseEvent): { x: number; y: number } | null {
+  const canvasEl = canvas.value
+  if (!canvasEl) return null
+  const rect = canvasEl.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  const ratioX = (event.clientX - rect.left) / rect.width
+  const ratioY = (event.clientY - rect.top) / rect.height
+  if (ratioX < 0 || ratioX > 1 || ratioY < 0 || ratioY > 1) return null
+  return {
+    // Floor (not round) so a click at fractional CSS coords still indexes the
+    // pixel under the cursor, never one past the right/bottom edge.
+    x: Math.floor(ratioX * canvasWidth.value),
+    y: Math.floor(ratioY * canvasHeight.value),
+  }
+}
+
+function onCanvasClick(event: MouseEvent): void {
+  if (libraryDrag.isActive.value) return
+  if (!props.pickItemAt) return
+  const coords = clickCoordsToCanvas(event)
+  if (!coords) return
+  // Don't pass `props.playhead` — the editor's tracked playhead can drift
+  // from the engine's actual frame time (tab throttling parks RAF; the
+  // engine's self-termination past duration also leaves `playhead` ref
+  // stale). The driver, when not given an explicit t, computes the same
+  // clock value it just used to render — so picks always match pixels.
+  const hit = props.pickItemAt(coords.x, coords.y)
+  if (hit) {
+    selection.setSelectionFromPick(hit.itemId, hit.source ?? null)
+  } else {
+    // Clicking empty stage clears the selection — matches Figma/Sketch.
+    selection.setSelectionFromPick(null)
+  }
+}
 </script>
 
 <template>
@@ -124,9 +176,11 @@ function onDrop(event: DragEvent): void {
     <canvas
       ref="canvas"
       class="stage-canvas"
+      data-testid="stage-canvas"
       :width="canvasWidth"
       :height="canvasHeight"
       :style="{ aspectRatio: aspect }"
+      @click="onCanvasClick"
     />
     <div
       v-if="libraryDrag.isActive.value && dropAcceptsThisPayload()"
@@ -165,6 +219,8 @@ function onDrop(event: DragEvent): void {
   background: #000;
   image-rendering: auto;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  /* Crosshair signals the canvas is clickable for hit-testing (step 16). */
+  cursor: crosshair;
 }
 
 .drop-overlay {

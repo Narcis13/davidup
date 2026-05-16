@@ -12,7 +12,7 @@
 // markup-only; the engine starts the moment the client takes over.
 
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
-import type { AttachHandle } from 'davidup/browser'
+import type { AttachHandle, PickHit } from 'davidup/browser'
 
 export type StageStatus =
   | 'idle'
@@ -46,6 +46,12 @@ export interface UseStageReturn {
   seek: (t: number) => void
   /** Stop the loop. Idempotent. */
   stop: () => void
+  /**
+   * Hit-test a point in composition coordinates. Returns null when no item
+   * was painted at the pixel, or when the stage isn't attached yet. The
+   * Stage component converts CSS coords → composition coords before calling.
+   */
+  pickItemAt: (x: number, y: number, t?: number) => PickHit | null
 }
 
 export function useStage(options: UseStageOptions): UseStageReturn {
@@ -141,7 +147,10 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       const h = await mod.attach(
         comp as Parameters<typeof mod.attach>[0],
         canvasEl as unknown as Parameters<typeof mod.attach>[1],
-        { startAt },
+        // emitSourceMap unlocks pickItemAt's source-map output. The cost is
+        // a second precompile pass under the hood (the resolved JSON itself
+        // is byte-identical, see precompile.ts §"R1 mitigation").
+        { startAt, emitSourceMap: true },
       )
       if (cancelled) {
         h.stop()
@@ -245,6 +254,11 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     stop() {
       stopInternal()
       status.value = 'stopped'
+    },
+    pickItemAt(x: number, y: number, t?: number): PickHit | null {
+      const h = handle.value
+      if (!h) return null
+      return h.pickItemAt(x, y, t)
     },
     playhead,
   }

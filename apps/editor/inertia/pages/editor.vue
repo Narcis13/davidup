@@ -66,6 +66,7 @@ const stage = useStage({ composition: bus.composition, canvas })
         ref="stageRef"
         :composition="bus.composition.value"
         :playhead="stage.playhead.value"
+        :pick-item-at="stage.pickItemAt"
         @apply="bus.apply"
       />
       <div v-else class="empty">
