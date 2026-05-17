@@ -20,6 +20,7 @@
 // canvas mounts in step 05's existing page using the `stage` slot.
 
 import { usePanelLayout, type PanelKey } from '~/composables/usePanelLayout'
+import RenderStrip from '~/components/RenderStrip.vue'
 
 defineProps<{ status?: string | null; statusError?: string | null; projectRoot?: string | null }>()
 
@@ -56,9 +57,14 @@ function startDrag(event: PointerEvent, p: PanelKey) {
     />
 
     <main class="panel panel-stage" data-panel="stage">
-      <slot name="stage">
-        <p class="placeholder">Stage</p>
-      </slot>
+      <div class="stage-toolbar" data-testid="stage-toolbar">
+        <RenderStrip />
+      </div>
+      <div class="stage-canvas-wrap">
+        <slot name="stage">
+          <p class="placeholder">Stage</p>
+        </slot>
+      </div>
       <div v-if="status" class="stage-status" :data-status="status">
         <span>{{ status }}</span>
         <span v-if="statusError"> · {{ statusError }}</span>
@@ -140,8 +146,30 @@ function startDrag(event: PointerEvent, p: PanelKey) {
   grid-area: stage;
   background: #0a0a0a;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.stage-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  flex: 0 0 auto;
+  min-height: 38px;
+}
+
+.stage-canvas-wrap {
+  flex: 1 1 auto;
+  display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 0;
+  position: relative;
 }
 .panel-inspector {
   grid-area: inspector;
