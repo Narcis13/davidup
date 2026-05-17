@@ -21,6 +21,7 @@ router.on('/').renderInertia('home')
 
 router.get('/editor', [EditorController, 'show'])
 router.get('/project-files/*', [EditorController, 'file'])
+router.get('/library-files/*', [EditorController, 'libraryFile'])
 router.get('/project-renders/:filename', [RendersController, 'file'])
 
 router

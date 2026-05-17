@@ -2,7 +2,9 @@ import { test } from '@japa/runner'
 import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { stat as fsStat } from 'node:fs/promises'
 import projectStore from '#services/project_store'
+import globalLibraryRoot from '#services/global_library_root'
 import { rewriteAssetsForBrowser } from '#controllers/editor_controller'
 
 const VALID_COMP = {
@@ -78,6 +80,18 @@ test.group('rewriteAssetsForBrowser', () => {
     const out = rewriteAssetsForBrowser(comp) as typeof comp
     assert.equal(out.assets[0].src, 'https://cdn.example.com/foo.png')
     assert.equal(out.assets[1].src, 'data:image/png;base64,AAA')
+  })
+
+  test('rewrites `global:` srcs to /library-files/* URLs', ({ assert }) => {
+    const comp = {
+      assets: [
+        { id: 'g1', type: 'image', src: 'global:assets/abc.png' },
+        { id: 'g2', type: 'font', src: 'global:fonts/Inter.ttf', family: 'Inter' },
+      ],
+    }
+    const out = rewriteAssetsForBrowser(comp) as typeof comp
+    assert.equal(out.assets[0].src, '/library-files/assets/abc.png')
+    assert.equal(out.assets[1].src, '/library-files/fonts/Inter.ttf')
   })
 
   test('returns input unchanged when not an object', ({ assert }) => {
@@ -293,6 +307,68 @@ test.group('Editor file streaming', (group) => {
       await projectStore.unload()
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+test.group('Library file streaming (/library-files/*)', (group) => {
+  let prevEnv: string | undefined
+  let libDir: string
+
+  group.each.setup(async () => {
+    libDir = await mkdtemp(join(tmpdir(), 'davidup-libfiles-'))
+    prevEnv = process.env.DAVIDUP_LIBRARY
+    process.env.DAVIDUP_LIBRARY = libDir
+    globalLibraryRoot.setPath(libDir)
+  })
+
+  group.each.teardown(async () => {
+    if (prevEnv === undefined) delete process.env.DAVIDUP_LIBRARY
+    else process.env.DAVIDUP_LIBRARY = prevEnv
+    globalLibraryRoot.setPath(null)
+    await rm(libDir, { recursive: true, force: true })
+  })
+
+  test('creates the standard subdir layout on first ensure()', async ({ assert }) => {
+    await globalLibraryRoot.ensure()
+    for (const sub of ['templates', 'behaviors', 'scenes', 'assets', 'fonts']) {
+      const s = await fsStat(join(libDir, sub))
+      assert.isTrue(s.isDirectory(), `expected ${sub} to be a directory`)
+    }
+  })
+
+  test('streams a file from the global library root', async ({ client, assert }) => {
+    await mkdir(join(libDir, 'assets'), { recursive: true })
+    await writeFile(join(libDir, 'assets', 'logo.png'), Buffer.from([9, 9, 9, 9, 9]))
+    const res = await client.get('/library-files/assets/logo.png')
+    res.assertStatus(200)
+    assert.equal(res.header('content-type'), 'image/png')
+    assert.equal(res.header('content-length'), '5')
+  })
+
+  test('serves nested paths under the library root', async ({ client }) => {
+    await mkdir(join(libDir, 'fonts'), { recursive: true })
+    await writeFile(join(libDir, 'fonts', 'Inter.ttf'), Buffer.from('FONT'))
+    const res = await client.get('/library-files/fonts/Inter.ttf')
+    res.assertStatus(200)
+  })
+
+  test('does not require a project to be loaded', async ({ client }) => {
+    await projectStore.unload()
+    await mkdir(join(libDir, 'templates'), { recursive: true })
+    await writeFile(join(libDir, 'templates', 'card.template.json'), '{}')
+    const res = await client.get('/library-files/templates/card.template.json')
+    res.assertStatus(200)
+  })
+
+  test('returns 404 for missing files', async ({ client }) => {
+    const res = await client.get('/library-files/templates/missing.json')
+    res.assertStatus(404)
+    res.assertBodyContains({ error: { code: 'E_FILE_NOT_FOUND' } })
+  })
+
+  test('blocks path traversal with ../', async ({ client }) => {
+    const res = await client.get('/library-files/..%2F..%2Fetc%2Fpasswd')
+    assert(res.status() === 403 || res.status() === 404)
   })
 })
 

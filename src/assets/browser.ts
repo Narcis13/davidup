@@ -54,6 +54,13 @@ export class BrowserAssetLoader extends BaseAssetLoader {
   }
 
   private resolveUrl(src: string): string {
+    // `global:<rest>` → the shared-pool route the editor server exposes.
+    // The composition keeps the symbolic prefix so the file stays portable;
+    // the loader resolves it to a fetchable URL just before paint.
+    if (src.startsWith("global:")) {
+      const rest = src.slice("global:".length).replace(/^\/+/, "");
+      return `/library-files/${rest}`;
+    }
     if (!this.options.baseUrl) return src;
     if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith("data:") || src.startsWith("/")) {
       return src;

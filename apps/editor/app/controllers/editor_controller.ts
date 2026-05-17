@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { normalize, relative, resolve } from 'node:path'
 import type { HttpContext } from '@adonisjs/core/http'
 import projectStore from '#services/project_store'
+import globalLibraryRoot from '#services/global_library_root'
 
 export interface CompositionSource {
   /** Authored JSON text exactly as it lives on disk. */
@@ -40,6 +41,7 @@ export async function loadAuthoredCompositionSource(): Promise<CompositionSource
 }
 
 const PROJECT_FILES_PREFIX = '/project-files'
+const LIBRARY_FILES_PREFIX = '/library-files'
 
 type AssetLike = { src?: unknown; [k: string]: unknown }
 type CompositionLike = { assets?: unknown; [k: string]: unknown }
@@ -66,6 +68,11 @@ export function rewriteAssetsForBrowser(composition: unknown): unknown {
 }
 
 function toProjectFileUrl(src: string): string {
+  // Shared-pool srcs map to the global library route, not the project root.
+  if (src.startsWith('global:')) {
+    const rest = src.slice('global:'.length).replace(/^\/+/, '')
+    return `${LIBRARY_FILES_PREFIX}/${rest}`
+  }
   if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:')) return src
   // Strip leading ./ and / so it lines up with the `/project-files/...` route.
   const trimmed = src.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '')
@@ -132,6 +139,46 @@ export default class EditorController {
       })
     }
     return response.ok(source)
+  }
+
+  /**
+   * GET /library-files/* — stream any file under the global library root.
+   * Mirrors {@link file} but rooted at `$DAVIDUP_LIBRARY` (default
+   * `~/.davidup/library`). No project needs to be loaded — the shared
+   * pool exists at server scope. Same path-traversal guard.
+   */
+  async libraryFile({ params, response }: HttpContext) {
+    const root = await globalLibraryRoot.ensure()
+
+    const raw = params['*']
+    const segments = Array.isArray(raw) ? raw : raw ? [String(raw)] : []
+    if (segments.length === 0) {
+      return response.badRequest({
+        error: { code: 'E_EMPTY_PATH', message: 'File path is required' },
+      })
+    }
+
+    const rel = normalize(segments.join('/'))
+    const target = resolve(root, rel)
+    // Resolved path must remain inside the library root — block `../` traversal.
+    const inside = relative(root, target)
+    if (inside.startsWith('..') || resolve(root, inside) !== target) {
+      return response.forbidden({
+        error: { code: 'E_PATH_TRAVERSAL', message: 'Path escapes library root' },
+      })
+    }
+
+    const stat = await fs.stat(target).catch(() => null)
+    if (!stat || !stat.isFile()) {
+      return response.notFound({
+        error: { code: 'E_FILE_NOT_FOUND', message: `Not found: ${rel}` },
+      })
+    }
+
+    response.header('content-length', String(stat.size))
+    response.header('cache-control', 'no-cache')
+    response.type(extToContentType(target))
+    return response.stream(createReadStream(target))
   }
 
   /**
@@ -212,3 +259,4 @@ function extToContentType(path: string): string {
 
 // Re-export the URL prefix so route definitions stay in lockstep with rewrite.
 export const PROJECT_FILES_URL_PREFIX = PROJECT_FILES_PREFIX
+export const LIBRARY_FILES_URL_PREFIX = LIBRARY_FILES_PREFIX
