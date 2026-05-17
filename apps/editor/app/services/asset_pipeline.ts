@@ -24,8 +24,11 @@ import { spawn } from 'node:child_process'
 import logger from '@adonisjs/core/services/logger'
 import projectStore from '#services/project_store'
 import libraryIndex from '#services/library_index'
+import globalLibraryRoot from '#services/global_library_root'
 
 export type AssetKind = 'image' | 'video' | 'audio'
+
+export type AssetTarget = 'project' | 'global'
 
 export interface AssetRecord {
   id: string
@@ -53,6 +56,12 @@ export interface AssetIngestInput {
   contentType?: string
   /** Pre-computed size (bytes). Optional — stat() is used as fallback. */
   size?: number
+  /**
+   * Which library root to write into. `'project'` (default) writes into
+   * `<project>/library/`; `'global'` writes into the shared pool at
+   * `$DAVIDUP_LIBRARY` (default `~/.davidup/library`).
+   */
+  target?: AssetTarget
 }
 
 export type AssetIngestErrorCode =
@@ -432,9 +441,18 @@ export class AssetPipeline {
   }
 
   async ingest(input: AssetIngestInput): Promise<AssetRecord> {
-    const project = projectStore.project
-    if (!project) {
-      throw new AssetIngestError('E_NO_PROJECT', 'No project loaded')
+    const target: AssetTarget = input.target ?? 'project'
+
+    let libraryRoot: string
+    if (target === 'global') {
+      // Global pool exists at server scope; no project load required.
+      libraryRoot = await globalLibraryRoot.ensure()
+    } else {
+      const project = projectStore.project
+      if (!project) {
+        throw new AssetIngestError('E_NO_PROJECT', 'No project loaded')
+      }
+      libraryRoot = join(project.root, 'library')
     }
 
     const displayName = safeDisplayName(input.clientName)
@@ -447,7 +465,6 @@ export class AssetPipeline {
     }
 
     const { hash, size } = await hashFile(input.tmpPath)
-    const libraryRoot = join(project.root, 'library')
     const assetsDir = join(libraryRoot, 'assets')
     await ensureDir(assetsDir)
 

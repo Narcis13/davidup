@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import assetPipeline, { AssetIngestError } from '#services/asset_pipeline'
+import assetPipeline, { AssetIngestError, type AssetTarget } from '#services/asset_pipeline'
 import projectStore from '#services/project_store'
 
 const ALLOWED_EXTNAMES = [
@@ -32,7 +32,22 @@ export default class AssetsController {
    * Requires a loaded project (404 with E_NO_PROJECT otherwise).
    */
   async store({ request, response }: HttpContext) {
-    if (!projectStore.project) {
+    const rawTarget = request.input('target')
+    let target: AssetTarget = 'project'
+    if (rawTarget !== undefined && rawTarget !== null && rawTarget !== '') {
+      if (rawTarget === 'project' || rawTarget === 'global') {
+        target = rawTarget
+      } else {
+        return response.badRequest({
+          error: {
+            code: 'E_BAD_REQUEST',
+            message: `Unknown target "${String(rawTarget)}". Allowed: project, global.`,
+          },
+        })
+      }
+    }
+
+    if (target === 'project' && !projectStore.project) {
       return response.notFound({
         error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
       })
@@ -68,6 +83,7 @@ export default class AssetsController {
         clientName: file.clientName,
         contentType: file.headers?.['content-type'] as string | undefined,
         size: file.size,
+        target,
       })
       return response.created({ asset: record })
     } catch (err) {

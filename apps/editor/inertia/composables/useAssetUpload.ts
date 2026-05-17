@@ -94,6 +94,8 @@ export function isUploadableFile(file: { name: string }): boolean {
   return ALLOWED_EXT.has(extOf(file.name))
 }
 
+export type UploadTarget = 'project' | 'global'
+
 export interface UploadOptions {
   /** Override the upload endpoint (used in tests). */
   endpoint?: string
@@ -103,6 +105,11 @@ export interface UploadOptions {
   successLingerMs?: number
   /** Delay before error toasts auto-dismiss (ms). */
   errorLingerMs?: number
+  /**
+   * Which library root the server should write into. Defaults to `'project'`;
+   * `'global'` writes to the shared pool at `$DAVIDUP_LIBRARY`.
+   */
+  target?: UploadTarget
 }
 
 export interface UseAssetUploadApi {
@@ -174,6 +181,7 @@ function startUpload(
 
   const form = new FormData()
   form.append('file', file, file.name)
+  if (opts.target) form.append('target', opts.target)
 
   xhr.open('POST', endpoint)
   xhr.responseType = 'json'

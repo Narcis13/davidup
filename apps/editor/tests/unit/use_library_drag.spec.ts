@@ -197,6 +197,7 @@ test.group('useLibraryDrag · brand defaults resolution', () => {
       id: 'titleCard',
       name: 'Title card',
       source: 'templates/title-card.template.json',
+      scope: 'project',
       params: [
         { name: 'title', type: 'string', required: true },
         { name: 'subtitle', type: 'string', default: '' },

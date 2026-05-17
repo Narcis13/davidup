@@ -1,12 +1,17 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import libraryIndex, { type LibraryItemKind } from '#services/library_index'
+import libraryIndex, { type LibraryItemKind, type LibraryScope } from '#services/library_index'
 import libraryThumbnail from '#services/library_thumbnail'
 import projectStore from '#services/project_store'
 
 const ALLOWED_KINDS: LibraryItemKind[] = ['template', 'behavior', 'scene', 'asset', 'font']
+const ALLOWED_SCOPES: LibraryScope[] = ['project', 'global']
 
 function isAllowedKind(value: string): value is LibraryItemKind {
   return (ALLOWED_KINDS as readonly string[]).includes(value)
+}
+
+function isAllowedScope(value: string): value is LibraryScope {
+  return (ALLOWED_SCOPES as readonly string[]).includes(value)
 }
 
 export default class LibraryController {
@@ -30,9 +35,18 @@ export default class LibraryController {
         },
       })
     }
+    const scopeRaw = typeof qsRaw.scope === 'string' ? qsRaw.scope : undefined
+    if (scopeRaw !== undefined && !isAllowedScope(scopeRaw)) {
+      return response.badRequest({
+        error: {
+          code: 'E_BAD_REQUEST',
+          message: `Unknown scope "${scopeRaw}". Allowed: ${ALLOWED_SCOPES.join(', ')}.`,
+        },
+      })
+    }
 
     const catalog = libraryIndex.getCatalog()
-    const items = libraryIndex.search({ q, kind: kindRaw })
+    const items = libraryIndex.search({ q, kind: kindRaw, scope: scopeRaw })
 
     return response.ok({
       root: catalog.root,
@@ -43,7 +57,7 @@ export default class LibraryController {
       projectRoot: projectStore.project?.root ?? null,
       count: items.length,
       total: catalog.items.length,
-      query: { q: q ?? null, kind: kindRaw ?? null },
+      query: { q: q ?? null, kind: kindRaw ?? null, scope: scopeRaw ?? null },
       items,
       errors: catalog.errors,
     })

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import projectStore from '#services/project_store'
 import libraryIndex from '#services/library_index'
+import globalLibraryRoot from '#services/global_library_root'
 
 // Minimal 1x1 RGB PNG (white pixel). Stable across runs → stable hash.
 const PNG_1X1_WHITE_BASE64 =
@@ -275,6 +276,246 @@ test.group('Asset upload pipeline · POST /api/assets', (group) => {
         })
       res.assertStatus(400)
       res.assertBodyContains({ error: { code: 'E_BAD_REQUEST' } })
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// ─── step 20.7: `target=global` writes into the shared pool ─────────────────
+test.group('Asset upload pipeline · target=global', (group) => {
+  let prevEnv: string | undefined
+  let globalDir: string
+
+  group.each.setup(async () => {
+    await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
+    await projectStore.unload()
+    globalDir = await mkdtemp(join(tmpdir(), 'davidup-global-assets-'))
+    prevEnv = process.env.DAVIDUP_LIBRARY
+    process.env.DAVIDUP_LIBRARY = globalDir
+    globalLibraryRoot.setPath(globalDir)
+  })
+
+  group.each.teardown(async () => {
+    if (prevEnv === undefined) delete process.env.DAVIDUP_LIBRARY
+    else process.env.DAVIDUP_LIBRARY = prevEnv
+    globalLibraryRoot.setPath(null)
+    await libraryIndex.detachGlobal()
+    await rm(globalDir, { recursive: true, force: true })
+  })
+
+  test('target=global writes to the global root even without a project loaded', async ({
+    client,
+    assert,
+  }) => {
+    const bytes = pngBytes()
+    const expectedHash = createHash('sha256').update(bytes).digest('hex')
+
+    const res = await client
+      .post('/api/assets')
+      .field('target', 'global')
+      .file('file', bytes, { filename: 'logo.png', contentType: 'image/png' })
+    res.assertStatus(201)
+    const body = res.body() as { asset: Record<string, unknown> }
+    assert.equal(body.asset.id, expectedHash)
+    assert.equal(body.asset.url, `assets/${expectedHash}.png`)
+
+    const onDisk = join(globalDir, 'assets', `${expectedHash}.png`)
+    assert.isTrue(
+      await pathExists(onDisk),
+      'asset bytes should land under the global library root'
+    )
+
+    const idx = JSON.parse(await readFile(join(globalDir, 'index.json'), 'utf8')) as {
+      assets: Array<{ id: string }>
+    }
+    assert.equal(idx.assets.length, 1)
+    assert.equal(idx.assets[0].id, expectedHash)
+  })
+
+  test('target=global does not touch the project library', async ({ client, assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    try {
+      await client.post('/api/project').json({ directory: dir })
+      const bytes = pngBytes()
+
+      const res = await client
+        .post('/api/assets')
+        .field('target', 'global')
+        .file('file', bytes, { filename: 'shared.png', contentType: 'image/png' })
+      res.assertStatus(201)
+
+      // Project library/index.json should retain its empty assets array.
+      const projIdx = JSON.parse(
+        await readFile(join(dir, 'library', 'index.json'), 'utf8')
+      ) as { assets: unknown[] }
+      assert.equal(projIdx.assets.length, 0, 'project library must not be written to')
+
+      // And the global pool got the entry.
+      const globIdx = JSON.parse(
+        await readFile(join(globalDir, 'index.json'), 'utf8')
+      ) as { assets: Array<{ id: string }> }
+      assert.equal(globIdx.assets.length, 1)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('default target (omitted) still requires a project and writes locally', async ({
+    client,
+  }) => {
+    // No project + no target → falls back to project mode → 404 E_NO_PROJECT.
+    const bytes = pngBytes()
+    const res = await client
+      .post('/api/assets')
+      .file('file', bytes, { filename: 'a.png', contentType: 'image/png' })
+    res.assertStatus(404)
+    res.assertBodyContains({ error: { code: 'E_NO_PROJECT' } })
+  })
+
+  test('unknown target value rejects with E_BAD_REQUEST', async ({ client }) => {
+    const bytes = pngBytes()
+    const res = await client
+      .post('/api/assets')
+      .field('target', 'cloud')
+      .file('file', bytes, { filename: 'a.png', contentType: 'image/png' })
+    res.assertStatus(400)
+    res.assertBodyContains({ error: { code: 'E_BAD_REQUEST' } })
+  })
+
+  test('global upload appears in /api/library?scope=global within 2s', async ({
+    client,
+    assert,
+  }) => {
+    // Attach the global pool watcher to the same tmp directory so the catalog
+    // picks the new asset up.
+    await libraryIndex.attachGlobal(globalDir)
+
+    const bytes = pngBytes()
+    const expectedHash = createHash('sha256').update(bytes).digest('hex')
+
+    const uploadRes = await client
+      .post('/api/assets')
+      .field('target', 'global')
+      .file('file', bytes, { filename: 'shared.png', contentType: 'image/png' })
+    uploadRes.assertStatus(201)
+
+    const deadline = Date.now() + 2000
+    let found = false
+    while (Date.now() < deadline) {
+      await libraryIndex.flush()
+      const res = await client.get('/api/library').qs({ kind: 'asset', scope: 'global' })
+      const body = res.body() as { items: Array<{ id: string; scope: string }> }
+      if (body.items.some((i) => i.id === expectedHash && i.scope === 'global')) {
+        found = true
+        break
+      }
+      await delay(75)
+    }
+    assert.isTrue(found, 'global asset should surface in /api/library?scope=global within 2s')
+  })
+})
+
+// ─── step 20.7: GET /api/library?scope=… filter validation ──────────────────
+test.group('Library catalog · scope filter', (group) => {
+  let prevEnv: string | undefined
+  let globalDir: string
+
+  group.each.setup(async () => {
+    await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
+    await projectStore.unload()
+    globalDir = await mkdtemp(join(tmpdir(), 'davidup-scope-filter-'))
+    prevEnv = process.env.DAVIDUP_LIBRARY
+    process.env.DAVIDUP_LIBRARY = globalDir
+    globalLibraryRoot.setPath(globalDir)
+  })
+
+  group.each.teardown(async () => {
+    if (prevEnv === undefined) delete process.env.DAVIDUP_LIBRARY
+    else process.env.DAVIDUP_LIBRARY = prevEnv
+    globalLibraryRoot.setPath(null)
+    await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
+    await rm(globalDir, { recursive: true, force: true })
+  })
+
+  test('rejects unknown scope with 400', async ({ client }) => {
+    const res = await client.get('/api/library').qs({ scope: 'cloud' })
+    res.assertStatus(400)
+    res.assertBodyContains({ error: { code: 'E_BAD_REQUEST' } })
+  })
+
+  test('scope=global returns only global items; scope=project returns project ones', async ({
+    client,
+    assert,
+  }) => {
+    // Seed the global pool with one asset, attach the watcher.
+    await mkdir(join(globalDir), { recursive: true })
+    await writeFile(
+      join(globalDir, 'index.json'),
+      JSON.stringify({
+        version: '0.1',
+        templates: [],
+        behaviors: [],
+        scenes: [],
+        assets: [{ id: 'global-only', url: 'assets/g.png' }],
+        fonts: [],
+      }),
+      'utf8'
+    )
+    await libraryIndex.attachGlobal(globalDir)
+
+    // Seed a project library too.
+    const dir = await mkdtemp(join(tmpdir(), 'davidup-scope-filter-proj-'))
+    await writeFile(
+      join(dir, 'composition.json'),
+      JSON.stringify(VALID_COMP, null, 2),
+      'utf8'
+    )
+    await mkdir(join(dir, 'library'), { recursive: true })
+    await writeFile(
+      join(dir, 'library', 'index.json'),
+      JSON.stringify({
+        version: '0.1',
+        templates: [],
+        behaviors: [],
+        scenes: [],
+        assets: [{ id: 'project-only', url: 'assets/p.png' }],
+        fonts: [],
+      }),
+      'utf8'
+    )
+    try {
+      await client.post('/api/project').json({ directory: dir })
+      await libraryIndex.flush()
+
+      const globalRes = await client.get('/api/library').qs({ scope: 'global' })
+      globalRes.assertStatus(200)
+      const globalBody = globalRes.body() as {
+        items: Array<{ id: string; scope: string }>
+      }
+      assert.isTrue(
+        globalBody.items.every((i) => i.scope === 'global'),
+        'scope=global must filter to global-only items'
+      )
+      assert.isTrue(globalBody.items.some((i) => i.id === 'global-only'))
+      assert.isFalse(globalBody.items.some((i) => i.id === 'project-only'))
+
+      const projectRes = await client.get('/api/library').qs({ scope: 'project' })
+      projectRes.assertStatus(200)
+      const projectBody = projectRes.body() as {
+        items: Array<{ id: string; scope: string }>
+      }
+      assert.isTrue(
+        projectBody.items.every((i) => i.scope === 'project'),
+        'scope=project must filter to project-only items'
+      )
+      assert.isTrue(projectBody.items.some((i) => i.id === 'project-only'))
+      assert.isFalse(projectBody.items.some((i) => i.id === 'global-only'))
     } finally {
       await projectStore.unload()
       await rm(dir, { recursive: true, force: true })

@@ -19,7 +19,13 @@
 // 2-second poll refreshes the catalog so the new card appears.
 
 import { computed, ref } from 'vue'
-import { useLibrary, LIBRARY_TABS, type LibraryTab } from '~/composables/useLibrary'
+import {
+  useLibrary,
+  LIBRARY_TABS,
+  LIBRARY_SCOPES,
+  type LibraryTab,
+  type LibraryScopeFilter,
+} from '~/composables/useLibrary'
 import { useAssetUpload, isUploadableFile } from '~/composables/useAssetUpload'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import LibraryCard from '~/components/LibraryCard.vue'
@@ -37,9 +43,29 @@ const tabLabels: Record<LibraryTab, string> = {
 
 const visibleTabs = computed<LibraryTab[]>(() => LIBRARY_TABS as LibraryTab[])
 
+const scopeLabels: Record<LibraryScopeFilter, string> = {
+  project: '📁 Project',
+  global: '🌐 Global',
+  all: 'All',
+}
+
 function setTab(t: LibraryTab) {
   lib.tab.value = t
 }
+
+function setScope(s: LibraryScopeFilter) {
+  lib.scope.value = s
+}
+
+/**
+ * Where new uploads should land. The scope toggle doubles as the
+ * "save to global" switch: when the user is filtering to `Global`,
+ * dropped files go to the shared pool; otherwise they land in the
+ * current project library. `All` defaults to project.
+ */
+const uploadTarget = computed<'project' | 'global'>(() =>
+  lib.scope.value === 'global' ? 'global' : 'project'
+)
 
 const emptyHint = computed(() => {
   if (!lib.attached.value) {
@@ -106,7 +132,7 @@ function onDrop(event: DragEvent): void {
   }
   // Hand every file off — unsupported ones get an error toast rather than a
   // silent no-op.
-  uploads.uploadFiles(Array.from(files))
+  uploads.uploadFiles(Array.from(files), { target: uploadTarget.value })
 }
 </script>
 
@@ -141,6 +167,36 @@ function onDrop(event: DragEvent): void {
         ⟳
       </button>
     </div>
+
+    <nav
+      class="scope-tabs"
+      role="tablist"
+      aria-label="Library scope"
+      data-testid="library-scope-tabs"
+    >
+      <button
+        v-for="s in LIBRARY_SCOPES"
+        :key="s"
+        type="button"
+        role="tab"
+        :aria-selected="lib.scope.value === s"
+        :data-scope="s"
+        :data-active="lib.scope.value === s ? 'true' : 'false'"
+        class="scope-pill"
+        @click="setScope(s)"
+      >
+        {{ scopeLabels[s] }}
+      </button>
+      <span class="scope-spacer" />
+      <span
+        v-if="uploadTarget === 'global'"
+        class="scope-hint"
+        data-testid="library-upload-hint"
+        :title="`Drops upload to ~/.davidup/library`"
+      >
+        ⤓ to 🌐 global
+      </span>
+    </nav>
 
     <nav class="tabs" role="tablist" aria-label="Library kinds">
       <button
@@ -177,7 +233,7 @@ function onDrop(event: DragEvent): void {
     >
       <LibraryCard
         v-for="item in lib.items.value"
-        :key="`${item.kind}:${item.id}:${item.source}`"
+        :key="`${item.kind}:${item.id}:${item.scope}:${item.source}`"
         :item="item"
         :generation="lib.generation.value"
       />
@@ -308,6 +364,53 @@ function onDrop(event: DragEvent): void {
 .refresh-btn:disabled {
   opacity: 0.5;
   cursor: progress;
+}
+
+.scope-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+
+.scope-pill {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #909090;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.scope-pill:hover {
+  color: #e5e5e5;
+}
+
+.scope-pill[data-active='true'] {
+  color: #e5e5e5;
+  background: rgba(91, 124, 250, 0.18);
+  border-color: rgba(91, 124, 250, 0.4);
+}
+
+.scope-spacer {
+  flex: 1 1 auto;
+}
+
+.scope-hint {
+  font-size: 10px;
+  color: #ffb86b;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  padding-right: 8px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .tabs {

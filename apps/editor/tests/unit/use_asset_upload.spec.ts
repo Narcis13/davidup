@@ -210,4 +210,42 @@ test.group('useAssetUpload · uploadFiles', (group) => {
     assert.equal(api.activeCount.value, 3)
     assert.isTrue(api.isUploading.value)
   })
+
+  test('target=global appends a `target` field to the multipart body', ({ assert }) => {
+    const api = useAssetUpload()
+    const xhrs: FakeXhr[] = []
+    api.uploadFiles([fakeFile('logo.png', 4096)], {
+      target: 'global',
+      xhrFactory: () => {
+        const x = new FakeXhr()
+        xhrs.push(x)
+        return x as unknown as XMLHttpRequest
+      },
+      successLingerMs: 0,
+      errorLingerMs: 0,
+    })
+    const form = xhrs[0]!.sentBody as FormData
+    assert.instanceOf(form, FormData)
+    assert.equal(form.get('target'), 'global')
+    assert.exists(form.get('file'), 'file part should still be present')
+  })
+
+  test('omitting target leaves the body without a target field (server defaults to project)', ({
+    assert,
+  }) => {
+    const api = useAssetUpload()
+    const xhrs: FakeXhr[] = []
+    api.uploadFiles([fakeFile('logo.png', 4096)], {
+      xhrFactory: () => {
+        const x = new FakeXhr()
+        xhrs.push(x)
+        return x as unknown as XMLHttpRequest
+      },
+      successLingerMs: 0,
+      errorLingerMs: 0,
+    })
+    const form = xhrs[0]!.sentBody as FormData
+    assert.instanceOf(form, FormData)
+    assert.isNull(form.get('target'), 'no target field when caller did not opt in')
+  })
 })

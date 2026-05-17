@@ -16,12 +16,21 @@ import { computed, ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vu
 
 export type LibraryItemKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
 
+export type LibraryScope = 'project' | 'global'
+
 export interface LibraryItem {
   kind: LibraryItemKind
   id: string
   name?: string
   description?: string
   source: string
+  /** Which root the entry came from. */
+  scope: LibraryScope
+  /**
+   * True only on the loser of an id collision (the global copy when a
+   * project entry shadows it). The winning copy omits this flag.
+   */
+  overridden?: boolean
   params?: unknown[]
   emits?: string[]
   duration?: number
@@ -34,10 +43,11 @@ export interface LibraryResponse {
   root: string | null
   loadedAt: number
   attached: boolean
+  globalAttached?: boolean
   projectRoot: string | null
   count: number
   total: number
-  query: { q: string | null; kind: string | null }
+  query: { q: string | null; kind: string | null; scope?: string | null }
   items: LibraryItem[]
   errors: { file: string; message: string }[]
 }
@@ -51,9 +61,14 @@ export const LIBRARY_TABS: LibraryTab[] = [
   'font',
 ]
 
+export type LibraryScopeFilter = LibraryScope | 'all'
+export const LIBRARY_SCOPES: LibraryScopeFilter[] = ['project', 'global', 'all']
+
 export interface UseLibraryOptions {
   /** Initial tab. */
   initialTab?: LibraryTab
+  /** Initial scope filter (default `'all'`). */
+  initialScope?: LibraryScopeFilter
   /** Override the default `/api/library` base path (used in tests). */
   endpoint?: string
   /** Disable the polling refresh used to pick up file-watcher changes. */
@@ -68,6 +83,7 @@ const Q_DEBOUNCE_MS = 150
 export function useLibrary(opts: UseLibraryOptions = {}) {
   const endpoint = opts.endpoint ?? '/api/library'
   const tab = ref<LibraryTab>(opts.initialTab ?? 'template')
+  const scope = ref<LibraryScopeFilter>(opts.initialScope ?? 'all')
   const query = ref('')
   const response = shallowRef<LibraryResponse | null>(null)
   const loading = ref(false)
@@ -86,6 +102,7 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
     try {
       const params = new URLSearchParams()
       if (tab.value !== 'all') params.set('kind', tab.value)
+      if (scope.value !== 'all') params.set('scope', scope.value)
       if (query.value) params.set('q', query.value)
       const url = params.toString().length > 0 ? `${endpoint}?${params}` : endpoint
       const res = await fetch(url, {
@@ -130,6 +147,10 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
     void fetchCatalog()
   })
 
+  watch(scope, () => {
+    void fetchCatalog()
+  })
+
   watch(query, () => {
     scheduleQueryFetch()
   })
@@ -160,6 +181,7 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
 
   return {
     tab,
+    scope,
     query,
     items,
     attached,

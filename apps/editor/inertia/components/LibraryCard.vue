@@ -90,6 +90,16 @@ const subtitle = computed(() => {
 })
 
 const kindLabel = computed(() => props.item.kind)
+
+const scope = computed(() => props.item.scope ?? 'project')
+const scopeChip = computed(() => (scope.value === 'global' ? '🌐' : '📁'))
+const scopeChipTitle = computed(() =>
+  scope.value === 'global' ? 'Global library (~/.davidup/library)' : 'Project library'
+)
+const isOverridden = computed(() => props.item.overridden === true)
+const overrideTitle = computed(() =>
+  isOverridden.value ? 'Shadowed by a project entry with the same id' : ''
+)
 </script>
 
 <template>
@@ -98,6 +108,8 @@ const kindLabel = computed(() => props.item.kind)
     class="library-card"
     :data-kind="item.kind"
     :data-item-id="item.id"
+    :data-scope="scope"
+    :data-overridden="isOverridden ? 'true' : null"
     :data-dragging="isDragging ? 'true' : null"
     draggable="true"
     tabindex="0"
@@ -123,13 +135,28 @@ const kindLabel = computed(() => props.item.kind)
       <div v-if="!loaded && !errored && inView" class="thumb-shimmer" aria-hidden="true" />
 
       <span class="kind-badge" :data-kind="item.kind">{{ kindLabel }}</span>
+      <span
+        class="scope-chip"
+        :data-scope="scope"
+        :title="scopeChipTitle"
+        aria-hidden="true"
+      >
+        {{ scopeChip }}
+      </span>
     </div>
     <div class="meta">
-      <h3 class="name" :title="displayName">{{ displayName }}</h3>
+      <h3 class="name" :class="{ 'name-overridden': isOverridden }" :title="displayName">
+        {{ displayName }}
+      </h3>
       <p class="sub" :title="subtitle">{{ subtitle }}</p>
-      <p class="prov" :title="provenance">
+      <p
+        class="prov"
+        :class="{ 'prov-overridden': isOverridden }"
+        :title="isOverridden ? overrideTitle : provenance"
+      >
         <span class="prov-dot" />
-        {{ provenance }}
+        <span class="prov-text">{{ provenance }}</span>
+        <span v-if="isOverridden" class="prov-note">overridden</span>
       </p>
     </div>
   </article>
@@ -233,6 +260,23 @@ const kindLabel = computed(() => props.item.kind)
   pointer-events: none;
 }
 
+.scope-chip {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  user-select: none;
+}
+
+.library-card[data-overridden='true'] .scope-chip {
+  opacity: 0.45;
+}
+
 .kind-badge[data-kind='template'] {
   color: #ffb86b;
 }
@@ -295,5 +339,45 @@ const kindLabel = computed(() => props.item.kind)
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.25);
   flex: 0 0 auto;
+}
+
+.prov-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.prov-note {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: rgba(255, 184, 107, 0.18);
+  color: #ffb86b;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+
+.library-card[data-overridden='true'] {
+  opacity: 0.72;
+}
+
+.library-card[data-overridden='true'] .thumb-wrap {
+  opacity: 0.7;
+}
+
+.name-overridden {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 184, 107, 0.6);
+  text-decoration-thickness: 1px;
+  color: #b0b0b0;
+}
+
+.prov-overridden .prov-text {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 184, 107, 0.55);
+  text-decoration-thickness: 1px;
 }
 </style>
