@@ -5,6 +5,8 @@ import { precompile } from 'davidup/compose'
 import { validateComposition, type ValidationResult } from 'davidup/schema'
 import libraryIndex from '#services/library_index'
 import recents from '#services/recents'
+import projectEvents from '#services/project_events'
+import renderJobs from '../workers/render_worker.js'
 
 export type LoadedProject = {
   root: string
@@ -77,6 +79,8 @@ export class ProjectStore {
    */
   async load(directory: string): Promise<LoadedProject> {
     await this.flush()
+    const wasAlreadyLoaded = this.#project !== null
+    const priorRoot = this.#project?.root ?? null
 
     const root = resolve(directory)
     const rootStat = await fs.stat(root).catch(() => null)
@@ -140,6 +144,33 @@ export class ProjectStore {
       .then((s) => s.isDirectory())
       .catch(() => false)
 
+    // Project switch — full reset (polish_plan 20.11). When a different
+    // project is loaded against an already-running server, drop every piece
+    // of in-memory state tied to the old project before swapping the
+    // composition. The order matters: clear undo first (cheap, can't fail),
+    // abort renders (synchronous), then detach the library (async I/O). We
+    // do this only after the new composition has parsed + validated, so a
+    // failed switch leaves the prior project untouched.
+    if (wasAlreadyLoaded && priorRoot !== root) {
+      try {
+        const { default: commandBus } = await import('#services/command_bus')
+        commandBus.resetUndo()
+      } catch (err) {
+        logger.warn({ err }, 'project_store: failed to reset command-bus undo on switch')
+      }
+      try {
+        const n = renderJobs.abortInFlight('Render aborted: project switched')
+        if (n > 0) logger.info({ aborted: n }, 'project_store: aborted in-flight renders')
+      } catch (err) {
+        logger.warn({ err }, 'project_store: failed to abort in-flight renders on switch')
+      }
+      try {
+        await libraryIndex.detachProject()
+      } catch (err) {
+        logger.warn({ err }, 'project_store: failed to detach library on switch')
+      }
+    }
+
     this.#project = {
       root,
       compositionPath,
@@ -173,6 +204,14 @@ export class ProjectStore {
     await recents.touch(root).catch((err) => {
       logger.warn({ err, root }, 'project_store: failed to bump recents')
     })
+
+    // Broadcast a project-switch event so connected editor tabs can refetch
+    // their Inertia props. Emitted only when the load swapped a previously
+    // loaded project for a different one — the first-load case is handled by
+    // the initial GET /editor render.
+    if (wasAlreadyLoaded && priorRoot !== root) {
+      projectEvents.emitChanged(root)
+    }
 
     return this.#project
   }

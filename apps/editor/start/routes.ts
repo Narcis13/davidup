@@ -31,6 +31,7 @@ router
     router.get('/projects/recent', [ProjectsController, 'recent'])
     router.post('/projects', [ProjectsController, 'store'])
     router.delete('/projects/recent/:idx', [ProjectsController, 'forget'])
+    router.get('/projects/events', [ProjectsController, 'events'])
     router.post('/command', [CommandsController, 'apply'])
     router.get('/composition-source', [EditorController, 'compositionSource'])
     router.get('/editor-state', [EditorStateController, 'show'])

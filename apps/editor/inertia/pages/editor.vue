@@ -14,7 +14,7 @@
 // baseline so the Inspector can render the orange "overridden" dot.
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Head } from '@inertiajs/vue3'
+import { Head, router } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
 import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
@@ -167,6 +167,14 @@ function onWindowDrop(event: DragEvent): void {
   uploads.uploadFiles(Array.from(files))
 }
 
+// ─── Step 20.11: project-switch live refetch ─────────────────────────────
+// The editor subscribes to /api/projects/events so a project switch (from
+// another tab, the CLI, or — once 20.12 lands — the in-app project picker)
+// reloads the page with the new composition prop. `router.reload()` keeps
+// scroll position and other ephemeral UI state; only Inertia-provided props
+// are refetched.
+let projectEventSource: EventSource | null = null
+
 onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', onKeydown)
@@ -174,6 +182,13 @@ onMounted(() => {
     window.addEventListener('dragover', onWindowDragOver)
     window.addEventListener('dragleave', onWindowDragLeave)
     window.addEventListener('drop', onWindowDrop)
+
+    if (typeof EventSource !== 'undefined') {
+      projectEventSource = new EventSource('/api/projects/events')
+      projectEventSource.addEventListener('changed', () => {
+        router.reload()
+      })
+    }
   }
 })
 
@@ -184,6 +199,10 @@ onBeforeUnmount(() => {
     window.removeEventListener('dragover', onWindowDragOver)
     window.removeEventListener('dragleave', onWindowDragLeave)
     window.removeEventListener('drop', onWindowDrop)
+  }
+  if (projectEventSource) {
+    projectEventSource.close()
+    projectEventSource = null
   }
 })
 </script>

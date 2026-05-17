@@ -251,6 +251,16 @@ export class CommandBus {
     this.#queue = Promise.resolve()
   }
 
+  /**
+   * Clear the undo stack without touching subscribers or the serialization
+   * queue. Called by `ProjectStore#load()` on a project switch — the undo
+   * history is project-scoped (FR-09), so reverting into the prior project's
+   * snapshots after switching would corrupt the new composition.
+   */
+  resetUndo(): void {
+    this.#undoStack.length = 0
+  }
+
   #pushUndo(snapshot: Composition, command: Command): void {
     this.#undoStack.push({ snapshot: deepClone(snapshot), command })
     while (this.#undoStack.length > this.#undoDepth) {

@@ -1,8 +1,92 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { resolve } from 'node:path'
+import { isAbsolute, normalize, resolve, sep } from 'node:path'
 import { scaffoldProject, ScaffoldError } from 'davidup/cli/scaffold'
 import projectStore, { ProjectLoadError } from '#services/project_store'
+import projectEvents, { type ProjectChangedPayload } from '#services/project_events'
 import recents from '#services/recents'
+
+/**
+ * Path-traversal / hostile-input guard for project directory inputs (audit §8).
+ *
+ * The editor server only binds to localhost by default, but POST /api/project
+ * and POST /api/projects accept a user-supplied filesystem path that gets
+ * passed straight to `ProjectStore#load` / scaffold. If anyone widens the
+ * bind to a remote interface (Docker, ngrok, reverse proxy), an unguarded
+ * input here is "open any directory on the host". We reject inputs that:
+ *  - are empty, not a string, or absurdly long (≥ 4096 chars),
+ *  - contain a NUL byte or other ASCII control character,
+ *  - contain a `..` path segment (after normalization),
+ *  - resolve to a known sensitive system root (`/etc`, `/proc`, `/sys`,
+ *    `/dev`, `/root`, `/private/etc`, `/private/var/db`, `/Library/Keychains`,
+ *    Windows `\Windows`, `\Program Files`).
+ *
+ * The resolved (absolute, normalized) directory is returned on success — the
+ * controller hands that string to the store rather than the original input.
+ */
+const SENSITIVE_PREFIXES: ReadonlyArray<string> = [
+  '/etc',
+  '/proc',
+  '/sys',
+  '/dev',
+  '/root',
+  '/private/etc',
+  '/private/var/db',
+  '/Library/Keychains',
+  '/System',
+  'C:\\Windows',
+  'C:\\Program Files',
+  'C:\\Program Files (x86)',
+]
+
+function guardProjectDirectory(input: unknown):
+  | { ok: true; directory: string }
+  | { ok: false; code: 'E_BAD_REQUEST' | 'E_FORBIDDEN_PATH'; message: string } {
+  if (typeof input !== 'string' || input.length === 0) {
+    return { ok: false, code: 'E_BAD_REQUEST', message: 'Body `directory` (string) is required' }
+  }
+  if (input.length >= 4096) {
+    return { ok: false, code: 'E_BAD_REQUEST', message: 'Directory path is too long' }
+  }
+  // Reject NUL bytes and other ASCII control characters that should never
+  // appear in a filesystem path. A NUL byte in particular can confuse OS
+  // path-handling and is a known traversal trick on some C bindings.
+  if (/[\x00-\x1f]/.test(input)) {
+    return {
+      ok: false,
+      code: 'E_BAD_REQUEST',
+      message: 'Directory path contains control characters',
+    }
+  }
+  // Reject `..` segments in the *input* — `path.resolve` normalizes them
+  // away, but the explicit form signals intent to escape an expected base.
+  const normalized = normalize(input)
+  const segments = normalized.split(/[\\/]/)
+  if (segments.includes('..')) {
+    return {
+      ok: false,
+      code: 'E_FORBIDDEN_PATH',
+      message: 'Directory path may not contain `..` segments',
+    }
+  }
+  const directory = resolve(input)
+  // Sensitive-root check uses startsWith on `dir + sep` so `/etc-foo` is not
+  // mistaken for a child of `/etc`. The exact match is also rejected.
+  for (const prefix of SENSITIVE_PREFIXES) {
+    if (directory === prefix || directory.startsWith(prefix + sep) || directory.startsWith(prefix + '/')) {
+      return {
+        ok: false,
+        code: 'E_FORBIDDEN_PATH',
+        message: `Directory path is in a protected system location (${prefix})`,
+      }
+    }
+  }
+  // Belt-and-braces: after `path.resolve` the result must be absolute. This
+  // is true on every supported platform but we guard against future surprises.
+  if (!isAbsolute(directory)) {
+    return { ok: false, code: 'E_BAD_REQUEST', message: 'Directory path did not resolve to an absolute path' }
+  }
+  return { ok: true, directory }
+}
 
 export default class ProjectsController {
   /**
@@ -43,15 +127,14 @@ export default class ProjectsController {
    */
   async load({ request, response }: HttpContext) {
     const body = request.body() as { directory?: unknown }
-    const directory = typeof body?.directory === 'string' ? body.directory : ''
-    if (!directory) {
-      return response.badRequest({
-        error: { code: 'E_BAD_REQUEST', message: 'Body `directory` (string) is required' },
-      })
+    const guard = guardProjectDirectory(body?.directory)
+    if (!guard.ok) {
+      const status = guard.code === 'E_FORBIDDEN_PATH' ? 403 : 400
+      return response.status(status).send({ error: { code: guard.code, message: guard.message } })
     }
 
     try {
-      const project = await projectStore.load(directory)
+      const project = await projectStore.load(guard.directory)
       return response.ok({
         root: project.root,
         compositionPath: project.compositionPath,
@@ -98,17 +181,16 @@ export default class ProjectsController {
       name?: unknown
       template?: unknown
     }
-    const directoryRaw = typeof body?.directory === 'string' ? body.directory : ''
-    if (!directoryRaw) {
-      return response.badRequest({
-        error: { code: 'E_BAD_REQUEST', message: 'Body `directory` (string) is required' },
-      })
+    const guard = guardProjectDirectory(body?.directory)
+    if (!guard.ok) {
+      const status = guard.code === 'E_FORBIDDEN_PATH' ? 403 : 400
+      return response.status(status).send({ error: { code: guard.code, message: guard.message } })
     }
     const template = typeof body?.template === 'string' && body.template.length > 0
       ? body.template
       : undefined
     const name = typeof body?.name === 'string' && body.name.length > 0 ? body.name : undefined
-    const targetDir = resolve(directoryRaw)
+    const targetDir = guard.directory
 
     try {
       await scaffoldProject({
@@ -182,5 +264,69 @@ export default class ProjectsController {
     const target = current[idx]!
     const projects = await recents.forget(target.path)
     return response.ok({ projects })
+  }
+
+  /**
+   * GET /api/projects/events — SSE channel for project lifecycle events.
+   *
+   * Today only one event is emitted: `changed`, fired when the loaded project
+   * is swapped via POST /api/project or POST /api/projects. Inertia clients
+   * subscribe via EventSource and call `router.reload()` on receipt.
+   *
+   * Wire format (matches `renders_controller.events` for consistency with the
+   * future Transmit migration):
+   *
+   *     event: changed
+   *     data: {"type":"changed","root":"/Users/me/proj","at":1747401812345}
+   */
+  async events({ request, response }: HttpContext) {
+    const raw = response.response
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    if (typeof raw.flushHeaders === 'function') raw.flushHeaders()
+
+    // Hello frame so EventSource flips to OPEN immediately.
+    raw.write(`: connected\n\n`)
+
+    function write(event: ProjectChangedPayload): void {
+      try {
+        raw.write(`event: ${event.type}\n`)
+        raw.write(`data: ${JSON.stringify(event)}\n\n`)
+      } catch {
+        // The client closed the socket — cleanup handlers below will fire.
+      }
+    }
+
+    // Heartbeat every 15s so reverse proxies don't reap an idle stream.
+    const heartbeat = setInterval(() => {
+      try {
+        raw.write(`: ping ${Date.now()}\n\n`)
+      } catch {
+        clearInterval(heartbeat)
+      }
+    }, 15_000)
+
+    const onChanged = (payload: ProjectChangedPayload): void => {
+      write(payload)
+    }
+    projectEvents.on('changed', onChanged)
+
+    const cleanup = (): void => {
+      clearInterval(heartbeat)
+      projectEvents.off('changed', onChanged)
+    }
+
+    return new Promise<void>((resolveStream) => {
+      const onClose = () => {
+        cleanup()
+        resolveStream()
+      }
+      request.request.on('close', onClose)
+      raw.on('close', onClose)
+    })
   }
 }

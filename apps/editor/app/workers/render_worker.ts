@@ -143,6 +143,13 @@ export class RenderJob extends EventEmitter {
   status: RenderJobStatus = 'pending'
   lastProgress: RenderProgressEvent | null = null
   final: RenderDoneEvent | RenderErrorEvent | null = null
+  /**
+   * Set by {@link abort} when the project is switched mid-render. The
+   * underlying ffmpeg / skia work cannot be cancelled cleanly (renderToFile
+   * doesn't take an AbortSignal), so we mark the job terminal and the orphan
+   * output is left in the old project's `renders/` directory.
+   */
+  aborted = false
 
   #donePromise: Promise<RenderDoneEvent | RenderErrorEvent>
   #resolveDone!: (ev: RenderDoneEvent | RenderErrorEvent) => void
@@ -166,6 +173,25 @@ export class RenderJob extends EventEmitter {
   /** Resolves once the job terminates (success or failure). Never rejects. */
   whenDone(): Promise<RenderDoneEvent | RenderErrorEvent> {
     return this.#donePromise
+  }
+
+  /**
+   * Surface an error event to subscribers and resolve the done-promise so SSE
+   * listeners disconnect cleanly. Called by {@link RenderJobRegistry.abortInFlight}
+   * when the project switches. No-op once the job already terminated.
+   */
+  abort(reason: string): void {
+    if (this.status === 'done' || this.status === 'error') return
+    this.aborted = true
+    const errEv: RenderErrorEvent = {
+      type: 'error',
+      jobId: this.jobId,
+      message: reason,
+    }
+    this.status = 'error'
+    this.final = errEv
+    this.emit('event', errEv)
+    this.#resolveDone(errEv)
   }
 
   /**
@@ -286,6 +312,24 @@ export class RenderJobRegistry {
   /** Drop all retained jobs. Used by tests; not called in normal operation. */
   clear(): void {
     this.#jobs.clear()
+  }
+
+  /**
+   * Abort every non-terminal job. Each job emits an `error` event so SSE
+   * subscribers see a clean shutdown, then the job is marked terminal. The
+   * underlying ffmpeg subprocess continues to run in the background until it
+   * exits on its own — the orphan output lands in the old project's
+   * `renders/` directory and is harmless. Returns the number of jobs aborted.
+   */
+  abortInFlight(reason = 'Render aborted: project switched'): number {
+    let n = 0
+    for (const job of this.#jobs.values()) {
+      if (job.status === 'pending' || job.status === 'running') {
+        job.abort(reason)
+        n += 1
+      }
+    }
+    return n
   }
 }
 
