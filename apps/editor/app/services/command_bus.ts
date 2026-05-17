@@ -70,6 +70,14 @@ export interface ChangeEvent {
   prev: Composition
   next: Composition
   undoStackSize: number
+  /**
+   * True when this event was produced by `undo()` rather than a forward
+   * `apply()`. The `command` and `source` fields carry the *original*
+   * command being reverted — so a subscriber that tracks "most recent
+   * change source per item" treats the undo of an MCP edit as another
+   * MCP-attributed change.
+   */
+  undo: boolean
 }
 
 export interface ApplyResult {
@@ -86,10 +94,20 @@ export interface ApplyResult {
 
 type Subscriber = (event: ChangeEvent) => void
 
+// One entry per applied command. We snapshot the *pre*-apply composition so
+// undo can restore it, and we carry the command that produced the post-state.
+// That command's source is what `undo()` reports to subscribers — undoing an
+// MCP edit must look like an MCP-attributed change to the Inspector pill,
+// not get rewritten to 'ui' (the F5 bug this step closes).
+interface UndoEntry {
+  snapshot: Composition
+  command: Command
+}
+
 export class CommandBus {
   readonly #projectStore: ProjectStore
   readonly #undoDepth: number
-  readonly #undoStack: Composition[] = []
+  readonly #undoStack: UndoEntry[] = []
   readonly #subscribers = new Set<Subscriber>()
   // Serialization chain: each apply() splices itself onto the tail. Reading
   // `#projectStore.composition` and writing it back straddles an `await`, so
@@ -168,7 +186,7 @@ export class CommandBus {
       throw new PostValidationError(result)
     }
 
-    this.#pushUndo(current)
+    this.#pushUndo(current, command)
     this.#projectStore.update(next)
 
     const event: ChangeEvent = {
@@ -177,6 +195,7 @@ export class CommandBus {
       prev: current,
       next,
       undoStackSize: this.#undoStack.length,
+      undo: false,
     }
     this.#emit(event)
 
@@ -193,30 +212,28 @@ export class CommandBus {
    * composition. Returns the restored composition or `null` if the stack is
    * empty. The redo stack is intentionally not implemented — the PRD calls
    * for a linear, project-scoped undo (FR-09); redo lands in a later step.
+   *
+   * The emitted ChangeEvent carries the *original* command's source — undoing
+   * an MCP edit reports `source: 'mcp'` so per-item "AI edit" attribution
+   * stays correct (closes F5).
    */
   undo(): Composition | null {
-    const prev = this.#undoStack.pop()
-    if (!prev) return null
+    const entry = this.#undoStack.pop()
+    if (!entry) return null
     const current = this.#projectStore.composition as Composition | null
-    this.#projectStore.update(prev)
+    this.#projectStore.update(entry.snapshot)
     if (current) {
       const event: ChangeEvent = {
-        command: {
-          kind: 'set_composition_property',
-          payload: { property: 'duration', value: prev.composition.duration },
-          source: 'ui',
-        } satisfies Command,
-        source: 'ui',
+        command: entry.command,
+        source: entry.command.source,
         prev: current,
-        next: prev,
+        next: entry.snapshot,
         undoStackSize: this.#undoStack.length,
+        undo: true,
       }
-      // Don't emit a fake command event for undo — subscribers shouldn't
-      // confuse it with a forward command. A future step adds a dedicated
-      // 'undo' event channel.
-      void event
+      this.#emit(event)
     }
-    return prev
+    return entry.snapshot
   }
 
   /** Subscribe to change events. Returns an unsubscribe function. */
@@ -234,8 +251,8 @@ export class CommandBus {
     this.#queue = Promise.resolve()
   }
 
-  #pushUndo(snapshot: Composition): void {
-    this.#undoStack.push(deepClone(snapshot))
+  #pushUndo(snapshot: Composition, command: Command): void {
+    this.#undoStack.push({ snapshot: deepClone(snapshot), command })
     while (this.#undoStack.length > this.#undoDepth) {
       this.#undoStack.shift()
     }

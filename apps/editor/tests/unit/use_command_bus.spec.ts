@@ -10,7 +10,12 @@
 // without jsdom.
 
 import { test } from '@japa/runner'
-import { readPath, rewriteAssetsForBrowser } from '../../inertia/composables/useCommandBus.js'
+import {
+  affectedItemIds,
+  readPath,
+  rewriteAssetsForBrowser,
+  type Command,
+} from '../../inertia/composables/useCommandBus.js'
 
 test.group('useCommandBus · readPath', () => {
   test('reads a top-level field', ({ assert }) => {
@@ -67,5 +72,82 @@ test.group('useCommandBus · rewriteAssetsForBrowser', () => {
     const before = JSON.stringify(input)
     rewriteAssetsForBrowser(input as Parameters<typeof rewriteAssetsForBrowser>[0])
     assert.equal(JSON.stringify(input), before)
+  })
+})
+
+// Per-item attribution for the Inspector "AI edit" pill (step 20.2). The
+// composable's `itemLastSource` map is built by calling `affectedItemIds`
+// on the echoed command + toolResult — wrong attribution = wrong pill on
+// the wrong item, which is the FR-13 user-visible bug.
+test.group('useCommandBus · affectedItemIds', () => {
+  test('update_item targets payload.id', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'update_item',
+      payload: { id: 'spr-1', props: { opacity: 0.5 } },
+      source: 'mcp',
+    }
+    assert.deepEqual(affectedItemIds(cmd, undefined), ['spr-1'])
+  })
+
+  test('remove_item targets payload.id', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'remove_item',
+      payload: { id: 'gone' },
+      source: 'ui',
+    }
+    assert.deepEqual(affectedItemIds(cmd, undefined), ['gone'])
+  })
+
+  test('move_item_to_layer reads payload.itemId', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'move_item_to_layer',
+      payload: { itemId: 'spr-2', targetLayerId: 'bg' },
+      source: 'mcp',
+    }
+    assert.deepEqual(affectedItemIds(cmd, undefined), ['spr-2'])
+  })
+
+  test('apply_behavior reads payload.target', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'apply_behavior',
+      payload: { target: 'item-x', behavior: 'wobble', start: 0, duration: 1 },
+      source: 'mcp',
+    }
+    assert.deepEqual(affectedItemIds(cmd, undefined), ['item-x'])
+  })
+
+  test('add_sprite prefers toolResult.itemId over payload.id', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'add_sprite',
+      payload: { layerId: 'fg', asset: 'ball', x: 0, y: 0, width: 10, height: 10 },
+      source: 'mcp',
+    }
+    assert.deepEqual(affectedItemIds(cmd, { itemId: 'spr-generated' }), ['spr-generated'])
+  })
+
+  test('add_shape falls back to payload.id when toolResult has none', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'add_shape',
+      payload: {
+        layerId: 'fg',
+        kind: 'rect',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        id: 'explicit-id',
+      },
+      source: 'ui',
+    }
+    assert.deepEqual(affectedItemIds(cmd, null), ['explicit-id'])
+  })
+
+  test('commands that do not target a single item return []', ({ assert }) => {
+    const cmd: Command = {
+      kind: 'set_composition_property',
+      payload: { property: 'duration', value: 5 },
+      source: 'ui',
+    }
+    assert.deepEqual(affectedItemIds(cmd, undefined), [])
   })
 })

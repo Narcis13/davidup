@@ -17,7 +17,7 @@ export default class CommandsController {
    * composition.
    *
    * Status codes:
-   *   200 — applied, returns `{ composition, command, undoStackSize }`.
+   *   200 — applied, returns `{ composition, command, undoStackSize, toolResult }`.
    *   400 — malformed command shape (Zod rejection).
    *   404 — no project loaded.
    *   409 — tool rejected the mutation (E_TWEEN_OVERLAP, E_NOT_FOUND, …).
@@ -40,6 +40,7 @@ export default class CommandsController {
         composition: result.composition,
         command: result.command,
         undoStackSize: result.undoStackSize,
+        toolResult: result.toolResult,
       })
     } catch (err) {
       if (err instanceof CommandValidationError) {

@@ -12,7 +12,7 @@
 // stage keeps rendering after a command — otherwise the loader 404s on
 // the relative path.
 
-import { ref, type Ref } from 'vue'
+import { ref, shallowRef, triggerRef, type Ref, type ShallowRef } from 'vue'
 
 // The server (`app/types/commands.ts`) is the single source of truth for
 // the Command discriminated union. The client only needs the wire shape;
@@ -22,6 +22,8 @@ export interface Command {
   payload: Record<string, unknown>
   source?: 'ui' | 'mcp'
 }
+
+export type CommandSource = 'ui' | 'mcp'
 
 type Composition = {
   composition: { width: number; height: number; duration: number; background?: string }
@@ -61,6 +63,42 @@ export interface UseCommandBusReturn {
   pending: Ref<boolean>
   error: Ref<string | null>
   apply: (command: Command) => Promise<void>
+  /**
+   * Source of the most recent mutation that touched each item id. The
+   * Inspector reads this to render the "AI edit" pill when the selected
+   * item's last change came from MCP. Built foundation for FR-13.
+   */
+  itemLastSource: ShallowRef<ReadonlyMap<string, CommandSource>>
+}
+
+/**
+ * Items affected by a command. Used to attribute the command's source to
+ * specific items in `itemLastSource`. Generated ids (when payload.id is
+ * omitted on add_*) come back in `toolResult` — we pull them out there.
+ */
+function affectedItemIds(command: Command, toolResult: unknown): string[] {
+  const payload = command.payload as Record<string, unknown>
+  switch (command.kind) {
+    case 'update_item':
+    case 'remove_item':
+      return typeof payload.id === 'string' ? [payload.id] : []
+    case 'move_item_to_layer':
+      return typeof payload.itemId === 'string' ? [payload.itemId] : []
+    case 'add_sprite':
+    case 'add_text':
+    case 'add_shape':
+    case 'add_group': {
+      // Prefer the server-confirmed id from toolResult; fall back to the
+      // payload.id the caller supplied. Tools return `{ itemId }`.
+      const tr = toolResult as { itemId?: unknown } | null | undefined
+      if (tr && typeof tr.itemId === 'string') return [tr.itemId]
+      return typeof payload.id === 'string' ? [payload.id] : []
+    }
+    case 'apply_behavior':
+      return typeof payload.target === 'string' ? [payload.target] : []
+    default:
+      return []
+  }
 }
 
 export function useCommandBus(options: UseCommandBusOptions): UseCommandBusReturn {
@@ -70,6 +108,10 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
   ) as Ref<Composition | null>
   const pending = ref(false)
   const error = ref<string | null>(null)
+  // Per-item last-edit attribution. shallowRef + manual triggerRef avoids
+  // wrapping every Map mutation in a reactive proxy — the Inspector only
+  // reads .get() and never iterates, so deep reactivity buys nothing.
+  const itemLastSource = shallowRef<Map<string, CommandSource>>(new Map())
 
   async function apply(command: Command): Promise<void> {
     pending.value = true
@@ -90,8 +132,23 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
         }
         throw new Error(detail || `HTTP ${res.status}`)
       }
-      const data = (await res.json()) as { composition: Composition }
+      const data = (await res.json()) as {
+        composition: Composition
+        command: Command
+        toolResult?: unknown
+      }
       composition.value = rewriteAssetsForBrowser(data.composition)
+
+      // The server echoes the parsed command (with `source` defaulted). Use
+      // that — not the outgoing `command` — so any server-side normalisation
+      // (currently just the Zod default) reaches the attribution map.
+      const echoed = data.command ?? command
+      const source: CommandSource = echoed.source === 'mcp' ? 'mcp' : 'ui'
+      const affected = affectedItemIds(echoed, data.toolResult)
+      if (affected.length > 0) {
+        for (const id of affected) itemLastSource.value.set(id, source)
+        triggerRef(itemLastSource)
+      }
     } catch (err) {
       error.value = (err as Error).message ?? String(err)
     } finally {
@@ -105,6 +162,7 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     pending,
     error,
     apply,
+    itemLastSource,
   }
 }
 
@@ -122,4 +180,4 @@ export function readPath(obj: unknown, path: string): unknown {
 }
 
 export type { Composition }
-export { rewriteAssetsForBrowser }
+export { rewriteAssetsForBrowser, affectedItemIds }

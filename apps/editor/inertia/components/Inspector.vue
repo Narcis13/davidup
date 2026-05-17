@@ -20,7 +20,7 @@
 
 import { computed } from 'vue'
 import { useSelection } from '~/composables/useSelection'
-import type { Command, Composition } from '~/composables/useCommandBus'
+import type { Command, CommandSource, Composition } from '~/composables/useCommandBus'
 import { readPath } from '~/composables/useCommandBus'
 import NumberInput from '~/components/inputs/Number.vue'
 import StringInput from '~/components/inputs/String.vue'
@@ -49,6 +49,11 @@ const props = defineProps<{
   baseline: Composition | null
   pending?: boolean
   error?: string | null
+  // Step 20.2 — most recent edit source per item id. When the selected
+  // item's last change came from MCP, the header renders an "AI edit"
+  // pill (foundation for FR-13). Optional so existing callers that don't
+  // yet pass it keep working (the pill just never appears).
+  itemLastSource?: ReadonlyMap<string, CommandSource>
 }>()
 
 const emit = defineEmits<{
@@ -91,6 +96,15 @@ const selectedItem = computed<ItemLike | null>(() => {
   const item = (comp.items as Record<string, ItemLike>)[id]
   return item ?? null
 })
+
+const selectedItemLastSource = computed<CommandSource | null>(() => {
+  const id = selection.selectedItemId.value
+  const map = props.itemLastSource
+  if (!id || !map) return null
+  return map.get(id) ?? null
+})
+
+const showAiEditPill = computed<boolean>(() => selectedItemLastSource.value === 'mcp')
 
 const baselineItem = computed<ItemLike | null>(() => {
   const base = props.baseline
@@ -281,7 +295,15 @@ function onSelectionChange(event: Event): void {
       <section class="section">
         <header class="section-header">
           <span class="section-title">Transform</span>
-          <span class="section-meta">{{ selectedItem.type }}</span>
+          <span class="section-meta-group">
+            <span
+              v-if="showAiEditPill"
+              class="ai-edit-pill"
+              data-testid="inspector-ai-edit-pill"
+              title="Most recent change to this item came from an MCP / AI tool call"
+            >AI edit</span>
+            <span class="section-meta">{{ selectedItem.type }}</span>
+          </span>
         </header>
         <div class="fields">
           <template v-for="field in TRANSFORM_FIELDS" :key="`tx-${field.key}`">
@@ -444,6 +466,25 @@ function onSelectionChange(event: Event): void {
   font-size: 11px;
   color: #707070;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.section-meta-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-edit-pill {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d4c4ff;
+  background: rgba(140, 110, 255, 0.16);
+  border: 1px solid rgba(140, 110, 255, 0.42);
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  line-height: 1;
 }
 
 .fields {

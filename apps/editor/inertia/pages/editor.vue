@@ -223,6 +223,7 @@ onBeforeUnmount(() => {
         :baseline="bus.baseline.value"
         :pending="bus.pending.value"
         :error="bus.error.value"
+        :item-last-source="bus.itemLastSource.value"
         @apply="bus.apply"
       />
     </template>
