@@ -91,6 +91,12 @@ export class CommandBus {
   readonly #undoDepth: number
   readonly #undoStack: Composition[] = []
   readonly #subscribers = new Set<Subscriber>()
+  // Serialization chain: each apply() splices itself onto the tail. Reading
+  // `#projectStore.composition` and writing it back straddles an `await`, so
+  // two interleaved calls would otherwise both read the same baseline and
+  // the second would clobber the first. The chain guarantees one apply runs
+  // to completion (success or failure) before the next reads composition.
+  #queue: Promise<unknown> = Promise.resolve()
 
   constructor(opts: { projectStore?: ProjectStore; undoDepth?: number } = {}) {
     this.#projectStore = opts.projectStore ?? projectStoreSingleton
@@ -110,8 +116,24 @@ export class CommandBus {
    * It's run through `CommandSchema` (the same schema both clients use)
    * before anything else happens, so callers cannot bypass validation by
    * pre-typing the input.
+   *
+   * Concurrent callers are serialized in call order via `#queue`, so a UI
+   * edit fired at the same microtask as an MCP edit will see the UI's
+   * post-state before it runs (or vice versa, depending on which was
+   * scheduled first). Without that, both would read the same baseline and
+   * the loser would silently overwrite the winner — D11 in the audit.
    */
   async apply(rawCommand: unknown): Promise<ApplyResult> {
+    const run = (): Promise<ApplyResult> => this.#applyNow(rawCommand)
+    const next = this.#queue.then(run, run)
+    // `#queue` must never reject — a thrown apply would poison every queued
+    // call after it. Swallow failures on the chain itself; the original
+    // rejection still surfaces through the returned promise to the caller.
+    this.#queue = next.catch(() => undefined)
+    return next
+  }
+
+  async #applyNow(rawCommand: unknown): Promise<ApplyResult> {
     const parsed = CommandSchema.safeParse(rawCommand)
     if (!parsed.success) {
       throw new CommandValidationError(
@@ -209,6 +231,7 @@ export class CommandBus {
   reset(): void {
     this.#subscribers.clear()
     this.#undoStack.length = 0
+    this.#queue = Promise.resolve()
   }
 
   #pushUndo(snapshot: Composition): void {
