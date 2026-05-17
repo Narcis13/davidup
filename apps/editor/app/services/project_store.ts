@@ -4,6 +4,7 @@ import logger from '@adonisjs/core/services/logger'
 import { precompile } from 'davidup/compose'
 import { validateComposition, type ValidationResult } from 'davidup/schema'
 import libraryIndex from '#services/library_index'
+import recents from '#services/recents'
 
 export type LoadedProject = {
   root: string
@@ -165,6 +166,13 @@ export class ProjectStore {
     } else {
       await libraryIndex.detach()
     }
+
+    // Best-effort recents bump. A failure to update ~/.davidup/recents.json
+    // must not block the load — the editor stays usable even if the picker's
+    // history can't be persisted.
+    await recents.touch(root).catch((err) => {
+      logger.warn({ err, root }, 'project_store: failed to bump recents')
+    })
 
     return this.#project
   }
