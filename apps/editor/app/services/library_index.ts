@@ -1,13 +1,22 @@
-// Library index reader — step 12 of the editor build plan.
+// Library index reader — step 12, extended for step 20.6 (two-root pool).
 //
-// Watches `<project>/library/index.json` + `<project>/library/**/*.{behavior,template,scene}.json`
-// and builds an in-memory catalog the Library panel can render. Changes on
-// disk propagate to the catalog within ~1s (debounce + fs.watch).
+// Watches up to two library roots in parallel:
+//   * the **global** pool at `$DAVIDUP_LIBRARY` (default `~/.davidup/library`),
+//     attached once at server boot and never replaced;
+//   * the **project** pool at `<project>/library/`, rebound every time a
+//     different project is loaded.
 //
-// The catalog is intentionally schema-loose: each file is parsed as JSON,
-// summary fields are extracted for indexing/search, and the raw object is
-// preserved for clients that need full data. Parse/IO errors are recorded
-// per-file but do not abort the whole reload.
+// The merged catalog the Library panel renders includes every item from both
+// roots. When the same `(kind, id)` appears in both, the project entry wins:
+// the project copy carries `scope: 'project'` (no `overridden` flag), and the
+// global copy is emitted with `scope: 'global', overridden: true` so the UI
+// can show a strike-through provenance hint.
+//
+// Changes on disk in either root propagate to the catalog within ~1s
+// (debounce + per-root `fs.watch`). The engine REGISTRY is updated to reflect
+// the *winning* definition for each id — i.e. project beats global, and a
+// `detachProject()` re-registers the global definition that was previously
+// shadowed.
 
 import { promises as fs } from 'node:fs'
 import { watch, type FSWatcher } from 'node:fs'
@@ -31,13 +40,22 @@ import {
 
 export type LibraryItemKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
 
+export type LibraryScope = 'project' | 'global'
+
 export interface LibraryItem {
   kind: LibraryItemKind
   id: string
   name?: string
   description?: string
-  /** Path relative to the library root, or `'index.json'` for inline entries. */
+  /** Path relative to the owning root, or `'index.json'` for inline entries. */
   source: string
+  /** Which root the entry came from. */
+  scope: LibraryScope
+  /**
+   * True only on the *loser* of an id collision (always the `global` copy
+   * today, since project wins). The winning copy omits this flag.
+   */
+  overridden?: boolean
   /** Summary fields used by the Library panel; kind-specific. */
   params?: unknown[]
   emits?: string[]
@@ -48,16 +66,25 @@ export interface LibraryItem {
   raw?: unknown
 }
 
+export interface LibraryRootInfo {
+  scope: LibraryScope
+  path: string
+}
+
 export interface LibraryCatalog {
+  /** Project root path, kept for backward compatibility. `null` when detached. */
   root: string | null
+  /** Every currently-attached root, in scope order (`global`, then `project`). */
+  roots: LibraryRootInfo[]
   loadedAt: number
   items: LibraryItem[]
-  errors: { file: string; message: string }[]
+  errors: { file: string; message: string; scope: LibraryScope }[]
 }
 
 export interface LibrarySearch {
   q?: string
   kind?: LibraryItemKind
+  scope?: LibraryScope
 }
 
 const DEFAULT_DEBOUNCE_MS = 100
@@ -110,6 +137,7 @@ function readDefinitionItem(
   raw: unknown,
   kind: LibraryItemKind,
   source: string,
+  scope: LibraryScope,
   fallbackId: string,
 ): LibraryItem | null {
   const obj = asObject(raw)
@@ -119,6 +147,7 @@ function readDefinitionItem(
     kind,
     id,
     source,
+    scope,
     raw: obj,
   }
   const name = asString(obj.name)
@@ -134,12 +163,12 @@ function readDefinitionItem(
   return item
 }
 
-function readAssetItem(raw: unknown, source: string): LibraryItem | null {
+function readAssetItem(raw: unknown, source: string, scope: LibraryScope): LibraryItem | null {
   const obj = asObject(raw)
   if (!obj) return null
   const id = asString(obj.id) ?? asString(obj.name) ?? asString(obj.url)
   if (!id) return null
-  const item: LibraryItem = { kind: 'asset', id, source, raw: obj }
+  const item: LibraryItem = { kind: 'asset', id, source, scope, raw: obj }
   const name = asString(obj.name)
   if (name) item.name = name
   const description = asString(obj.description)
@@ -151,13 +180,13 @@ function readAssetItem(raw: unknown, source: string): LibraryItem | null {
   return item
 }
 
-function readFontItem(raw: unknown, source: string): LibraryItem | null {
+function readFontItem(raw: unknown, source: string, scope: LibraryScope): LibraryItem | null {
   const obj = asObject(raw)
   if (!obj) return null
   const id =
     asString(obj.id) ?? asString(obj.family) ?? asString(obj.name) ?? asString(obj.url)
   if (!id) return null
-  const item: LibraryItem = { kind: 'font', id, source, raw: obj }
+  const item: LibraryItem = { kind: 'font', id, source, scope, raw: obj }
   const name = asString(obj.name) ?? asString(obj.family)
   if (name) item.name = name
   const description = asString(obj.description)
@@ -189,14 +218,28 @@ async function walkLibrary(root: string): Promise<string[]> {
   return out
 }
 
+interface ScopeState {
+  scope: LibraryScope
+  path: string
+  watcher: FSWatcher | null
+}
+
 /**
- * Watch-and-index service. Use `attach(libraryDir)` after a project loads;
- * call `detach()` before switching projects. `getCatalog()` and `search()`
- * read the current in-memory catalog.
+ * Two-root watch-and-index service.
+ *
+ * Usage:
+ *   * `attachGlobal(path)` — call once at server boot. Permanent.
+ *   * `attach(projectDir)` / `attachProject(projectDir)` — rebind whenever a
+ *     project loads; detaches any prior project pool first.
+ *   * `detach()` / `detachProject()` — drop the project pool only; global
+ *     stays attached.
+ *   * `detachGlobal()` — drop the global pool (used by tests).
+ *
+ * `getCatalog()` and `search()` return the merged view of every attached root.
  */
 export class LibraryIndex {
-  #root: string | null = null
-  #watcher: FSWatcher | null = null
+  #projectState: ScopeState | null = null
+  #globalState: ScopeState | null = null
   #catalog: LibraryCatalog
   #debounceMs: number
 
@@ -205,23 +248,37 @@ export class LibraryIndex {
 
   /**
    * Engine-registry registrations performed by this index, keyed by
-   * `${kind}::${id}`. Used to drop registrations on watcher-delete events
-   * (step 20.4) and on `detach()`, so the engine REGISTRY does not retain
-   * library entries past their on-disk lifetime.
+   * `${kind}::${id}`. Only the *winner* of an id collision is registered:
+   * project beats global, so if both roots define `card`, the project's
+   * definition lands in REGISTRY and the global one is suppressed. On
+   * `detachProject()` the next reload re-registers the surviving global
+   * definition (last-write-wins).
    */
-  #registered = new Map<string, () => boolean>()
+  #registered = new Map<string, { scope: LibraryScope; unregister: () => boolean }>()
 
   constructor(opts: { debounceMs?: number } = {}) {
     this.#debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS
-    this.#catalog = { root: null, loadedAt: 0, items: [], errors: [] }
+    this.#catalog = emptyCatalog()
   }
 
+  /** Project root path, or `null` if no project is attached. */
   get root(): string | null {
-    return this.#root
+    return this.#projectState?.path ?? null
   }
 
+  /** Global root path, or `null` if the global pool has not been attached. */
+  get globalRoot(): string | null {
+    return this.#globalState?.path ?? null
+  }
+
+  /** True iff a project root is currently attached. */
   get isAttached(): boolean {
-    return this.#root !== null
+    return this.#projectState !== null
+  }
+
+  /** True iff the global root is currently attached. */
+  get isGlobalAttached(): boolean {
+    return this.#globalState !== null
   }
 
   getCatalog(): LibraryCatalog {
@@ -229,66 +286,104 @@ export class LibraryIndex {
   }
 
   /**
-   * Attach to a library directory. Reads the initial catalog synchronously
-   * with respect to the caller (awaited), then starts a recursive watcher.
-   * Replaces any previous attachment.
+   * Attach the project library directory. Replaces any prior project
+   * attachment. The global pool (if attached) is untouched.
    */
   async attach(libraryDir: string): Promise<LibraryCatalog> {
-    await this.detach()
+    return this.attachProject(libraryDir)
+  }
+
+  /** Alias of {@link attach} that names its intent explicitly. */
+  async attachProject(libraryDir: string): Promise<LibraryCatalog> {
+    await this.#detachState('project')
     const stat = await fs.stat(libraryDir).catch(() => null)
     if (!stat || !stat.isDirectory()) {
-      this.#root = null
-      this.#catalog = { root: null, loadedAt: Date.now(), items: [], errors: [] }
-      logger.warn({ libraryDir }, 'library_index: directory not found, catalog is empty')
+      logger.warn(
+        { libraryDir },
+        'library_index: project directory not found, catalog continues with global only',
+      )
+      await this.#reload()
       return this.#catalog
     }
-    this.#root = libraryDir
+    this.#projectState = { scope: 'project', path: libraryDir, watcher: null }
+    this.#startWatcher(this.#projectState)
     await this.#reload()
-    try {
-      this.#watcher = watch(libraryDir, { recursive: true }, (_event, filename) => {
-        if (filename && !isLibraryFile(filename)) return
-        this.#scheduleReload()
-      })
-      this.#watcher.on('error', (err) => {
-        logger.warn({ err, libraryDir }, 'library_index: watcher error')
-      })
-    } catch (err) {
-      logger.warn({ err, libraryDir }, 'library_index: failed to start watcher')
-    }
     return this.#catalog
   }
 
-  /** Detach from the current library directory and drop the catalog. */
+  /**
+   * Attach the global library directory. Intended to be called once at boot.
+   * Re-calling is allowed and will rebind to a new path (used by tests).
+   */
+  async attachGlobal(libraryDir: string): Promise<LibraryCatalog> {
+    await this.#detachState('global')
+    const stat = await fs.stat(libraryDir).catch(() => null)
+    if (!stat || !stat.isDirectory()) {
+      logger.warn(
+        { libraryDir },
+        'library_index: global directory not found, catalog continues with project only',
+      )
+      await this.#reload()
+      return this.#catalog
+    }
+    this.#globalState = { scope: 'global', path: libraryDir, watcher: null }
+    this.#startWatcher(this.#globalState)
+    await this.#reload()
+    return this.#catalog
+  }
+
+  /**
+   * Detach the project root (used when switching projects). Global stays.
+   *
+   * Kept as `detach()` for backward compatibility with existing call sites
+   * (`projectStore.unload()` and tests). To fully reset the singleton, call
+   * `detachGlobal()` in addition.
+   */
   async detach(): Promise<void> {
+    await this.detachProject()
+  }
+
+  async detachProject(): Promise<void> {
+    await this.#detachState('project')
+    await this.#reload()
+  }
+
+  async detachGlobal(): Promise<void> {
+    await this.#detachState('global')
+    await this.#reload()
+  }
+
+  async #detachState(scope: LibraryScope): Promise<void> {
     if (this.#reloadTimer) {
       clearTimeout(this.#reloadTimer)
       this.#reloadTimer = null
     }
-    if (this.#watcher) {
+    const state = scope === 'project' ? this.#projectState : this.#globalState
+    if (state?.watcher) {
       try {
-        this.#watcher.close()
+        state.watcher.close()
       } catch {
         /* ignore */
       }
-      this.#watcher = null
+      state.watcher = null
     }
     if (this.#reloadInFlight) {
       await this.#reloadInFlight.catch(() => {})
     }
     this.#reloadInFlight = null
-    // Drop every engine-registry entry we own — otherwise switching projects
-    // would leak the previous project's templates/scenes/behaviors into the
-    // next one's REGISTRY (step 20.4 / F4).
-    for (const unregister of this.#registered.values()) {
+    // Drop registry entries owned by this scope only; the surviving scope's
+    // registrations will be re-decided in the next #reload().
+    for (const [key, entry] of this.#registered) {
+      if (entry.scope !== scope) continue
       try {
-        unregister()
+        entry.unregister()
       } catch {
         /* ignore */
       }
+      this.#registered.delete(key)
     }
-    this.#registered.clear()
-    this.#root = null
-    this.#catalog = { root: null, loadedAt: Date.now(), items: [], errors: [] }
+    if (scope === 'project') this.#projectState = null
+    else this.#globalState = null
   }
 
   /** Force any pending debounced reload to run to completion. */
@@ -305,10 +400,11 @@ export class LibraryIndex {
     if (this.#reloadInFlight) await this.#reloadInFlight.catch(() => {})
   }
 
-  /** Filtered view over the catalog. Both filters are AND-combined. */
+  /** Filtered view over the merged catalog. Filters are AND-combined. */
   search(opts: LibrarySearch = {}): LibraryItem[] {
     let items = this.#catalog.items
     if (opts.kind) items = items.filter((i) => i.kind === opts.kind)
+    if (opts.scope) items = items.filter((i) => i.scope === opts.scope)
     if (opts.q) {
       const q = opts.q.toLowerCase()
       items = items.filter((i) => {
@@ -319,6 +415,23 @@ export class LibraryIndex {
       })
     }
     return items
+  }
+
+  #startWatcher(state: ScopeState): void {
+    try {
+      state.watcher = watch(state.path, { recursive: true }, (_event, filename) => {
+        if (filename && !isLibraryFile(filename)) return
+        this.#scheduleReload()
+      })
+      state.watcher.on('error', (err) => {
+        logger.warn({ err, root: state.path, scope: state.scope }, 'library_index: watcher error')
+      })
+    } catch (err) {
+      logger.warn(
+        { err, root: state.path, scope: state.scope },
+        'library_index: failed to start watcher',
+      )
+    }
   }
 
   #scheduleReload(): void {
@@ -335,121 +448,95 @@ export class LibraryIndex {
   }
 
   async #reload(): Promise<void> {
-    const root = this.#root
-    if (!root) return
-    const errors: { file: string; message: string }[] = []
-    const items: LibraryItem[] = []
-    const seen = new Set<string>()
+    const errors: { file: string; message: string; scope: LibraryScope }[] = []
 
-    const push = (item: LibraryItem | null): void => {
-      if (!item) return
-      const key = `${item.kind}::${item.id}::${item.source}`
-      if (seen.has(key)) return
-      seen.add(key)
-      items.push(item)
+    // Walk each attached root independently, producing per-scope item lists
+    // whose `source` field is relative to that scope's root.
+    const perScope: Record<LibraryScope, LibraryItem[]> = {
+      global: [],
+      project: [],
+    }
+    if (this.#globalState) {
+      await readRoot(this.#globalState, perScope.global, errors)
+    }
+    if (this.#projectState) {
+      await readRoot(this.#projectState, perScope.project, errors)
     }
 
-    // 1. index.json — inline catalog (assets, fonts, optional inline defs).
-    const indexPath = join(root, 'index.json')
-    const indexRaw = await fs.readFile(indexPath, 'utf8').catch((err) => {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
-      errors.push({ file: 'index.json', message: (err as Error).message })
-      return null
-    })
-    if (indexRaw !== null) {
-      try {
-        const idx = JSON.parse(indexRaw) as Record<string, unknown>
-        for (const a of asArray(idx.assets)) push(readAssetItem(a, 'index.json'))
-        for (const f of asArray(idx.fonts)) push(readFontItem(f, 'index.json'))
-        for (const t of asArray(idx.templates))
-          push(readDefinitionItem(t, 'template', 'index.json', `template:${items.length}`))
-        for (const b of asArray(idx.behaviors))
-          push(readDefinitionItem(b, 'behavior', 'index.json', `behavior:${items.length}`))
-        for (const s of asArray(idx.scenes))
-          push(readDefinitionItem(s, 'scene', 'index.json', `scene:${items.length}`))
-      } catch (err) {
-        errors.push({ file: 'index.json', message: (err as Error).message })
-      }
-    }
+    // Merge with project-wins override: if (kind,id) appears in both scopes,
+    // the project entry is the winner; the global entry is flagged
+    // `overridden: true` so the panel can render a strike-through hint.
+    const projectKeys = new Set<string>()
+    for (const item of perScope.project) projectKeys.add(`${item.kind}::${item.id}`)
 
-    // 2. *.{behavior,template,scene}.json — one definition per file.
-    const files = await walkLibrary(root)
-    for (const file of files) {
-      const rel = relative(root, file).split('\\').join('/')
-      const kind = detectKindFromFilename(file)
-      if (!kind) continue
-      let parsed: unknown
-      try {
-        const raw = await fs.readFile(file, 'utf8')
-        parsed = JSON.parse(raw)
-      } catch (err) {
-        errors.push({ file: rel, message: (err as Error).message })
-        continue
-      }
-      const fallbackId = basename(file, extname(file)).replace(/\.(behavior|template|scene)$/i, '')
-      const item = readDefinitionItem(parsed, kind, rel, fallbackId)
-      if (item) push(item)
-      else errors.push({ file: rel, message: 'Definition must be a JSON object' })
+    const merged: LibraryItem[] = []
+    for (const item of perScope.global) {
+      const key = `${item.kind}::${item.id}`
+      if (projectKeys.has(key)) merged.push({ ...item, overridden: true })
+      else merged.push(item)
     }
+    for (const item of perScope.project) merged.push(item)
 
-    // Stable order: by kind then id for deterministic responses.
-    items.sort((a, b) => {
+    merged.sort((a, b) => {
       if (a.kind !== b.kind) return a.kind.localeCompare(b.kind)
-      return a.id.localeCompare(b.id)
+      if (a.id !== b.id) return a.id.localeCompare(b.id)
+      // Stable scope order: global before project, so an overridden global
+      // appears just above its project shadow.
+      return a.scope.localeCompare(b.scope)
     })
 
-    // Surface library templates and scenes to the engine registry so the
-    // drag-from-library flow (step 14) can dispatch `apply_template` /
-    // `add_scene_instance` against them by id. Built-in templates registered
-    // at import time are not overwritten unless the library defines the same
-    // id — that mirrors the "last write wins" semantics of MCP
-    // define_user_template / define_scene.
-    //
-    // Step 20.4: each successful register* call is stored in `#registered`
-    // keyed by `${kind}::${id}`. After the registration pass we drop any
-    // previously-registered key that didn't reappear — that's the
-    // "watcher delete" diff: a removed *.template.json no longer survives a
-    // reload, so its REGISTRY entry must go too.
-    const nextRegistered = new Map<string, () => boolean>()
-    for (const item of items) {
-      if (item.kind === 'template') {
-        try {
+    // Pick the winning definition per (kind, id) and (re-)register it with
+    // the engine. The winner is the project entry when present; otherwise
+    // the global entry. Items that didn't survive this reload have their
+    // prior registration dropped — that's the watcher-delete diff (step 20.4).
+    const winners = new Map<string, LibraryItem>()
+    for (const item of merged) {
+      if (item.kind !== 'template' && item.kind !== 'scene' && item.kind !== 'behavior') continue
+      if (item.overridden) continue
+      winners.set(`${item.kind}::${item.id}`, item)
+    }
+
+    const nextRegistered = new Map<string, { scope: LibraryScope; unregister: () => boolean }>()
+    for (const [key, item] of winners) {
+      try {
+        if (item.kind === 'template') {
           const def = libraryTemplateToDefinition(item.id, item.raw)
           if (def) {
             registerTemplate(def)
-            nextRegistered.set(`template::${item.id}`, () => unregisterTemplate(item.id))
+            nextRegistered.set(key, {
+              scope: item.scope,
+              unregister: () => unregisterTemplate(item.id),
+            })
           }
-        } catch (err) {
-          errors.push({ file: item.source, message: (err as Error).message })
-        }
-      } else if (item.kind === 'scene') {
-        try {
+        } else if (item.kind === 'scene') {
           const raw = item.raw as Record<string, unknown> | undefined
           if (raw && typeof raw === 'object') {
             const def = readSceneDefinition(item.id, raw)
             registerScene(def)
-            nextRegistered.set(`scene::${item.id}`, () => unregisterScene(item.id))
+            nextRegistered.set(key, {
+              scope: item.scope,
+              unregister: () => unregisterScene(item.id),
+            })
           }
-        } catch (err) {
-          errors.push({ file: item.source, message: (err as Error).message })
-        }
-      } else if (item.kind === 'behavior') {
-        try {
+        } else if (item.kind === 'behavior') {
           const desc = libraryBehaviorToDescriptor(item.id, item.raw)
           if (desc) {
             registerBehavior(desc)
-            nextRegistered.set(`behavior::${item.id}`, () => unregisterBehavior(item.id))
+            nextRegistered.set(key, {
+              scope: item.scope,
+              unregister: () => unregisterBehavior(item.id),
+            })
           }
-        } catch (err) {
-          errors.push({ file: item.source, message: (err as Error).message })
         }
+      } catch (err) {
+        errors.push({ file: item.source, message: (err as Error).message, scope: item.scope })
       }
     }
 
-    for (const [key, unregister] of this.#registered) {
+    for (const [key, entry] of this.#registered) {
       if (nextRegistered.has(key)) continue
       try {
-        unregister()
+        entry.unregister()
       } catch {
         /* ignore */
       }
@@ -457,11 +544,83 @@ export class LibraryIndex {
     this.#registered = nextRegistered
 
     this.#catalog = {
-      root,
+      root: this.#projectState?.path ?? null,
+      roots: this.#rootsInfo(),
       loadedAt: Date.now(),
-      items,
+      items: merged,
       errors,
     }
+  }
+
+  #rootsInfo(): LibraryRootInfo[] {
+    const out: LibraryRootInfo[] = []
+    if (this.#globalState) out.push({ scope: 'global', path: this.#globalState.path })
+    if (this.#projectState) out.push({ scope: 'project', path: this.#projectState.path })
+    return out
+  }
+}
+
+function emptyCatalog(): LibraryCatalog {
+  return { root: null, roots: [], loadedAt: 0, items: [], errors: [] }
+}
+
+async function readRoot(
+  state: ScopeState,
+  out: LibraryItem[],
+  errors: { file: string; message: string; scope: LibraryScope }[],
+): Promise<void> {
+  const root = state.path
+  const scope = state.scope
+  const seen = new Set<string>()
+  const push = (item: LibraryItem | null): void => {
+    if (!item) return
+    const key = `${item.kind}::${item.id}::${item.source}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(item)
+  }
+
+  // 1. index.json — inline catalog (assets, fonts, optional inline defs).
+  const indexPath = join(root, 'index.json')
+  const indexRaw = await fs.readFile(indexPath, 'utf8').catch((err) => {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    errors.push({ file: 'index.json', message: (err as Error).message, scope })
+    return null
+  })
+  if (indexRaw !== null) {
+    try {
+      const idx = JSON.parse(indexRaw) as Record<string, unknown>
+      for (const a of asArray(idx.assets)) push(readAssetItem(a, 'index.json', scope))
+      for (const f of asArray(idx.fonts)) push(readFontItem(f, 'index.json', scope))
+      for (const t of asArray(idx.templates))
+        push(readDefinitionItem(t, 'template', 'index.json', scope, `template:${out.length}`))
+      for (const b of asArray(idx.behaviors))
+        push(readDefinitionItem(b, 'behavior', 'index.json', scope, `behavior:${out.length}`))
+      for (const s of asArray(idx.scenes))
+        push(readDefinitionItem(s, 'scene', 'index.json', scope, `scene:${out.length}`))
+    } catch (err) {
+      errors.push({ file: 'index.json', message: (err as Error).message, scope })
+    }
+  }
+
+  // 2. *.{behavior,template,scene}.json — one definition per file.
+  const files = await walkLibrary(root)
+  for (const file of files) {
+    const rel = relative(root, file).split('\\').join('/')
+    const kind = detectKindFromFilename(file)
+    if (!kind) continue
+    let parsed: unknown
+    try {
+      const raw = await fs.readFile(file, 'utf8')
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      errors.push({ file: rel, message: (err as Error).message, scope })
+      continue
+    }
+    const fallbackId = basename(file, extname(file)).replace(/\.(behavior|template|scene)$/i, '')
+    const item = readDefinitionItem(parsed, kind, rel, scope, fallbackId)
+    if (item) push(item)
+    else errors.push({ file: rel, message: 'Definition must be a JSON object', scope })
   }
 }
 

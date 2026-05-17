@@ -93,6 +93,7 @@ async function pathExists(path: string): Promise<boolean> {
 test.group('Asset upload pipeline · POST /api/assets', (group) => {
   group.each.setup(async () => {
     await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
     await projectStore.unload()
   })
 

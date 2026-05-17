@@ -36,8 +36,10 @@ export default class LibraryController {
 
     return response.ok({
       root: catalog.root,
+      roots: catalog.roots,
       loadedAt: catalog.loadedAt,
       attached: libraryIndex.isAttached,
+      globalAttached: libraryIndex.isGlobalAttached,
       projectRoot: projectStore.project?.root ?? null,
       count: items.length,
       total: catalog.items.length,

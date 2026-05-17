@@ -117,6 +117,7 @@ function titleCardPayload(): LibraryDragPayload {
 test.group('Library drop → composition mutation (step 14)', (group) => {
   group.each.setup(async () => {
     await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
     await projectStore.unload()
   })
 

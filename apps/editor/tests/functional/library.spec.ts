@@ -79,6 +79,7 @@ async function delay(ms: number) {
 test.group('LibraryIndex · service', (group) => {
   group.each.setup(async () => {
     await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
     await projectStore.unload()
   })
 
@@ -554,6 +555,7 @@ test.group('LibraryIndex · service', (group) => {
 test.group('LibraryIndex · HTTP', (group) => {
   group.each.setup(async () => {
     await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
     await projectStore.unload()
   })
 

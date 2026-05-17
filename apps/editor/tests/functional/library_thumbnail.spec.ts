@@ -166,6 +166,7 @@ function isPng(buffer: ArrayBuffer | Uint8Array): boolean {
 test.group('Library thumbnails · HTTP', (group) => {
   group.each.setup(async () => {
     await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
     await projectStore.unload()
     libraryThumbnail.clear()
   })
