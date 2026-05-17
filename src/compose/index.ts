@@ -12,6 +12,8 @@ export {
   getBehaviorDescriptor,
   hasBehavior,
   listBehaviors,
+  registerBehavior,
+  unregisterBehavior,
   type BehaviorBlock,
   type BehaviorDescriptor,
   type BehaviorParamDescriptor,

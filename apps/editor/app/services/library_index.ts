@@ -15,8 +15,12 @@ import { basename, extname, join, relative } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
 import {
   readSceneDefinition,
+  registerBehavior,
   registerScene,
   registerTemplate,
+  type BehaviorDescriptor,
+  type BehaviorParamDescriptor,
+  type BehaviorParamType,
   type TemplateDefinition,
   type TemplateParamDescriptor,
   type TemplateParamType,
@@ -396,6 +400,13 @@ export class LibraryIndex {
         } catch (err) {
           errors.push({ file: item.source, message: (err as Error).message })
         }
+      } else if (item.kind === 'behavior') {
+        try {
+          const desc = libraryBehaviorToDescriptor(item.id, item.raw)
+          if (desc) registerBehavior(desc)
+        } catch (err) {
+          errors.push({ file: item.source, message: (err as Error).message })
+        }
       }
     }
 
@@ -449,6 +460,45 @@ function libraryTemplateToDefinition(
   const description = asString(obj.description)
   if (description) def.description = description
   return def
+}
+
+const BEHAVIOR_PARAM_TYPES: ReadonlySet<BehaviorParamType> = new Set([
+  'number',
+  'string',
+  'color',
+  'colorArray',
+  'axis',
+])
+
+function libraryBehaviorToDescriptor(
+  name: string,
+  raw: unknown,
+): BehaviorDescriptor | null {
+  const obj = asObject(raw)
+  if (!obj) return null
+  const params: BehaviorParamDescriptor[] = []
+  for (const p of asArray(obj.params)) {
+    const po = asObject(p)
+    if (!po) continue
+    const pname = asString(po.name)
+    const ptype = asString(po.type)
+    if (!pname || !ptype) continue
+    if (!BEHAVIOR_PARAM_TYPES.has(ptype as BehaviorParamType)) continue
+    const desc: BehaviorParamDescriptor = {
+      name: pname,
+      type: ptype as BehaviorParamType,
+      required: po.required === true,
+      description: asString(po.description) ?? '',
+    }
+    if (Object.prototype.hasOwnProperty.call(po, 'default')) desc.default = po.default
+    params.push(desc)
+  }
+  return {
+    name,
+    description: asString(obj.description) ?? '',
+    params,
+    produces: 'dynamic',
+  }
 }
 
 const libraryIndex = new LibraryIndex()

@@ -87,7 +87,9 @@ type BehaviorExpand = (ctx: ExpandContext) => RawTween[];
 
 interface BehaviorEntry {
   descriptor: BehaviorDescriptor;
-  expand: BehaviorExpand;
+  /** Built-in behaviors carry an expansion function; user-defined registrations
+   * from `library_index` register descriptor-only entries (see §6 audit). */
+  expand?: BehaviorExpand;
 }
 
 const REGISTRY = new Map<string, BehaviorEntry>();
@@ -97,6 +99,39 @@ function register(entry: BehaviorEntry): void {
 }
 
 // ──────────────── Public API ────────────────
+
+/**
+ * Descriptor-only registration for user-authored behaviors discovered by the
+ * library index. A behavior registered this way appears in `list_behaviors`
+ * and `hasBehavior` is true for its name, but `expandBehavior` will throw
+ * `E_BEHAVIOR_UNKNOWN` (with a hint) because user-defined expansion is not
+ * yet supported. Re-registering a name preserves any existing `expand`
+ * function — so library JSON can override the description/params of a
+ * built-in without breaking its expansion semantics.
+ */
+export function registerBehavior(descriptor: BehaviorDescriptor): void {
+  if (typeof descriptor.name !== "string" || descriptor.name.length === 0) {
+    throw new Error("registerBehavior: descriptor is missing a non-empty name.");
+  }
+  const cloned: BehaviorDescriptor = {
+    name: descriptor.name,
+    description: descriptor.description ?? "",
+    params: descriptor.params.map((p) => ({ ...p })),
+    produces:
+      typeof descriptor.produces === "string"
+        ? descriptor.produces
+        : [...descriptor.produces],
+  };
+  const existing = REGISTRY.get(descriptor.name);
+  const next: BehaviorEntry = { descriptor: cloned };
+  if (existing && existing.expand) next.expand = existing.expand;
+  REGISTRY.set(descriptor.name, next);
+}
+
+/** Remove a behavior from the registry. Returns false if no entry existed. */
+export function unregisterBehavior(name: string): boolean {
+  return REGISTRY.delete(name);
+}
 
 export function listBehaviors(): BehaviorDescriptor[] {
   return Array.from(REGISTRY.values()).map((e) => ({
@@ -129,6 +164,13 @@ export function expandBehavior(block: BehaviorBlock): Tween[] {
       "E_BEHAVIOR_UNKNOWN",
       `Unknown behavior "${block.behavior}".`,
       "Call list_behaviors to see available names.",
+    );
+  }
+  if (!entry.expand) {
+    throw new MCPToolError(
+      "E_BEHAVIOR_UNKNOWN",
+      `Behavior "${block.behavior}" is registered without an expansion implementation.`,
+      "Library-authored behaviors are catalog metadata only in v1.0 — use a built-in behavior name with apply_behavior.",
     );
   }
   if (!Number.isFinite(block.duration) || block.duration <= 0) {

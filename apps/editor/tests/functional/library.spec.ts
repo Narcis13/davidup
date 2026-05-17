@@ -279,6 +279,48 @@ test.group('LibraryIndex · service', (group) => {
     }
   })
 
+  test('attach() registers library behaviors with the engine registry (step 20.3)', async ({
+    assert,
+  }) => {
+    const { hasBehavior, getBehaviorDescriptor, unregisterBehavior } = await import(
+      'davidup/compose'
+    )
+    const dir = await makeProject({ withLibrary: true })
+    const lib = join(dir, 'library')
+    await mkdir(join(lib, 'behaviors'), { recursive: true })
+    await writeFile(
+      join(lib, 'behaviors', 'spec20-bounce.behavior.json'),
+      JSON.stringify({
+        id: 'spec20Bounce',
+        name: 'Bounce',
+        description: 'Library-only bouncy behavior (descriptor only).',
+        params: [
+          { name: 'height', type: 'number', required: false, default: 80 },
+          { name: 'duration', type: 'number', required: false, default: 0.8 },
+        ],
+      }),
+      'utf8'
+    )
+
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      assert.isFalse(hasBehavior('spec20Bounce'), 'starts unregistered')
+      await idx.attach(lib)
+      assert.isTrue(hasBehavior('spec20Bounce'), 'library behavior registered globally')
+      const desc = getBehaviorDescriptor('spec20Bounce')
+      assert.exists(desc)
+      assert.equal(desc!.description, 'Library-only bouncy behavior (descriptor only).')
+      assert.equal(desc!.params.length, 2)
+      assert.equal(desc!.params[0]!.name, 'height')
+      assert.equal(desc!.params[0]!.type, 'number')
+      assert.equal(desc!.params[0]!.default, 80)
+    } finally {
+      unregisterBehavior('spec20Bounce')
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('attach() registers library templates with the engine registry (step 14)', async ({
     assert,
   }) => {
