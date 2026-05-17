@@ -28,6 +28,9 @@ router
   .group(() => {
     router.get('/project', [ProjectsController, 'show'])
     router.post('/project', [ProjectsController, 'load'])
+    router.get('/projects/recent', [ProjectsController, 'recent'])
+    router.post('/projects', [ProjectsController, 'store'])
+    router.delete('/projects/recent/:idx', [ProjectsController, 'forget'])
     router.post('/command', [CommandsController, 'apply'])
     router.get('/composition-source', [EditorController, 'compositionSource'])
     router.get('/editor-state', [EditorStateController, 'show'])

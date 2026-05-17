@@ -56,6 +56,20 @@ export class RecentsStore {
   }
 
   /**
+   * Drop the entry whose `path` matches (after `resolve()`). No-op if not
+   * present. Forgets the project from the picker; does NOT touch the
+   * project directory on disk. Returns the resulting list (sorted desc).
+   */
+  async forget(projectPath: string): Promise<RecentProject[]> {
+    const root = resolve(projectPath)
+    const raw = await this.#readRaw()
+    const next = raw.projects.filter((p) => p.path !== root)
+    const live = await pruneMissing(next)
+    await this.#write({ projects: live })
+    return [...live].sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
+  }
+
+  /**
    * Upsert an entry for `projectPath` and bump its lastOpenedAt to now.
    * `lastModifiedAt` is read from the composition.json mtime when present,
    * falling back to now. Missing entries are pruned before writing.
