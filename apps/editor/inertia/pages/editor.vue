@@ -13,7 +13,7 @@
 // can replace it in-place. The original payload is also retained as a
 // baseline so the Inspector can render the orange "overridden" dot.
 
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Head } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
 import { useCommandBus, type Composition } from '~/composables/useCommandBus'
@@ -21,11 +21,19 @@ import { provideSelection } from '~/composables/useSelection'
 import EditorLayout from '~/layouts/editor.vue'
 import Inspector from '~/components/Inspector.vue'
 import Library from '~/components/Library.vue'
+import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
 import Timeline from '~/components/Timeline.vue'
 
+interface CompositionSource {
+  text: string
+  file: string
+  mtimeMs: number
+}
+
 const props = defineProps<{
   composition: Composition | null
+  compositionSource: CompositionSource | null
   project: {
     root: string
     compositionPath: string
@@ -36,7 +44,7 @@ const props = defineProps<{
   error: { code: string; message: string } | null
 }>()
 
-provideSelection(null)
+const selection = provideSelection(null)
 
 const bus = useCommandBus({ initial: props.composition })
 
@@ -46,6 +54,75 @@ const stageRef = ref<{ canvas: HTMLCanvasElement | null } | null>(null)
 const canvas = computed<HTMLCanvasElement | null>(() => stageRef.value?.canvas ?? null)
 
 const stage = useStage({ composition: bus.composition, canvas })
+
+// ─── Step 17: reveal-in-source drawer ─────────────────────────────────────
+const drawerOpen = ref(false)
+const compositionSource = ref<CompositionSource | null>(props.compositionSource)
+
+async function refetchCompositionSource(): Promise<void> {
+  if (!props.project) return
+  try {
+    const res = await fetch('/api/composition-source', { credentials: 'same-origin' })
+    if (!res.ok) return
+    const json = (await res.json()) as CompositionSource
+    compositionSource.value = json
+  } catch {
+    // Silently ignore — the drawer just shows the last known text.
+  }
+}
+
+// After any successful command apply the on-disk JSON has changed; pull the
+// fresh text so the drawer's line mapping reflects the latest file content.
+watch(
+  () => bus.composition.value,
+  (next, prev) => {
+    if (next === prev) return
+    if (!drawerOpen.value && !compositionSource.value) return
+    void refetchCompositionSource()
+  },
+)
+
+function isMac(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  // ⌘J on macOS, Ctrl+J elsewhere. The shortcut wins over the browser's
+  // default (Firefox: open Downloads; Chrome on macOS: no default), so we
+  // only intercept when no input is focused — we don't want to swallow J
+  // typed into a text field.
+  const isToggle =
+    event.key === 'j' && (isMac() ? event.metaKey : event.ctrlKey) && !event.altKey
+  if (!isToggle) return
+  if (isEditableTarget(event.target)) return
+  event.preventDefault()
+  drawerOpen.value = !drawerOpen.value
+  if (drawerOpen.value) {
+    // Re-fetch every time the drawer opens so its line mapping reflects any
+    // edits the user made while it was closed.
+    void refetchCompositionSource()
+  }
+}
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', onKeydown)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', onKeydown)
+  }
+})
 </script>
 
 <template>
@@ -99,6 +176,15 @@ const stage = useStage({ composition: bus.composition, canvas })
       />
     </template>
   </EditorLayout>
+
+  <SourceDrawer
+    :source="compositionSource"
+    :selected-item-id="selection.selectedItemId.value"
+    :pick-source-json-pointer="selection.lastPickSource.value?.jsonPointer ?? null"
+    :pick-source-file="selection.lastPickSource.value?.file ?? null"
+    :open="drawerOpen"
+    @close="drawerOpen = false"
+  />
 </template>
 
 <style scoped>

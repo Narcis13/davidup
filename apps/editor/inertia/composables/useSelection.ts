@@ -46,15 +46,29 @@ const SELECTION_KEY: InjectionKey<SelectionApi> = Symbol('davidup.selection')
 export function provideSelection(initialId: string | null = null): SelectionApi {
   const selectedItemId = ref<string | null>(initialId)
   const lastPickSource = ref<PickSourceInfo | null>(null)
+  // Tracks the id `lastPickSource` was captured for, so a later
+  // `setSelection(otherId)` (Inspector dropdown, Timeline click) can detect
+  // that the pick info is now stale and clear it. Reaffirming the SAME id
+  // keeps the source — that's the case the comment block above describes.
+  let pickedForId: string | null = null
   const api: SelectionApi = {
     selectedItemId,
     setSelection(id: string | null) {
       selectedItemId.value = id
-      if (id === null) lastPickSource.value = null
+      if (id === null) {
+        lastPickSource.value = null
+        pickedForId = null
+        return
+      }
+      if (id !== pickedForId) {
+        lastPickSource.value = null
+        pickedForId = null
+      }
     },
     setSelectionFromPick(id: string | null, source?: PickSourceInfo | null) {
       selectedItemId.value = id
       lastPickSource.value = id === null ? null : source ?? null
+      pickedForId = id
     },
     hasSelection: computed(() => selectedItemId.value !== null) as Ref<boolean>,
     lastPickSource,

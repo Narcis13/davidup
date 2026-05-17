@@ -4,6 +4,41 @@ import { normalize, relative, resolve } from 'node:path'
 import type { HttpContext } from '@adonisjs/core/http'
 import projectStore from '#services/project_store'
 
+export interface CompositionSource {
+  /** Authored JSON text exactly as it lives on disk. */
+  text: string
+  /** Absolute path of the file the text came from. */
+  file: string
+  /** mtime in ms — lets the client cache and re-fetch only on change. */
+  mtimeMs: number
+}
+
+/**
+ * Read the authored composition.json text from disk. Flushes any pending
+ * project_store writes first so the returned text reflects the latest
+ * committed state. Returns null when no project is loaded.
+ *
+ * Note: `composition.json` on disk holds the *authored* JSON — the form the
+ * user wrote, including any $template / $ref / scene / $behavior constructs
+ * the precompile pipeline lowers into the in-memory canonical composition.
+ * That's exactly what the step-17 "reveal in source" drawer should display.
+ */
+export async function loadAuthoredCompositionSource(): Promise<CompositionSource | null> {
+  const project = projectStore.project
+  if (!project) return null
+  // Make sure the in-memory mutations (Inspector edits, MCP commands) have
+  // hit disk before we read — otherwise the drawer would show stale text.
+  await projectStore.flush()
+  const text = await fs.readFile(project.compositionPath, 'utf8').catch(() => null)
+  if (text === null) return null
+  const stat = await fs.stat(project.compositionPath).catch(() => null)
+  return {
+    text,
+    file: project.compositionPath,
+    mtimeMs: stat?.mtimeMs ?? Date.now(),
+  }
+}
+
 const PROJECT_FILES_PREFIX = '/project-files'
 
 type AssetLike = { src?: unknown; [k: string]: unknown }
@@ -51,6 +86,7 @@ export default class EditorController {
     if (!project) {
       return inertia.render('editor', {
         composition: null,
+        compositionSource: null,
         project: null,
         error: {
           code: 'E_NO_PROJECT',
@@ -60,8 +96,11 @@ export default class EditorController {
       })
     }
 
+    const compositionSource = await loadAuthoredCompositionSource()
+
     return inertia.render('editor', {
       composition: rewriteAssetsForBrowser(project.composition),
+      compositionSource,
       project: {
         root: project.root,
         compositionPath: project.compositionPath,
@@ -71,6 +110,28 @@ export default class EditorController {
       },
       error: null,
     })
+  }
+
+  /**
+   * GET /api/composition-source — fresh read of the authored composition.json
+   * text from disk. The Inertia page bootstrap also embeds this same payload
+   * for first paint, but the drawer re-fetches after commands so the line
+   * mapping stays in sync with the latest persisted state.
+   */
+  async compositionSource({ response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const source = await loadAuthoredCompositionSource()
+    if (!source) {
+      return response.notFound({
+        error: { code: 'E_COMPOSITION_MISSING', message: 'composition.json not found on disk' },
+      })
+    }
+    return response.ok(source)
   }
 
   /**

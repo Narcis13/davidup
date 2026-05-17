@@ -157,14 +157,75 @@ test.group('Editor page', (group) => {
     assert.equal(page.component, 'editor')
     assert.isNull(page.props.composition)
     assert.isNull(page.props.project)
+    assert.isNull(page.props.compositionSource)
     const error = page.props.error as { code: string }
     assert.equal(error.code, 'E_NO_PROJECT')
+  })
+
+  test('GET /editor embeds the authored composition.json text in compositionSource', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/editor')
+      res.assertStatus(200)
+      const page = extractInertiaPage(res.text())
+      const source = page.props.compositionSource as {
+        text: string
+        file: string
+        mtimeMs: number
+      } | null
+      assert.isNotNull(source)
+      assert.match(source!.text, /"version":\s*"0\.1"/)
+      // The drawer always renders the authored (on-disk) JSON — not the
+      // asset-rewritten browser-friendly version — so the relative `./ball.png`
+      // src is what we expect to see here.
+      assert.match(source!.text, /"src":\s*"\.\/ball\.png"/)
+      assert.isAtLeast(source!.mtimeMs, 1)
+      assert.match(source!.file, /composition\.json$/)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test('GET /editor emits the inertia data-page payload', async ({ client }) => {
     const res = await client.get('/editor')
     res.assertStatus(200)
     res.assertTextIncludes('data-page')
+  })
+})
+
+test.group('GET /api/composition-source', (group) => {
+  group.each.setup(async () => {
+    await projectStore.unload()
+  })
+
+  test('returns the authored composition.json text when a project is loaded', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/api/composition-source')
+      res.assertStatus(200)
+      const body = res.body() as { text: string; file: string; mtimeMs: number }
+      assert.match(body.text, /"version":\s*"0\.1"/)
+      assert.match(body.file, /composition\.json$/)
+      assert.isAtLeast(body.mtimeMs, 1)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('returns 404 when no project is loaded', async ({ client }) => {
+    const res = await client.get('/api/composition-source')
+    res.assertStatus(404)
+    res.assertBodyContains({ error: { code: 'E_NO_PROJECT' } })
   })
 })
 

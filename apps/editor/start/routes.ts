@@ -25,6 +25,7 @@ router
     router.get('/project', [ProjectsController, 'show'])
     router.post('/project', [ProjectsController, 'load'])
     router.post('/command', [CommandsController, 'apply'])
+    router.get('/composition-source', [EditorController, 'compositionSource'])
     router.get('/editor-state', [EditorStateController, 'show'])
     router.put('/editor-state', [EditorStateController, 'update'])
     router.get('/library', [LibraryController, 'index'])
