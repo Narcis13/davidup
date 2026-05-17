@@ -26,6 +26,7 @@ export {
   hasTemplate,
   listTemplates,
   registerTemplate,
+  unregisterTemplate,
   type ExpandedTemplate,
   type TemplateDefinition,
   type TemplateDescriptor,

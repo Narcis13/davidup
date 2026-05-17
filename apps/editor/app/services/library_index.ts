@@ -18,6 +18,9 @@ import {
   registerBehavior,
   registerScene,
   registerTemplate,
+  unregisterBehavior,
+  unregisterScene,
+  unregisterTemplate,
   type BehaviorDescriptor,
   type BehaviorParamDescriptor,
   type BehaviorParamType,
@@ -200,6 +203,14 @@ export class LibraryIndex {
   #reloadTimer: NodeJS.Timeout | null = null
   #reloadInFlight: Promise<void> | null = null
 
+  /**
+   * Engine-registry registrations performed by this index, keyed by
+   * `${kind}::${id}`. Used to drop registrations on watcher-delete events
+   * (step 20.4) and on `detach()`, so the engine REGISTRY does not retain
+   * library entries past their on-disk lifetime.
+   */
+  #registered = new Map<string, () => boolean>()
+
   constructor(opts: { debounceMs?: number } = {}) {
     this.#debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS
     this.#catalog = { root: null, loadedAt: 0, items: [], errors: [] }
@@ -265,6 +276,17 @@ export class LibraryIndex {
       await this.#reloadInFlight.catch(() => {})
     }
     this.#reloadInFlight = null
+    // Drop every engine-registry entry we own — otherwise switching projects
+    // would leak the previous project's templates/scenes/behaviors into the
+    // next one's REGISTRY (step 20.4 / F4).
+    for (const unregister of this.#registered.values()) {
+      try {
+        unregister()
+      } catch {
+        /* ignore */
+      }
+    }
+    this.#registered.clear()
     this.#root = null
     this.#catalog = { root: null, loadedAt: Date.now(), items: [], errors: [] }
   }
@@ -382,11 +404,21 @@ export class LibraryIndex {
     // at import time are not overwritten unless the library defines the same
     // id — that mirrors the "last write wins" semantics of MCP
     // define_user_template / define_scene.
+    //
+    // Step 20.4: each successful register* call is stored in `#registered`
+    // keyed by `${kind}::${id}`. After the registration pass we drop any
+    // previously-registered key that didn't reappear — that's the
+    // "watcher delete" diff: a removed *.template.json no longer survives a
+    // reload, so its REGISTRY entry must go too.
+    const nextRegistered = new Map<string, () => boolean>()
     for (const item of items) {
       if (item.kind === 'template') {
         try {
           const def = libraryTemplateToDefinition(item.id, item.raw)
-          if (def) registerTemplate(def)
+          if (def) {
+            registerTemplate(def)
+            nextRegistered.set(`template::${item.id}`, () => unregisterTemplate(item.id))
+          }
         } catch (err) {
           errors.push({ file: item.source, message: (err as Error).message })
         }
@@ -396,6 +428,7 @@ export class LibraryIndex {
           if (raw && typeof raw === 'object') {
             const def = readSceneDefinition(item.id, raw)
             registerScene(def)
+            nextRegistered.set(`scene::${item.id}`, () => unregisterScene(item.id))
           }
         } catch (err) {
           errors.push({ file: item.source, message: (err as Error).message })
@@ -403,12 +436,25 @@ export class LibraryIndex {
       } else if (item.kind === 'behavior') {
         try {
           const desc = libraryBehaviorToDescriptor(item.id, item.raw)
-          if (desc) registerBehavior(desc)
+          if (desc) {
+            registerBehavior(desc)
+            nextRegistered.set(`behavior::${item.id}`, () => unregisterBehavior(item.id))
+          }
         } catch (err) {
           errors.push({ file: item.source, message: (err as Error).message })
         }
       }
     }
+
+    for (const [key, unregister] of this.#registered) {
+      if (nextRegistered.has(key)) continue
+      try {
+        unregister()
+      } catch {
+        /* ignore */
+      }
+    }
+    this.#registered = nextRegistered
 
     this.#catalog = {
       root,

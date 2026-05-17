@@ -416,6 +416,139 @@ test.group('LibraryIndex · service', (group) => {
       await idx.detach()
     }
   })
+
+  test('watcher delete unregisters template/scene/behavior from engine REGISTRY (step 20.4)', async ({
+    assert,
+  }) => {
+    const { hasTemplate, hasScene, hasBehavior } = await import('davidup/compose')
+    const dir = await makeProject({ withLibrary: true })
+    const lib = join(dir, 'library')
+    await mkdir(join(lib, 'templates'), { recursive: true })
+    await mkdir(join(lib, 'behaviors'), { recursive: true })
+    await mkdir(join(lib, 'scenes'), { recursive: true })
+
+    const tplFile = join(lib, 'templates', 'spec20-doomed.template.json')
+    const behFile = join(lib, 'behaviors', 'spec20-doomed.behavior.json')
+    const scnFile = join(lib, 'scenes', 'spec20-doomed.scene.json')
+    await writeFile(
+      tplFile,
+      JSON.stringify({
+        id: 'spec20DoomedTpl',
+        description: 'Will be deleted',
+        params: [],
+        items: { bg: { type: 'shape' } },
+        tweens: [],
+      }),
+      'utf8'
+    )
+    await writeFile(
+      behFile,
+      JSON.stringify({
+        id: 'spec20DoomedBeh',
+        description: 'Will be deleted',
+      }),
+      'utf8'
+    )
+    await writeFile(
+      scnFile,
+      JSON.stringify({
+        id: 'spec20DoomedScn',
+        duration: 1,
+        params: [],
+        items: { bg: { type: 'shape' } },
+        tweens: [],
+      }),
+      'utf8'
+    )
+
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      await idx.attach(lib)
+      assert.isTrue(hasTemplate('spec20DoomedTpl'), 'template registered on attach')
+      assert.isTrue(hasBehavior('spec20DoomedBeh'), 'behavior registered on attach')
+      assert.isTrue(hasScene('spec20DoomedScn'), 'scene registered on attach')
+
+      await unlink(tplFile)
+      await unlink(behFile)
+      await unlink(scnFile)
+
+      const deadline = Date.now() + 1500
+      let gone = false
+      while (Date.now() < deadline) {
+        await delay(50)
+        if (
+          !hasTemplate('spec20DoomedTpl') &&
+          !hasBehavior('spec20DoomedBeh') &&
+          !hasScene('spec20DoomedScn')
+        ) {
+          gone = true
+          break
+        }
+      }
+      assert.isTrue(gone, 'engine REGISTRY must drop ids after watcher delete diff')
+
+      const catalog = idx.getCatalog()
+      const stillIndexed = catalog.items.some(
+        (i) =>
+          (i.kind === 'template' && i.id === 'spec20DoomedTpl') ||
+          (i.kind === 'behavior' && i.id === 'spec20DoomedBeh') ||
+          (i.kind === 'scene' && i.id === 'spec20DoomedScn')
+      )
+      assert.isFalse(stillIndexed, 'catalog must also reflect the deletion')
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('detach() drops every engine REGISTRY entry it owns (step 20.4)', async ({ assert }) => {
+    const { hasTemplate, hasScene, hasBehavior } = await import('davidup/compose')
+    const dir = await makeProject({ withLibrary: true })
+    const lib = join(dir, 'library')
+    await writeFile(
+      join(lib, 'detach-me.template.json'),
+      JSON.stringify({
+        id: 'spec20DetachTpl',
+        params: [],
+        items: { bg: { type: 'shape' } },
+        tweens: [],
+      }),
+      'utf8'
+    )
+    await writeFile(
+      join(lib, 'detach-me.behavior.json'),
+      JSON.stringify({ id: 'spec20DetachBeh', description: 'd' }),
+      'utf8'
+    )
+    await writeFile(
+      join(lib, 'detach-me.scene.json'),
+      JSON.stringify({
+        id: 'spec20DetachScn',
+        duration: 1,
+        params: [],
+        items: {},
+        tweens: [],
+      }),
+      'utf8'
+    )
+
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      await idx.attach(lib)
+      assert.isTrue(hasTemplate('spec20DetachTpl'))
+      assert.isTrue(hasBehavior('spec20DetachBeh'))
+      assert.isTrue(hasScene('spec20DetachScn'))
+
+      await idx.detach()
+
+      assert.isFalse(hasTemplate('spec20DetachTpl'), 'template gone after detach')
+      assert.isFalse(hasBehavior('spec20DetachBeh'), 'behavior gone after detach')
+      assert.isFalse(hasScene('spec20DetachScn'), 'scene gone after detach')
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 test.group('LibraryIndex · HTTP', (group) => {

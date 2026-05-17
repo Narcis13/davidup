@@ -85,6 +85,10 @@ export function registerTemplate(def: TemplateDefinition): void {
   REGISTRY.set(def.id, def);
 }
 
+export function unregisterTemplate(id: string): boolean {
+  return REGISTRY.delete(id);
+}
+
 export function hasTemplate(id: string): boolean {
   return REGISTRY.has(id);
 }
