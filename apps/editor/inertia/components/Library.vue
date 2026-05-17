@@ -11,12 +11,21 @@
 // The panel renders gracefully when no project is loaded or when the
 // project has no library: the catalog list is empty but the tab strip and
 // search box are still visible, so the panel is never blank.
+//
+// Step 18b adds a file-drop zone: dragging files (anything not already a
+// library card drag) anywhere on the panel surfaces a hit-zone overlay; on
+// drop the files are POSTed to `/api/assets` via `useAssetUpload`. The
+// library_index watcher picks the new files up within ~1s and the panel's
+// 2-second poll refreshes the catalog so the new card appears.
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useLibrary, LIBRARY_TABS, type LibraryTab } from '~/composables/useLibrary'
+import { useAssetUpload, isUploadableFile } from '~/composables/useAssetUpload'
+import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import LibraryCard from '~/components/LibraryCard.vue'
 
 const lib = useLibrary({ initialTab: 'template' })
+const uploads = useAssetUpload()
 
 const tabLabels: Record<LibraryTab, string> = {
   template: 'Templates',
@@ -44,10 +53,73 @@ const emptyHint = computed(() => {
   }
   return `No ${lib.tab.value}s in this library yet.`
 })
+
+// ─── File-drop upload (step 18b) ──────────────────────────────────────────
+const isFileDragHover = ref(false)
+let dragDepth = 0
+
+function isFileDrag(event: DragEvent): boolean {
+  const dt = event.dataTransfer
+  if (!dt) return false
+  // Library-card drags carry our internal MIME — those should fall through to
+  // the existing drag-to-stage / drag-to-timeline flow, not look like an
+  // upload intent.
+  const types = Array.from(dt.types ?? [])
+  if (types.includes(LIBRARY_MIME)) return false
+  return types.includes('Files')
+}
+
+function onDragEnter(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  dragDepth++
+  isFileDragHover.value = true
+}
+
+function onDragOver(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  isFileDragHover.value = true
+}
+
+function onDragLeave(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) isFileDragHover.value = false
+}
+
+function onDrop(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  // Stop the editor-shell window listener from double-handling this drop.
+  event.stopPropagation()
+  dragDepth = 0
+  isFileDragHover.value = false
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) return
+  // Reveal the Assets tab when at least one accepted file was dropped so the
+  // new card lands somewhere the user can see.
+  if (Array.from(files).some(isUploadableFile)) {
+    lib.tab.value = 'asset'
+  }
+  // Hand every file off — unsupported ones get an error toast rather than a
+  // silent no-op.
+  uploads.uploadFiles(Array.from(files))
+}
 </script>
 
 <template>
-  <div class="library-panel" data-panel-name="library">
+  <div
+    class="library-panel"
+    data-panel-name="library"
+    :data-file-drag="isFileDragHover ? 'true' : null"
+    @dragenter="onDragEnter"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="onDrop"
+  >
     <div class="search-row">
       <input
         v-model="lib.query.value"
@@ -115,20 +187,80 @@ const emptyHint = computed(() => {
       <h4>Library errors</h4>
       <ul>
         <li v-for="e in lib.errors.value" :key="e.file">
-          <code>{{ e.file }}</code>: {{ e.message }}
+          <code>{{ e.file }}</code
+          >: {{ e.message }}
         </li>
       </ul>
+    </div>
+
+    <div
+      v-if="isFileDragHover"
+      class="drop-overlay"
+      data-testid="library-drop-overlay"
+      aria-hidden="true"
+    >
+      <div class="drop-card">
+        <span class="drop-icon">⤓</span>
+        <p class="drop-title">Drop to upload</p>
+        <p class="drop-sub">Images, video, or audio — added to the Assets library</p>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .library-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   gap: 8px;
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: -8px;
+  background: rgba(8, 12, 28, 0.78);
+  border: 2px dashed rgba(91, 124, 250, 0.7);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.drop-card {
+  text-align: center;
+  color: #e5e5e5;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.drop-icon {
+  font-size: 28px;
+  line-height: 1;
+  color: rgba(91, 124, 250, 1);
+}
+
+.drop-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.drop-sub {
+  margin: 0;
+  font-size: 11px;
+  color: #a3a3a3;
+  max-width: 220px;
+  line-height: 1.4;
 }
 
 .search-row {

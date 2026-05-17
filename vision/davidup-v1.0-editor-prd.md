@@ -468,8 +468,14 @@ A bottom drawer (toggle: ⌘J) showing the *authored* JSON pane with the origina
 **18 — Asset upload pipeline.**
 HTTP POST `/api/assets` accepts a multipart upload. Compute content hash → name file → run ffprobe (video / audio) → extract thumbnail → register in `library/index.json` → return the asset record.
 - Depends: 12.
-- Out: drop a PNG on the editor → it appears in Library / Assets within 2s.
+- Out: `curl -F file=@logo.png /api/assets` returns a `201` with the asset record; the file lands at `library/assets/<hash>.png` and `library/index.json` gains the entry.
 - Files: `app/controllers/assets_controller.ts`, `app/services/asset_pipeline.ts`.
+
+**18b — Asset drag-in upload UI.**
+Wire the browser side of FR-12. The Library panel (Assets tab) and the editor shell accept native file drops: `dragover` shows a hit-zone overlay; `drop` reads `DataTransfer.files`, POSTs each to `/api/assets` via a `useAssetUpload` composable, and surfaces per-file progress + success/error toasts. On success the Library catalog auto-refreshes via the existing `library_index` watcher; the new card is selectable and immediately draggable to the stage (re-uses step 14's drag flow).
+- Depends: 13, 14, 18.
+- Out: drop a PNG on the editor window → it appears in Library / Assets within 2s; drag it to the stage; reload → same hash, same pixels (closes FR-12 acceptance).
+- Files: `inertia/composables/useAssetUpload.ts`, `inertia/components/LibraryPanel.vue`, `inertia/components/EditorShell.vue`, `inertia/components/UploadToasts.vue`.
 
 **19 — Render-from-editor + SSE progress.**
 Render ▸ button → POST `/api/renders` kicks off a worker thread invoking the existing Node driver. Worker emits progress messages; controller pipes them to a Transmit SSE channel; editor strip subscribes and updates.

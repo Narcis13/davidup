@@ -3,20 +3,6 @@
   "templates": [],
   "behaviors": [],
   "scenes": [],
-  "assets": [
-    {
-      "id": "ball",
-      "name": "Bouncing ball",
-      "description": "Reference PNG used by demo compositions.",
-      "url": "../assets/ball.png"
-    },
-    {
-      "id": "logo-orange",
-      "name": "Orange logo card",
-      "description": "Placeholder solid card (no on-disk file yet).",
-      "url": "../assets/ball.png"
-    }
-  ],
   "fonts": [
     {
       "id": "davidup-display",
@@ -31,6 +17,32 @@
       "family": "DavidupMono",
       "url": "../fonts/JetBrainsMono-Bold.ttf",
       "description": "JetBrains Mono Bold — code captions"
+    }
+  ],
+  "assets": [
+    {
+      "id": "ball",
+      "name": "Bouncing ball",
+      "description": "Reference PNG used by demo compositions.",
+      "url": "../assets/ball.png"
+    },
+    {
+      "id": "logo-orange",
+      "name": "Orange logo card",
+      "description": "Placeholder solid card (no on-disk file yet).",
+      "url": "../assets/ball.png"
+    },
+    {
+      "id": "61591a9eb91293f7e1bfb325e756ad4ab98908883157a3a7dbf46e5ec4af57cc",
+      "name": "ME.png",
+      "url": "assets/61591a9eb91293f7e1bfb325e756ad4ab98908883157a3a7dbf46e5ec4af57cc.png",
+      "kind": "image",
+      "mediaType": "image/png",
+      "size": 689837,
+      "hash": "sha256:61591a9eb91293f7e1bfb325e756ad4ab98908883157a3a7dbf46e5ec4af57cc",
+      "createdAt": "2026-05-17T14:01:25.397Z",
+      "width": 889,
+      "height": 1193
     }
   ]
 }

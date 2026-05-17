@@ -18,12 +18,15 @@ import { Head } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
 import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
+import { useAssetUpload } from '~/composables/useAssetUpload'
+import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
 import Inspector from '~/components/Inspector.vue'
 import Library from '~/components/Library.vue'
 import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
 import Timeline from '~/components/Timeline.vue'
+import UploadToasts from '~/components/UploadToasts.vue'
 
 interface CompositionSource {
   text: string
@@ -79,7 +82,7 @@ watch(
     if (next === prev) return
     if (!drawerOpen.value && !compositionSource.value) return
     void refetchCompositionSource()
-  },
+  }
 )
 
 function isMac(): boolean {
@@ -99,8 +102,7 @@ function onKeydown(event: KeyboardEvent): void {
   // default (Firefox: open Downloads; Chrome on macOS: no default), so we
   // only intercept when no input is focused — we don't want to swallow J
   // typed into a text field.
-  const isToggle =
-    event.key === 'j' && (isMac() ? event.metaKey : event.ctrlKey) && !event.altKey
+  const isToggle = event.key === 'j' && (isMac() ? event.metaKey : event.ctrlKey) && !event.altKey
   if (!isToggle) return
   if (isEditableTarget(event.target)) return
   event.preventDefault()
@@ -112,15 +114,76 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+// ─── Step 18b: window-level file drop ────────────────────────────────────
+// Files dropped anywhere on the editor (outside the Library panel, which
+// owns its own handler) get routed through the same upload pipeline. We
+// always suppress the browser's native file-drop navigation so the page
+// doesn't get replaced by the dragged image.
+const uploads = useAssetUpload()
+const isEditorFileDrag = ref(false)
+let editorDragDepth = 0
+
+function isFileDrag(event: DragEvent): boolean {
+  const dt = event.dataTransfer
+  if (!dt) return false
+  const types = Array.from(dt.types ?? [])
+  if (types.includes(LIBRARY_MIME)) return false
+  return types.includes('Files')
+}
+
+function onWindowDragEnter(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  editorDragDepth++
+  isEditorFileDrag.value = true
+}
+
+function onWindowDragOver(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+}
+
+function onWindowDragLeave(event: DragEvent): void {
+  if (!isFileDrag(event)) return
+  editorDragDepth = Math.max(0, editorDragDepth - 1)
+  if (editorDragDepth === 0) isEditorFileDrag.value = false
+}
+
+function onWindowDrop(event: DragEvent): void {
+  // The drop is always over *something*. We reset state regardless of source
+  // so a panel-handled drop still clears the editor-wide overlay.
+  editorDragDepth = 0
+  isEditorFileDrag.value = false
+  if (!isFileDrag(event)) return
+  // Always suppress the browser's "load this file" default; without it, a
+  // missed drop on the stage opens the image in the tab and nukes the editor.
+  event.preventDefault()
+  // If a child handler (Library panel) already consumed this drop, it called
+  // stopPropagation — so reaching this function means no descendant claimed
+  // it and we're free to ingest the files ourselves.
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) return
+  uploads.uploadFiles(Array.from(files))
+}
+
 onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', onKeydown)
+    window.addEventListener('dragenter', onWindowDragEnter)
+    window.addEventListener('dragover', onWindowDragOver)
+    window.addEventListener('dragleave', onWindowDragLeave)
+    window.addEventListener('drop', onWindowDrop)
   }
 })
 
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', onKeydown)
+    window.removeEventListener('dragenter', onWindowDragEnter)
+    window.removeEventListener('dragover', onWindowDragOver)
+    window.removeEventListener('dragleave', onWindowDragLeave)
+    window.removeEventListener('drop', onWindowDrop)
   }
 })
 </script>
@@ -150,9 +213,7 @@ onBeforeUnmount(() => {
         <h1>davidup editor</h1>
         <p v-if="error">{{ error.message }}</p>
         <p v-else>No project loaded.</p>
-        <p class="hint">
-          Boot the editor with <code>davidup edit &lt;project-dir&gt;</code>.
-        </p>
+        <p class="hint">Boot the editor with <code>davidup edit &lt;project-dir&gt;</code>.</p>
       </div>
     </template>
 
@@ -185,6 +246,17 @@ onBeforeUnmount(() => {
     :open="drawerOpen"
     @close="drawerOpen = false"
   />
+
+  <div
+    v-if="isEditorFileDrag"
+    class="editor-drop-veil"
+    data-testid="editor-drop-veil"
+    aria-hidden="true"
+  >
+    <p>Drop files to add to library</p>
+  </div>
+
+  <UploadToasts />
 </template>
 
 <style scoped>
@@ -213,5 +285,29 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 0.95em;
+}
+
+.editor-drop-veil {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  border: 3px dashed rgba(91, 124, 250, 0.55);
+  background: rgba(8, 12, 28, 0.18);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 90;
+}
+
+.editor-drop-veil p {
+  margin: 24px 0 0;
+  padding: 8px 14px;
+  background: rgba(8, 12, 28, 0.88);
+  color: #e5e5e5;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(91, 124, 250, 0.5);
 }
 </style>
