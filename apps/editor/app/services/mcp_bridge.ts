@@ -45,15 +45,21 @@
 |     stdio surface when an agent is meant to attach).
 */
 
+import { join, sep } from 'node:path'
 import {
   CompositionStore,
+  MCPToolError,
   createServer,
   type DavidupServer,
   type DispatchResult,
   type DispatchRouter,
   type MCPErrorCode,
+  type ProjectControls,
+  type ProjectInfo,
+  type RecentProjectInfo,
   type ToolDeps,
 } from 'davidup/mcp'
+import { scaffoldProject, ScaffoldError } from 'davidup/cli/scaffold'
 
 import commandBus, {
   CommandBus,
@@ -65,6 +71,8 @@ import projectStore, {
   ProjectLoadError,
   ProjectStore,
 } from '#services/project_store'
+import recents from '#services/recents'
+import { guardProjectDirectory } from '#services/project_paths'
 import { hydrateStore } from '#services/apply_command'
 import {
   COMMAND_TO_TOOL,
@@ -149,7 +157,152 @@ export function buildDeps(store: ProjectStore): ToolDeps {
   if (current) {
     hydrateStore(compositionStore, current, BRIDGE_COMP_ID)
   }
-  return { store: compositionStore }
+  return { store: compositionStore, projectControls: buildProjectControls(store) }
+}
+
+/**
+ * Implements the MCP-side `ProjectControls` contract by reusing the same
+ * services the HTTP controllers do: `ProjectStore#load` for open/create,
+ * `recents` for list, `scaffoldProject` for create. Errors thrown from here
+ * surface to the agent as structured MCPToolError envelopes.
+ */
+export function buildProjectControls(store: ProjectStore): ProjectControls {
+  return {
+    current: (): ProjectInfo | null => {
+      const p = store.project
+      if (!p) return null
+      return {
+        root: p.root,
+        compositionPath: p.compositionPath,
+        libraryIndexPath: p.libraryIndexPath,
+        assetsDir: p.assetsDir,
+        loadedAt: p.loadedAt,
+      }
+    },
+    list: async (): Promise<RecentProjectInfo[]> => {
+      const projects = await recents.list()
+      return projects.map((p) => ({
+        path: p.path,
+        name: p.name,
+        lastOpenedAt: p.lastOpenedAt,
+        lastModifiedAt: p.lastModifiedAt,
+      }))
+    },
+    open: async ({ path }: { path: string }): Promise<ProjectInfo> => {
+      const guard = guardProjectDirectory(path)
+      if (!guard.ok) throw guardToMcpError(guard)
+      try {
+        const project = await store.load(guard.directory)
+        return {
+          root: project.root,
+          compositionPath: project.compositionPath,
+          libraryIndexPath: project.libraryIndexPath,
+          assetsDir: project.assetsDir,
+          loadedAt: project.loadedAt,
+        }
+      } catch (err) {
+        throw projectLoadToMcpError(err)
+      }
+    },
+    create: async ({
+      name,
+      location,
+      template,
+    }: {
+      name: string
+      location: string
+      template?: string
+    }): Promise<ProjectInfo> => {
+      const locationGuard = guardProjectDirectory(location)
+      if (!locationGuard.ok) throw guardToMcpError(locationGuard)
+      // Reject `name` shapes that try to climb out of the location ("..",
+      // absolute paths, NUL bytes). `path.join` would normalize most of these
+      // away silently, which is exactly the trick we want to block.
+      if (
+        name.length === 0 ||
+        /[\x00-\x1f]/.test(name) ||
+        name.includes('..') ||
+        name.startsWith('/') ||
+        name.startsWith('\\') ||
+        /^[a-zA-Z]:[\\/]/.test(name)
+      ) {
+        throw new MCPToolError(
+          'E_INVALID_VALUE',
+          '`name` must be a simple directory name, not a path that escapes `location`.',
+        )
+      }
+      const targetDir = join(locationGuard.directory, name)
+      // Re-guard the joined path so the resolved target still passes the
+      // shared filesystem-path checks (length, control chars, sensitive
+      // prefixes).
+      const targetGuard = guardProjectDirectory(targetDir)
+      if (!targetGuard.ok) throw guardToMcpError(targetGuard)
+      // Belt-and-braces containment check: target must live strictly inside
+      // `location`. Defensive against any future path-normalisation surprise.
+      if (
+        targetGuard.directory !== locationGuard.directory &&
+        !targetGuard.directory.startsWith(locationGuard.directory + sep)
+      ) {
+        throw new MCPToolError(
+          'E_INVALID_VALUE',
+          'Resolved project directory falls outside `location`.',
+        )
+      }
+
+      try {
+        await scaffoldProject({
+          targetDir: targetGuard.directory,
+          ...(template !== undefined ? { template } : {}),
+        })
+      } catch (err) {
+        if (err instanceof ScaffoldError) {
+          const code = err.code === 'E_TEMPLATE_NOT_FOUND' ? 'E_NOT_FOUND' : 'E_INVALID_VALUE'
+          throw new MCPToolError(code, err.message)
+        }
+        throw err
+      }
+
+      try {
+        const project = await store.load(targetGuard.directory)
+        // Honour the supplied `name` as the recents-list label, mirroring the
+        // POST /api/projects controller. Best-effort: a recents-write failure
+        // never blocks the load.
+        await recents.touch(project.root, name).catch(() => {})
+        return {
+          root: project.root,
+          compositionPath: project.compositionPath,
+          libraryIndexPath: project.libraryIndexPath,
+          assetsDir: project.assetsDir,
+          loadedAt: project.loadedAt,
+        }
+      } catch (err) {
+        throw projectLoadToMcpError(err)
+      }
+    },
+  }
+}
+
+function guardToMcpError(
+  guard: { ok: false; code: 'E_BAD_REQUEST' | 'E_FORBIDDEN_PATH'; message: string },
+): MCPToolError {
+  // Both guard failure modes map to E_INVALID_VALUE on the MCP surface —
+  // there is no distinct "forbidden" code in the engine vocabulary, and from
+  // the agent's perspective the request is simply not acceptable.
+  return new MCPToolError('E_INVALID_VALUE', guard.message)
+}
+
+function projectLoadToMcpError(err: unknown): MCPToolError {
+  if (err instanceof ProjectLoadError) {
+    const code: MCPErrorCode =
+      err.code === 'E_PROJECT_NOT_FOUND' || err.code === 'E_COMPOSITION_MISSING'
+        ? 'E_NOT_FOUND'
+        : err.code === 'E_COMPOSITION_PARSE' || err.code === 'E_COMPOSITION_INVALID'
+          ? 'E_VALIDATION_FAILED'
+          : 'E_NO_COMPOSITION'
+    return new MCPToolError(code, err.message)
+  }
+  if (err instanceof Error) return new MCPToolError('E_UNKNOWN', err.message)
+  return new MCPToolError('E_UNKNOWN', String(err))
 }
 
 // ──────────────── Helpers ────────────────

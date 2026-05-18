@@ -1,92 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { isAbsolute, normalize, resolve, sep } from 'node:path'
 import { scaffoldProject, ScaffoldError } from 'davidup/cli/scaffold'
 import projectStore, { ProjectLoadError } from '#services/project_store'
 import projectEvents, { type ProjectChangedPayload } from '#services/project_events'
 import recents from '#services/recents'
-
-/**
- * Path-traversal / hostile-input guard for project directory inputs (audit §8).
- *
- * The editor server only binds to localhost by default, but POST /api/project
- * and POST /api/projects accept a user-supplied filesystem path that gets
- * passed straight to `ProjectStore#load` / scaffold. If anyone widens the
- * bind to a remote interface (Docker, ngrok, reverse proxy), an unguarded
- * input here is "open any directory on the host". We reject inputs that:
- *  - are empty, not a string, or absurdly long (≥ 4096 chars),
- *  - contain a NUL byte or other ASCII control character,
- *  - contain a `..` path segment (after normalization),
- *  - resolve to a known sensitive system root (`/etc`, `/proc`, `/sys`,
- *    `/dev`, `/root`, `/private/etc`, `/private/var/db`, `/Library/Keychains`,
- *    Windows `\Windows`, `\Program Files`).
- *
- * The resolved (absolute, normalized) directory is returned on success — the
- * controller hands that string to the store rather than the original input.
- */
-const SENSITIVE_PREFIXES: ReadonlyArray<string> = [
-  '/etc',
-  '/proc',
-  '/sys',
-  '/dev',
-  '/root',
-  '/private/etc',
-  '/private/var/db',
-  '/Library/Keychains',
-  '/System',
-  'C:\\Windows',
-  'C:\\Program Files',
-  'C:\\Program Files (x86)',
-]
-
-function guardProjectDirectory(input: unknown):
-  | { ok: true; directory: string }
-  | { ok: false; code: 'E_BAD_REQUEST' | 'E_FORBIDDEN_PATH'; message: string } {
-  if (typeof input !== 'string' || input.length === 0) {
-    return { ok: false, code: 'E_BAD_REQUEST', message: 'Body `directory` (string) is required' }
-  }
-  if (input.length >= 4096) {
-    return { ok: false, code: 'E_BAD_REQUEST', message: 'Directory path is too long' }
-  }
-  // Reject NUL bytes and other ASCII control characters that should never
-  // appear in a filesystem path. A NUL byte in particular can confuse OS
-  // path-handling and is a known traversal trick on some C bindings.
-  if (/[\x00-\x1f]/.test(input)) {
-    return {
-      ok: false,
-      code: 'E_BAD_REQUEST',
-      message: 'Directory path contains control characters',
-    }
-  }
-  // Reject `..` segments in the *input* — `path.resolve` normalizes them
-  // away, but the explicit form signals intent to escape an expected base.
-  const normalized = normalize(input)
-  const segments = normalized.split(/[\\/]/)
-  if (segments.includes('..')) {
-    return {
-      ok: false,
-      code: 'E_FORBIDDEN_PATH',
-      message: 'Directory path may not contain `..` segments',
-    }
-  }
-  const directory = resolve(input)
-  // Sensitive-root check uses startsWith on `dir + sep` so `/etc-foo` is not
-  // mistaken for a child of `/etc`. The exact match is also rejected.
-  for (const prefix of SENSITIVE_PREFIXES) {
-    if (directory === prefix || directory.startsWith(prefix + sep) || directory.startsWith(prefix + '/')) {
-      return {
-        ok: false,
-        code: 'E_FORBIDDEN_PATH',
-        message: `Directory path is in a protected system location (${prefix})`,
-      }
-    }
-  }
-  // Belt-and-braces: after `path.resolve` the result must be absolute. This
-  // is true on every supported platform but we guard against future surprises.
-  if (!isAbsolute(directory)) {
-    return { ok: false, code: 'E_BAD_REQUEST', message: 'Directory path did not resolve to an absolute path' }
-  }
-  return { ok: true, directory }
-}
+import { guardProjectDirectory } from '#services/project_paths'
 
 export default class ProjectsController {
   /**

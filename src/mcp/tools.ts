@@ -61,11 +61,56 @@ import {
 
 // ──────────────── Shared dependency container ────────────────
 
+// Project-lifecycle hooks injected by an editor that hosts the MCP server.
+// The base engine (running standalone via `davidup mcp`) has no concept of a
+// "project" — it just owns a CompositionStore — so `projectControls` is
+// optional. When absent the project_* tools surface a structured error
+// telling the agent to connect via the editor instead.
+
+export interface ProjectInfo {
+  root: string;
+  compositionPath: string;
+  libraryIndexPath: string | null;
+  assetsDir: string | null;
+  loadedAt: number;
+}
+
+export interface RecentProjectInfo {
+  path: string;
+  name: string;
+  lastOpenedAt: number;
+  lastModifiedAt: number;
+}
+
+export interface ProjectControls {
+  current(): Promise<ProjectInfo | null> | ProjectInfo | null;
+  list(): Promise<RecentProjectInfo[]> | RecentProjectInfo[];
+  open(args: { path: string }): Promise<ProjectInfo>;
+  create(args: {
+    name: string;
+    location: string;
+    template?: string;
+  }): Promise<ProjectInfo>;
+}
+
 export interface ToolDeps {
   store: CompositionStore;
   // Injected for tests; production server passes nothing and the renderers
   // dynamic-import skia-canvas.
   skiaCanvas?: PreviewSkiaModule;
+  // Injected by the editor's mcp_bridge; missing in the standalone engine.
+  projectControls?: ProjectControls;
+}
+
+function requireProjectControls(deps: ToolDeps): ProjectControls {
+  if (!deps.projectControls) {
+    throw new MCPToolError(
+      "E_UNKNOWN",
+      "Project lifecycle tools are not available on this MCP server.",
+      "Connect through the editor (`davidup edit`) — the standalone engine server has no project concept.",
+    );
+  }
+  return deps.projectControls;
 }
 
 // ──────────────── Tool definition shape ────────────────
@@ -1428,6 +1473,70 @@ const renderToVideo = defineTool({
   },
 });
 
+// ──────────────── 4.7 Project lifecycle (polish §20.29) ────────────────
+
+const currentProject = defineTool({
+  name: "current_project",
+  title: "Current project",
+  description:
+    "Return information about the project currently loaded by the editor (root, paths, loadedAt). Returns `{ project: null }` when no project is loaded. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {},
+  handler: async (_args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const project = await ctrl.current();
+    return { project };
+  },
+});
+
+const listProjects = defineTool({
+  name: "list_projects",
+  title: "List recent projects",
+  description:
+    "Return the editor's list of recently-opened projects, sorted newest first. Entries whose directory no longer exists are pruned. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {},
+  handler: async (_args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const projects = await ctrl.list();
+    return { projects };
+  },
+});
+
+const openProject = defineTool({
+  name: "open_project",
+  title: "Open project",
+  description:
+    "Load a project from a directory on disk and make it the editor's active composition. Routes through the same controller path as POST /api/project in the UI (same validation, same path guard, same project-switch reset). Errors with E_NOT_FOUND if no composition.json exists at `path`, E_INVALID_VALUE if `path` is malformed or in a protected system location, or E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    path: z.string().min(1),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const project = await ctrl.open({ path: args.path });
+    return { project };
+  },
+});
+
+const createProject = defineTool({
+  name: "create_project",
+  title: "Create project",
+  description:
+    "Scaffold a fresh project at `<location>/<name>` (using the optional `template`, default 'basic') and load it. Routes through the same controller path as POST /api/projects in the UI: same path guard, same scaffold error codes (E_TARGET_NOT_EMPTY → E_INVALID_VALUE, E_TEMPLATE_NOT_FOUND → E_NOT_FOUND), and the same recents bump on success. `name` doubles as the recents-list label.",
+  inputSchema: {
+    name: z.string().min(1),
+    location: z.string().min(1),
+    template: z.string().min(1).optional(),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const project = await ctrl.create({
+      name: args.name,
+      location: args.location,
+      ...(args.template !== undefined ? { template: args.template } : {}),
+    });
+    return { project };
+  },
+});
+
 // ──────────────── Registry ────────────────
 
 // Drop undefined-valued keys so a Zod-parsed `.partial()` object satisfies a
@@ -1487,6 +1596,11 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   renderPreviewFrameTool,
   renderThumbnailStripTool,
   renderToVideo,
+  // 4.7 — project lifecycle (polish §20.29)
+  currentProject,
+  listProjects,
+  openProject,
+  createProject,
 ];
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);

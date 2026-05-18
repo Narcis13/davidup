@@ -37,6 +37,9 @@ export {
   TOOL_NAMES,
   type ToolDef,
   type ToolDeps,
+  type ProjectControls,
+  type ProjectInfo,
+  type RecentProjectInfo,
 } from "./tools.js";
 
 export {
