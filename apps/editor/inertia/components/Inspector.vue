@@ -19,6 +19,9 @@
 // scene default value the item was authored against.
 
 import { computed } from 'vue'
+import { EASING_NAMES } from 'davidup/easings'
+import { getTweenable, listTweenable } from 'davidup/schema'
+import type { ItemType } from 'davidup/schema'
 import { useSelection } from '~/composables/useSelection'
 import type { Command, CommandSource, Composition } from '~/composables/useCommandBus'
 import { readPath } from '~/composables/useCommandBus'
@@ -366,6 +369,104 @@ function dispatchEdit(field: FieldDef, raw: unknown): void {
   emit('apply', command)
 }
 
+// ──────────────── Tween editor (step 20.24) ────────────────
+//
+// When the Timeline emits a bar click, `useSelection.setTweenSelection`
+// records the tween id alongside the item selection. The Inspector then
+// swaps its item editor for a minimal 6-field tween panel:
+//   property · from · to · start · duration · easing
+// Edits dispatch a single `update_tween` per change (no diffing — the
+// server's `applyTweenUpdate` accepts partial `props`). A full curve
+// editor is deferred to v1.1 per polish_plan §R-P1.
+
+type TweenLike = {
+  id: string
+  target: string
+  property: string
+  from: unknown
+  to: unknown
+  start: number
+  duration: number
+  easing?: string
+}
+
+const selectedTween = computed<TweenLike | null>(() => {
+  const comp = props.composition
+  const tid = selection.selectedTweenId.value
+  if (!comp || !tid) return null
+  const list = (comp.tweens ?? []) as ReadonlyArray<TweenLike>
+  for (const t of list) {
+    if (t && t.id === tid) return t
+  }
+  return null
+})
+
+// Item the selected tween targets — used to derive which properties are
+// tweenable (for the property dropdown) and the value kind for from/to.
+const tweenTargetItem = computed<ItemLike | null>(() => {
+  const tw = selectedTween.value
+  const comp = props.composition
+  if (!tw || !comp) return null
+  const items = (comp.items as Record<string, ItemLike>) ?? {}
+  return items[tw.target] ?? null
+})
+
+const tweenPropertyOptions = computed<ReadonlyArray<string>>(() => {
+  const tw = selectedTween.value
+  const item = tweenTargetItem.value
+  if (!item) return tw ? [tw.property] : []
+  const known = listTweenable(item.type as ItemType).map((d) => d.path)
+  // If the current property isn't in the tweenable table (legacy or future
+  // schema), keep it visible in the dropdown so the user can see what's
+  // there before switching it out.
+  if (tw && !known.includes(tw.property)) return [tw.property, ...known]
+  return known
+})
+
+// Resolve the from/to value kind so the inputs render correctly. Without a
+// known item or property descriptor we fall back to the raw-JSON editor,
+// matching the R2 mitigation from the item editor.
+const tweenValueKind = computed<'number' | 'color' | 'unknown'>(() => {
+  const tw = selectedTween.value
+  const item = tweenTargetItem.value
+  if (!tw || !item) return 'unknown'
+  const desc = getTweenable(item.type as ItemType, tw.property)
+  return desc ? desc.kind : 'unknown'
+})
+
+function inputForTweenValue() {
+  switch (tweenValueKind.value) {
+    case 'number':
+      return NumberInput
+    case 'color':
+      return ColorInput
+    default:
+      return RawJsonInput
+  }
+}
+
+function dispatchTweenEdit(key: string, raw: unknown): void {
+  const tw = selectedTween.value
+  if (!tw) return
+  // `update_tween.props` uses flat keys (id, target, property, from, to,
+  // start, duration, easing). The server validates partial patches —
+  // see applyTweenUpdate in src/mcp/store.ts. Each edit is a single round-
+  // trip; for drag-driven changes the Timeline already batches via
+  // useTimelineDrag.
+  const command: Command = {
+    kind: 'update_tween',
+    payload: { id: tw.id, props: { [key]: raw } },
+    source: 'ui',
+  }
+  emit('apply', command)
+}
+
+function clearTweenSelection(): void {
+  // Returning the Inspector to item-editor mode without losing the
+  // underlying item selection (so the Stage selection ring stays put).
+  selection.setTweenSelection(null)
+}
+
 function onSelectionChange(event: Event): void {
   const target = event.target as HTMLSelectElement
   selection.setSelection(target.value || null)
@@ -392,9 +493,69 @@ function onSelectionChange(event: Event): void {
 
     <div v-if="error" class="error">{{ error }}</div>
 
-    <div v-if="!selectedItem" class="empty">
+    <div v-if="!selectedItem && !selectedTween" class="empty">
       <p>Select an item to edit its parameters.</p>
     </div>
+
+    <section v-else-if="selectedTween" class="section" data-testid="inspector-tween-editor">
+      <header class="section-header">
+        <span class="section-title">Tween</span>
+        <span class="section-meta-group">
+          <span class="section-meta">{{ selectedTween.id }}</span>
+          <button
+            type="button"
+            class="tween-back"
+            data-testid="inspector-tween-back"
+            title="Return to item editor (keeps item selected)"
+            @click="clearTweenSelection"
+          >Edit item</button>
+        </span>
+      </header>
+      <div class="fields">
+        <EnumInput
+          :model-value="selectedTween.property"
+          label="property"
+          :options="tweenPropertyOptions"
+          :disabled="pending"
+          @update:model-value="(v: string) => dispatchTweenEdit('property', v)"
+        />
+        <component
+          :is="inputForTweenValue()"
+          :model-value="selectedTween.from"
+          label="from"
+          :disabled="pending"
+          @update:model-value="(v: unknown) => dispatchTweenEdit('from', v)"
+        />
+        <component
+          :is="inputForTweenValue()"
+          :model-value="selectedTween.to"
+          label="to"
+          :disabled="pending"
+          @update:model-value="(v: unknown) => dispatchTweenEdit('to', v)"
+        />
+        <TimeInput
+          :model-value="selectedTween.start"
+          label="start"
+          :max="compositionDuration"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchTweenEdit('start', v)"
+        />
+        <TimeInput
+          :model-value="selectedTween.duration"
+          label="duration"
+          :max="compositionDuration"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchTweenEdit('duration', v)"
+        />
+        <EnumInput
+          :model-value="selectedTween.easing ?? 'linear'"
+          label="easing"
+          :options="EASING_NAMES"
+          :disabled="pending"
+          @update:model-value="(v: string) => dispatchTweenEdit('easing', v)"
+        />
+      </div>
+    </section>
 
     <template v-else>
       <section class="section">
@@ -571,6 +732,30 @@ function onSelectionChange(event: Event): void {
   border-radius: 999px;
   font-family: 'Instrument Sans', system-ui, sans-serif;
   line-height: 1;
+}
+
+.tween-back {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tween-back:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.tween-back:focus-visible {
+  outline: 1px solid #5b7cfa;
+  outline-offset: 1px;
 }
 
 .fields {

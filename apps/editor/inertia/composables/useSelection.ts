@@ -23,6 +23,13 @@ export interface PickSourceInfo {
 export interface SelectionApi {
   /** Currently selected item id, or null. */
   selectedItemId: Ref<string | null>
+  /**
+   * Currently selected *tween* id, or null. Set when the user clicks a
+   * Timeline bar (step 20.24); cleared by any item-only selection change
+   * (dropdown, row click, stage pick) so a stale tween id never lingers
+   * behind a new item edit context.
+   */
+  selectedTweenId: Ref<string | null>
   /** Set the selection. Passing null clears it. */
   setSelection: (id: string | null) => void
   /**
@@ -30,6 +37,13 @@ export interface SelectionApi {
    * the Stage's hit-test handler. Passing `null` clears both.
    */
   setSelectionFromPick: (id: string | null, source?: PickSourceInfo | null) => void
+  /**
+   * Step 20.24: select a Timeline bar. Sets `selectedTweenId` to the bar's
+   * tween id and `selectedItemId` to the bar's target. The Inspector reads
+   * `selectedTweenId` and renders the tween editor in place of the item
+   * editor while it's non-null.
+   */
+  setTweenSelection: (tweenId: string | null, itemId?: string | null) => void
   /** Convenience boolean — true while an item is selected. */
   hasSelection: Ref<boolean>
   /**
@@ -45,6 +59,7 @@ const SELECTION_KEY: InjectionKey<SelectionApi> = Symbol('davidup.selection')
 
 export function provideSelection(initialId: string | null = null): SelectionApi {
   const selectedItemId = ref<string | null>(initialId)
+  const selectedTweenId = ref<string | null>(null)
   const lastPickSource = ref<PickSourceInfo | null>(null)
   // Tracks the id `lastPickSource` was captured for, so a later
   // `setSelection(otherId)` (Inspector dropdown, Timeline click) can detect
@@ -53,8 +68,10 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
   let pickedForId: string | null = null
   const api: SelectionApi = {
     selectedItemId,
+    selectedTweenId,
     setSelection(id: string | null) {
       selectedItemId.value = id
+      selectedTweenId.value = null
       if (id === null) {
         lastPickSource.value = null
         pickedForId = null
@@ -67,8 +84,22 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
     },
     setSelectionFromPick(id: string | null, source?: PickSourceInfo | null) {
       selectedItemId.value = id
+      selectedTweenId.value = null
       lastPickSource.value = id === null ? null : source ?? null
       pickedForId = id
+    },
+    setTweenSelection(tweenId: string | null, itemId?: string | null) {
+      selectedTweenId.value = tweenId
+      if (itemId !== undefined) {
+        selectedItemId.value = itemId
+        // Tween-driven selection doesn't carry source-map info; drop any
+        // stale pick capture so the provenance line doesn't lie about
+        // where the bar was picked from.
+        if (itemId !== pickedForId) {
+          lastPickSource.value = null
+          pickedForId = null
+        }
+      }
     },
     hasSelection: computed(() => selectedItemId.value !== null) as Ref<boolean>,
     lastPickSource,

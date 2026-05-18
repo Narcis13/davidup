@@ -249,8 +249,16 @@ function pct(t: number): string {
 const playheadLeft = computed(() => pct(props.playhead))
 const playheadLabel = computed(() => `${props.playhead.toFixed(2)}s`)
 
-function onSelectItem(id: string, _tweenId?: string): void {
-  selection.setSelection(id)
+function onSelectItem(id: string, tweenId?: string): void {
+  // Step 20.24 — bar clicks emit a tween id; route them through
+  // setTweenSelection so the Inspector switches to its tween editor. Row
+  // clicks (no tween id) drop tween selection so the Inspector goes back
+  // to the item editor.
+  if (typeof tweenId === 'string' && tweenId.length > 0) {
+    selection.setTweenSelection(tweenId, id)
+  } else {
+    selection.setSelection(id)
+  }
 }
 
 const rulerEl: Ref<HTMLDivElement | null> = ref(null)
