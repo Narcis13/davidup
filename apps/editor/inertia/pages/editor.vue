@@ -18,6 +18,7 @@ import { Head, router } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
 import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
+import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
@@ -49,8 +50,9 @@ const props = defineProps<{
 }>()
 
 const selection = provideSelection(null)
+const validation = provideValidation(props.composition)
 
-const bus = useCommandBus({ initial: props.composition })
+const bus = useCommandBus({ initial: props.composition, validation })
 
 // Stage.vue owns the canvas element; we forward its inner ref out via
 // `defineExpose` so the engine attach loop still binds to it.

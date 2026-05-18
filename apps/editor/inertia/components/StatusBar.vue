@@ -13,14 +13,10 @@
 // SourceDrawer to the right line.
 
 import { computed, ref, watch } from 'vue'
-import { validateComposition } from 'davidup/schema'
-import type {
-  ValidationResult,
-  ValidationError,
-  ValidationWarning,
-} from 'davidup/schema'
+import type { ValidationError, ValidationWarning } from 'davidup/schema'
 import { encodePtrToken } from '~/composables/jsonPointerLines'
 import { useRender } from '~/composables/useRender'
+import { useValidation } from '~/composables/useValidation'
 import type { Composition } from '~/composables/useCommandBus'
 import type { StageStatus } from '~/composables/useStage'
 
@@ -38,22 +34,39 @@ const emit = defineEmits<{
 
 const expanded = ref(false)
 
-// Re-validate whenever the composition reference changes. The engine's
-// Zod-backed validator is fast enough to run on every command apply.
-const validation = computed<ValidationResult>(() => {
-  if (!props.composition) {
-    return { valid: true, errors: [], warnings: [] }
-  }
-  return validateComposition(props.composition)
+// Step 20.16 — pull the validated state from the shared composable instead
+// of running validateComposition() here. Same result, but the Timeline now
+// shares the work and we can also display the structured command error
+// (code, hint, issues) from the most recent rejected write.
+const validationApi = useValidation()
+const validation = validationApi.result
+
+// Merge schema + command-error issues so the panel shows everything.
+const allErrors = computed<ValidationError[]>(() => {
+  const errs = validation.value.errors.slice()
+  const detail = validationApi.lastCommandError.value?.details
+  if (detail?.errors?.length) errs.push(...detail.errors)
+  return errs
+})
+const allWarnings = computed<ValidationWarning[]>(() => {
+  const warns = validation.value.warnings.slice()
+  const detail = validationApi.lastCommandError.value?.details
+  if (detail?.warnings?.length) warns.push(...detail.warnings)
+  return warns
 })
 
-const errorCount = computed(() => validation.value.errors.length)
-const warningCount = computed(() => validation.value.warnings.length)
+const errorCount = computed(() => allErrors.value.length)
+const warningCount = computed(() => allWarnings.value.length)
+const commandError = computed(() => validationApi.lastCommandError.value)
 
-// Auto-collapse the panel when there's nothing to show.
-watch([errorCount, warningCount], ([e, w]) => {
-  if (e === 0 && w === 0) expanded.value = false
-})
+// Auto-collapse the panel when there's nothing to show (no schema issues
+// AND no command error to surface).
+watch(
+  [errorCount, warningCount, commandError],
+  ([e, w, cmd]) => {
+    if (e === 0 && w === 0 && !cmd) expanded.value = false
+  },
+)
 
 const render = useRender()
 
@@ -125,7 +138,7 @@ function pathToPointer(
 }
 
 function toggle(): void {
-  if (errorCount.value === 0 && warningCount.value === 0) return
+  if (errorCount.value === 0 && warningCount.value === 0 && !commandError.value) return
   expanded.value = !expanded.value
 }
 
@@ -141,11 +154,11 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
       <button
         type="button"
         class="status-pill error"
-        :class="{ inactive: errorCount === 0, active: expanded }"
+        :class="{ inactive: errorCount === 0 && !commandError, active: expanded }"
         :aria-expanded="expanded ? 'true' : 'false'"
-        :aria-disabled="errorCount === 0 && warningCount === 0 ? 'true' : 'false'"
+        :aria-disabled="errorCount === 0 && warningCount === 0 && !commandError ? 'true' : 'false'"
         data-testid="status-bar-error-count"
-        :title="errorCount > 0 ? `${errorCount} validation error${errorCount === 1 ? '' : 's'} — click for details` : 'No validation errors'"
+        :title="errorCount > 0 ? `${errorCount} validation error${errorCount === 1 ? '' : 's'} — click for details` : commandError ? `Command rejected: ${commandError.code} — click for details` : 'No validation errors'"
         @click="toggle"
       >
         <span class="dot" aria-hidden="true" />
@@ -157,7 +170,7 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
         class="status-pill warning"
         :class="{ inactive: warningCount === 0, active: expanded }"
         :aria-expanded="expanded ? 'true' : 'false'"
-        :aria-disabled="errorCount === 0 && warningCount === 0 ? 'true' : 'false'"
+        :aria-disabled="errorCount === 0 && warningCount === 0 && !commandError ? 'true' : 'false'"
         data-testid="status-bar-warning-count"
         :title="warningCount > 0 ? `${warningCount} validation warning${warningCount === 1 ? '' : 's'} — click for details` : 'No validation warnings'"
         @click="toggle"
@@ -165,6 +178,16 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
         <span class="dot" aria-hidden="true" />
         <span class="label">{{ warningCount }} warning{{ warningCount === 1 ? '' : 's' }}</span>
       </button>
+
+      <span
+        v-if="commandError"
+        class="status-text command-error"
+        data-testid="status-bar-command-error"
+        :title="commandError.hint || commandError.message"
+      >
+        <span class="text-label">Rejected:</span>
+        <span class="text-value mono">{{ commandError.code }}</span>
+      </span>
 
       <span class="divider" aria-hidden="true" />
 
@@ -206,7 +229,7 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
     </div>
 
     <div
-      v-if="expanded && (errorCount > 0 || warningCount > 0)"
+      v-if="expanded && (errorCount > 0 || warningCount > 0 || commandError)"
       class="issues-panel"
       role="region"
       aria-label="Validation issues"
@@ -224,9 +247,38 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
           ×
         </button>
       </div>
-      <ul v-if="validation.errors.length > 0" class="issues-list">
+
+      <div
+        v-if="commandError"
+        class="command-error-panel"
+        data-testid="status-bar-command-error-panel"
+      >
+        <div class="command-error-head">
+          <span class="issue-badge error">{{ commandError.code }}</span>
+          <span class="command-error-message">{{ commandError.message }}</span>
+          <span class="command-error-status mono">HTTP {{ commandError.status }}</span>
+        </div>
+        <p v-if="commandError.hint" class="command-error-hint">{{ commandError.hint }}</p>
+        <ul
+          v-if="commandError.issues && commandError.issues.length > 0"
+          class="command-error-issues"
+        >
+          <li
+            v-for="(zissue, idx) in commandError.issues"
+            :key="`zissue-${idx}`"
+            class="issue-row error"
+            :data-testid="`status-bar-command-issue-${idx}`"
+          >
+            <span class="issue-badge error">field</span>
+            <span class="issue-message">{{ zissue.message }}</span>
+            <span v-if="zissue.path" class="issue-path mono">{{ zissue.path }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <ul v-if="allErrors.length > 0" class="issues-list">
         <li
-          v-for="(issue, idx) in validation.errors"
+          v-for="(issue, idx) in allErrors"
           :key="`err-${idx}`"
           class="issue-row error"
           :data-testid="`status-bar-issue-error-${idx}`"
@@ -240,9 +292,9 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
           <span v-if="issue.path" class="issue-path mono">{{ issue.path }}</span>
         </li>
       </ul>
-      <ul v-if="validation.warnings.length > 0" class="issues-list">
+      <ul v-if="allWarnings.length > 0" class="issues-list">
         <li
-          v-for="(issue, idx) in validation.warnings"
+          v-for="(issue, idx) in allWarnings"
           :key="`warn-${idx}`"
           class="issue-row warning"
           :data-testid="`status-bar-issue-warning-${idx}`"
@@ -523,5 +575,56 @@ function onIssueClick(issue: ValidationError | ValidationWarning): void {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 40%;
+}
+
+.status-text.command-error {
+  color: #ff8a8a;
+}
+
+.status-text.command-error .text-label {
+  color: #ff8a8a;
+}
+
+.status-text.command-error .text-value {
+  color: #ffd5d5;
+}
+
+.command-error-panel {
+  padding: 6px 12px 8px;
+  background: rgba(255, 107, 107, 0.06);
+  border-bottom: 1px solid rgba(255, 107, 107, 0.18);
+}
+
+.command-error-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.command-error-message {
+  color: #ffe5e5;
+  font-size: 12px;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-error-status {
+  color: #b07070;
+  font-size: 10.5px;
+}
+
+.command-error-hint {
+  margin: 4px 0 0;
+  color: #c5a8a8;
+  font-size: 11.5px;
+}
+
+.command-error-issues {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  border-top: 1px dashed rgba(255, 107, 107, 0.18);
 }
 </style>

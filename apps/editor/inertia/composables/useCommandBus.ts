@@ -13,6 +13,7 @@
 // the relative path.
 
 import { ref, shallowRef, triggerRef, type Ref, type ShallowRef } from 'vue'
+import type { ValidationResult } from 'davidup/schema'
 
 // The server (`app/types/commands.ts`) is the single source of truth for
 // the Command discriminated union. The client only needs the wire shape;
@@ -21,6 +22,22 @@ export interface Command {
   kind: string
   payload: Record<string, unknown>
   source?: 'ui' | 'mcp'
+}
+
+/**
+ * Structured error envelope returned by `/api/command` for non-2xx responses.
+ * Mirrors the controller's response shape: `{ error: { code, message, ... } }`.
+ * Surfaced as a full report (not just `message`) so the StatusBar / Timeline
+ * can show `code`, `hint`, validation `issues`, and post-apply `details` —
+ * step 20.16 of the polish plan.
+ */
+export interface CommandErrorReport {
+  code: string
+  message: string
+  hint?: string | null
+  issues?: ReadonlyArray<{ path: string; message: string }>
+  details?: ValidationResult | null
+  status: number
 }
 
 export type CommandSource = 'ui' | 'mcp'
@@ -50,9 +67,24 @@ function rewriteAssetsForBrowser(comp: Composition): Composition {
   return cloned
 }
 
+export interface CommandBusValidationSink {
+  /** Called on a non-OK response with the parsed structured error. */
+  recordCommandError: (report: CommandErrorReport) => void
+  /** Called on a successful response. Lets the sink drop stale reports. */
+  clearCommandError: () => void
+  /** Called whenever the local composition reference changes. */
+  setComposition: (next: Composition | null) => void
+}
+
 export interface UseCommandBusOptions {
   /** Initial composition (already rewritten for browser asset URLs). */
   initial: Composition | null
+  /**
+   * Optional sink that mirrors composition + structured command errors out
+   * to other panels. Wired by `editor.vue` to a `provideValidation()` so
+   * the StatusBar and Timeline can subscribe to one source of truth.
+   */
+  validation?: CommandBusValidationSink
 }
 
 export interface UseCommandBusReturn {
@@ -62,6 +94,12 @@ export interface UseCommandBusReturn {
   baseline: Ref<Composition | null>
   pending: Ref<boolean>
   error: Ref<string | null>
+  /**
+   * Full structured error from the most recent rejected command, or null
+   * after a successful apply. Cooperates with `error` (which is just the
+   * message). The Inspector still uses `error`; the StatusBar uses this.
+   */
+  errorReport: Ref<CommandErrorReport | null>
   apply: (command: Command) => Promise<void>
   /**
    * Source of the most recent mutation that touched each item id. The
@@ -108,10 +146,16 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
   ) as Ref<Composition | null>
   const pending = ref(false)
   const error = ref<string | null>(null)
+  const errorReport = ref<CommandErrorReport | null>(null)
   // Per-item last-edit attribution. shallowRef + manual triggerRef avoids
   // wrapping every Map mutation in a reactive proxy — the Inspector only
   // reads .get() and never iterates, so deep reactivity buys nothing.
   const itemLastSource = shallowRef<Map<string, CommandSource>>(new Map())
+
+  const sink = options.validation
+  // Seed the sink with the initial composition so first-paint markers
+  // reflect the load-time state.
+  if (sink && options.initial) sink.setComposition(composition.value)
 
   async function apply(command: Command): Promise<void> {
     pending.value = true
@@ -123,14 +167,10 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
         body: JSON.stringify(command),
       })
       if (!res.ok) {
-        let detail = ''
-        try {
-          const body = (await res.json()) as { error?: { message?: string } }
-          detail = body?.error?.message ?? ''
-        } catch {
-          /* response not JSON */
-        }
-        throw new Error(detail || `HTTP ${res.status}`)
+        const report = await parseErrorBody(res)
+        errorReport.value = report
+        sink?.recordCommandError(report)
+        throw new Error(report.message)
       }
       const data = (await res.json()) as {
         composition: Composition
@@ -138,6 +178,9 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
         toolResult?: unknown
       }
       composition.value = rewriteAssetsForBrowser(data.composition)
+      errorReport.value = null
+      sink?.clearCommandError()
+      sink?.setComposition(composition.value)
 
       // The server echoes the parsed command (with `source` defaulted). Use
       // that — not the outgoing `command` — so any server-side normalisation
@@ -161,8 +204,35 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     baseline,
     pending,
     error,
+    errorReport,
     apply,
     itemLastSource,
+  }
+}
+
+/**
+ * Parse `/api/command` non-OK response into the structured envelope. Falls
+ * back gracefully when the body isn't JSON (e.g. the framework crashed
+ * before our handler ran) so the user still sees *something*.
+ */
+async function parseErrorBody(res: Response): Promise<CommandErrorReport> {
+  let body: { error?: Partial<CommandErrorReport> } | null = null
+  try {
+    body = (await res.json()) as { error?: Partial<CommandErrorReport> }
+  } catch {
+    /* response not JSON */
+  }
+  const e = body?.error
+  return {
+    code: typeof e?.code === 'string' ? e.code : `E_HTTP_${res.status}`,
+    message:
+      typeof e?.message === 'string' && e.message.length > 0
+        ? e.message
+        : `HTTP ${res.status}`,
+    hint: typeof e?.hint === 'string' ? e.hint : null,
+    issues: Array.isArray(e?.issues) ? e!.issues : undefined,
+    details: (e?.details as ValidationResult | undefined) ?? null,
+    status: res.status,
   }
 }
 

@@ -142,6 +142,16 @@
       "start": 0,
       "duration": 4,
       "easing": "linear"
+    },
+    {
+      "id": "ball-roll-2",
+      "target": "ball",
+      "property": "transform.x",
+      "from": 0,
+      "to": 100,
+      "start": 5.8,
+      "duration": 1,
+      "easing": "linear"
     }
   ]
 }

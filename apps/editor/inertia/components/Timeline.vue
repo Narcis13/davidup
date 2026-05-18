@@ -28,6 +28,7 @@ import { computed, ref, watch, type Ref } from 'vue'
 import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
+import { useValidation } from '~/composables/useValidation'
 import {
   buildCommandsForNewTrackDrop,
   buildCommandsForTrackDrop,
@@ -56,6 +57,7 @@ const emit = defineEmits<{
 }>()
 
 const selection = useSelection()
+const validation = useValidation()
 
 const duration = computed<number>(() => {
   const d = props.composition?.composition?.duration
@@ -416,6 +418,7 @@ watch(
           :duration="duration"
           :selected-id="selection.selectedItemId.value"
           :drag-active="drag.active.value"
+          :marker-counts="validation.markersByTarget.value.get(row.id) ?? null"
           :library-hover="
             libraryDrag.hover.value === 'track' &&
             libraryDrag.hoverTargetId.value === row.id

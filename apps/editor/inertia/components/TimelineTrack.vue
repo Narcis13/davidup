@@ -62,6 +62,12 @@ const props = defineProps<{
   /** Live drag preview from `useTimelineDrag.active`, or null. */
   dragActive?: DragActive | null
   /**
+   * Step 20.16 — per-track validation marker counts from `useValidation`.
+   * `errors > 0` paints a red dot (e.g. tween overlap on this target),
+   * `warnings > 0` paints a yellow dot (e.g. truncated tween).
+   */
+  markerCounts?: { errors: number; warnings: number } | null
+  /**
    * Step 14 — library drag overlay state. `libraryHover` is the kind of the
    * drag (behavior/template/scene/asset) when the user is hovering this
    * specific track; `libraryDragActive` is true for any in-flight library
@@ -148,6 +154,17 @@ function liveBadge(t: TimelineTween): string | null {
   const end = a.currentStart + a.currentDuration
   return `${a.currentStart.toFixed(2)}s → ${end.toFixed(2)}s`
 }
+
+const markerErrors = computed<number>(() => props.markerCounts?.errors ?? 0)
+const markerWarnings = computed<number>(() => props.markerCounts?.warnings ?? 0)
+const markerTitle = computed<string>(() => {
+  const e = markerErrors.value
+  const w = markerWarnings.value
+  const parts: string[] = []
+  if (e > 0) parts.push(`${e} error${e === 1 ? '' : 's'}`)
+  if (w > 0) parts.push(`${w} warning${w === 1 ? '' : 's'}`)
+  return parts.join(' · ')
+})
 </script>
 
 <template>
@@ -164,6 +181,27 @@ function liveBadge(t: TimelineTween): string | null {
     @drop="onLibraryDrop"
   >
     <div class="track-label">
+      <span
+        v-if="markerErrors > 0 || markerWarnings > 0"
+        class="track-markers"
+        :title="markerTitle"
+        :data-testid="`timeline-track-markers-${row.id}`"
+      >
+        <span
+          v-if="markerErrors > 0"
+          class="track-marker error"
+          :data-count="markerErrors"
+          :data-testid="`timeline-track-marker-error-${row.id}`"
+          aria-label="Validation errors on this track"
+        />
+        <span
+          v-if="markerWarnings > 0"
+          class="track-marker warning"
+          :data-count="markerWarnings"
+          :data-testid="`timeline-track-marker-warning-${row.id}`"
+          aria-label="Validation warnings on this track"
+        />
+      </span>
       <span class="label-id">{{ row.id }}</span>
       <span class="label-type">{{ row.type }}</span>
     </div>
@@ -274,6 +312,36 @@ function liveBadge(t: TimelineTween): string | null {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #707070;
+}
+
+.track-markers {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-right: 2px;
+}
+
+.track-marker {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+
+.track-marker.error {
+  background: #ff6b6b;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 6px rgba(255, 107, 107, 0.65);
+}
+
+.track-marker.warning {
+  background: #f4c66e;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 5px rgba(244, 198, 110, 0.55);
 }
 
 .track-lane {
