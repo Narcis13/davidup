@@ -1,340 +1,641 @@
 <script setup lang="ts">
-  import { Head } from '@inertiajs/vue3'
+// Project picker — replaces the AdonisJS starter splash.
+//
+// Two CTAs, both server-validated:
+//  - "Open existing": POST /api/project with `{ directory }`. Server runs the
+//    same path-traversal guard the rest of the editor uses; on success we
+//    navigate to /editor.
+//  - "Create new": POST /api/projects with `{ directory, name, template }`.
+//    Scaffolds + loads in one trip.
+//
+// Below: recent projects list. Click = re-open (POST /api/project); the small
+// X button = forget (DELETE /api/projects/recent/:idx) — does NOT delete the
+// directory from disk.
+
+import { Head, router } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
+
+interface RecentProject {
+  path: string
+  name: string
+  lastOpenedAt: number
+  lastModifiedAt: number
+}
+
+const props = defineProps<{
+  projects: RecentProject[]
+  templates: string[]
+}>()
+
+const recents = ref<RecentProject[]>([...props.projects])
+const templates = computed(() => props.templates)
+
+const openPath = ref('')
+const openError = ref<string | null>(null)
+const openBusy = ref(false)
+
+const createName = ref('')
+const createParent = ref('')
+const createTemplate = ref<string>(props.templates[0] ?? 'basic')
+const createError = ref<string | null>(null)
+const createBusy = ref(false)
+
+function joinPath(parent: string, name: string): string {
+  if (!parent) return name
+  const trimmed = parent.replace(/[\/\\]+$/, '')
+  const sep = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
+  return `${trimmed}${sep}${name}`
+}
+
+function formatRelative(ts: number): string {
+  if (!ts) return ''
+  const diff = Date.now() - ts
+  if (diff < 60_000) return 'just now'
+  const mins = Math.round(diff / 60_000)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.round(hrs / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(ts).toLocaleDateString()
+}
+
+async function postJson<T>(url: string, body: unknown): Promise<{ ok: true; data: T } | { ok: false; status: number; error: { code?: string; message?: string } }> {
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-inertia': 'false' },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    return { ok: false, status: 0, error: { message: (err as Error).message } }
+  }
+  const text = await res.text()
+  let parsed: unknown = null
+  try {
+    parsed = text ? JSON.parse(text) : null
+  } catch {
+    parsed = null
+  }
+  if (!res.ok) {
+    const err = (parsed as { error?: { code?: string; message?: string } })?.error
+    return { ok: false, status: res.status, error: err ?? { message: text || res.statusText } }
+  }
+  return { ok: true, data: parsed as T }
+}
+
+async function submitOpen() {
+  openError.value = null
+  const dir = openPath.value.trim()
+  if (!dir) {
+    openError.value = 'Filesystem path is required'
+    return
+  }
+  openBusy.value = true
+  const res = await postJson<{ root: string }>('/api/project', { directory: dir })
+  openBusy.value = false
+  if (!res.ok) {
+    openError.value = res.error?.message ?? `Failed (HTTP ${res.status})`
+    return
+  }
+  router.visit('/editor')
+}
+
+async function submitCreate() {
+  createError.value = null
+  const name = createName.value.trim()
+  const parent = createParent.value.trim()
+  if (!name) {
+    createError.value = 'Project name is required'
+    return
+  }
+  if (!parent) {
+    createError.value = 'Parent directory is required'
+    return
+  }
+  const directory = joinPath(parent, name)
+  createBusy.value = true
+  const res = await postJson<{ root: string }>('/api/projects', {
+    directory,
+    name,
+    template: createTemplate.value || undefined,
+  })
+  createBusy.value = false
+  if (!res.ok) {
+    createError.value = res.error?.message ?? `Failed (HTTP ${res.status})`
+    return
+  }
+  router.visit('/editor')
+}
+
+async function openRecent(project: RecentProject) {
+  openError.value = null
+  openBusy.value = true
+  const res = await postJson<{ root: string }>('/api/project', { directory: project.path })
+  openBusy.value = false
+  if (!res.ok) {
+    openError.value = `Could not open ${project.name}: ${res.error?.message ?? `HTTP ${res.status}`}`
+    return
+  }
+  router.visit('/editor')
+}
+
+async function forgetRecent(idx: number, ev: MouseEvent) {
+  ev.stopPropagation()
+  let res: Response
+  try {
+    res = await fetch(`/api/projects/recent/${idx}`, {
+      method: 'DELETE',
+      headers: { 'x-inertia': 'false' },
+    })
+  } catch (err) {
+    openError.value = (err as Error).message
+    return
+  }
+  if (!res.ok) {
+    openError.value = `Forget failed: HTTP ${res.status}`
+    return
+  }
+  const body = (await res.json().catch(() => null)) as { projects?: RecentProject[] } | null
+  if (body?.projects) recents.value = body.projects
+}
 </script>
 
 <template>
-  <Head title="Homepage" />
+  <Head title="davidup — open a project" />
 
-  <div class="fixed xl:absolute left-8 right-8 top-0 bottom-0 xl:inset-0 max-w-screen-xl mx-auto before:content-[''] before:[background:repeating-linear-gradient(0deg,var(--sand-5)_0_4px,transparent_0_8px)] before:absolute before:top-0 before:left-0 before:h-full before:w-px after:content-[''] after:[background:repeating-linear-gradient(0deg,var(--sand-5)_0_4px,transparent_0_8px)] after:absolute after:top-0 after:right-0 after:h-full after:w-px"></div>
+  <div class="picker">
+    <div class="picker-inner">
+      <header class="picker-hero">
+        <div class="picker-brand">davidup</div>
+        <h1 class="picker-title">Open a project</h1>
+        <p class="picker-sub">
+          Point the editor at an existing project directory, or scaffold a new one. The server
+          validates filesystem paths before loading.
+        </p>
+      </header>
 
-  <div class="pt-4 h-full flex flex-col">
-    <!-- Header -->
-    <div class="grow pb-4 bg-gradient-to-b from-sand-1 to-sand-2 flex justify-center items-center">
-      <a href="https://adonisjs.com" target="_blank" class="isolate">
-        <svg class="w-16 h-16 fill-primary" viewBox="0 0 33 33">
-          <path
-            fill-rule="evenodd"
-            d="M0 16.333c0 13.173 3.16 16.333 16.333 16.333 13.173 0 16.333-3.16 16.333-16.333C32.666 3.16 29.506 0 16.333 0 3.16 0 0 3.16 0 16.333Zm6.586 3.393L11.71 8.083c.865-1.962 2.528-3.027 4.624-3.027 2.096 0 3.759 1.065 4.624 3.027l5.123 11.643c.233.566.432 1.297.432 1.93 0 2.893-2.029 4.923-4.923 4.923-.986 0-1.769-.252-2.561-.506-.812-.261-1.634-.526-2.695-.526-1.048 0-1.89.267-2.718.529-.801.253-1.59.503-2.538.503-2.894 0-4.923-2.03-4.923-4.924 0-.632.2-1.363.432-1.929Zm9.747-9.613-5.056 11.443c1.497-.699 3.227-1.032 5.056-1.032 1.763 0 3.56.333 4.99 1.032l-4.99-11.444Z"
-            clip-rule="evenodd"
-          />
-        </svg>
-      </a>
-    </div>
-
-    <!-- Bento with documentation, Adocasts, packages and Discord -->
-    <div class="isolate mt-10 max-w-screen-xl mx-auto px-16 xl:px-8 grid grid-cols-1 xl:grid-cols-2 xl:grid-rows-3 gap-8">
-      <article class="row-span-3 relative p-6 shadow-sm hover:shadow border border-sand-7 hover:border-sand-8 rounded-2xl transition ease-in-out duration-700 group flex flex-col gap-8">
-        <div class="relative opacity-80">
-          <svg fill="none" viewBox="0 0 240 105">
-            <path fill="#F9F9F8" d="M0 4a4 4 0 0 1 4-4h232a4 4 0 0 1 4 4v101H0V4Z" />
-            <g fill="#000" fill-rule="evenodd" clip-path="url(#a)" clip-rule="evenodd">
-              <path d="M24 11.444c0 4.391 1.053 5.445 5.444 5.445s5.445-1.054 5.445-5.445c0-4.39-1.054-5.444-5.445-5.444C25.054 6 24 7.053 24 11.444Zm2.195 1.131 1.708-3.88c.288-.655.843-1.01 1.541-1.01.699 0 1.253.355 1.542 1.01l1.707 3.88c.078.189.144.433.144.644 0 .964-.676 1.64-1.64 1.64-.33 0-.59-.083-.854-.168-.271-.087-.545-.175-.899-.175-.35 0-.63.089-.906.176-.267.085-.53.168-.846.168-.964 0-1.64-.677-1.64-1.641 0-.211.066-.455.143-.644Zm3.25-3.204-1.686 3.814c.499-.233 1.075-.344 1.685-.344.588 0 1.187.111 1.664.344l-1.664-3.814Zm26.473-.678c-.378 0-.65.268-.65.64 0 .374.272.641.65.641s.651-.267.651-.64-.273-.64-.65-.64Zm-11.907 5.502c-1.009 0-1.738-.745-1.738-1.91 0-1.187.73-1.933 1.737-1.933.468 0 .814.158 1.019.468V8.86h1.05v5.25h-1.05v-.372c-.2.304-.546.456-1.019.456Zm-.667-1.91c0-.652.352-1.077.887-1.077.54 0 .887.42.887 1.071 0 .64-.346 1.056-.887 1.056-.535 0-.887-.415-.887-1.05Zm4.384-.011c0-.646.351-1.06.877-1.06.53 0 .882.414.882 1.06 0 .646-.352 1.06-.883 1.06-.525 0-.876-.414-.876-1.06Zm11.571.835c0 .194-.147.31-.52.31-.42 0-.682-.221-.682-.489h-1.05c.026.725.714 1.265 1.711 1.265.946 0 1.55-.42 1.55-1.165 0-.557-.358-.945-1.066-1.087l-.762-.152c-.23-.047-.367-.163-.367-.315 0-.226.23-.347.525-.347.42 0 .583.195.583.426h.997c-.026-.683-.562-1.203-1.56-1.203-.929 0-1.559.468-1.559 1.176 0 .64.415.93 1.035 1.06l.756.164c.247.052.41.157.41.357Zm-2.85 1.002h-1.05v-3.675h1.05v3.675Zm-4.264-3.675v.384c.268-.31.625-.468 1.066-.468.824 0 1.36.536 1.36 1.365v2.394h-1.05v-2.173c0-.446-.252-.714-.688-.714-.436 0-.688.268-.688.714v2.173h-1.05v-3.675h1.05Zm-3.58-.084c-1.119 0-1.948.809-1.948 1.922s.83 1.921 1.948 1.921c1.123 0 1.953-.808 1.953-1.921s-.83-1.922-1.953-1.922Zm-8.758.856c-.535 0-.887.425-.887 1.076 0 .636.352 1.05.887 1.05.54 0 .887-.414.887-1.055 0-.65-.346-1.07-.887-1.07Zm-1.958 1.076c0 1.166.73 1.911 1.732 1.911.478 0 .82-.152 1.024-.456v.372h1.05v-3.675h-1.05v.384c-.21-.31-.556-.468-1.024-.468-1.003 0-1.732.746-1.732 1.932Z" />
-            </g>
-            <rect width="8" height="3" x="162" y="9.944" fill="#DAD9D6" rx="1" />
-            <rect width="14" height="3" x="174" y="9.944" fill="#DAD9D6" rx="1" />
-            <rect width="10" height="3" x="192" y="9.944" fill="#DAD9D6" rx="1" />
-            <rect width="10" height="3" x="206" y="9.944" fill="#DAD9D6" rx="1" />
-            <rect width="81" height="6" x="24" y="32" fill="#DAD9D6" rx="2" />
-            <rect width="95" height="6" x="24" y="44" fill="#DAD9D6" rx="2" />
-            <rect width="16" height="5" x="24" y="60" fill="#21201C" rx="1" />
-            <path fill="#DAD9D6" d="M24 85a4 4 0 0 1 4-4h184a4 4 0 0 1 4 4v20H24V85Z" />
-            <path
-              fill="url(#b)"
-              fill-opacity=".2"
-              d="M24 85a4 4 0 0 1 4-4h184a4 4 0 0 1 4 4v20H24V85Z"
-            />
-            <defs>
-              <linearGradient
-                id="b"
-                x1="120"
-                x2="120"
-                y1="81"
-                y2="105"
-                gradientUnits="userSpaceOnUse"
-              >
-                <stop stop-opacity="0" />
-                <stop offset="1" stop-color="#82827C" />
-              </linearGradient>
-              <clipPath id="a">
-                <path fill="#fff" d="M24 6h36.307v10.889H24z" />
-              </clipPath>
-            </defs>
-          </svg>
-
-          <div class="absolute left-0 right-0 bottom-0 h-16 bg-gradient-to-b from-white/0 to-white"></div>
-        </div>
-
-        <div class="flex flex-row gap-4">
-          <div class="shrink-0 w-10 h-10 bg-primary/20 rounded-md flex justify-center items-center">
-            <svg class="h-6 w-6 fill-primary" viewBox="0 0 256 256">
-              <path
-                fill="currentColor"
-                d="M208 24H72a32 32 0 0 0-32 32v168a8 8 0 0 0 8 8h144a8 8 0 0 0 0-16H56a16 16 0 0 1 16-16h136a8 8 0 0 0 8-8V32a8 8 0 0 0-8-8m-88 16h48v72l-19.21-14.4a8 8 0 0 0-9.6 0L120 112Zm80 144H72a31.8 31.8 0 0 0-16 4.29V56a16 16 0 0 1 16-16h32v88a8 8 0 0 0 12.8 6.4L144 114l27.21 20.4A8 8 0 0 0 176 136a8 8 0 0 0 8-8V40h16Z"
+      <div class="picker-grid">
+        <!-- Open existing -->
+        <section class="cta">
+          <div class="cta-head">
+            <div class="cta-icon" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="cta-title">Open existing</h2>
+              <p class="cta-sub">Load a project from a folder on this machine.</p>
+            </div>
+          </div>
+          <form class="cta-body" @submit.prevent="submitOpen">
+            <label class="field">
+              <span class="field-label">Project directory</span>
+              <input
+                v-model="openPath"
+                class="field-input"
+                type="text"
+                placeholder="/Users/you/projects/my-video"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="openBusy"
+                @keydown.enter.prevent="submitOpen"
               />
-            </svg>
+            </label>
+            <p v-if="openError" class="field-error" role="alert">{{ openError }}</p>
+            <div class="cta-foot">
+              <button type="submit" class="btn btn-primary" :disabled="openBusy">
+                {{ openBusy ? 'Opening…' : 'Open project' }}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Create new -->
+        <section class="cta">
+          <div class="cta-head">
+            <div class="cta-icon" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="cta-title">Create new</h2>
+              <p class="cta-sub">Scaffold a fresh project from a template.</p>
+            </div>
           </div>
-
-          <div class="space-y-1">
-            <h2 class="text-lg font-semibold">
-              <a href="https://docs.adonisjs.com" target="_blank">
-                <span>Documentation</span>
-                <span class="absolute inset-0"></span>
-              </a>
-            </h2>
-
-            <p class="text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-700">
-              Dive into the official documentation to learn AdonisJS. Read carefully to discover
-              an unmatched set of features, best practices and developer experience. Through
-              examples, guides and API references, you'll find everything you need to build your
-              next project. From installation to deployment, we've got you covered.
-            </p>
-          </div>
-        </div>
-      </article>
-
-      <article class="relative p-6 shadow-sm hover:shadow border border-sand-7 hover:border-sand-8 rounded-2xl transition ease-in-out duration-700 group flex flex-row gap-4">
-        <div class="shrink-0 w-10 h-10 bg-primary/20 rounded-md flex justify-center items-center">
-          <svg class="h-6 w-6 fill-primary" viewBox="0 0 256 256">
-            <path
-              fill="currentColor"
-              d="m164.44 105.34-48-32A8 8 0 0 0 104 80v64a8 8 0 0 0 12.44 6.66l48-32a8 8 0 0 0 0-13.32M120 129.05V95l25.58 17ZM216 40H40a16 16 0 0 0-16 16v112a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16m0 128H40V56h176zm16 40a8 8 0 0 1-8 8H32a8 8 0 0 1 0-16h192a8 8 0 0 1 8 8"
-            />
-          </svg>
-        </div>
-
-        <div class="space-y-1">
-          <h2 class="text-lg font-semibold">
-            <a href="https://adocasts.com" target="_blank">
-              <span>Adocasts</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-700">
-            Level up your development and Adonis skills with hours of video content, from
-            beginner to advanced, through databases, testing, and more.
-          </p>
-        </div>
-      </article>
-
-      <article class="relative p-6 shadow-sm hover:shadow border border-sand-7 hover:border-sand-8 rounded-2xl transition ease-in-out duration-700 group flex flex-row gap-4">
-        <div class="shrink-0 w-10 h-10 bg-primary/20 rounded-md flex justify-center items-center">
-          <svg class="h-6 w-6 fill-primary" viewBox="0 0 256 256">
-            <path
-              fill="currentColor"
-              d="M208 96a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16h-32a16 16 0 0 0-16 16v8H96v-8a16 16 0 0 0-16-16H48a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h8v64h-8a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h32a16 16 0 0 0 16-16v-8h64v8a16 16 0 0 0 16 16h32a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16h-8V96Zm-32-48h32v32h-32ZM48 48h32v15.9a.5.5 0 0 0 0 .2V80H48Zm32 160H48v-32h32v15.9a.5.5 0 0 0 0 .2zm128 0h-32v-32h32Zm-24-48h-8a16 16 0 0 0-16 16v8H96v-8a16 16 0 0 0-16-16h-8V96h8a16 16 0 0 0 16-16v-8h64v8a16 16 0 0 0 16 16h8Z"
-            />
-          </svg>
-        </div>
-
-        <div class="space-y-1">
-          <h2 class="text-lg font-semibold">
-            <a href="https://packages.adonisjs.com" target="_blank">
-              <span>Packages</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-700">
-            Supercharge your AdonisJS application with packages built and maintained by both the
-            core team and the community.
-          </p>
-        </div>
-      </article>
-
-      <article class="relative p-6 shadow-sm hover:shadow border border-sand-7 hover:border-sand-8 rounded-2xl transition ease-in-out duration-700 group flex flex-row gap-4">
-        <div class="shrink-0 w-10 h-10 bg-primary/20 rounded-md flex justify-center items-center">
-          <svg class="h-6 w-6 fill-primary" viewBox="0 0 256 256">
-            <path
-              fill="currentColor"
-              d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24m0 192a88 88 0 1 1 88-88 88.1 88.1 0 0 1-88 88m44.42-143.16-64 32a8.05 8.05 0 0 0-3.58 3.58l-32 64A8 8 0 0 0 80 184a8.1 8.1 0 0 0 3.58-.84l64-32a8.05 8.05 0 0 0 3.58-3.58l32-64a8 8 0 0 0-10.74-10.74M138 138l-40.11 20.11L118 118l40.15-20.07Z"
-            />
-          </svg>
-        </div>
-
-        <div class="space-y-1">
-          <h2 class="text-lg font-semibold">
-            <a href="https://discord.gg/vDcEjq6" target="_blank">
-              <span>Discord</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-700">
-            Never get lost again, ask questions, and share your knowledge or projects with a
-            growing and supportive community. Join us.
-          </p>
-        </div>
-      </article>
-    </div>
-
-    <!-- Features -->
-    <div class="grow mt-10 mb-8 px-16 xl:px-8 max-w-screen-xl mx-auto">
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <article class="relative py-4 px-5 bg-white border border-transparent rounded-lg hover:border-sand-8 hover:shadow-sm transition duration-100 ease-in-out group">
-          <h2 class="font-semibold text-sand-12">
-            <a href="https://lucid.adonisjs.com" target="_blank" class="flex flex-row gap-2">
-              <span class="bg-[#D5EAE7] h-6 w-6 flex justify-center items-center rounded">
-                <svg class="h-4 w-4 fill-[#0E766E]" viewBox="0 0 24 24">
-                  <g
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                  >
-                    <path d="M4 6a8 3 0 1 0 16 0A8 3 0 1 0 4 6" />
-                    <path d="M4 6v6a8 3 0 0 0 16 0V6" />
-                    <path d="M4 12v6a8 3 0 0 0 16 0v-6" />
-                  </g>
-                </svg>
-              </span>
-              <span>Lucid</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="mt-4 text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-100">
-            A SQL ORM with a powerful query builder, active record, migrations, and model
-            factories. Everything you need to work with databases.
-          </p>
-
-          <svg
-            class="absolute top-4 right-5 opacity-0 group-hover:opacity-100 text-sand-9 w-4 h-4 transition ease-in-out duration-100"
-            viewBox="0 0 24 24"
-          >
-            <path
-              fill="none"
-              stroke="currentColor"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6m-7 1 9-9m-5 0h5v5"
-            />
-          </svg>
-        </article>
-
-        <article class="relative py-4 px-5 bg-white border border-transparent rounded-lg hover:border-sand-8 hover:shadow-sm transition duration-100 ease-in-out group">
-          <h2 class="font-semibold text-sand-12">
-            <a href="https://vinejs.dev/" target="_blank" class="flex flex-row gap-2">
-              <span class="bg-[#F3DBFC] h-6 w-6 flex justify-center items-center rounded">
-                <svg class="h-4 w-4 fill-[#CA5AF2]" viewBox="0 0 24 24">
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 3a12 12 0 0 0 8.5 3A12 12 0 0 1 12 21 12 12 0 0 1 3.5 6 12 12 0 0 0 12 3"
-                  />
-                </svg>
-              </span>
-              <span>Vine</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="mt-4 text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-100">
-            A yet simple but feature rich and type-safe form data validation. It comes with 50+
-            built-in rules and an expressive API to define custom rules.
-          </p>
-
-          <svg
-            class="absolute top-4 right-5 opacity-0 group-hover:opacity-100 text-sand-9 w-4 h-4 transition ease-in-out duration-100"
-            viewBox="0 0 24 24"
-          >
-            <path
-              fill="none"
-              stroke="currentColor"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6m-7 1 9-9m-5 0h5v5"
-            />
-          </svg>
-        </article>
-
-        <article class="relative py-4 px-5 bg-white border border-transparent rounded-lg hover:border-sand-8 hover:shadow-sm transition duration-100 ease-in-out group">
-          <h2 class="font-semibold text-sand-12">
-            <a href="https://inertiajs.com/" target="_blank" class="flex flex-row gap-2">
-              <span class="bg-[#B8EAE0] h-6 w-6 flex justify-center items-center rounded">
-                <svg class="h-4 w-4 fill-[#4BBBA5]" viewBox="0 0 24 24">
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="m12.5 8l4 4l-4 4H17l4-4l-4-4zm-9 0l4 4l-4 4H8l4-4l-4-4z"
-                  />
-                </svg>
-              </span>
-              <span>InertiaJS</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="mt-4 text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-100">
-            The modern monolithic application architecture. It allows you to build single-page
-            applications without building an API.
-          </p>
-
-          <svg
-            class="absolute top-4 right-5 opacity-0 group-hover:opacity-100 text-sand-9 w-4 h-4 transition ease-in-out duration-100"
-            viewBox="0 0 24 24"
-          >
-            <path
-              fill="none"
-              stroke="currentColor"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6m-7 1 9-9m-5 0h5v5"
-            />
-          </svg>
-        </article>
-
-        <article class="relative py-4 px-5 bg-white border border-transparent rounded-lg hover:border-sand-8 hover:shadow-sm transition duration-100 ease-in-out group">
-          <h2 class="font-semibold text-sand-12">
-            <a href="https://japa.dev" target="_blank" class="flex flex-row gap-2">
-              <span class="bg-[#FACDDC] h-6 w-6 flex justify-center items-center rounded">
-                <svg class="h-4 w-4 fill-[#DD3074]" viewBox="0 0 256 256">
-                  <path
-                    fill="currentColor"
-                    d="m240.49 83.51-60-60a12 12 0 0 0-17 0L34.28 152.75a48.77 48.77 0 0 0 69 69l111.2-111.26 21.31-7.11a12 12 0 0 0 4.7-19.87M86.28 204.75a24.77 24.77 0 0 1-35-35l28.13-28.13c7.73-2.41 19.58-3 35.06 5a84 84 0 0 0 21.95 8ZM204.2 88.62a12.15 12.15 0 0 0-4.69 2.89l-38.89 38.9c-7.73 2.41-19.58 3-35.06-5a84 84 0 0 0-21.94-8L172 49l37.79 37.79Z"
-                  />
-                </svg>
-              </span>
-              <span>Japa</span>
-              <span class="absolute inset-0"></span>
-            </a>
-          </h2>
-
-          <p class="mt-4 text-sm text-sand-11 group-hover:text-sand-12 transition ease-in-out duration-100">
-            From JSON API tests using Open API schema to browser tests with Playwrighht, it
-            comes with everything you need to test your application.
-          </p>
-
-          <svg
-            class="absolute top-4 right-5 opacity-0 group-hover:opacity-100 text-sand-9 w-4 h-4 transition ease-in-out duration-100"
-            viewBox="0 0 24 24"
-          >
-            <path
-              fill="none"
-              stroke="currentColor"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6m-7 1 9-9m-5 0h5v5"
-            />
-          </svg>
-        </article>
+          <form class="cta-body" @submit.prevent="submitCreate">
+            <label class="field">
+              <span class="field-label">Project name</span>
+              <input
+                v-model="createName"
+                class="field-input"
+                type="text"
+                placeholder="my-video"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="createBusy"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">Parent directory</span>
+              <input
+                v-model="createParent"
+                class="field-input"
+                type="text"
+                placeholder="/Users/you/projects"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="createBusy"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">Template</span>
+              <select v-model="createTemplate" class="field-input" :disabled="createBusy">
+                <option v-for="t in templates" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </label>
+            <p v-if="createError" class="field-error" role="alert">{{ createError }}</p>
+            <div class="cta-foot">
+              <button type="submit" class="btn btn-primary" :disabled="createBusy">
+                {{ createBusy ? 'Creating…' : 'Create & open' }}
+              </button>
+            </div>
+          </form>
+        </section>
       </div>
-    </div>
 
-    <div class="text-sm text-center [&>code]:font-medium [&>code]:text-[#a599ff] bg-sand-12 text-sand-1 fixed bottom-0 left-0 right-0 py-2">
-      Route for this page is registered in <code>start/routes.ts</code> file, rendering
-      <code>inertia/pages/home.vue</code> template
+      <!-- Recent projects -->
+      <section class="recents" data-testid="recents">
+        <header class="recents-head">
+          <h3 class="recents-title">Recent projects</h3>
+          <span class="recents-count">{{ recents.length }}</span>
+        </header>
+
+        <ul v-if="recents.length > 0" class="recents-list">
+          <li
+            v-for="(p, idx) in recents"
+            :key="p.path"
+            class="recent-row"
+            role="button"
+            tabindex="0"
+            :data-testid="`recent-${idx}`"
+            @click="openRecent(p)"
+            @keydown.enter.prevent="openRecent(p)"
+            @keydown.space.prevent="openRecent(p)"
+          >
+            <div class="recent-main">
+              <div class="recent-name">{{ p.name }}</div>
+              <div class="recent-path">{{ p.path }}</div>
+            </div>
+            <div class="recent-meta">
+              <span>{{ formatRelative(p.lastOpenedAt) }}</span>
+            </div>
+            <button
+              type="button"
+              class="recent-forget"
+              title="Forget this project (does not delete from disk)"
+              :aria-label="`Forget ${p.name}`"
+              :data-testid="`forget-${idx}`"
+              @click="(e) => forgetRecent(idx, e)"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </li>
+        </ul>
+
+        <p v-else class="recents-empty">
+          No recent projects yet. Open or create one above.
+        </p>
+      </section>
     </div>
   </div>
 </template>
+
+<style scoped>
+.picker {
+  min-height: 100vh;
+  width: 100%;
+  background: radial-gradient(1200px 600px at 50% -200px, rgba(91, 124, 250, 0.18), transparent 60%),
+    #0a0a0a;
+  color: #e5e5e5;
+  font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  padding: 48px 20px 80px;
+  box-sizing: border-box;
+}
+
+.picker-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+.picker-hero {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.picker-brand {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #5b7cfa;
+  font-weight: 600;
+}
+
+.picker-title {
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.picker-sub {
+  font-size: 15px;
+  color: #a3a3a3;
+  max-width: 560px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.picker-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 720px) {
+  .picker-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.cta {
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.cta:hover {
+  border-color: rgba(91, 124, 250, 0.4);
+}
+
+.cta-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.cta-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(91, 124, 250, 0.14);
+  color: #97aaff;
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+}
+
+.cta-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cta-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cta-sub {
+  font-size: 13px;
+  color: #909090;
+  margin: 2px 0 0;
+}
+
+.cta-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cta-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: #a3a3a3;
+  letter-spacing: 0.02em;
+}
+
+.field-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0a0a0a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 11px;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.field-input:focus {
+  border-color: rgba(91, 124, 250, 0.7);
+  box-shadow: 0 0 0 3px rgba(91, 124, 250, 0.18);
+}
+
+.field-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+select.field-input {
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #909090 50%),
+    linear-gradient(135deg, #909090 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
+.field-error {
+  color: #ff6b6b;
+  font-size: 12px;
+  margin: 0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #5b7cfa;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #6e8cff;
+}
+
+.recents {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0d0d0d;
+  border-radius: 12px;
+  padding: 16px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recents-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 4px;
+}
+
+.recents-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #a3a3a3;
+  margin: 0;
+  font-weight: 600;
+}
+
+.recents-count {
+  font-size: 11px;
+  color: #707070;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.recents-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.recent-row:hover,
+.recent-row:focus-visible {
+  background: rgba(91, 124, 250, 0.08);
+  outline: none;
+}
+
+.recent-main {
+  min-width: 0;
+}
+
+.recent-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #e5e5e5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-path {
+  font-size: 11px;
+  color: #707070;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.recent-meta {
+  font-size: 11px;
+  color: #909090;
+  white-space: nowrap;
+}
+
+.recent-forget {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #707070;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.recent-forget:hover {
+  background: rgba(255, 107, 107, 0.12);
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.recents-empty {
+  color: #707070;
+  font-size: 13px;
+  text-align: center;
+  padding: 16px 12px 12px;
+  margin: 0;
+}
+</style>

@@ -57,6 +57,28 @@ export interface ScaffoldResult {
 
 const DEFAULT_TEMPLATE = "basic";
 
+/**
+ * List available scaffold template names — directory entries under the
+ * built-in templates root (or `templateRoot` override). The home page
+ * project picker hydrates its "template" dropdown from this list so
+ * adding a new template is automatic.
+ */
+export async function listScaffoldTemplates(opts: {
+  templateRoot?: string;
+} = {}): Promise<string[]> {
+  const templatesRoot =
+    opts.templateRoot ?? dirname(TEMPLATE_DIR_FROM_CLI);
+  const entries = await fs
+    .readdir(templatesRoot, { withFileTypes: true })
+    .catch(() => []);
+  const names: string[] = [];
+  for (const e of entries) {
+    const name = String(e.name);
+    if (e.isDirectory() && !name.startsWith(".")) names.push(name);
+  }
+  return names.sort();
+}
+
 export async function scaffoldProject(
   opts: ScaffoldOptions,
 ): Promise<ScaffoldResult> {

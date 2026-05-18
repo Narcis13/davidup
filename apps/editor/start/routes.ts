@@ -9,6 +9,7 @@
 
 import router from '@adonisjs/core/services/router'
 
+const HomeController = () => import('#controllers/home_controller')
 const ProjectsController = () => import('#controllers/projects_controller')
 const EditorController = () => import('#controllers/editor_controller')
 const CommandsController = () => import('#controllers/commands_controller')
@@ -17,7 +18,7 @@ const LibraryController = () => import('#controllers/library_controller')
 const AssetsController = () => import('#controllers/assets_controller')
 const RendersController = () => import('#controllers/renders_controller')
 
-router.on('/').renderInertia('home')
+router.get('/', [HomeController, 'show'])
 
 router.get('/editor', [EditorController, 'show'])
 router.get('/project-files/*', [EditorController, 'file'])
