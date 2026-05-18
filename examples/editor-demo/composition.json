@@ -37,7 +37,8 @@
       "blendMode": "normal",
       "items": [
         "title",
-        "ball"
+        "ball",
+        "item-1"
       ]
     }
   ],
@@ -92,6 +93,22 @@
         "anchorX": 0.5,
         "anchorY": 0.5,
         "opacity": 1
+      }
+    },
+    "item-1": {
+      "type": "sprite",
+      "asset": "ball",
+      "width": 240,
+      "height": 240,
+      "transform": {
+        "x": 462,
+        "y": 5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0.82
       }
     }
   },

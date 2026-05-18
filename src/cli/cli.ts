@@ -8,11 +8,14 @@
 // Supported commands:
 //   davidup edit <dir>     boot the editor against a project dir
 //   davidup new  <dir>     scaffold a fresh project
+//   davidup list           print recents.json as a table
+//   davidup recent         alias of list
 //   davidup --help         usage
 //   davidup --version      print version
 
 import { promises as fs } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEdit, type EditDeps, type EditHandle } from "./edit.js";
 import {
@@ -44,10 +47,14 @@ export interface CliDeps {
   ) => Promise<EditHandle>;
   /** Inject scaffolder (tests). */
   scaffoldFn?: (opts: ScaffoldOptions) => Promise<unknown>;
+  /** Override path to recents.json (tests). Falls back to env + ~/.davidup. */
+  recentsPath?: string;
+  /** Clock for date formatting in `list` / `recent` (tests). */
+  now?: () => Date;
 }
 
 export interface ParsedCommand {
-  kind: "help" | "version" | "edit" | "new" | "error";
+  kind: "help" | "version" | "edit" | "new" | "list" | "recent" | "error";
   /** For edit / new. */
   positional?: string;
   flags?: Record<string, string | boolean>;
@@ -61,14 +68,19 @@ davidup ${VERSION}
 USAGE
   davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
   davidup new  <dir> [--template=<name>] [--force]
+  davidup list
+  davidup recent
   davidup --help
   davidup --version
 
 COMMANDS
-  edit   Boot the AdonisJS editor server against <dir>. <dir> must contain a
-         composition.json. Opens the browser and watches the project.
-  new    Scaffold a fresh davidup project at <dir>. Refuses non-empty
-         directories unless --force is passed.
+  edit    Boot the AdonisJS editor server against <dir>. <dir> must contain a
+          composition.json. Opens the browser and watches the project.
+  new     Scaffold a fresh davidup project at <dir>. Refuses non-empty
+          directories unless --force is passed.
+  list    Print recently-opened projects (from ~/.davidup/recents.json) as a
+          table, most-recent first.
+  recent  Alias of \`list\`.
 
 FLAGS
   --port=<n>          Port to bind the editor on (default 3333).
@@ -81,6 +93,7 @@ EXAMPLES
   davidup new ./my-clip
   davidup edit ./my-clip
   davidup edit examples/comprehensive-browser
+  davidup list
 `;
 
 export function parseArgs(argv: readonly string[]): ParsedCommand {
@@ -93,6 +106,17 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   }
   if (head === "-v" || head === "--version" || head === "version") {
     return { kind: "version" };
+  }
+  if (head === "list" || head === "recent") {
+    const rest = argv.slice(1);
+    const extras = rest.filter((t) => !t.startsWith("-"));
+    if (extras.length > 0) {
+      return {
+        kind: "error",
+        error: `\`davidup ${head}\` takes no positional arguments (got ${extras.length})`,
+      };
+    }
+    return { kind: head, flags: {} };
   }
   if (head === "edit" || head === "new") {
     const rest = argv.slice(1);
@@ -158,7 +182,142 @@ export async function runCli(
 
     case "edit":
       return await runEditCommand(parsed, deps);
+
+    case "list":
+    case "recent":
+      return await runListCommand(deps);
   }
+}
+
+type RecentRow = {
+  path: string;
+  name: string;
+  lastOpenedAt: number;
+  lastModifiedAt: number;
+};
+
+async function runListCommand(deps: CliDeps): Promise<number> {
+  const path = deps.recentsPath ?? defaultRecentsPath();
+  const entries = await readRecents(path);
+  const live = await pruneMissing(entries);
+  live.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+
+  if (live.length === 0) {
+    deps.io.log(`No recent projects.`);
+    deps.io.log(`(reading ${path})`);
+    return 0;
+  }
+
+  const now = deps.now ? deps.now() : new Date();
+  const rows = live.map((p) => [
+    p.name,
+    relativeTo(deps.cwd, p.path),
+    formatTimestamp(p.lastOpenedAt, now),
+    formatTimestamp(p.lastModifiedAt, now),
+  ]);
+  const header = ["NAME", "PATH", "LAST OPENED", "MODIFIED"];
+  for (const line of renderTable(header, rows)) {
+    deps.io.log(line);
+  }
+  return 0;
+}
+
+async function readRecents(path: string): Promise<RecentRow[]> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const src = (parsed ?? {}) as { projects?: unknown };
+  if (!Array.isArray(src.projects)) return [];
+  const out: RecentRow[] = [];
+  for (const item of src.projects) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    if (typeof r.path !== "string" || r.path.length === 0) continue;
+    const lastOpenedAt = Number(r.lastOpenedAt);
+    const lastModifiedAt = Number(r.lastModifiedAt);
+    out.push({
+      path: r.path,
+      name:
+        typeof r.name === "string" && r.name.length > 0
+          ? r.name
+          : basename(r.path),
+      lastOpenedAt: Number.isFinite(lastOpenedAt) ? lastOpenedAt : 0,
+      lastModifiedAt: Number.isFinite(lastModifiedAt) ? lastModifiedAt : 0,
+    });
+  }
+  return out;
+}
+
+async function pruneMissing(rows: RecentRow[]): Promise<RecentRow[]> {
+  const alive = await Promise.all(
+    rows.map((r) =>
+      fs
+        .stat(r.path)
+        .then((s) => s.isDirectory())
+        .catch(() => false),
+    ),
+  );
+  return rows.filter((_, i) => alive[i]);
+}
+
+function defaultRecentsPath(): string {
+  const override = process.env.DAVIDUP_STATE_DIR;
+  const dir = override && override.length > 0 ? override : join(homedir(), ".davidup");
+  return join(dir, "recents.json");
+}
+
+// Render with two trailing spaces between columns so a copy-paste into a
+// terminal still parses cleanly with `awk` etc. Header is uppercased; ASCII
+// only — no box-drawing characters so the output stays portable across
+// terminals that don't speak UTF-8.
+function renderTable(header: string[], rows: string[][]): string[] {
+  const widths = header.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
+  );
+  const fmt = (cells: string[]) =>
+    cells.map((c, i) => (i === cells.length - 1 ? c : c.padEnd(widths[i]!))).join("  ");
+  return [fmt(header), ...rows.map(fmt)];
+}
+
+function relativeTo(cwd: string, target: string): string {
+  // Show paths under cwd as `./foo`, paths under $HOME as `~/foo`. Otherwise
+  // print the absolute path. Pure cosmetic; the underlying entry is still the
+  // canonical absolute path on disk.
+  if (target === cwd) return ".";
+  const sep = cwd.endsWith("/") ? "" : "/";
+  if (target.startsWith(cwd + "/")) return `.${sep}${target.slice(cwd.length + 1)}`;
+  const home = homedir();
+  if (target === home) return "~";
+  if (target.startsWith(home + "/")) return `~/${target.slice(home.length + 1)}`;
+  return target;
+}
+
+function formatTimestamp(ms: number, now: Date): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const then = new Date(ms);
+  const diffMs = now.getTime() - then.getTime();
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return `${Math.max(sec, 0)}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  const y = then.getFullYear();
+  const mo = String(then.getMonth() + 1).padStart(2, "0");
+  const d = String(then.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${d}`;
 }
 
 async function runNewCommand(

@@ -71,4 +71,27 @@ describe("cli · parseArgs", () => {
     expect(r.kind).toBe("error");
     expect(r.error).toMatch(/Unknown command/);
   });
+
+  it("parses `list` with no positional", () => {
+    const r = parseArgs(["list"]);
+    expect(r.kind).toBe("list");
+    expect(r.positional).toBeUndefined();
+  });
+
+  it("parses `recent` as its own command kind", () => {
+    const r = parseArgs(["recent"]);
+    expect(r.kind).toBe("recent");
+  });
+
+  it("errors when `list` is given a positional", () => {
+    const r = parseArgs(["list", "./somewhere"]);
+    expect(r.kind).toBe("error");
+    expect(r.error).toMatch(/takes no positional/);
+  });
+
+  it("errors when `recent` is given a positional", () => {
+    const r = parseArgs(["recent", "./somewhere"]);
+    expect(r.kind).toBe("error");
+    expect(r.error).toMatch(/takes no positional/);
+  });
 });
