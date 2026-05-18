@@ -25,6 +25,7 @@ import { useShortcuts } from '~/composables/useShortcuts'
 import { useToasts } from '~/composables/useToasts'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
+import HelpOverlay from '~/components/HelpOverlay.vue'
 import Inspector from '~/components/Inspector.vue'
 import Library from '~/components/Library.vue'
 import SourceDrawer from '~/components/SourceDrawer.vue'
@@ -196,6 +197,21 @@ function forceFlush(): void {
   })
 }
 
+// ─── Step 20.21: help overlay (?) ────────────────────────────────────────
+const helpOpen = ref(false)
+
+function toggleHelp(): void {
+  helpOpen.value = !helpOpen.value
+}
+
+function closeHelp(): void {
+  helpOpen.value = false
+}
+
+function onHelpToggleEvent(): void {
+  toggleHelp()
+}
+
 useShortcuts({
   togglePlay: () => stage.togglePlay(),
   deleteSelection,
@@ -203,6 +219,7 @@ useShortcuts({
   toggleSourceDrawer,
   render: startRender,
   forceFlush,
+  toggleHelp,
 })
 
 // ─── Step 18b: window-level file drop ────────────────────────────────────
@@ -272,6 +289,9 @@ onMounted(() => {
     window.addEventListener('dragover', onWindowDragOver)
     window.addEventListener('dragleave', onWindowDragLeave)
     window.addEventListener('drop', onWindowDrop)
+    // The app-bar's `?` button dispatches this event so we don't need a
+    // layout↔page prop coupling just for the help overlay.
+    window.addEventListener('davidup:toggle-help', onHelpToggleEvent)
 
     if (typeof EventSource !== 'undefined') {
       projectEventSource = new EventSource('/api/projects/events')
@@ -306,6 +326,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('dragover', onWindowDragOver)
     window.removeEventListener('dragleave', onWindowDragLeave)
     window.removeEventListener('drop', onWindowDrop)
+    window.removeEventListener('davidup:toggle-help', onHelpToggleEvent)
   }
   if (projectEventSource) {
     projectEventSource.close()
@@ -397,6 +418,8 @@ onBeforeUnmount(() => {
   >
     <p>Drop files to add to library</p>
   </div>
+
+  <HelpOverlay :open="helpOpen" @close="closeHelp" />
 
   <Toasts />
 </template>

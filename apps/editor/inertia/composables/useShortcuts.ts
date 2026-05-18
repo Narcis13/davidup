@@ -18,6 +18,12 @@
 //                  through the server; this is the explicit "save now"
 //                  affordance — handler decides what observable
 //                  acknowledgement to show)
+//   ?         → toggle the help overlay (step 20.21). `?` is normally
+//                  produced as Shift+/ on US layouts, so we accept both
+//                  the resolved character (`event.key === '?'`) and the
+//                  Shift+/ chord without other modifiers. Pressing `?`
+//                  *while the overlay is open* still routes through the
+//                  same handler — the overlay toggles itself shut.
 //
 // The S-split shortcut is deliberately omitted: PRD marks it as P2 and
 // the polish plan defers it to v1.1 ("split — defer to v1.1 if too big").
@@ -41,6 +47,8 @@ export interface UseShortcutsOptions {
   render?: () => void | Promise<void>
   /** ⌘S / Ctrl+S — explicit save / force flush. Intercepts "Save Page As…". */
   forceFlush?: () => void | Promise<void>
+  /** `?` — toggle the help overlay (shortcuts, drag-and-drop, MCP cheat-sheet). */
+  toggleHelp?: () => void | Promise<void>
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -98,6 +106,19 @@ export function useShortcuts(options: UseShortcutsOptions): void {
       if (!options.deleteSelection) return
       event.preventDefault()
       invoke(options.deleteSelection)
+      return
+    }
+
+    // ── `?` ── help overlay (step 20.21). On US layouts `?` is Shift+/,
+    // so we accept both the resolved character and the Shift+/ chord —
+    // platforms / IMEs that produce `?` without Shift (e.g. some non-US
+    // layouts) still register. We refuse Ctrl/Alt/Meta variants so the
+    // chord stays single-purpose.
+    if (event.key === '?' || (event.key === '/' && event.shiftKey)) {
+      if (event.altKey || event.ctrlKey || event.metaKey) return
+      if (!options.toggleHelp) return
+      event.preventDefault()
+      invoke(options.toggleHelp)
       return
     }
 
