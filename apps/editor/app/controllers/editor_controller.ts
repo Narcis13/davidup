@@ -94,6 +94,7 @@ export default class EditorController {
       return inertia.render('editor', {
         composition: null,
         defaults: null,
+        sourceMap: null,
         compositionSource: null,
         project: null,
         error: {
@@ -114,6 +115,11 @@ export default class EditorController {
       // The snapshot is captured once on project load and persists across
       // edits — see ProjectStore.load().
       defaults: rewriteAssetsForBrowser(project.defaults),
+      // Polish 20.26: authorship trail from the precompile pipeline. The
+      // Timeline reads `tweens[id].originKind` to colour bars by true origin
+      // (literal / template / scene / behavior / background) instead of an
+      // id-string heuristic.
+      sourceMap: project.sourceMap,
       compositionSource,
       project: {
         root: project.root,

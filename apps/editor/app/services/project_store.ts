@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
-import { precompile } from 'davidup/compose'
+import { precompile, type SourceMap } from 'davidup/compose'
 import { validateComposition, type ValidationResult } from 'davidup/schema'
 import libraryIndex from '#services/library_index'
 import recents from '#services/recents'
@@ -25,6 +25,16 @@ export type LoadedProject = {
    * canonical form on each save.
    */
   defaults: unknown
+  /**
+   * Authorship trail emitted by the precompile pipeline (PRD step 15). Keyed
+   * by resolved item / tween id → `{ file, jsonPointer, originKind }`. Used
+   * by the editor's Timeline to colour bars by their *true* origin
+   * (literal / template / scene / behavior / background) instead of the
+   * earlier id-string heuristic — see polish_plan §20.26. Captured once on
+   * load; entries for tweens added during the session via commands won't be
+   * present, and the Timeline falls back to its heuristic for those.
+   */
+  sourceMap: SourceMap
   loadedAt: number
 }
 
@@ -123,9 +133,20 @@ export class ProjectStore {
     // into the canonical form the engine + validator + editor commands expect.
     // For canonical-v0.1 input every pass short-circuits, returning the same
     // object reference — so this is a near-zero-cost no-op.
+    //
+    // `emitSourceMap: true` returns the same canonical JSON plus an
+    // authorship trail (PRD step 15). The Timeline reads `originKind` from
+    // this map to colour bars by their true origin (literal / template /
+    // scene / behavior / background).
     let compiled: unknown
+    let sourceMap: SourceMap
     try {
-      compiled = await precompile(parsed, { sourcePath: compositionPath })
+      const result = await precompile(parsed, {
+        sourcePath: compositionPath,
+        emitSourceMap: true,
+      })
+      compiled = result.resolved
+      sourceMap = result.sourceMap
     } catch (err) {
       throw new ProjectLoadError(
         'E_COMPOSITION_INVALID',
@@ -195,6 +216,7 @@ export class ProjectStore {
       assetsDir: hasAssets ? assetsDir : null,
       composition: compiled,
       defaults,
+      sourceMap,
       loadedAt: Date.now(),
     }
 

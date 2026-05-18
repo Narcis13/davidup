@@ -8,21 +8,19 @@
 // pushes the tween's target into the shared selection (consumed by the
 // Inspector via `useSelection`).
 //
-// Source classification (no source-map yet — that's step 15):
-//   - behavior  ← tween id contains `_<knownBehaviorName>_`
-//                 (behavior expansion emits `${target}_${behavior}_${start}__suffix`)
-//   - scene     ← tween target id has an `instanceId__…` prefix where the
-//                 instance item exists and is `type:"group"` (scenes wrap
-//                 their children in a synthetic group; templates don't).
-//   - template  ← tween target id has an `instanceId__…` prefix where the
-//                 instance is *not* a group (template expansion spreads
-//                 child items directly into the composition).
-//   - plain     ← everything else (literal canonical tween, no expansion).
+// Source classification (polish_plan §20.26): bars are coloured from the
+// `originKind` field of the precompile source map, served by the server in
+// the Inertia `sourceMap` prop. The mapping is:
+//   - "behavior"             → 'behavior'  (emitted from a $behavior block)
+//   - "template"             → 'template'  (emitted from a $template instance)
+//   - "scene" / "background" → 'scene'     (scene-instance expansion product)
+//   - "literal" / "ref"      → 'plain'     (authored directly or inlined $ref)
 //
-// All four classes get their own bar color (PRD FR-05). The heuristic loses
-// information when an authored item id happens to contain `__`, but the
-// editor's own commands never mint such ids — they only appear as
-// expansion output.
+// Tweens added during the session via commands (`add_tween`, `apply_behavior`)
+// are not in the load-time map. For those we fall back to a narrow id-string
+// heuristic (only behavior expansion mints `_<behaviorName>_` substrings) and,
+// failing that, treat them as plain literals — the dominant case for
+// hand-authored single tweens.
 
 import { computed, ref, watch, type Ref } from 'vue'
 import type { Command, Composition } from '~/composables/useCommandBus'
@@ -41,6 +39,19 @@ import TimelineTrack, {
   type TweenSource,
 } from '~/components/TimelineTrack.vue'
 
+type OriginKind = 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+
+interface SourceLocation {
+  file: string
+  jsonPointer: string
+  originKind: OriginKind
+}
+
+interface SourceMap {
+  items: Record<string, SourceLocation>
+  tweens: Record<string, SourceLocation>
+}
+
 const props = defineProps<{
   composition: Composition | null
   /** Current playhead time in seconds. Wire to `useStage().playhead`. */
@@ -49,6 +60,12 @@ const props = defineProps<{
   status?: string | null
   /** Snap step in seconds. Defaults to 0.25. */
   snapStep?: number
+  /**
+   * Precompile source map (PRD step 15). When present, each bar's colour
+   * comes from `tweens[id].originKind`. Tweens added after load fall back
+   * to the id-string heuristic below.
+   */
+  sourceMap?: SourceMap | null
 }>()
 
 const emit = defineEmits<{
@@ -95,7 +112,8 @@ function onBarPointerDown(payload: BarPointerDownPayload): void {
 }
 
 // Behavior catalogue (kept in sync with src/compose/behaviors.ts). Stored as
-// a Set so the per-tween classifier is O(1) per probe.
+// a Set so the per-tween classifier is O(1) per probe. Used only as a fallback
+// for tweens added during the session that have no source-map entry.
 const BEHAVIOR_NAMES: ReadonlySet<string> = new Set([
   'fadeIn',
   'fadeOut',
@@ -110,22 +128,29 @@ const BEHAVIOR_NAMES: ReadonlySet<string> = new Set([
   'pulse',
 ])
 
-function classifyTween(
+function originKindToTweenSource(kind: OriginKind): TweenSource {
+  switch (kind) {
+    case 'behavior':
+      return 'behavior'
+    case 'template':
+      return 'template'
+    case 'scene':
+    case 'background':
+      return 'scene'
+    case 'literal':
+    case 'ref':
+      return 'plain'
+  }
+}
+
+function classifyTweenFallback(
   tween: { id: string; target: string },
   items: Record<string, { type: string }>,
 ): TweenSource {
   const id = tween.id ?? ''
-  // 1) Behavior: id includes `_<behaviorName>_` (or `__<behavior>_` after scene/
-  //    template prefix). The first underscore captures the case where the
-  //    target id itself contains no underscores; the lookahead/lookbehind
-  //    avoids matching substrings inside a longer property name.
-  //    Example: `ball_fadeIn_2.5__t0` or `intro__ball_popIn_0__t1`.
   for (const name of BEHAVIOR_NAMES) {
     if (id.includes(`_${name}_`)) return 'behavior'
   }
-  // 2) Template / scene: target id is prefixed with `${instanceId}__`.
-  //    Scenes wrap children in a `group` (the synthetic wrapper item);
-  //    templates spread items directly into the composition.
   const target = tween.target ?? ''
   const sep = target.indexOf('__')
   if (sep > 0) {
@@ -133,9 +158,23 @@ function classifyTween(
     const root = items[prefix]
     if (root && root.type === 'group') return 'scene'
     if (root) return 'template'
-    // Prefix doesn't resolve to a known item — fall through to plain.
   }
   return 'plain'
+}
+
+function classifyTween(
+  tween: { id: string; target: string },
+  items: Record<string, { type: string }>,
+  sourceMap: SourceMap | null | undefined,
+): TweenSource {
+  const id = tween.id ?? ''
+  const entry = sourceMap?.tweens?.[id]
+  if (entry && entry.originKind) {
+    return originKindToTweenSource(entry.originKind)
+  }
+  // Tween was added in-session (apply_behavior / add_tween) and isn't in the
+  // load-time source map. Fall back to the id-string heuristic.
+  return classifyTweenFallback(tween, items)
 }
 
 const rows = computed<TimelineItemRow[]>(() => {
@@ -164,7 +203,7 @@ const rows = computed<TimelineItemRow[]>(() => {
       start: typeof t.start === 'number' ? t.start : 0,
       duration: typeof t.duration === 'number' ? t.duration : 0,
       easing: t.easing,
-      source: classifyTween(t, items),
+      source: classifyTween(t, items, props.sourceMap),
     })
     buckets.set(t.target, bucket)
   }

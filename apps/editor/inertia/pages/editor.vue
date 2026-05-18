@@ -43,6 +43,17 @@ interface CompositionSource {
   mtimeMs: number
 }
 
+interface SourceLocation {
+  file: string
+  jsonPointer: string
+  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+}
+
+interface SourceMap {
+  items: Record<string, SourceLocation>
+  tweens: Record<string, SourceLocation>
+}
+
 const props = defineProps<{
   composition: Composition | null
   /**
@@ -51,6 +62,12 @@ const props = defineProps<{
    * template/scene default for its override-detection dot (§20.25).
    */
   defaults: Composition | null
+  /**
+   * Authorship trail emitted by the precompile pipeline (PRD step 15). The
+   * Timeline reads `tweens[id].originKind` to colour bars by their true
+   * origin instead of the id-string heuristic — polish_plan §20.26.
+   */
+  sourceMap: SourceMap | null
   compositionSource: CompositionSource | null
   project: {
     root: string
@@ -409,6 +426,7 @@ onBeforeUnmount(() => {
         :composition="bus.composition.value"
         :playhead="stage.playhead.value"
         :status="bus.composition.value ? stage.status.value : null"
+        :source-map="props.sourceMap"
         @seek="(t) => stage.seek(t)"
         @apply="bus.apply"
       />
