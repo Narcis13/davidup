@@ -205,8 +205,9 @@ watch(
       gridTemplateColumns: panel.gridTemplateColumns.value,
       // `panel.gridTemplateRows` describes the resizable rows below the
       // app-bar (stage | handle | timeline). Prepend the fixed 32px app-bar
-      // row here so the inline style matches `grid-template-areas` in CSS.
-      gridTemplateRows: `32px ${panel.gridTemplateRows.value}`,
+      // row and append the 24px status-bar row so the inline style matches
+      // `grid-template-areas` in CSS.
+      gridTemplateRows: `32px ${panel.gridTemplateRows.value} 24px`,
     }"
   >
     <header class="app-bar" data-testid="app-bar">
@@ -375,6 +376,10 @@ watch(
         </slot>
       </div>
     </section>
+
+    <div class="panel-statusbar" data-panel="statusbar">
+      <slot name="statusbar" />
+    </div>
   </div>
 </template>
 
@@ -386,14 +391,15 @@ watch(
   background: #0a0a0a;
   color: #e5e5e5;
   font-family: 'Instrument Sans', system-ui, sans-serif;
-  /* Rows: [app-bar 32px] | [stage row] | [handle] | [timeline]                */
+  /* Rows: [app-bar 32px] | [stage row] | [handle] | [timeline] | [status 24px] */
   grid-template-areas:
     'appbar appbar appbar appbar appbar'
     'library handle-left stage handle-right inspector'
     'handle-bottom handle-bottom handle-bottom handle-bottom handle-bottom'
-    'timeline timeline timeline timeline timeline';
+    'timeline timeline timeline timeline timeline'
+    'statusbar statusbar statusbar statusbar statusbar';
   grid-template-columns: 280px 6px 1fr 6px 320px;
-  grid-template-rows: 32px 1fr 6px 220px;
+  grid-template-rows: 32px 1fr 6px 220px 24px;
   overflow: hidden;
 }
 
@@ -760,6 +766,17 @@ watch(
 }
 .panel-timeline {
   grid-area: timeline;
+}
+.panel-statusbar {
+  grid-area: statusbar;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.panel-statusbar > * {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .panel-header {

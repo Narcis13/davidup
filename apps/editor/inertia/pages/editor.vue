@@ -25,6 +25,7 @@ import Inspector from '~/components/Inspector.vue'
 import Library from '~/components/Library.vue'
 import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
+import StatusBar from '~/components/StatusBar.vue'
 import Timeline from '~/components/Timeline.vue'
 import UploadToasts from '~/components/UploadToasts.vue'
 
@@ -62,6 +63,14 @@ const stage = useStage({ composition: bus.composition, canvas })
 const drawerOpen = ref(false)
 const compositionSource = ref<CompositionSource | null>(props.compositionSource)
 
+// ─── Step 20.15: status-bar reveal-issue override ────────────────────────
+// When the StatusBar's expanded issues panel surfaces a validation issue
+// click, we feed an explicit pointer + file to SourceDrawer so it scrolls
+// to that line regardless of the current selection. Cleared when the
+// selection changes (so the drawer goes back to following selection) or
+// when the drawer closes.
+const manualSourcePointer = ref<{ jsonPointer: string; file: string } | null>(null)
+
 async function refetchCompositionSource(): Promise<void> {
   if (!props.project) return
   try {
@@ -82,6 +91,37 @@ watch(
     if (next === prev) return
     if (!drawerOpen.value && !compositionSource.value) return
     void refetchCompositionSource()
+  }
+)
+
+function onDrawerClose(): void {
+  drawerOpen.value = false
+  manualSourcePointer.value = null
+}
+
+function onRevealIssue(payload: { jsonPointer: string | null; path: string | undefined }): void {
+  // Open the drawer at the issue's source location. Without a resolvable
+  // pointer we still open the drawer at whatever the current selection
+  // resolves to — better than swallowing the click silently.
+  if (compositionSource.value && payload.jsonPointer) {
+    manualSourcePointer.value = {
+      jsonPointer: payload.jsonPointer,
+      file: compositionSource.value.file,
+    }
+  } else {
+    manualSourcePointer.value = null
+  }
+  drawerOpen.value = true
+  void refetchCompositionSource()
+}
+
+// Selection changes invalidate the manual override — the user is now
+// driving with the inspector / stage, so let those resume control of the
+// drawer highlight.
+watch(
+  () => selection.selectedItemId.value,
+  () => {
+    manualSourcePointer.value = null
   }
 )
 
@@ -258,15 +298,26 @@ onBeforeUnmount(() => {
         @apply="bus.apply"
       />
     </template>
+
+    <template #statusbar>
+      <StatusBar
+        :composition="bus.composition.value"
+        :playhead="stage.playhead.value"
+        :selected-item-id="selection.selectedItemId.value"
+        :stage-status="bus.composition.value ? stage.status.value : null"
+        :stage-error="bus.composition.value ? stage.error.value : null"
+        @reveal-issue="onRevealIssue"
+      />
+    </template>
   </EditorLayout>
 
   <SourceDrawer
     :source="compositionSource"
     :selected-item-id="selection.selectedItemId.value"
-    :pick-source-json-pointer="selection.lastPickSource.value?.jsonPointer ?? null"
-    :pick-source-file="selection.lastPickSource.value?.file ?? null"
+    :pick-source-json-pointer="manualSourcePointer?.jsonPointer ?? selection.lastPickSource.value?.jsonPointer ?? null"
+    :pick-source-file="manualSourcePointer?.file ?? selection.lastPickSource.value?.file ?? null"
     :open="drawerOpen"
-    @close="drawerOpen = false"
+    @close="onDrawerClose"
   />
 
   <div
