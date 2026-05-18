@@ -1,26 +1,46 @@
-// `useShortcuts` — step 20.19 of the editor build plan.
+// `useShortcuts` — central keyboard registry (step 20.20, closes FR-16).
 //
-// Single-purpose for now: bind Space to play/pause. Future shortcuts
-// (Backspace = delete selection, ⌘0 = fit timeline, ?, …) will route
-// through the same registry per step 20.20 — keeping all keyboard
-// surface in one composable means we only ever attach one window-level
-// keydown listener and the editor-on-vs-input-focused logic lives in
-// exactly one place.
+// Step 20.19 introduced this composable with a single shortcut (Space →
+// play/pause). 20.20 expands it into the registry the PRD calls for:
 //
-// SSR-safe: registration happens inside `onMounted` and the listener is
-// torn down on unmount, so the composable is also safe to call from a
-// component that may re-render or be unmounted/remounted (e.g. the
-// editor page during HMR).
+//   Space      → play/pause
+//   Backspace  → delete current selection
+//   ⌘0  / Ctrl+0 → fit timeline (seek to t=0; the timeline already
+//                  auto-fits the panel width, so "fit" collapses to the
+//                  canonical reset action — playhead to start)
+//   ⌘J  / Ctrl+J → toggle the source drawer (previously lived in
+//                  editor.vue; moved here so the editor has exactly
+//                  one keydown listener)
+//   ⌘R  / Ctrl+R → kick off a render (we intercept the browser's
+//                  page-reload default — preventDefault must run on
+//                  keydown for that to stick)
+//   ⌘S  / Ctrl+S → force flush (every command already round-trips
+//                  through the server; this is the explicit "save now"
+//                  affordance — handler decides what observable
+//                  acknowledgement to show)
+//
+// The S-split shortcut is deliberately omitted: PRD marks it as P2 and
+// the polish plan defers it to v1.1 ("split — defer to v1.1 if too big").
+//
+// SSR-safe: registration happens inside `onMounted`, the listener is
+// torn down on unmount, and every handler is a no-op when the caller
+// didn't supply one — so consumers can wire whichever subset they need.
 
 import { onBeforeUnmount, onMounted } from 'vue'
 
 export interface UseShortcutsOptions {
-  /**
-   * Called when the user presses Space outside of an editable target.
-   * Errors thrown by the handler are swallowed — a misbehaving shortcut
-   * must not break the rest of the page's key handling.
-   */
+  /** Space — toggle stage play/pause. */
   togglePlay?: () => void | Promise<void>
+  /** Backspace — delete the active selection (item, tween, etc). */
+  deleteSelection?: () => void | Promise<void>
+  /** ⌘0 / Ctrl+0 — reset the timeline view (seek to start). */
+  fitTimeline?: () => void | Promise<void>
+  /** ⌘J / Ctrl+J — toggle the reveal-in-source drawer. */
+  toggleSourceDrawer?: () => void | Promise<void>
+  /** ⌘R / Ctrl+R — start a render. Intercepts page reload. */
+  render?: () => void | Promise<void>
+  /** ⌘S / Ctrl+S — explicit save / force flush. Intercepts "Save Page As…". */
+  forceFlush?: () => void | Promise<void>
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -30,27 +50,90 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
+function isMac(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
+}
+
+/** True when the platform "command" modifier is held (⌘ on macOS, Ctrl elsewhere). */
+function hasPlatformMod(event: KeyboardEvent): boolean {
+  return isMac() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+}
+
+function invoke(fn: (() => void | Promise<void>) | undefined): void {
+  if (!fn) return
+  try {
+    const result = fn()
+    if (result && typeof (result as Promise<void>).catch === 'function') {
+      ;(result as Promise<void>).catch(() => {
+        /* swallow — a failed handler must not break key handling */
+      })
+    }
+  } catch {
+    /* same — never let one shortcut take down the rest of the page */
+  }
+}
+
 export function useShortcuts(options: UseShortcutsOptions): void {
   function onKeydown(event: KeyboardEvent): void {
-    // Space — the only modifier-free key we claim. Letting it through to
-    // text inputs is non-negotiable (it's a literal space); we also bail on
-    // contenteditable nodes so the Inspector's JSON textareas stay typeable.
-    // `event.key === ' '` is the canonical match per UI Events; we also
-    // accept `Spacebar` for the (Edge/IE-era) legacy alias just in case.
-    if (event.key !== ' ' && event.key !== 'Spacebar') return
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    // Bail early for anyone typing into a field — none of these shortcuts
+    // should pre-empt text entry (Space is a literal space, Backspace deletes
+    // a character, ⌘S inside a textarea is rare but not ours to steal).
     if (isEditableTarget(event.target)) return
-    if (!options.togglePlay) return
-    event.preventDefault()
-    try {
-      const result = options.togglePlay()
-      if (result && typeof (result as Promise<void>).catch === 'function') {
-        ;(result as Promise<void>).catch(() => {
-          /* swallow — a failed pause/resume must not break key handling */
-        })
-      }
-    } catch {
-      /* same */
+
+    // ── Space ── modifier-free toggle. Accept the legacy `Spacebar` alias
+    // for the IE/Edge era just in case.
+    if (event.key === ' ' || event.key === 'Spacebar') {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (!options.togglePlay) return
+      event.preventDefault()
+      invoke(options.togglePlay)
+      return
+    }
+
+    // ── Backspace ── modifier-free delete. Plain Delete is left alone so
+    // platform-native behaviours (e.g. macOS "forward delete") aren't claimed.
+    if (event.key === 'Backspace') {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (!options.deleteSelection) return
+      event.preventDefault()
+      invoke(options.deleteSelection)
+      return
+    }
+
+    // ── Platform-mod chords ── ⌘ on macOS, Ctrl elsewhere. We refuse the
+    // Shift/Alt variants so the user can still hit ⌘⇧R (hard refresh) etc.
+    if (!hasPlatformMod(event)) return
+    if (event.altKey || event.shiftKey) return
+
+    // `event.key` for letters is the *lowercase* form when no Shift is held,
+    // matching the UI Events spec. The digit row reports the digit itself.
+    switch (event.key) {
+      case '0':
+        if (!options.fitTimeline) return
+        event.preventDefault()
+        invoke(options.fitTimeline)
+        return
+      case 'j':
+      case 'J':
+        if (!options.toggleSourceDrawer) return
+        event.preventDefault()
+        invoke(options.toggleSourceDrawer)
+        return
+      case 'r':
+      case 'R':
+        if (!options.render) return
+        event.preventDefault()
+        invoke(options.render)
+        return
+      case 's':
+      case 'S':
+        if (!options.forceFlush) return
+        event.preventDefault()
+        invoke(options.forceFlush)
+        return
+      default:
+        return
     }
   }
 

@@ -20,6 +20,7 @@ import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
 import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
+import { useRender } from '~/composables/useRender'
 import { useShortcuts } from '~/composables/useShortcuts'
 import { useToasts } from '~/composables/useToasts'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
@@ -63,8 +64,12 @@ const canvas = computed<HTMLCanvasElement | null>(() => stageRef.value?.canvas ?
 
 const stage = useStage({ composition: bus.composition, canvas })
 
-// Global keyboard shortcuts (step 20.19 ships Space; 20.20 will add the rest).
-useShortcuts({ togglePlay: () => stage.togglePlay() })
+// Toast queue and render handle are module-singletons so it's safe to grab
+// them this early — the rest of the editor reuses the same instances. We
+// pull them up here so the shortcut registry just below can reference them
+// without forward-declaring lazily.
+const toasts = useToasts()
+const render = useRender()
 
 // ─── Step 17: reveal-in-source drawer ─────────────────────────────────────
 const drawerOpen = ref(false)
@@ -132,27 +137,10 @@ watch(
   }
 )
 
-function isMac(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
-}
+// ─── Step 20.20: shortcut handlers (FR-16) ───────────────────────────────
+// All keymap routing lives in `useShortcuts`. We just supply the verbs.
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  // ⌘J on macOS, Ctrl+J elsewhere. The shortcut wins over the browser's
-  // default (Firefox: open Downloads; Chrome on macOS: no default), so we
-  // only intercept when no input is focused — we don't want to swallow J
-  // typed into a text field.
-  const isToggle = event.key === 'j' && (isMac() ? event.metaKey : event.ctrlKey) && !event.altKey
-  if (!isToggle) return
-  if (isEditableTarget(event.target)) return
-  event.preventDefault()
+function toggleSourceDrawer(): void {
   drawerOpen.value = !drawerOpen.value
   if (drawerOpen.value) {
     // Re-fetch every time the drawer opens so its line mapping reflects any
@@ -161,13 +149,68 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+function deleteSelection(): void {
+  const id = selection.selectedItemId.value
+  if (!id) return
+  // Pre-emptively clear the selection so the Inspector doesn't try to render
+  // an item that's about to vanish from the composition; if the command
+  // fails the user can re-select. `bus.apply` surfaces the failure as a toast.
+  selection.setSelection(null)
+  void bus.apply({ kind: 'remove_item', payload: { id } })
+}
+
+function fitTimeline(): void {
+  // The timeline already auto-fits the panel width (no zoom state yet), so
+  // "fit" collapses to the canonical reset action: seek the playhead back to
+  // the start. Cheap, observable, and on-message with what ⌘0 means in most
+  // media tools ("reset view").
+  stage.seek(0)
+}
+
+function startRender(): void {
+  void render.startRender().then((result) => {
+    if (!result.ok && result.error) {
+      // The render machinery doesn't toast its own kickoff failures (those
+      // only show up via the SSE stream); ⌘R can fail synchronously when a
+      // render is already in flight, so surface that explicitly here.
+      toasts.error(result.error.message, {
+        message: result.error.code,
+        dedupeKey: 'render:start-error',
+      })
+    }
+  })
+}
+
+function forceFlush(): void {
+  // Every command already round-trips through the server, so there's no
+  // pending in-memory state to commit. ⌘S is still load-bearing as the
+  // user's "are we saved?" acknowledgement — emit a confirmation toast so
+  // the chord has a visible effect.
+  const project = props.project
+  const detail = project?.compositionPath
+    ? `Composition synced to ${project.compositionPath}`
+    : 'All edits are already on disk.'
+  toasts.success('Saved', {
+    message: detail,
+    dedupeKey: 'editor:saved',
+  })
+}
+
+useShortcuts({
+  togglePlay: () => stage.togglePlay(),
+  deleteSelection,
+  fitTimeline,
+  toggleSourceDrawer,
+  render: startRender,
+  forceFlush,
+})
+
 // ─── Step 18b: window-level file drop ────────────────────────────────────
 // Files dropped anywhere on the editor (outside the Library panel, which
 // owns its own handler) get routed through the same upload pipeline. We
 // always suppress the browser's native file-drop navigation so the page
 // doesn't get replaced by the dragged image.
 const uploads = useAssetUpload()
-const toasts = useToasts()
 const isEditorFileDrag = ref(false)
 let editorDragDepth = 0
 
@@ -225,7 +268,6 @@ let projectEventSource: EventSource | null = null
 
 onMounted(() => {
   if (typeof window !== 'undefined') {
-    window.addEventListener('keydown', onKeydown)
     window.addEventListener('dragenter', onWindowDragEnter)
     window.addEventListener('dragover', onWindowDragOver)
     window.addEventListener('dragleave', onWindowDragLeave)
@@ -260,7 +302,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
-    window.removeEventListener('keydown', onKeydown)
     window.removeEventListener('dragenter', onWindowDragEnter)
     window.removeEventListener('dragover', onWindowDragOver)
     window.removeEventListener('dragleave', onWindowDragLeave)

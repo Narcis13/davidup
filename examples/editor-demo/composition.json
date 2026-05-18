@@ -37,7 +37,6 @@
       "blendMode": "normal",
       "items": [
         "title",
-        "ball",
         "item-1"
       ]
     }
@@ -79,22 +78,6 @@
       },
       "align": "center"
     },
-    "ball": {
-      "type": "sprite",
-      "asset": "ball",
-      "width": 120,
-      "height": 120,
-      "transform": {
-        "x": 200,
-        "y": 360,
-        "scaleX": 1,
-        "scaleY": 1,
-        "rotation": 0,
-        "anchorX": 0.5,
-        "anchorY": 0.5,
-        "opacity": 1
-      }
-    },
     "item-1": {
       "type": "sprite",
       "asset": "ball",
@@ -122,36 +105,6 @@
       "start": 0.4,
       "duration": 0.8,
       "easing": "easeOutQuad"
-    },
-    {
-      "id": "ball-roll",
-      "target": "ball",
-      "property": "transform.x",
-      "from": 200,
-      "to": 1080,
-      "start": 0,
-      "duration": 4,
-      "easing": "easeInOutQuad"
-    },
-    {
-      "id": "ball-spin",
-      "target": "ball",
-      "property": "transform.rotation",
-      "from": 0,
-      "to": 6.283,
-      "start": 0,
-      "duration": 4,
-      "easing": "linear"
-    },
-    {
-      "id": "ball-roll-2",
-      "target": "ball",
-      "property": "transform.x",
-      "from": 0,
-      "to": 100,
-      "start": 5.8,
-      "duration": 1,
-      "easing": "linear"
     }
   ]
 }
