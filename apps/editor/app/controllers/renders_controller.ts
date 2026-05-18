@@ -16,9 +16,10 @@
  * which keeps a future swap cheap. See `render_worker.ts` for the lifecycle.
  */
 
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir, stat } from 'node:fs/promises'
 import { extname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 
 import type { HttpContext } from '@adonisjs/core/http'
@@ -254,6 +255,119 @@ export default class RendersController {
       request.request.on('close', onClose)
       raw.on('close', onClose)
     })
+  }
+
+  /**
+   * GET /api/renders/files — list .mp4 files in the loaded project's
+   * `renders/` directory. Newest first by mtime. Used by the editor's
+   * RenderHistory panel (polish_plan §20.28) — entries persist across
+   * sessions, unlike the in-memory `useRender.history`.
+   */
+  async files({ response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const rendersDir = resolvePath(project.root, 'renders')
+    let entries: string[]
+    try {
+      entries = await readdir(rendersDir)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return response.ok({ files: [] })
+      throw err
+    }
+    const out: Array<{
+      filename: string
+      relativePath: string
+      sizeBytes: number
+      modifiedAt: number
+    }> = []
+    for (const name of entries) {
+      if (!name.toLowerCase().endsWith('.mp4')) continue
+      const full = join(rendersDir, name)
+      try {
+        const s = await stat(full)
+        if (!s.isFile()) continue
+        out.push({
+          filename: name,
+          relativePath: relative(project.root, full),
+          sizeBytes: s.size,
+          modifiedAt: s.mtimeMs,
+        })
+      } catch {
+        // Skip files that disappeared between readdir + stat.
+      }
+    }
+    out.sort((a, b) => b.modifiedAt - a.modifiedAt)
+    return response.ok({ files: out })
+  }
+
+  /**
+   * POST /api/renders/shell — open a render file in Finder ("reveal") or
+   * QuickTime Player ("play"). Filename is constrained to the project's
+   * `renders/` directory; no arbitrary paths.
+   *
+   * Only available on macOS (uses the `open` shell). Other platforms get a
+   * 501.
+   */
+  async shell({ request, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    if (process.platform !== 'darwin') {
+      return response.status(501).json({
+        error: {
+          code: 'E_UNSUPPORTED_PLATFORM',
+          message: 'Reveal-in-Finder / Play-in-QuickTime are macOS-only',
+        },
+      })
+    }
+    const body = (request.body() ?? {}) as { filename?: unknown; action?: unknown }
+    const filename = typeof body.filename === 'string' ? body.filename : ''
+    const action = body.action === 'reveal' || body.action === 'play' ? body.action : null
+    if (!filename || filename.includes('..') || isAbsolute(filename) || filename.includes('/')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid filename' },
+      })
+    }
+    if (!action) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: "action must be 'reveal' or 'play'" },
+      })
+    }
+    const target = resolvePath(project.root, 'renders', filename)
+    const inside = resolvePath(project.root, 'renders')
+    if (!target.startsWith(inside + '/')) {
+      return response.forbidden({
+        error: { code: 'E_FORBIDDEN', message: 'File outside renders/ directory' },
+      })
+    }
+    if (!existsSync(target)) {
+      return response.notFound({
+        error: { code: 'E_NOT_FOUND', message: 'Render file not found' },
+      })
+    }
+
+    const args = action === 'reveal' ? ['-R', target] : ['-a', 'QuickTime Player', target]
+    try {
+      const proc = spawn('open', args, { stdio: 'ignore', detached: true })
+      proc.on('error', (err) => {
+        logger.warn({ err, action, target }, 'renders_controller: open shell failed')
+      })
+      proc.unref()
+    } catch (err) {
+      logger.warn({ err, action, target }, 'renders_controller: failed to spawn open')
+      return response.internalServerError({
+        error: { code: 'E_SPAWN_FAILED', message: (err as Error).message },
+      })
+    }
+    return response.ok({ ok: true, action, filename })
   }
 
   /**

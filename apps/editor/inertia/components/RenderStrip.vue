@@ -11,6 +11,7 @@
 
 import { computed } from 'vue'
 import { useRender } from '~/composables/useRender'
+import RenderHistory from '~/components/RenderHistory.vue'
 
 const render = useRender()
 
@@ -154,6 +155,8 @@ function onDismiss(): void {
         ×
       </button>
     </div>
+
+    <RenderHistory />
   </div>
 </template>
 

@@ -42,6 +42,8 @@ router
     router.post('/assets', [AssetsController, 'store'])
     router.post('/renders', [RendersController, 'store'])
     router.get('/renders', [RendersController, 'index'])
+    router.get('/renders/files', [RendersController, 'files'])
+    router.post('/renders/shell', [RendersController, 'shell'])
     router.get('/renders/:id', [RendersController, 'show'])
     router.get('/renders/:id/events', [RendersController, 'events'])
   })
