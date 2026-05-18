@@ -150,6 +150,20 @@ function toggleSourceDrawer(): void {
   }
 }
 
+// Step 20.23: Inspector's provenance line acts like ⌘J — but since the
+// user clicked an explicit "reveal" affordance, we always end up with the
+// drawer open (no toggle) so the click never *closes* the drawer
+// unexpectedly.
+function onRevealSourceFromInspector(): void {
+  // Clear any manual override so the drawer follows the active selection,
+  // not a previously-revealed validation issue.
+  manualSourcePointer.value = null
+  if (!drawerOpen.value) {
+    drawerOpen.value = true
+    void refetchCompositionSource()
+  }
+}
+
 function deleteSelection(): void {
   const id = selection.selectedItemId.value
   if (!id) return
@@ -375,7 +389,9 @@ onBeforeUnmount(() => {
         :pending="bus.pending.value"
         :error="bus.error.value"
         :item-last-source="bus.itemLastSource.value"
+        :last-pick-source="selection.lastPickSource.value"
         @apply="bus.apply"
+        @reveal-source="onRevealSourceFromInspector"
       />
     </template>
 

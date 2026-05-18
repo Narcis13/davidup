@@ -22,11 +22,15 @@ import { computed } from 'vue'
 import { useSelection } from '~/composables/useSelection'
 import type { Command, CommandSource, Composition } from '~/composables/useCommandBus'
 import { readPath } from '~/composables/useCommandBus'
+import type { PickSourceInfo } from '~/composables/useSelection'
 import NumberInput from '~/components/inputs/Number.vue'
 import StringInput from '~/components/inputs/String.vue'
 import ColorInput from '~/components/inputs/Color.vue'
 import TimeInput from '~/components/inputs/Time.vue'
 import EnumInput from '~/components/inputs/Enum.vue'
+import BooleanInput from '~/components/inputs/Boolean.vue'
+import PercentInput from '~/components/inputs/Percent.vue'
+import RawJsonInput from '~/components/inputs/RawJson.vue'
 
 type ItemLike = {
   type: 'sprite' | 'text' | 'shape' | 'group'
@@ -54,10 +58,18 @@ const props = defineProps<{
   // pill (foundation for FR-13). Optional so existing callers that don't
   // yet pass it keep working (the pill just never appears).
   itemLastSource?: ReadonlyMap<string, CommandSource>
+  // Step 20.23 — source-map info for the most recent stage pick (only the
+  // selected item is meaningful here; `useSelection` clears it when the
+  // selection changes to another id). Optional so existing callers keep
+  // working — the provenance line just doesn't render when missing.
+  lastPickSource?: PickSourceInfo | null
 }>()
 
 const emit = defineEmits<{
   (event: 'apply', command: Command): void
+  // Step 20.23: provenance line under the item header asks the page to
+  // open the SourceDrawer at the picked location (same effect as ⌘J).
+  (event: 'reveal-source'): void
 }>()
 
 const selection = useSelection()
@@ -126,7 +138,10 @@ const compositionDuration = computed<number>(() => {
 // pull the current value out of an item, what input to render, and what
 // `update_item` payload key to send back.
 
-type FieldKind = 'number' | 'string' | 'color' | 'enum' | 'time'
+// Step 20.22: `boolean`, `percent`, and `json` join the registry; any
+// schema kind not listed here falls through to the `RawJson` editor so an
+// unknown type can never block editing (PRD R2).
+type FieldKind = 'number' | 'string' | 'color' | 'enum' | 'time' | 'boolean' | 'percent' | 'json'
 
 interface FieldDef {
   key: string
@@ -158,11 +173,9 @@ const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
   {
     key: 'opacity',
     label: 'opacity',
-    kind: 'number',
+    kind: 'percent',
     path: 'transform.opacity',
-    min: 0,
-    max: 1,
-    step: 0.01,
+    step: 1,
   },
 ]
 
@@ -247,6 +260,98 @@ function sameValue(a: unknown, b: unknown): boolean {
   return false
 }
 
+// Field kind → input component. Anything not in the map falls through to
+// RawJson so the user is never blocked by an unknown type (PRD R2).
+const INPUT_FOR_KIND = {
+  number: NumberInput,
+  string: StringInput,
+  color: ColorInput,
+  enum: EnumInput,
+  time: TimeInput,
+  boolean: BooleanInput,
+  percent: PercentInput,
+  json: RawJsonInput,
+} as const
+
+function inputFor(field: FieldDef) {
+  return (INPUT_FOR_KIND as Record<string, unknown>)[field.kind] ?? RawJsonInput
+}
+
+// ──────────────── Provenance ────────────────
+// Step 20.23 — render a tiny "Source: …" line under the section header so
+// the user can see where the currently picked item was authored without
+// opening the source drawer. Clicking it emits `reveal-source`, which the
+// page wires up to the same toggle ⌘J fires.
+
+interface ProvenanceInfo {
+  text: string
+  originKind: PickSourceInfo['originKind']
+}
+
+const provenance = computed<ProvenanceInfo | null>(() => {
+  const src = props.lastPickSource ?? null
+  if (!src || !selection.selectedItemId.value) return null
+  return {
+    text: formatProvenance(src),
+    originKind: src.originKind,
+  }
+})
+
+const provenanceTitle = computed<string | null>(() => {
+  const src = props.lastPickSource ?? null
+  if (!src) return null
+  return `${src.file}${src.jsonPointer} (${src.originKind}) — click or press ⌘J to reveal in source`
+})
+
+function formatProvenance(src: PickSourceInfo): string {
+  const tail = friendlyPointer(src.jsonPointer)
+  // `<root>` is the precompiler's placeholder file name for entries authored
+  // inline in the loaded composition.json (no `__source` attribution). The
+  // file segment doesn't add information in that case, so we collapse to
+  // just the pointer path.
+  if (!src.file || src.file === '<root>') return tail || 'root'
+  const head = fileBasenameNoExt(src.file)
+  if (!tail) return head
+  return `${head} ⇢ ${tail}`
+}
+
+function fileBasenameNoExt(file: string): string {
+  const slash = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'))
+  const base = slash >= 0 ? file.slice(slash + 1) : file
+  const dot = base.lastIndexOf('.')
+  return dot > 0 ? base.slice(0, dot) : base
+}
+
+function friendlyPointer(pointer: string): string {
+  if (!pointer || pointer === '/') return ''
+  const raw = pointer.startsWith('/') ? pointer.slice(1) : pointer
+  const tokens = raw.split('/').map(decodePtrToken)
+  // RFC-6901 leaves us with a slash-separated path: turn it into the more
+  // editor-friendly `parent::child` (objects) / `parent[2]` (arrays).
+  let out = ''
+  for (let i = 0; i < tokens.length; i += 1) {
+    const t = tokens[i]
+    if (/^\d+$/.test(t)) {
+      out += `[${t}]`
+      continue
+    }
+    // Composed ids carry the scene/template instance + child via `__`.
+    // Render them with the same separator so users can spot which scene a
+    // picked sub-item came from.
+    const composed = t.includes('__') ? t.replace(/__/g, '::') : t
+    out += out === '' ? composed : `::${composed}`
+  }
+  return out
+}
+
+function decodePtrToken(token: string): string {
+  return token.replace(/~1/g, '/').replace(/~0/g, '~')
+}
+
+function onProvenanceClick(): void {
+  emit('reveal-source')
+}
+
 function dispatchEdit(field: FieldDef, raw: unknown): void {
   const id = selection.selectedItemId.value
   if (!id) return
@@ -305,17 +410,32 @@ function onSelectionChange(event: Event): void {
             <span class="section-meta">{{ selectedItem.type }}</span>
           </span>
         </header>
+        <p
+          v-if="provenance"
+          class="provenance"
+          data-testid="inspector-provenance"
+          :title="provenanceTitle ?? undefined"
+          @click="onProvenanceClick"
+        >
+          <span class="provenance-label">Source:</span>
+          <span class="provenance-path">{{ provenance.text }}</span>
+          <span class="provenance-shortcut" aria-hidden="true">⌘J</span>
+        </p>
         <div class="fields">
           <template v-for="field in TRANSFORM_FIELDS" :key="`tx-${field.key}`">
-            <NumberInput
-              :model-value="valueFor(field) as number | undefined"
+            <component
+              :is="inputFor(field)"
+              :model-value="valueFor(field)"
               :label="field.label"
               :min="field.min"
-              :max="field.max"
+              :max="field.kind === 'time' ? compositionDuration : field.max"
               :step="field.step"
+              :options="field.options ?? []"
+              :placeholder="field.placeholder"
+              :multiline="field.multiline"
               :overridden="isOverridden(field)"
               :disabled="pending"
-              @update:model-value="(v) => dispatchEdit(field, v)"
+              @update:model-value="(v: unknown) => dispatchEdit(field, v)"
             />
           </template>
         </div>
@@ -327,53 +447,19 @@ function onSelectionChange(event: Event): void {
         </header>
         <div class="fields">
           <template v-for="field in itemSpecificFields" :key="`item-${field.key}`">
-            <NumberInput
-              v-if="field.kind === 'number'"
-              :model-value="valueFor(field) as number | undefined"
+            <component
+              :is="inputFor(field)"
+              :model-value="valueFor(field)"
               :label="field.label"
               :min="field.min"
-              :max="field.max"
+              :max="field.kind === 'time' ? compositionDuration : field.max"
               :step="field.step"
-              :overridden="isOverridden(field)"
-              :disabled="pending"
-              @update:model-value="(v) => dispatchEdit(field, v)"
-            />
-            <TimeInput
-              v-else-if="field.kind === 'time'"
-              :model-value="valueFor(field) as number | undefined"
-              :label="field.label"
-              :max="compositionDuration"
-              :step="field.step"
-              :overridden="isOverridden(field)"
-              :disabled="pending"
-              @update:model-value="(v) => dispatchEdit(field, v)"
-            />
-            <ColorInput
-              v-else-if="field.kind === 'color'"
-              :model-value="valueFor(field) as string | undefined"
-              :label="field.label"
-              :overridden="isOverridden(field)"
-              :disabled="pending"
-              @update:model-value="(v) => dispatchEdit(field, v)"
-            />
-            <EnumInput
-              v-else-if="field.kind === 'enum'"
-              :model-value="valueFor(field) as string | undefined"
-              :label="field.label"
               :options="field.options ?? []"
-              :overridden="isOverridden(field)"
-              :disabled="pending"
-              @update:model-value="(v) => dispatchEdit(field, v)"
-            />
-            <StringInput
-              v-else
-              :model-value="valueFor(field) as string | undefined"
-              :label="field.label"
               :placeholder="field.placeholder"
               :multiline="field.multiline"
               :overridden="isOverridden(field)"
               :disabled="pending"
-              @update:model-value="(v) => dispatchEdit(field, v)"
+              @update:model-value="(v: unknown) => dispatchEdit(field, v)"
             />
           </template>
         </div>
@@ -491,5 +577,56 @@ function onSelectionChange(event: Event): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.provenance {
+  margin: 0;
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #a3a3a3;
+  background: rgba(91, 124, 250, 0.06);
+  border: 1px solid rgba(91, 124, 250, 0.18);
+  border-radius: 4px;
+  cursor: pointer;
+  align-self: flex-start;
+  max-width: 100%;
+  user-select: none;
+}
+
+.provenance:hover {
+  background: rgba(91, 124, 250, 0.14);
+  border-color: rgba(91, 124, 250, 0.42);
+  color: #d4d4d4;
+}
+
+.provenance-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #707070;
+  flex: 0 0 auto;
+}
+
+.provenance-path {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: #aab7ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.provenance-shortcut {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: #707070;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex: 0 0 auto;
 }
 </style>
