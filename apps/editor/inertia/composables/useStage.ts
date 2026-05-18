@@ -18,6 +18,7 @@ export type StageStatus =
   | 'idle'
   | 'loading'
   | 'playing'
+  | 'paused'
   | 'ended'
   | 'stopped'
   | 'error'
@@ -46,6 +47,23 @@ export interface UseStageReturn {
   seek: (t: number) => void
   /** Stop the loop. Idempotent. */
   stop: () => void
+  /**
+   * Freeze the playhead. The engine's RAF loop is stopped so the canvas
+   * latches on the last-rendered frame; calling `resume()` re-attaches at
+   * the captured time. No-op unless `status === 'playing'`.
+   */
+  pause: () => void
+  /**
+   * Re-attach at the playhead captured by the last `pause()` (or the end of
+   * the comp when the status is `'ended'`, restarting from 0). No-op when
+   * the stage is already playing, idle, loading, or in an error state.
+   */
+  resume: () => Promise<void>
+  /**
+   * Toggle between playing and paused. When `status === 'ended'`, restarts
+   * from t=0 (matches standard media-player behaviour for the Space key).
+   */
+  togglePlay: () => Promise<void>
   /**
    * Hit-test a point in composition coordinates. Returns null when no item
    * was painted at the pixel, or when the stage isn't attached yet. The
@@ -146,10 +164,18 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     return Math.max(0, lastAttachStartAt + elapsed)
   }
 
-  async function start(opts: { resume?: boolean } = {}): Promise<void> {
+  async function start(opts: { resume?: boolean; resumeAt?: number } = {}): Promise<void> {
     const canvasEl = options.canvas.value
     const comp = readComposition()
-    const resumeAt = opts.resume ? readCurrentPlayhead() : 0
+    // `resumeAt` is the explicit (paused-playhead, etc) path; `resume` is the
+    // legacy "preserve the current wall-clock playhead" path used by the
+    // composition-mutation watcher.
+    const resumeAt =
+      typeof opts.resumeAt === 'number' && Number.isFinite(opts.resumeAt) && opts.resumeAt >= 0
+        ? opts.resumeAt
+        : opts.resume
+          ? readCurrentPlayhead()
+          : 0
     stopInternal()
     if (!canvasEl) {
       status.value = 'error'
@@ -285,6 +311,59 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     stop() {
       stopInternal()
       status.value = 'stopped'
+    },
+    pause() {
+      if (status.value !== 'playing') return
+      // Capture the playhead *before* stopInternal nukes the handle —
+      // readCurrentPlayhead() reads through handle.value and would return 0
+      // once it's null.
+      const t = readCurrentPlayhead()
+      stopInternal()
+      // Latch the playhead ref so the timeline indicator and StatusBar both
+      // show the freeze time, not whatever wall-clock would have computed.
+      playhead.value = t
+      // Pin the wall-clock baseline at the freeze point. If something asks
+      // for the current playhead while paused (e.g. a click in Stage.vue's
+      // pick path), readCurrentPlayhead() still returns `t` rather than
+      // ticking forward.
+      lastAttachStartMs = Date.now()
+      lastAttachStartAt = t
+      status.value = 'paused'
+    },
+    async resume() {
+      if (status.value !== 'paused' && status.value !== 'stopped') return
+      // Pick the captured freeze time as the explicit start point — without
+      // `resumeAt`, start({ resume: true }) would fall through to
+      // readCurrentPlayhead() which is meaningless after stopInternal cleared
+      // the handle.
+      await start({ resumeAt: playhead.value })
+    },
+    async togglePlay() {
+      if (status.value === 'playing') {
+        if (handle.value === null && lastAttachStartMs === 0) return
+        // Inline the pause behaviour rather than calling `this.pause()` — Vue
+        // gives us a Proxy, not a `this` binding we can rely on, and the
+        // closure capture keeps the call shape consistent with the other
+        // returned methods.
+        const t = readCurrentPlayhead()
+        stopInternal()
+        playhead.value = t
+        lastAttachStartMs = Date.now()
+        lastAttachStartAt = t
+        status.value = 'paused'
+        return
+      }
+      if (status.value === 'paused' || status.value === 'stopped') {
+        await start({ resumeAt: playhead.value })
+        return
+      }
+      if (status.value === 'ended') {
+        // Restart from the top — standard media-player Space behaviour.
+        await start({ resumeAt: 0 })
+        return
+      }
+      // idle / loading / error → no-op. There's no useful "play" semantic when
+      // we have no composition mounted or the last attach blew up.
     },
     pickItemAt(x: number, y: number, t?: number): PickHit | null {
       const h = handle.value

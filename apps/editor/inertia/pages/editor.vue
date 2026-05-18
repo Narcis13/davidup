@@ -20,6 +20,7 @@ import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
 import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
+import { useShortcuts } from '~/composables/useShortcuts'
 import { useToasts } from '~/composables/useToasts'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
@@ -61,6 +62,9 @@ const stageRef = ref<{ canvas: HTMLCanvasElement | null } | null>(null)
 const canvas = computed<HTMLCanvasElement | null>(() => stageRef.value?.canvas ?? null)
 
 const stage = useStage({ composition: bus.composition, canvas })
+
+// Global keyboard shortcuts (step 20.19 ships Space; 20.20 will add the rest).
+useShortcuts({ togglePlay: () => stage.togglePlay() })
 
 // ─── Step 17: reveal-in-source drawer ─────────────────────────────────────
 const drawerOpen = ref(false)
