@@ -20,6 +20,7 @@ import { useCommandBus, type Composition } from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
 import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
+import { useToasts } from '~/composables/useToasts'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
 import Inspector from '~/components/Inspector.vue'
@@ -28,7 +29,7 @@ import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
 import StatusBar from '~/components/StatusBar.vue'
 import Timeline from '~/components/Timeline.vue'
-import UploadToasts from '~/components/UploadToasts.vue'
+import Toasts from '~/components/Toasts.vue'
 
 interface CompositionSource {
   text: string
@@ -162,6 +163,7 @@ function onKeydown(event: KeyboardEvent): void {
 // always suppress the browser's native file-drop navigation so the page
 // doesn't get replaced by the dragged image.
 const uploads = useAssetUpload()
+const toasts = useToasts()
 const isEditorFileDrag = ref(false)
 let editorDragDepth = 0
 
@@ -227,7 +229,25 @@ onMounted(() => {
 
     if (typeof EventSource !== 'undefined') {
       projectEventSource = new EventSource('/api/projects/events')
-      projectEventSource.addEventListener('changed', () => {
+      projectEventSource.addEventListener('changed', (ev) => {
+        const data = (ev as MessageEvent).data
+        let projectName: string | null = null
+        if (typeof data === 'string' && data.length > 0) {
+          try {
+            const parsed = JSON.parse(data) as { root?: string }
+            if (typeof parsed?.root === 'string') {
+              const dir = parsed.root.replace(/[\\/]+$/, '')
+              const i = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'))
+              projectName = i >= 0 ? dir.slice(i + 1) : dir
+            }
+          } catch {
+            /* not JSON */
+          }
+        }
+        toasts.info('Project switched', {
+          message: projectName ? `Loaded ${projectName}` : 'Reloading composition…',
+          dedupeKey: 'project:switched',
+        })
         router.reload()
       })
     }
@@ -331,7 +351,7 @@ onBeforeUnmount(() => {
     <p>Drop files to add to library</p>
   </div>
 
-  <UploadToasts />
+  <Toasts />
 </template>
 
 <style scoped>

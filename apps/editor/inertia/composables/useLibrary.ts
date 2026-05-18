@@ -13,6 +13,7 @@
 //   - manual refresh(): explicit, used by a tiny ⟳ button + tests
 
 import { computed, ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useToasts } from '~/composables/useToasts'
 
 export type LibraryItemKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
 
@@ -129,7 +130,12 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
       }
     } catch (err: unknown) {
       if ((err as DOMException)?.name === 'AbortError') return
-      error.value = err instanceof Error ? err.message : String(err)
+      const msg = err instanceof Error ? err.message : String(err)
+      error.value = msg
+      useToasts().warning('Library refresh failed', {
+        message: msg,
+        dedupeKey: 'library:refresh',
+      })
     } finally {
       loading.value = false
     }

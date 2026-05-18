@@ -14,6 +14,7 @@
 
 import { ref, shallowRef, triggerRef, type Ref, type ShallowRef } from 'vue'
 import type { ValidationResult } from 'davidup/schema'
+import { useToasts } from '~/composables/useToasts'
 
 // The server (`app/types/commands.ts`) is the single source of truth for
 // the Command discriminated union. The client only needs the wire shape;
@@ -170,6 +171,14 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
         const report = await parseErrorBody(res)
         errorReport.value = report
         sink?.recordCommandError(report)
+        // Surface a toast in addition to the Inspector's inline error so
+        // failures from non-Inspector dispatches (Stage drag, Library drop,
+        // MCP) get a globally-visible signal. Dedupe by code so a stream of
+        // identical errors collapses into one card.
+        useToasts().error(report.message, {
+          message: report.hint ?? report.code,
+          dedupeKey: `command:${report.code}`,
+        })
         throw new Error(report.message)
       }
       const data = (await res.json()) as {

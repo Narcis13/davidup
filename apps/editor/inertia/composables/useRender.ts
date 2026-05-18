@@ -11,6 +11,9 @@
 // reconnect re-aligns the progress bar.
 
 import { computed, reactive, readonly, type ComputedRef } from 'vue'
+import { useToasts } from '~/composables/useToasts'
+
+const RENDER_TOAST_KEY = 'render:current'
 
 export type RenderStatus = 'idle' | 'pending' | 'running' | 'done' | 'error'
 
@@ -105,6 +108,10 @@ function attachStream(job: RenderJobInternal, eventsUrl: string): void {
       job.serverDurationMs = payload.durationMs
       closeStream(job)
       pushHistory(job)
+      useToasts().success('Render complete', {
+        message: payload.relativeOutputPath,
+        dedupeKey: RENDER_TOAST_KEY,
+      })
     } catch {
       // ignore
     }
@@ -123,6 +130,10 @@ function attachStream(job: RenderJobInternal, eventsUrl: string): void {
           job.error = payload.message
           closeStream(job)
           pushHistory(job)
+          useToasts().error('Render failed', {
+            message: payload.message,
+            dedupeKey: RENDER_TOAST_KEY,
+          })
           return
         }
       } catch {
@@ -137,6 +148,10 @@ function attachStream(job: RenderJobInternal, eventsUrl: string): void {
       job.error = job.error ?? 'SSE connection closed unexpectedly'
       closeStream(job)
       pushHistory(job)
+      useToasts().error('Render failed', {
+        message: job.error ?? undefined,
+        dedupeKey: RENDER_TOAST_KEY,
+      })
     }
   })
 }
@@ -215,6 +230,10 @@ async function startRender(opts: StartRenderOptions = {}): Promise<StartRenderRe
       source: null,
     }
     state.current = job
+    useToasts().info('Render started', {
+      message: `${body.totalFrames} frames → ${body.relativeOutputPath}`,
+      dedupeKey: RENDER_TOAST_KEY,
+    })
     // `state.current` now holds Vue's reactive proxy wrapping `job`. Pass the
     // proxy (not the raw `job` reference) to `attachStream` so SSE mutations
     // are visible to the computed `current` consumed by RenderStrip. Mutating
