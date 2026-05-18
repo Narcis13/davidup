@@ -84,6 +84,9 @@ const emit = defineEmits<{
   (event: 'libraryDragOver', native: DragEvent): void
   (event: 'libraryDragLeave', native: DragEvent): void
   (event: 'libraryDrop', native: DragEvent): void
+  // §20.27 — double-click on a sealed (scene-origin) bar asks the parent to
+  // jump SourceDrawer to the scene instance's authored line.
+  (event: 'openSceneSource', tween: TimelineTween): void
 }>()
 
 function onLibraryDragOver(event: DragEvent): void {
@@ -135,10 +138,31 @@ function onBarClick(t: TimelineTween, event: MouseEvent): void {
 
 function onBarPointerDown(t: TimelineTween, event: PointerEvent, mode: DragMode): void {
   if (event.button !== 0) return
+  // §20.27 — sealed scene bars are read-only from the parent composition.
+  // Pointerdown is swallowed so the drag composable never engages; the click
+  // path still runs and selects the tween for the Inspector.
+  if (isSealed(t)) {
+    event.stopPropagation()
+    return
+  }
   const laneEl = (event.currentTarget as HTMLElement).closest('.track-lane') as HTMLElement | null
   if (!laneEl) return
   event.stopPropagation()
   emit('barPointerDown', { event, laneEl, tween: t, mode })
+}
+
+// A bar is "sealed" when it originated from inside a scene definition
+// (originKind: scene/background → TweenSource: 'scene', gold colour). §8.7
+// sealed-instance forbids parent-authored mutation of these tweens.
+function isSealed(t: TimelineTween): boolean {
+  return t.source === 'scene'
+}
+
+function onBarDoubleClick(t: TimelineTween, event: MouseEvent): void {
+  if (!isSealed(t)) return
+  event.stopPropagation()
+  event.preventDefault()
+  emit('openSceneSource', t)
 }
 
 function barTitle(t: TimelineTween): string {
@@ -211,23 +235,45 @@ const markerTitle = computed<string>(() => {
         :key="tween.id"
         type="button"
         class="bar"
-        :class="[`bar-${tween.source}`, { dragging: isDragging(tween) }]"
+        :class="[`bar-${tween.source}`, { dragging: isDragging(tween), sealed: isSealed(tween) }]"
         :style="{ left: barLeftPct(tween), width: barWidthPct(tween) }"
-        :title="barTitle(tween)"
+        :title="isSealed(tween) ? `${barTitle(tween)}\n(sealed — double-click to reveal scene source)` : barTitle(tween)"
         :data-tween-id="tween.id"
         :data-tween-source="tween.source"
+        :data-sealed="isSealed(tween) ? 'true' : null"
         :data-dragging="isDragging(tween) ? 'true' : null"
         @pointerdown="(e) => onBarPointerDown(tween, e, 'move')"
         @click="(e) => onBarClick(tween, e)"
+        @dblclick="(e) => onBarDoubleClick(tween, e)"
       >
         <span
+          v-if="!isSealed(tween)"
           class="resize-handle resize-left"
           :data-resize="'left'"
           @pointerdown.stop="(e) => onBarPointerDown(tween, e, 'resize-left')"
           @click.stop
         />
+        <svg
+          v-if="isSealed(tween)"
+          class="bar-lock"
+          width="9"
+          height="11"
+          viewBox="0 0 9 11"
+          aria-hidden="true"
+          :data-testid="`timeline-bar-lock-${tween.id}`"
+        >
+          <path
+            d="M2 5V3.2C2 1.7 3 0.6 4.5 0.6S7 1.7 7 3.2V5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.1"
+            stroke-linecap="round"
+          />
+          <rect x="0.7" y="5" width="7.6" height="5.5" rx="1.2" fill="currentColor" />
+        </svg>
         <span class="bar-label">{{ tween.property }}</span>
         <span
+          v-if="!isSealed(tween)"
           class="resize-handle resize-right"
           :data-resize="'right'"
           @pointerdown.stop="(e) => onBarPointerDown(tween, e, 'resize-right')"
@@ -440,6 +486,31 @@ const markerTitle = computed<string>(() => {
   pointer-events: none;
   border: 1px solid rgba(255, 255, 255, 0.18);
   z-index: 4;
+}
+
+/* §20.27 — sealed scene bars: lock affordance + cursor signal. The resize
+   handles are not rendered at all when sealed, so the only cursor users see
+   over the bar body is `not-allowed`. Double-click reveals the scene source. */
+.bar.sealed {
+  cursor: not-allowed;
+}
+
+.bar.sealed:hover {
+  /* Suppress the brighten-on-hover that normally telegraphs "draggable". */
+  filter: none;
+  border-color: rgba(255, 209, 102, 1);
+}
+
+.bar-lock {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: #221608;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.bar.sealed:hover .bar-lock {
+  opacity: 1;
 }
 
 /* PRD FR-05: bars are templates (orange), behaviors (green), scenes (gold). */

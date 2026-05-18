@@ -180,6 +180,33 @@ function toggleSourceDrawer(): void {
 // user clicked an explicit "reveal" affordance, we always end up with the
 // drawer open (no toggle) so the click never *closes* the drawer
 // unexpectedly.
+// §20.27 — Timeline emits this when the user double-clicks a sealed (scene-
+// origin) bar. We look up the scene instance's authored location from the
+// precompile sourceMap and route the SourceDrawer there. Falls back to a
+// best-effort `/items/<id>` pointer in composition.json when the sourceMap
+// is unavailable (e.g. very early load) so the affordance still works.
+function onOpenSceneSource(sceneInstanceId: string): void {
+  const entry = props.sourceMap?.items?.[sceneInstanceId] ?? null
+  const file = entry?.file ?? compositionSource.value?.file ?? null
+  const pointer = entry?.jsonPointer ?? `/items/${encodePointerToken(sceneInstanceId)}`
+  if (file) {
+    manualSourcePointer.value = { jsonPointer: pointer, file }
+  } else {
+    manualSourcePointer.value = null
+  }
+  if (!drawerOpen.value) {
+    drawerOpen.value = true
+  }
+  void refetchCompositionSource()
+}
+
+// RFC-6901 token escape — matches the encoder used by the precompile source
+// map. Inlined here so we don't have to pull the compose module into the
+// browser bundle just for two character substitutions.
+function encodePointerToken(token: string): string {
+  return token.replace(/~/g, '~0').replace(/\//g, '~1')
+}
+
 function onRevealSourceFromInspector(): void {
   // Clear any manual override so the drawer follows the active selection,
   // not a previously-revealed validation issue.
@@ -429,6 +456,7 @@ onBeforeUnmount(() => {
         :source-map="props.sourceMap"
         @seek="(t) => stage.seek(t)"
         @apply="bus.apply"
+        @open-scene-source="onOpenSceneSource"
       />
     </template>
 

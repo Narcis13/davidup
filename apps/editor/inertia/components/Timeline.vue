@@ -71,6 +71,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'seek', t: number): void
   (event: 'apply', command: Command): void
+  // §20.27 — bubbles up the scene-instance id that owns a sealed bar so the
+  // page can route the SourceDrawer to the scene declaration line.
+  (event: 'openSceneSource', sceneInstanceId: string): void
 }>()
 
 const selection = useSelection()
@@ -288,6 +291,21 @@ function pct(t: number): string {
 const playheadLeft = computed(() => pct(props.playhead))
 const playheadLabel = computed(() => `${props.playhead.toFixed(2)}s`)
 
+// §20.27 — strip the scene-internal suffix so we land on the wrapper-group
+// instance id. Tweens authored directly against the wrapper (target == scene
+// instance id) have no `__`, in which case the target IS the instance id.
+function sceneInstanceIdForTween(tween: TimelineTween): string {
+  const target = tween.target ?? ''
+  const sep = target.indexOf('__')
+  return sep > 0 ? target.slice(0, sep) : target
+}
+
+function onOpenSceneSource(tween: TimelineTween): void {
+  const sceneId = sceneInstanceIdForTween(tween)
+  if (!sceneId) return
+  emit('openSceneSource', sceneId)
+}
+
 function onSelectItem(id: string, tweenId?: string): void {
   // Step 20.24 — bar clicks emit a tween id; route them through
   // setTweenSelection so the Inspector switches to its tween editor. Row
@@ -475,6 +493,7 @@ watch(
           :library-drag-active="dragHoverActive"
           @select-item="onSelectItem"
           @bar-pointer-down="onBarPointerDown"
+          @open-scene-source="onOpenSceneSource"
           @library-drag-over="(e) => onTrackDragOver(e, row.id)"
           @library-drag-leave="(e) => onTrackDragLeave(e, row.id)"
           @library-drop="(e) => onTrackDrop(e, row.id)"
