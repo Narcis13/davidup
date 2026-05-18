@@ -93,6 +93,70 @@ export interface ProjectControls {
   }): Promise<ProjectInfo>;
 }
 
+// Polish §20.30 — `list_library` MCP tool. The merged catalog the editor
+// returns from `GET /api/library`, plus a `thumbnailUrl` per item built from
+// `/api/library/thumbnail?kind=...&id=...`. Mirroring the HTTP response shape
+// means agents see exactly what humans see in the Library panel.
+
+export type MCPLibraryItemKind =
+  | "template"
+  | "behavior"
+  | "scene"
+  | "asset"
+  | "font";
+
+export type MCPLibraryScope = "project" | "global";
+
+export interface MCPLibraryItem {
+  kind: MCPLibraryItemKind;
+  id: string;
+  name?: string;
+  description?: string;
+  source: string;
+  scope: MCPLibraryScope;
+  overridden?: boolean;
+  params?: unknown[];
+  emits?: string[];
+  duration?: number;
+  url?: string;
+  thumbnail?: string;
+  /** `/api/library/thumbnail?kind=<kind>&id=<id>` — the same path the UI uses. */
+  thumbnailUrl: string;
+}
+
+export interface MCPLibraryRootInfo {
+  scope: MCPLibraryScope;
+  path: string;
+}
+
+export interface MCPLibraryCatalog {
+  root: string | null;
+  roots: MCPLibraryRootInfo[];
+  loadedAt: number;
+  attached: boolean;
+  globalAttached: boolean;
+  projectRoot: string | null;
+  count: number;
+  total: number;
+  query: {
+    q: string | null;
+    kind: MCPLibraryItemKind | null;
+    scope: MCPLibraryScope | null;
+  };
+  items: MCPLibraryItem[];
+  errors: { file: string; message: string; scope: MCPLibraryScope }[];
+}
+
+export interface LibraryListArgs {
+  q?: string;
+  kind?: MCPLibraryItemKind;
+  scope?: MCPLibraryScope;
+}
+
+export interface LibraryControls {
+  list(args: LibraryListArgs): Promise<MCPLibraryCatalog> | MCPLibraryCatalog;
+}
+
 export interface ToolDeps {
   store: CompositionStore;
   // Injected for tests; production server passes nothing and the renderers
@@ -100,6 +164,7 @@ export interface ToolDeps {
   skiaCanvas?: PreviewSkiaModule;
   // Injected by the editor's mcp_bridge; missing in the standalone engine.
   projectControls?: ProjectControls;
+  libraryControls?: LibraryControls;
 }
 
 function requireProjectControls(deps: ToolDeps): ProjectControls {
@@ -111,6 +176,17 @@ function requireProjectControls(deps: ToolDeps): ProjectControls {
     );
   }
   return deps.projectControls;
+}
+
+function requireLibraryControls(deps: ToolDeps): LibraryControls {
+  if (!deps.libraryControls) {
+    throw new MCPToolError(
+      "E_UNKNOWN",
+      "Library tools are not available on this MCP server.",
+      "Connect through the editor (`davidup edit`) — the standalone engine server has no library service.",
+    );
+  }
+  return deps.libraryControls;
 }
 
 // ──────────────── Tool definition shape ────────────────
@@ -1516,6 +1592,29 @@ const openProject = defineTool({
   },
 });
 
+const LIBRARY_ITEM_KIND = z.enum(["template", "behavior", "scene", "asset", "font"]);
+const LIBRARY_SCOPE = z.enum(["project", "global"]);
+
+const listLibrary = defineTool({
+  name: "list_library",
+  title: "List library",
+  description:
+    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`), an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global), and `thumbnailUrl` = `/api/library/thumbnail?kind=<kind>&id=<id>` — the same image URL the Library panel renders. Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    q: z.string().min(1).optional(),
+    kind: LIBRARY_ITEM_KIND.optional(),
+    scope: LIBRARY_SCOPE.optional(),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireLibraryControls(deps);
+    const listArgs: LibraryListArgs = {};
+    if (args.q !== undefined) listArgs.q = args.q;
+    if (args.kind !== undefined) listArgs.kind = args.kind;
+    if (args.scope !== undefined) listArgs.scope = args.scope;
+    return ctrl.list(listArgs);
+  },
+});
+
 const createProject = defineTool({
   name: "create_project",
   title: "Create project",
@@ -1601,6 +1700,8 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   listProjects,
   openProject,
   createProject,
+  // 4.8 — library (polish §20.30)
+  listLibrary,
 ];
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);

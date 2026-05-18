@@ -84,7 +84,7 @@ describe("MCP server — end-to-end over stdio", () => {
     const names = list.tools.map((t) => t.name).sort();
     const expected = [...TOOL_NAMES].sort();
     expect(names).toEqual(expected);
-    expect(names).toHaveLength(41);
+    expect(names).toHaveLength(42);
     // Spot-check that each surface area is covered.
     for (const required of [
       "create_composition",

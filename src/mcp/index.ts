@@ -40,6 +40,13 @@ export {
   type ProjectControls,
   type ProjectInfo,
   type RecentProjectInfo,
+  type LibraryControls,
+  type LibraryListArgs,
+  type MCPLibraryCatalog,
+  type MCPLibraryItem,
+  type MCPLibraryItemKind,
+  type MCPLibraryRootInfo,
+  type MCPLibraryScope,
 } from "./tools.js";
 
 export {

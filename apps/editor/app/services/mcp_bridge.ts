@@ -53,7 +53,12 @@ import {
   type DavidupServer,
   type DispatchResult,
   type DispatchRouter,
+  type LibraryControls,
+  type LibraryListArgs,
   type MCPErrorCode,
+  type MCPLibraryCatalog,
+  type MCPLibraryItem,
+  type MCPLibraryItemKind,
   type ProjectControls,
   type ProjectInfo,
   type RecentProjectInfo,
@@ -67,6 +72,10 @@ import commandBus, {
   CommandValidationError,
   PostValidationError,
 } from '#services/command_bus'
+import libraryIndex, {
+  LibraryIndex,
+  type LibraryItem,
+} from '#services/library_index'
 import projectStore, {
   ProjectLoadError,
   ProjectStore,
@@ -95,6 +104,7 @@ const BRIDGE_COMP_ID = '__editor_bridge__'
 export interface CreateEditorMcpServerOptions {
   commandBus?: CommandBus
   projectStore?: ProjectStore
+  libraryIndex?: LibraryIndex
   name?: string
   version?: string
 }
@@ -108,11 +118,12 @@ export function createEditorMcpServer(
 ): DavidupServer {
   const bus = opts.commandBus ?? commandBus
   const store = opts.projectStore ?? projectStore
+  const library = opts.libraryIndex ?? libraryIndex
 
   return createServer({
     name: opts.name ?? 'davidup-editor',
     version: opts.version ?? '0.1.0',
-    depsFactory: () => buildDeps(store),
+    depsFactory: () => buildDeps(store, library),
     router: buildRouter(bus, store),
   })
 }
@@ -151,13 +162,20 @@ export function buildRouter(
 }
 
 /** Exposed for tests — deps for a single MCP call: fresh hydrated store. */
-export function buildDeps(store: ProjectStore): ToolDeps {
+export function buildDeps(
+  store: ProjectStore,
+  library: LibraryIndex = libraryIndex,
+): ToolDeps {
   const compositionStore = new CompositionStore()
   const current = store.composition as Composition | null
   if (current) {
     hydrateStore(compositionStore, current, BRIDGE_COMP_ID)
   }
-  return { store: compositionStore, projectControls: buildProjectControls(store) }
+  return {
+    store: compositionStore,
+    projectControls: buildProjectControls(store),
+    libraryControls: buildLibraryControls(library, store),
+  }
 }
 
 /**
@@ -280,6 +298,67 @@ export function buildProjectControls(store: ProjectStore): ProjectControls {
       }
     },
   }
+}
+
+/**
+ * Implements the MCP-side `LibraryControls` contract by delegating to the
+ * same `libraryIndex` singleton the HTTP `GET /api/library` controller uses.
+ * The returned payload matches `LibraryController#index` so agents see byte-
+ * equal data to the Library panel — plus a `thumbnailUrl` per item, the same
+ * `/api/library/thumbnail?kind=...&id=...` URL the UI renders.
+ */
+export function buildLibraryControls(
+  library: LibraryIndex,
+  store: ProjectStore,
+): LibraryControls {
+  return {
+    list: (args: LibraryListArgs): MCPLibraryCatalog => {
+      const catalog = library.getCatalog()
+      const items = library.search(args)
+      const projectRoot = store.project?.root ?? null
+      return {
+        root: catalog.root,
+        roots: catalog.roots,
+        loadedAt: catalog.loadedAt,
+        attached: library.isAttached,
+        globalAttached: library.isGlobalAttached,
+        projectRoot,
+        count: items.length,
+        total: catalog.items.length,
+        query: {
+          q: args.q ?? null,
+          kind: args.kind ?? null,
+          scope: args.scope ?? null,
+        },
+        items: items.map(toMcpLibraryItem),
+        errors: catalog.errors,
+      }
+    },
+  }
+}
+
+function toMcpLibraryItem(item: LibraryItem): MCPLibraryItem {
+  const out: MCPLibraryItem = {
+    kind: item.kind,
+    id: item.id,
+    source: item.source,
+    scope: item.scope,
+    thumbnailUrl: libraryThumbnailUrl(item.kind, item.id),
+  }
+  if (item.name !== undefined) out.name = item.name
+  if (item.description !== undefined) out.description = item.description
+  if (item.overridden === true) out.overridden = true
+  if (item.params !== undefined) out.params = item.params
+  if (item.emits !== undefined) out.emits = item.emits
+  if (item.duration !== undefined) out.duration = item.duration
+  if (item.url !== undefined) out.url = item.url
+  if (item.thumbnail !== undefined) out.thumbnail = item.thumbnail
+  return out
+}
+
+function libraryThumbnailUrl(kind: MCPLibraryItemKind, id: string): string {
+  const params = new URLSearchParams({ kind, id })
+  return `/api/library/thumbnail?${params.toString()}`
 }
 
 function guardToMcpError(
