@@ -170,10 +170,41 @@ test.group('Editor page', (group) => {
     const page = extractInertiaPage(res.text())
     assert.equal(page.component, 'editor')
     assert.isNull(page.props.composition)
+    assert.isNull(page.props.defaults)
     assert.isNull(page.props.project)
     assert.isNull(page.props.compositionSource)
     const error = page.props.error as { code: string }
     assert.equal(error.code, 'E_NO_PROJECT')
+  })
+
+  test('GET /editor ships a stable defaults payload for override detection', async ({
+    client,
+    assert,
+  }) => {
+    // Polish_plan 20.25: the Inertia payload now carries `defaults` — the
+    // precompile-time snapshot the Inspector compares against to draw its
+    // overridden-prop dot.
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/editor')
+      res.assertStatus(200)
+      const page = extractInertiaPage(res.text())
+      const defaults = page.props.defaults as typeof VALID_COMP
+      assert.isObject(defaults)
+      // Asset rewrite is applied to defaults the same way as to composition,
+      // so the Inspector's value comparison never has to think about URL
+      // shape — both sides speak `/project-files/...`.
+      assert.equal(defaults.assets[0].src, '/project-files/ball.png')
+      assert.equal(defaults.assets[1].src, '/project-files/logos/badge.png')
+      // The defaults snapshot equals the freshly-loaded composition on first
+      // render — divergence only appears once the user edits.
+      const composition = page.props.composition as typeof VALID_COMP
+      assert.deepEqual(defaults, composition)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test('GET /editor embeds the authored composition.json text in compositionSource', async ({

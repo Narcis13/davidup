@@ -10,8 +10,11 @@
 // `useStage().playhead` so it tracks the engine's real RAF clock.
 //
 // Local composition state lives in `useCommandBus` so command results
-// can replace it in-place. The original payload is also retained as a
-// baseline so the Inspector can render the orange "overridden" dot.
+// can replace it in-place. A separate server-provided `defaults` payload
+// — captured at precompile time, before any in-session edits — is fed to
+// the Inspector so the orange "overridden" dot reflects divergence from
+// the template/scene-expanded form rather than from a stale session-start
+// clone (polish_plan §20.25).
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Head, router } from '@inertiajs/vue3'
@@ -42,6 +45,12 @@ interface CompositionSource {
 
 const props = defineProps<{
   composition: Composition | null
+  /**
+   * Server-captured snapshot of the freshly-precompiled composition. Stays
+   * stable across edits in this session — the Inspector reads it as the
+   * template/scene default for its override-detection dot (§20.25).
+   */
+  defaults: Composition | null
   compositionSource: CompositionSource | null
   project: {
     root: string
@@ -385,7 +394,7 @@ onBeforeUnmount(() => {
     <template #inspector>
       <Inspector
         :composition="bus.composition.value"
-        :baseline="bus.baseline.value"
+        :defaults="props.defaults"
         :pending="bus.pending.value"
         :error="bus.error.value"
         :item-last-source="bus.itemLastSource.value"

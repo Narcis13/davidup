@@ -93,6 +93,7 @@ export default class EditorController {
     if (!project) {
       return inertia.render('editor', {
         composition: null,
+        defaults: null,
         compositionSource: null,
         project: null,
         error: {
@@ -107,6 +108,12 @@ export default class EditorController {
 
     return inertia.render('editor', {
       composition: rewriteAssetsForBrowser(project.composition),
+      // Polish 20.25: serve the freshly-precompiled defaults snapshot so the
+      // Inspector can detect overrides against the template/scene-expanded
+      // form rather than against a session-start clone of the composition.
+      // The snapshot is captured once on project load and persists across
+      // edits — see ProjectStore.load().
+      defaults: rewriteAssetsForBrowser(project.defaults),
       compositionSource,
       project: {
         root: project.root,

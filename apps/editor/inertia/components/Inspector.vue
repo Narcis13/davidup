@@ -12,11 +12,20 @@
 // next composition; we replace local state and `useStage` re-attaches at
 // the preserved playhead.
 //
-// Orange "override" dot: the Inspector keeps a snapshot of the composition
-// at session start (`baseline`) and renders the dot whenever the live
-// item's prop value differs from its baseline value. Once step 15 lands
-// (source-map emission) this baseline will be replaced with the template /
-// scene default value the item was authored against.
+// Orange "override" dot (polish_plan §20.25): the Inspector compares the
+// live item's prop value against the server-supplied `defaults` snapshot —
+// the freshly-precompiled composition captured at project load, after all
+// $ref / $template / scene / $behavior passes have run but before any
+// in-session mutation. For an item that came out of a `$template`
+// instance, `defaults` holds the template-expansion value (post param
+// substitution); for a `type: "scene"` instance, the scene's authored
+// item shape. Editing back to that value clears the dot regardless of how
+// the user got there.
+//
+// The previous heuristic compared against a *client-side* clone of the
+// composition taken at session start, which silently reset every page
+// reload — making override detection a "what changed in this tab" hint
+// rather than "what diverges from the source-of-truth defaults".
 
 import { computed } from 'vue'
 import { EASING_NAMES } from 'davidup/easings'
@@ -53,7 +62,13 @@ type ItemLike = {
 
 const props = defineProps<{
   composition: Composition | null
-  baseline: Composition | null
+  /**
+   * Defaults reference for the override-detection dot. Server-provided
+   * (rendered into the Inertia payload) and stable across edits within a
+   * server session — see editor.vue:`defaults` prop and polish_plan
+   * §20.25.
+   */
+  defaults: Composition | null
   pending?: boolean
   error?: string | null
   // Step 20.2 — most recent edit source per item id. When the selected
@@ -121,8 +136,8 @@ const selectedItemLastSource = computed<CommandSource | null>(() => {
 
 const showAiEditPill = computed<boolean>(() => selectedItemLastSource.value === 'mcp')
 
-const baselineItem = computed<ItemLike | null>(() => {
-  const base = props.baseline
+const defaultsItem = computed<ItemLike | null>(() => {
+  const base = props.defaults
   const id = selection.selectedItemId.value
   if (!base || !id) return null
   const item = (base.items as Record<string, ItemLike>)[id]
@@ -249,10 +264,13 @@ function valueFor(field: FieldDef): unknown {
 
 function isOverridden(field: FieldDef): boolean {
   const current = readPath(selectedItem.value, field.path)
-  const base = readPath(baselineItem.value, field.path)
-  // Treat both undefined as not-overridden; surface any other inequality.
-  if (current === undefined && base === undefined) return false
-  return !sameValue(current, base)
+  const def = readPath(defaultsItem.value, field.path)
+  // Items born in this session (no entry in the defaults snapshot) are
+  // fresh — nothing to override against. The post-load add_* commands
+  // mutate `composition` but never the captured defaults, so the lookup
+  // returns undefined and the dot stays off.
+  if (def === undefined) return false
+  return !sameValue(current, def)
 }
 
 function sameValue(a: unknown, b: unknown): boolean {

@@ -183,6 +183,132 @@ test.group('Project loader · service', (group) => {
     assert.throws(() => store.update(VALID_COMP), /No project loaded/)
   })
 
+  test('load() captures a defaults snapshot that survives update()', async ({ assert }) => {
+    // Polish_plan 20.25: the Inspector's override dot must compare against
+    // the post-precompile expansion, not a session-start clone. The store
+    // freezes that snapshot at load time and keeps it stable across edits.
+    const dir = await mkdtemp(join(tmpdir(), 'davidup-defaults-'))
+    const compPath = join(dir, 'composition.json')
+    await writeFile(compPath, JSON.stringify(VALID_COMP, null, 2), 'utf8')
+    const store = new ProjectStore({ debounceMs: 10 })
+    try {
+      const loaded = await store.load(dir)
+      // The snapshot equals the precompiled composition at load time …
+      assert.deepEqual(loaded.defaults, VALID_COMP)
+
+      // … and stays equal after a mutation routes through update().
+      const mutated = {
+        ...VALID_COMP,
+        items: {
+          ...VALID_COMP.items,
+          logo: {
+            ...VALID_COMP.items.logo,
+            transform: { ...VALID_COMP.items.logo.transform, opacity: 0.25 },
+          },
+        },
+      }
+      store.update(mutated)
+      const after = store.project!
+      assert.equal(
+        (after.composition as { items: { logo: { transform: { opacity: number } } } }).items.logo
+          .transform.opacity,
+        0.25,
+        'composition should reflect the edit',
+      )
+      assert.equal(
+        (after.defaults as { items: { logo: { transform: { opacity: number } } } }).items.logo
+          .transform.opacity,
+        1,
+        'defaults snapshot must remain at the precompile-time value',
+      )
+    } finally {
+      await store.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('load() defaults captures template-expanded values, not authoring form', async ({
+    assert,
+  }) => {
+    // The whole point of using the precompile output as "defaults": when the
+    // source carries authoring-form constructs (here a `type: "scene"`
+    // instance), the snapshot reflects what the user actually sees on
+    // stage — wrapper group, prefixed sub-items, params substituted —
+    // not the raw JSON.
+    const authoring = {
+      version: '0.4',
+      composition: {
+        width: 640,
+        height: 360,
+        fps: 30,
+        duration: 4,
+        background: '#000000',
+      },
+      assets: [],
+      scenes: {
+        card: {
+          id: 'card',
+          size: { width: 640, height: 360 },
+          duration: 4,
+          params: [],
+          items: {
+            bg: {
+              type: 'shape',
+              kind: 'rect',
+              width: 640,
+              height: 360,
+              fillColor: '#112233',
+              transform: {
+                x: 0,
+                y: 0,
+                scaleX: 1,
+                scaleY: 1,
+                rotation: 0,
+                anchorX: 0,
+                anchorY: 0,
+                opacity: 1,
+              },
+            },
+          },
+          tweens: [],
+        },
+      },
+      layers: [{ id: 'stage', z: 0, opacity: 1, blendMode: 'normal', items: ['intro'] }],
+      items: {
+        intro: {
+          type: 'scene',
+          scene: 'card',
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0,
+            anchorY: 0,
+            opacity: 1,
+          },
+        },
+      },
+      tweens: [],
+    }
+    const dir = await makeProject({ composition: authoring })
+    try {
+      const loaded = await projectStore.load(dir)
+      const defaults = loaded.defaults as {
+        items: Record<string, { type: string; fillColor?: string }>
+      }
+      // The scene instance has been lowered to a wrapper group + prefixed
+      // child. Both forms exist in the resolved comp.
+      assert.equal(defaults.items.intro?.type, 'group')
+      assert.equal(defaults.items.intro__bg?.type, 'shape')
+      assert.equal(defaults.items.intro__bg?.fillColor, '#112233')
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('load() lowers authoring-form scene instances before validating', async ({ assert }) => {
     const authoring = {
       version: '0.4',

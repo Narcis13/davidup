@@ -90,9 +90,6 @@ export interface UseCommandBusOptions {
 
 export interface UseCommandBusReturn {
   composition: Ref<Composition | null>
-  /** Snapshot of the composition at load time — used by the Inspector
-   *  to draw the orange "overridden" dot. */
-  baseline: Ref<Composition | null>
   pending: Ref<boolean>
   error: Ref<string | null>
   /**
@@ -142,9 +139,6 @@ function affectedItemIds(command: Command, toolResult: unknown): string[] {
 
 export function useCommandBus(options: UseCommandBusOptions): UseCommandBusReturn {
   const composition = ref<Composition | null>(options.initial) as Ref<Composition | null>
-  const baseline = ref<Composition | null>(
-    options.initial ? (JSON.parse(JSON.stringify(options.initial)) as Composition) : null,
-  ) as Ref<Composition | null>
   const pending = ref(false)
   const error = ref<string | null>(null)
   const errorReport = ref<CommandErrorReport | null>(null)
@@ -210,7 +204,6 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
 
   return {
     composition,
-    baseline,
     pending,
     error,
     errorReport,

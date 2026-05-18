@@ -14,6 +14,17 @@ export type LoadedProject = {
   libraryIndexPath: string | null
   assetsDir: string | null
   composition: unknown
+  /**
+   * Snapshot of the freshly-precompiled composition, captured once at load
+   * time. Mirrors the canonical form that comes out of the precompile
+   * pipeline (template/scene/$ref/behavior expansion), before any in-session
+   * `update()` has touched it. Used by the editor as the "template/scene
+   * default" reference for the Inspector's override-detection dot — see
+   * polish_plan §20.25. Stays stable across edits *within* a server session
+   * even though the on-disk composition.json keeps drifting toward the
+   * canonical form on each save.
+   */
+  defaults: unknown
   loadedAt: number
 }
 
@@ -171,12 +182,19 @@ export class ProjectStore {
       }
     }
 
+    // Deep-clone so subsequent in-place mutations to `composition` (Inspector
+    // edits, MCP tool calls) cannot leak back into the defaults snapshot.
+    // This is the "template/scene default" reference the editor compares
+    // against to draw the override dot — must never drift after load.
+    const defaults = JSON.parse(JSON.stringify(compiled)) as unknown
+
     this.#project = {
       root,
       compositionPath,
       libraryIndexPath: hasLibrary ? libraryIndexPath : null,
       assetsDir: hasAssets ? assetsDir : null,
       composition: compiled,
+      defaults,
       loadedAt: Date.now(),
     }
 
