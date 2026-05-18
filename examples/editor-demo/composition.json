@@ -3,8 +3,8 @@
   "composition": {
     "width": 1280,
     "height": 720,
-    "fps": 60,
-    "duration": 6.0,
+    "fps": 30,
+    "duration": 6,
     "background": "#0a0e27"
   },
   "assets": [
@@ -26,24 +26,25 @@
       "z": 0,
       "opacity": 1,
       "blendMode": "normal",
-      "items": ["card"]
+      "items": [
+        "card"
+      ]
     },
     {
       "id": "fg",
       "z": 10,
       "opacity": 1,
       "blendMode": "normal",
-      "items": ["title", "ball"]
+      "items": [
+        "title",
+        "ball"
+      ]
     }
   ],
   "items": {
     "card": {
       "type": "shape",
       "kind": "rect",
-      "width": 720,
-      "height": 200,
-      "cornerRadius": 24,
-      "fillColor": "#1b2451",
       "transform": {
         "x": 640,
         "y": 360,
@@ -53,7 +54,11 @@
         "anchorX": 0.5,
         "anchorY": 0.5,
         "opacity": 0.9
-      }
+      },
+      "width": 720,
+      "height": 200,
+      "fillColor": "#1b2451",
+      "cornerRadius": 24
     },
     "title": {
       "type": "text",
@@ -61,7 +66,6 @@
       "font": "font-display",
       "fontSize": 96,
       "color": "#ffffff",
-      "align": "center",
       "transform": {
         "x": 640,
         "y": 360,
@@ -71,7 +75,8 @@
         "anchorX": 0.5,
         "anchorY": 0.5,
         "opacity": 0
-      }
+      },
+      "align": "center"
     },
     "ball": {
       "type": "sprite",
@@ -107,8 +112,8 @@
       "property": "transform.x",
       "from": 200,
       "to": 1080,
-      "start": 0.0,
-      "duration": 4.0,
+      "start": 0,
+      "duration": 4,
       "easing": "easeInOutQuad"
     },
     {
@@ -117,8 +122,8 @@
       "property": "transform.rotation",
       "from": 0,
       "to": 6.283,
-      "start": 0.0,
-      "duration": 4.0,
+      "start": 0,
+      "duration": 4,
       "easing": "linear"
     }
   ]

@@ -214,6 +214,8 @@ onBeforeUnmount(() => {
     :status="bus.composition.value ? stage.status.value : null"
     :status-error="bus.composition.value ? stage.error.value : null"
     :project-root="project?.root ?? null"
+    :pending="bus.pending.value"
+    :command-error="bus.error.value"
   >
     <template #library>
       <Library />
