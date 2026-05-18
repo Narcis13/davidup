@@ -12,7 +12,7 @@
 // markup-only; the engine starts the moment the client takes over.
 
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
-import type { AttachHandle, PickHit } from 'davidup/browser'
+import type { AttachHandle, ItemBounds, PickHit } from 'davidup/browser'
 
 export type StageStatus =
   | 'idle'
@@ -52,6 +52,21 @@ export interface UseStageReturn {
    * Stage component converts CSS coords → composition coords before calling.
    */
   pickItemAt: (x: number, y: number, t?: number) => PickHit | null
+  /**
+   * On-stage bounding rectangle of `itemId` at time `t` (defaults to the
+   * driver's current render time). Returns null when no driver is attached,
+   * or when the id is not present in the scene. Stage.vue uses this each
+   * frame to draw the selection ring.
+   */
+  getItemBoundsAt: (itemId: string, t?: number) => ItemBounds | null
+  /**
+   * Register a callback fired once per animation frame, regardless of play
+   * state — returns an unsubscriber. Used by Stage.vue to redraw the
+   * selection ring overlay in lock-step with the engine's RAF clock so the
+   * ring tracks tweens even when the playhead is paused via tab throttling
+   * or after the engine self-terminates past duration.
+   */
+  onTick: (cb: () => void) => () => void
 }
 
 export function useStage(options: UseStageOptions): UseStageReturn {
@@ -68,6 +83,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   // the start of the comp.
   let lastAttachStartMs = 0
   let lastAttachStartAt = 0
+  const tickSubscribers = new Set<() => void>()
 
   function cancelRaf(): void {
     if (rafId !== null && typeof cancelAnimationFrame !== 'undefined') {
@@ -77,22 +93,37 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   }
 
   function tickPlayhead(): void {
-    if (status.value !== 'playing' || lastAttachStartMs === 0) {
+    // Advance the playhead only while playing — once we hit ended/stopped the
+    // reactive ref must latch — but the RAF loop itself should keep going as
+    // long as anyone subscribed via onTick (e.g. the selection-ring overlay,
+    // which must redraw if the user re-selects an item on a paused stage).
+    if (status.value === 'playing' && lastAttachStartMs !== 0) {
+      const elapsed = (Date.now() - lastAttachStartMs) / 1000
+      const duration = readDuration(readComposition())
+      let next = Math.max(0, lastAttachStartAt + elapsed)
+      if (duration > 0 && next > duration) next = duration
+      playhead.value = next
+    }
+    for (const cb of tickSubscribers) {
+      try {
+        cb()
+      } catch {
+        /* one subscriber's throw must not stop the loop */
+      }
+    }
+    if (status.value !== 'playing' && tickSubscribers.size === 0) {
       rafId = null
       return
     }
-    const elapsed = (Date.now() - lastAttachStartMs) / 1000
-    const duration = readDuration(readComposition())
-    let next = Math.max(0, lastAttachStartAt + elapsed)
-    if (duration > 0 && next > duration) next = duration
-    playhead.value = next
     if (typeof requestAnimationFrame !== 'undefined') {
       rafId = requestAnimationFrame(tickPlayhead)
+    } else {
+      rafId = null
     }
   }
 
   function startTicking(): void {
-    cancelRaf()
+    if (rafId !== null) return
     if (typeof requestAnimationFrame === 'undefined') return
     rafId = requestAnimationFrame(tickPlayhead)
   }
@@ -259,6 +290,19 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       const h = handle.value
       if (!h) return null
       return h.pickItemAt(x, y, t)
+    },
+    getItemBoundsAt(itemId: string, t?: number): ItemBounds | null {
+      const h = handle.value
+      if (!h) return null
+      return h.getItemBoundsAt(itemId, t)
+    },
+    onTick(cb: () => void): () => void {
+      tickSubscribers.add(cb)
+      // Kick the loop in case the engine is paused (or not attached yet).
+      startTicking()
+      return () => {
+        tickSubscribers.delete(cb)
+      }
     },
     playhead,
   }

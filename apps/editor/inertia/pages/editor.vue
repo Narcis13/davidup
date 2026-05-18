@@ -290,6 +290,8 @@ onBeforeUnmount(() => {
         :composition="bus.composition.value"
         :playhead="stage.playhead.value"
         :pick-item-at="stage.pickItemAt"
+        :get-item-bounds-at="stage.getItemBoundsAt"
+        :on-tick="stage.onTick"
         @apply="bus.apply"
       />
       <div v-else class="empty">

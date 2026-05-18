@@ -118,6 +118,18 @@ export interface PickHit {
   source?: SourceLocation;
 }
 
+/**
+ * Result of `getItemBoundsAt` — four corners of the item's transformed
+ * bounding rectangle, in composition pixel coordinates. The corners come in
+ * a stable order (top-left, top-right, bottom-right, bottom-left of the
+ * untransformed local rect) so callers can draw a polyline that follows the
+ * item's rotation. For group items, the corners describe the axis-aligned
+ * union of all descendant bounds.
+ */
+export interface ItemBounds {
+  corners: ReadonlyArray<readonly [number, number]>;
+}
+
 export interface AttachHandle {
   stop(): void;
   seek(seconds: number): void;
@@ -129,6 +141,13 @@ export interface AttachHandle {
    * only when the handle was attached with `emitSourceMap: true`.
    */
   pickItemAt(x: number, y: number, t?: number): PickHit | null;
+  /**
+   * Compute the on-stage bounds of `itemId` at time `t` (seconds; defaults
+   * to the current playhead). Returns `null` when the item is not present in
+   * the scene at that time. Used by the editor to draw a selection ring that
+   * tracks tweens frame-by-frame.
+   */
+  getItemBoundsAt(itemId: string, t?: number): ItemBounds | null;
   /**
    * Returns the source map produced by precompile, or `null` if the handle
    * was not attached with `emitSourceMap: true`.
@@ -281,10 +300,213 @@ export async function attach(
       }
     },
     pickItemAt,
+    getItemBoundsAt(itemId: string, tArg?: number): ItemBounds | null {
+      if (cancelled) return null;
+      const t = tArg !== undefined ? tArg : currentT();
+      const scene = computeStateAt(compiled, t, tweenIndex);
+      if (!scene.items[itemId]) return null;
+      for (const layer of scene.layers) {
+        for (const topId of layer.items) {
+          const top = scene.items[topId];
+          if (!top) continue;
+          const corners = findItemCorners(top, topId, identityMat(), scene, itemId);
+          if (corners) return { corners };
+        }
+      }
+      return null;
+    },
     getSourceMap(): SourceMap | null {
       return sourceMap;
     },
   };
+}
+
+// ──────────────── Selection-ring geometry ────────────────
+//
+// A 2D affine transform stored as the six non-trivial entries of a 3×3 matrix
+// in column-major order, matching the convention Canvas 2D contexts expose
+// through `getTransform`:
+//
+//   [a c e]
+//   [b d f]
+//   [0 0 1]
+//
+// This mirrors the renderer's ctx.save/translate/rotate/scale chain so the
+// world-space corners we emit line up with the pixels `drawScene` paints.
+
+type Mat = readonly [number, number, number, number, number, number];
+
+function identityMat(): Mat {
+  return [1, 0, 0, 1, 0, 0];
+}
+
+function translateMat(m: Mat, tx: number, ty: number): Mat {
+  // m * T(tx, ty)
+  return [m[0], m[1], m[2], m[3], m[0] * tx + m[2] * ty + m[4], m[1] * tx + m[3] * ty + m[5]];
+}
+
+function rotateMat(m: Mat, angle: number): Mat {
+  // m * R(angle)
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [
+    m[0] * c + m[2] * s,
+    m[1] * c + m[3] * s,
+    -m[0] * s + m[2] * c,
+    -m[1] * s + m[3] * c,
+    m[4],
+    m[5],
+  ];
+}
+
+function scaleMat(m: Mat, sx: number, sy: number): Mat {
+  // m * S(sx, sy)
+  return [m[0] * sx, m[1] * sx, m[2] * sy, m[3] * sy, m[4], m[5]];
+}
+
+function applyMat(m: Mat, x: number, y: number): [number, number] {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+function applyItemTransform(parent: Mat, item: Item): Mat {
+  const tr = item.transform;
+  let m: Mat = translateMat(parent, tr.x, tr.y);
+  if (tr.rotation !== 0) m = rotateMat(m, tr.rotation);
+  if (tr.scaleX !== 1 || tr.scaleY !== 1) m = scaleMat(m, tr.scaleX, tr.scaleY);
+  const aw = anchorWidth(item);
+  const ah = anchorHeight(item);
+  if (aw !== 0 || ah !== 0) m = translateMat(m, -tr.anchorX * aw, -tr.anchorY * ah);
+  return m;
+}
+
+function rectCorners(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  m: Mat,
+): ReadonlyArray<readonly [number, number]> {
+  return [
+    applyMat(m, x, y),
+    applyMat(m, x + w, y),
+    applyMat(m, x + w, y + h),
+    applyMat(m, x, y + h),
+  ];
+}
+
+// Recursively descend through layers/groups, accumulating world-space
+// transforms exactly as `drawPickItem` does, and emit corners the moment we
+// reach `targetId`. Returns null when the target isn't a descendant of the
+// passed item.
+function findItemCorners(
+  item: Item,
+  id: string,
+  parentMat: Mat,
+  scene: ResolvedScene,
+  targetId: string,
+): ReadonlyArray<readonly [number, number]> | null {
+  const m = applyItemTransform(parentMat, item);
+  if (id === targetId) return cornersForItem(item, m, scene);
+  if (item.type !== "group") return null;
+  for (const childId of item.items) {
+    const child = scene.items[childId];
+    if (!child) continue;
+    const r = findItemCorners(child, childId, m, scene, targetId);
+    if (r) return r;
+  }
+  return null;
+}
+
+function cornersForItem(
+  item: Item,
+  m: Mat,
+  scene: ResolvedScene,
+): ReadonlyArray<readonly [number, number]> {
+  switch (item.type) {
+    case "sprite":
+      return rectCorners(0, 0, item.width, item.height, m);
+    case "shape": {
+      if (item.kind === "rect") {
+        return rectCorners(0, 0, item.width ?? 0, item.height ?? 0, m);
+      }
+      if (item.kind === "circle") {
+        // Bounding rect of the circle in local space — the renderer's circle
+        // sits in (0..d, 0..d), so the same square is the picker's hit area.
+        const d = item.width ?? 0;
+        return rectCorners(0, 0, d, d, m);
+      }
+      // polygon
+      const pts = item.points ?? [];
+      if (pts.length === 0) return [];
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const p of pts) {
+        const px = p[0];
+        const py = p[1];
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+      return rectCorners(minX, minY, maxX - minX, maxY - minY, m);
+    }
+    case "text": {
+      // Without a Canvas2D context handy we can't call `measureText`, so we
+      // approximate. The estimate intentionally errs slightly large
+      // (fontSize × 0.6 per glyph) — a selection ring that hugs too tight on
+      // wide glyphs would clip the descenders; a slightly loose ring still
+      // reads as "this is the thing I clicked."
+      const text = item.text;
+      const w = item.fontSize * 0.6 * Math.max(1, text.length);
+      const h = item.fontSize;
+      let x = 0;
+      const align = item.align ?? "left";
+      if (align === "center") x = -w / 2;
+      else if (align === "right") x = -w;
+      // Baseline-alphabetic origin: ascent ~= 0.8 fontSize sits above the
+      // origin, descent ~= 0.2 below.
+      return rectCorners(x, -h * 0.8, w, h, m);
+    }
+    case "group": {
+      // Union AABB of all descendants in world space. The bbox of a group
+      // tracks how much canvas it occupies — accurate enough for a ring
+      // around a group selected via the Inspector dropdown.
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      const visit = (it: Item, mLocal: Mat): void => {
+        const m2 = applyItemTransform(mLocal, it);
+        if (it.type === "group") {
+          for (const cid of it.items) {
+            const c = scene.items[cid];
+            if (c) visit(c, m2);
+          }
+          return;
+        }
+        const cs = cornersForItem(it, m2, scene);
+        for (const c of cs) {
+          if (c[0] < minX) minX = c[0];
+          if (c[0] > maxX) maxX = c[0];
+          if (c[1] < minY) minY = c[1];
+          if (c[1] > maxY) maxY = c[1];
+        }
+      };
+      for (const cid of item.items) {
+        const c = scene.items[cid];
+        if (c) visit(c, m);
+      }
+      if (!Number.isFinite(minX)) return [];
+      return [
+        [minX, minY],
+        [maxX, minY],
+        [maxX, maxY],
+        [minX, maxY],
+      ];
+    }
+  }
 }
 
 // ──────────────── ID-buffer rendering ────────────────
