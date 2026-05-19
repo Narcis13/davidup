@@ -30,6 +30,8 @@ export {
   MCP_ERROR_CODES,
   type MCPErrorBody,
   type MCPErrorCode,
+  type MCPIssue,
+  type MCPToolErrorExtras,
 } from "./errors.js";
 
 export {

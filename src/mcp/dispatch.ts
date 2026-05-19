@@ -20,7 +20,7 @@
 
 import { z } from "zod";
 
-import { MCPToolError, toErrorBody, type MCPErrorBody } from "./errors.js";
+import { MCPToolError, toErrorBody, type MCPErrorBody, type MCPIssue } from "./errors.js";
 import type { ToolDef, ToolDeps } from "./tools.js";
 
 export type DispatchResult =
@@ -45,12 +45,18 @@ export async function dispatchTool(
   const schema = z.object(tool.inputSchema);
   const parsed = schema.safeParse(rawArgs ?? {});
   if (!parsed.success) {
+    const issues: MCPIssue[] = parsed.error.issues.map((issue) => ({
+      message: issue.message,
+      path: issue.path.join("."),
+      code: issue.code,
+    }));
     return {
       ok: false,
       error: {
         code: "E_INVALID_VALUE",
         message: parsed.error.issues[0]?.message ?? "Invalid arguments.",
         hint: formatIssuePath(parsed.error.issues),
+        issues,
       },
     };
   }

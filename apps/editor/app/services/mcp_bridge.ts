@@ -59,6 +59,7 @@ import {
   type LibraryControls,
   type LibraryListArgs,
   type MCPErrorCode,
+  type MCPIssue,
   type MCPLibraryCatalog,
   type MCPLibraryItem,
   type MCPLibraryItemKind,
@@ -565,16 +566,33 @@ function normaliseToolResult(value: unknown): unknown {
   return value ?? { ok: true as const }
 }
 
+interface ErrorResultExtras {
+  issues?: ReadonlyArray<MCPIssue>
+  warnings?: ReadonlyArray<MCPIssue>
+  details?: Record<string, unknown>
+}
+
 function errorResult(
   code: MCPErrorCode,
   message: string,
-  hint?: string
+  hint?: string,
+  extras?: ErrorResultExtras,
 ): DispatchResult {
-  const body: { code: MCPErrorCode; message: string; hint?: string } = {
+  const body: {
+    code: MCPErrorCode
+    message: string
+    hint?: string
+    issues?: ReadonlyArray<MCPIssue>
+    warnings?: ReadonlyArray<MCPIssue>
+    details?: Record<string, unknown>
+  } = {
     code,
     message,
   }
   if (hint !== undefined) body.hint = hint
+  if (extras?.issues !== undefined && extras.issues.length > 0) body.issues = extras.issues
+  if (extras?.warnings !== undefined && extras.warnings.length > 0) body.warnings = extras.warnings
+  if (extras?.details !== undefined) body.details = extras.details
   return { ok: false, error: body }
 }
 
@@ -591,10 +609,15 @@ function errorResult(
 function mapBusErrorToDispatch(err: unknown): DispatchResult {
   if (err instanceof CommandValidationError) {
     const issue = err.issues[0]
+    const issues: MCPIssue[] = err.issues.map((i) => ({
+      message: i.message,
+      path: i.path,
+    }))
     return errorResult(
       'E_INVALID_VALUE',
       err.message,
-      issue?.path ? `Invalid value at "${issue.path}".` : undefined
+      issue?.path ? `Invalid value at "${issue.path}".` : undefined,
+      { issues },
     )
   }
   if (err instanceof CommandRejectedError) {
@@ -602,10 +625,21 @@ function mapBusErrorToDispatch(err: unknown): DispatchResult {
   }
   if (err instanceof PostValidationError) {
     const first = err.result.errors[0]?.message
+    const issues: MCPIssue[] = err.result.errors.map((e) => {
+      const out: MCPIssue = { message: e.message, code: e.code }
+      if (e.path !== undefined) out.path = e.path
+      return out
+    })
+    const warnings: MCPIssue[] = err.result.warnings.map((w) => {
+      const out: MCPIssue = { message: w.message, code: w.code }
+      if (w.path !== undefined) out.path = w.path
+      return out
+    })
     return errorResult(
       'E_VALIDATION_FAILED',
       err.message,
-      first ?? 'Composition would fail validation after the mutation.'
+      first ?? 'Composition would fail validation after the mutation.',
+      { issues, warnings },
     )
   }
   if (err instanceof ProjectLoadError) {

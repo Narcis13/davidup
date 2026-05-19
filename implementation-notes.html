@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Implementation notes — 20.32 Structured MCP error details</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0A0E14;
+    --bg-2: #11161F;
+    --bg-3: #161D29;
+    --ink: #E8ECF1;
+    --ink-2: #C5CCD7;
+    --mute: #7A8497;
+    --mute-2: #4A5363;
+    --line: rgba(255,255,255,0.06);
+    --line-2: rgba(255,255,255,0.10);
+    --accent: #5B9BFF;
+    --accent-2: #7AAEFF;
+    --accent-dim: rgba(91,155,255,0.14);
+    --accent-line: rgba(91,155,255,0.30);
+    --good: #5BD0A0;
+    --warn: #E8B66E;
+    --bad: #F08A8A;
+    --display: "Fraunces", Georgia, "Times New Roman", serif;
+    --body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--ink); }
+  body {
+    margin: 0;
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: var(--accent-dim); color: var(--ink); }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: color-mix(in oklab, var(--bg) 80%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: 1280px; margin: 0 auto;
+    padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px;
+  }
+  .logo {
+    font-family: var(--display);
+    font-weight: 500; font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .logo .dot { color: var(--accent); }
+  .topnav { display: flex; gap: 20px; font-size: 13px; color: var(--mute); flex-wrap: wrap; }
+  .topnav a { color: inherit; text-decoration: none; transition: color 160ms var(--ease); border-bottom: 0; }
+  .topnav a:hover { color: var(--ink); }
+  .topbar .stamp {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--mute);
+    padding: 4px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+  .wrap-narrow { max-width: 860px; margin: 0 auto; padding: 0 28px; }
+
+  section.s { padding: 96px 0; border-top: 1px solid var(--line); }
+  section.s:first-of-type { border-top: 0; }
+
+  h1, h2, h3, h4 {
+    font-family: var(--display);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--ink);
+  }
+  h1 { font-size: clamp(48px, 6.4vw, 88px); line-height: 0.96; }
+  h2 { font-size: clamp(30px, 4vw, 52px); line-height: 1.04; margin: 0 0 16px; }
+  h3 { font-size: 22px; line-height: 1.2; font-weight: 500; letter-spacing: -0.01em; }
+  h4 { font-size: 18px; line-height: 1.25; font-weight: 500; letter-spacing: -0.01em; }
+  p  { margin: 0 0 14px; color: var(--ink-2); }
+  p.lead {
+    font-family: var(--display); font-weight: 300;
+    font-size: clamp(19px, 1.8vw, 23px);
+    line-height: 1.4; color: var(--ink);
+  }
+  em { font-style: italic; color: var(--accent-2); }
+  strong { color: var(--ink); font-weight: 500; }
+
+  a {
+    color: var(--accent); text-decoration: none;
+    border-bottom: 1px solid var(--accent-line);
+    transition: color 160ms var(--ease), border-color 160ms var(--ease);
+  }
+  a:hover { color: var(--accent-2); border-bottom-color: var(--accent-2); }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+    font-weight: 500;
+  }
+
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+  code {
+    background: var(--bg-2);
+    color: var(--accent-2);
+    padding: 1px 6px; border-radius: 3px;
+    border: 1px solid var(--line);
+  }
+  pre {
+    background: #06090F; color: #D7DEEA;
+    padding: 18px 22px; border-radius: 6px;
+    overflow-x: auto;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+    border: 1px solid var(--line-2);
+    margin: 24px 0 0;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; border: 0; }
+  .tok-k { color: var(--accent-2); }
+  .tok-c { color: var(--mute); font-style: italic; }
+  .tok-s { color: #A8D9B5; }
+  .tok-a { color: var(--accent); }
+
+  .twoup { display: grid; grid-template-columns: 1fr 2fr; gap: 56px; }
+  .twoup .side { color: var(--mute); font-size: 14px; }
+  .twoup .side h3 {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); font-weight: 500;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 800px) { .twoup { grid-template-columns: 1fr; gap: 18px; } }
+
+  .hero { position: relative; padding: 120px 0 96px; overflow: hidden; }
+  .hero h1 small {
+    display: block;
+    font-family: var(--display);
+    font-size: clamp(18px, 1.6vw, 22px);
+    color: var(--accent);
+    margin-bottom: 14px;
+    letter-spacing: -0.01em;
+    font-weight: 400;
+  }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    margin-top: 32px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--mute);
+  }
+  .hero-meta span { display: inline-flex; gap: 8px; align-items: center; }
+  .hero-meta span::before {
+    content: ""; display: inline-block; width: 6px; height: 6px;
+    background: var(--accent); border-radius: 50%;
+  }
+  .hero-bg {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0.18;
+    mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 70%);
+    -webkit-mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 70%);
+  }
+
+  .card {
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    padding: 22px 26px;
+  }
+  .card.accent { border-left: 3px solid var(--accent); }
+
+  .callout {
+    margin-top: 20px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 22px 26px;
+  }
+  .callout .label {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .callout h3 { font-size: 22px; margin-bottom: 8px; }
+  .callout p { margin: 0 0 6px; color: var(--ink-2); }
+
+  .tbl {
+    margin-top: 24px;
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .tbl .row { display: grid; border-top: 1px solid var(--line); }
+  .tbl .row:first-child {
+    background: var(--bg-2);
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--mute);
+    border-top: 0;
+  }
+  .tbl .row > div {
+    padding: 14px 16px;
+    border-right: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .tbl .row > div:last-child { border-right: 0; }
+  .tbl .factor { font-weight: 500; color: var(--ink); }
+  .tbl .win  { color: var(--good); font-family: var(--mono); font-size: 12px; }
+  .tbl .meh  { color: var(--mute); font-family: var(--mono); font-size: 12px; }
+  .tbl .lose { color: var(--bad);  font-family: var(--mono); font-size: 12px; }
+  @media (max-width: 760px) {
+    .tbl .row { grid-template-columns: 1fr !important; }
+    .tbl .row > div { border-right: 0; border-top: 1px dashed var(--line); }
+    .tbl .row > div:first-child { border-top: 0; }
+  }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: var(--bg-2);
+    color: var(--mute);
+  }
+  .pill.accent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-dim); }
+
+  .ac {
+    border-left: 2px solid var(--accent-line);
+    padding: 4px 0 4px 14px;
+    margin-top: 16px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--mute);
+  }
+  .ac strong {
+    color: var(--accent); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    font-size: 10px;
+  }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 24px;
+  }
+  .stats .stat { background: var(--bg-2); padding: 22px 24px; }
+  .stats .stat .n {
+    font-family: var(--display); font-size: 36px;
+    color: var(--ink); line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .stats .stat .l {
+    margin-top: 8px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--mute); letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  @media (max-width: 760px) { .stats { grid-template-columns: 1fr 1fr; } }
+
+  ul.bare { list-style: none; padding: 0; margin: 0; }
+  ul.bare li {
+    color: var(--ink-2);
+    margin: 0 0 12px;
+    padding-left: 18px;
+    position: relative;
+  }
+  ul.bare li::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 11px;
+    width: 6px; height: 1px;
+    background: var(--accent);
+  }
+
+  footer {
+    padding: 72px 0 96px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+    color: var(--mute);
+    font-family: var(--mono); font-size: 12px;
+  }
+  footer .sig {
+    font-family: var(--display); font-size: 16px;
+    font-style: italic; color: var(--ink-2);
+    margin-bottom: 6px;
+  }
+
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<!--
+  AI-AGENT FRONTMATTER
+  ====================
+  The <script> below contains a pre-extracted markdown version of this document
+  for AI coding agents. Browsers do not execute or render it (non-JS mime type).
+  It is the canonical text source for this doc; keep it in sync if the visible
+  HTML is edited.
+-->
+<script type="text/markdown" id="ai-frontmatter">
+---
+doc_type: design
+doc_title: "Implementation notes — 20.32 Structured MCP error details"
+version: 20.32
+date: 2026-05-19
+author_email: narcis75@gmail.com
+companion_to: implementation-notes.md
+sections:
+  - 01-spec-mismatch — Spec line numbers point to the wrong block; mapped intent to actual error-mapping code
+  - 02-touched-errors-ts — Extended MCPErrorBody at the engine source, not just the bridge
+  - 03-field-shape — Shape of new issues / warnings / details fields on MCPErrorBody
+  - 04-forward-all-issues — CommandValidationError + PostValidationError now forward full arrays
+  - 05-zod-upgrade — dispatchTool's Zod parse failure attaches all issues too
+  - 06-backwards-compat — MCPToolError gained an optional extras arg, no ripple
+  - 07-footgun-bun — apps/editor reads a Bun-materialised copy of src/, not a live symlink
+  - 08-deferred — Out-of-scope items and one open question
+---
+
+# Implementation notes — 20.32 Structured MCP error details
+
+**Spec:**
+
+> 20.32 — Structured error details in MCP responses.
+> mcp_bridge.ts:208-215 — preserve issues[] and warnings[] in MCPErrorBody. Add details field. Agents finally get actionable validation feedback instead of errors[0].message. dont run tests, i will test manually later
+
+**Started:** 2026-05-19
+
+**Files touched:**
+
+- `src/mcp/errors.ts` — extended `MCPErrorBody`, added `MCPIssue`, added `MCPToolErrorExtras`, widened `MCPToolError` constructor with an optional fourth arg.
+- `src/mcp/index.ts` — re-exported `MCPIssue` and `MCPToolErrorExtras`.
+- `src/mcp/dispatch.ts` — Zod-parse failure now attaches the full `parsed.error.issues` list.
+- `apps/editor/app/services/mcp_bridge.ts` — `errorResult()` accepts an `extras` object; `mapBusErrorToDispatch()` forwards full arrays from `CommandValidationError.issues` and `PostValidationError.result.{errors,warnings}`.
+
+---
+
+## 01 — Spec line numbers don't match the file
+
+The spec points at `mcp_bridge.ts:208-215`, but that range is inside `buildProjectControls` (project metadata mapping). The error-mapping code the spec describes lives at lines 568–618 — `errorResult()` and `mapBusErrorToDispatch()`. Proceeded against those, since the body of the spec (preserve `issues[]`/`warnings[]`, add `details`) only makes sense there.
+
+**Why:** The spec's intent is unambiguous; the line numbers were almost certainly written against a stale snapshot. Flagging rather than guessing what 208–215 might have been.
+
+---
+
+## 02 — Touched `src/mcp/errors.ts` as well as the bridge
+
+The spec called out `mcp_bridge.ts` only, but `MCPErrorBody` is the canonical envelope type defined in `src/mcp/errors.ts`. Adding fields only in the bridge would require widening to `as any` at the call sites and would leave engine-side `MCPToolError.toBody()` unable to populate them — meaning a tool that throws an `MCPToolError` with rich details could not propagate them through `dispatchTool`.
+
+**Why:** The envelope contract is shared between the engine's direct dispatch path and the editor's bridge. Extending it in one place keeps both consistent.
+
+**Alternative considered:** Keep `MCPErrorBody` minimal and add a parallel `EditorMCPErrorBody` in the bridge. Rejected — agents consume one wire shape regardless of which path produced the error; two body types would diverge.
+
+---
+
+## 03 — Shape of the new fields
+
+- `issues?: ReadonlyArray<MCPIssue>` — validation failures that prevented the command (Zod issues, post-validate errors). Each `MCPIssue` has `message`, optional `path`, optional `code`. Mirrors `ValidationError` from `schema/validator.ts` and Zod issue shape, so callers can do either.
+- `warnings?: ReadonlyArray<MCPIssue>` — non-fatal validator output (e.g. `W_TWEEN_TRUNCATED`). Same shape as issues for consistency; agents shouldn't need a second parser.
+- `details?: Record<string, unknown>` — open-ended bag for error-specific context (e.g. for `E_TWEEN_OVERLAP`, the conflicting tween id; for `E_INVALID_VALUE` from project create, the rejected name). Populated opportunistically; agents must tolerate it being absent.
+
+**Why:** Symmetric issues/warnings shape keeps the consumer trivial; `details` is the escape hatch for things that don't fit the issue model.
+
+The final `MCPErrorBody`:
+
+```ts
+export interface MCPIssue {
+  message: string;
+  path?: string;
+  code?: string;
+}
+
+export interface MCPErrorBody {
+  code: MCPErrorCode;
+  message: string;
+  hint?: string;
+  issues?: ReadonlyArray<MCPIssue>;
+  warnings?: ReadonlyArray<MCPIssue>;
+  details?: Record<string, unknown>;
+}
+```
+
+---
+
+## 04 — Validation errors now forward the full array, not `[0]`
+
+Previously, both `CommandValidationError` and `PostValidationError` flattened to `err.issues[0]?.message` or `err.result.errors[0]?.message`. Agents would see one issue with no path attribution and had to re-run the validator client-side to find out what else was wrong. After this change:
+
+| Error class                  | Before (`error.message`)                | After (additionally) |
+|------------------------------|------------------------------------------|----------------------|
+| `CommandValidationError`     | first issue message                      | full `issues[]` array (`path`, `message`) |
+| `PostValidationError`        | summary count                            | full `issues[]` from `result.errors`; full `warnings[]` from `result.warnings` |
+| Zod parse in `dispatchTool`  | first issue message + `hint` path         | full `issues[]` with `path` joined dot-form and Zod `code` preserved |
+
+`hint` keeps its single-line "Invalid value at `<path>`" summary for human readers and pre-existing UI surfaces.
+
+---
+
+## 05 — `dispatchTool`'s Zod-parse failure got the same upgrade
+
+Updated `src/mcp/dispatch.ts` so input-schema failures attach the full `parsed.error.issues` list to the error body too. Without this, the editor bridge would emit rich errors for command-level validation but the engine's own arg validation would still flatten to a single message — agents would have to learn *which* path they hit to know whether `issues` will be present.
+
+**Why:** Same contract on both error paths.
+
+---
+
+## 06 — `MCPToolError` constructor: additive, no ripple
+
+`MCPToolError(code, message, hint?)` is called from many sites across the engine. Added an optional fourth `extras` arg (`{ issues?, warnings?, details? }`) rather than re-ordering positional args:
+
+```ts
+new MCPToolError(
+  "E_VALIDATION_FAILED",
+  "Composition would fail validation.",
+  "Invalid tween at items.foo",
+  { issues, warnings, details: { conflictTweenId } },
+);
+```
+
+`toBody()` only attaches `issues`/`warnings` when non-empty, and `details` only when defined. All existing call sites keep working unchanged.
+
+**Why:** Zero ripple for unrelated tool handlers. The new arg is purely additive.
+
+---
+
+## 07 — Footgun: `apps/editor` reads a *copy* of `src/`, not a symlink
+
+`apps/editor` depends on the engine via `"davidup": "file:../.."`. Bun materialises that as a real directory at `node_modules/.bun/davidup@root/node_modules/davidup` — **not** a symlink. So edits to `src/mcp/errors.ts` do not appear under `davidup/mcp` for the editor until `bun install` re-syncs the snapshot.
+
+**Why this matters:** First typecheck after the edit failed with `Module '"davidup/mcp"' has no exported member 'MCPIssue'`, even though the export was right there in `src/mcp/index.ts`. Ran `bun install` to refresh the snapshot, then the error cleared.
+
+**How to apply:** After any edit under `src/` that the editor imports, run `bun install` before typechecking or running the dev server inside `apps/editor`.
+
+---
+
+## 08 — Deferred, out-of-scope, and open questions
+
+**Deferred / out-of-scope:**
+
+- Did not retrofit existing throw sites (e.g. `add_tween` for `E_TWEEN_OVERLAP`) to populate `details` with the conflicting tween id. The plumbing is now there but only the validation-error paths use it. Each tool would benefit but that's a separate sweep.
+- Did not surface `details` through the editor UI's error toasts; that surface still reads `message`/`hint` only.
+
+**Open questions:**
+
+- Should `details` ever be allowed on success envelopes too (e.g. for warnings on a successful apply)? Currently it's error-only. Leaving as-is until there's a concrete need.
+
+**Verification:** Did not run unit tests per the spec. `tsc --noEmit` ran clean for the touched files in both the root project and `apps/editor` (remaining errors in the editor typecheck are pre-existing — ffmpeg-static types, missing DOM lib, missing `~/composables/useToasts` — and unrelated to this change).
+</script>
+</head>
+
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo">davidup<span class="dot">.</span></div>
+    <div class="topnav">
+      <a href="#s1">Spec mismatch</a>
+      <a href="#s2">errors.ts</a>
+      <a href="#s3">Field shape</a>
+      <a href="#s4">Forward all</a>
+      <a href="#s5">Zod path</a>
+      <a href="#s6">Compat</a>
+      <a href="#s7">Footgun</a>
+      <a href="#s8">Open</a>
+    </div>
+    <span class="stamp">v20.32 · 2026-05-19</span>
+  </div>
+</div>
+
+<section class="hero">
+  <svg class="hero-bg" preserveAspectRatio="none" viewBox="0 0 1440 720" aria-hidden="true">
+    <defs>
+      <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+        <path d="M48 0H0V48" fill="none" stroke="#5B9BFF" stroke-width="0.5"/>
+      </pattern>
+      <radialGradient id="glow" cx="50%" cy="20%" r="60%">
+        <stop offset="0%"  stop-color="#5B9BFF" stop-opacity="0.18"/>
+        <stop offset="100%" stop-color="#5B9BFF" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#grid)"/>
+    <rect width="100%" height="100%" fill="url(#glow)"/>
+  </svg>
+
+  <div class="wrap">
+    <p class="eyebrow">Polish · 20.32 · MCP error envelope</p>
+    <h1>
+      <small>Implementation notes — structured error details in MCP responses.</small>
+      Agents finally get the <em>whole</em> validation story, not just <code style="font-size:0.7em">errors[0]</code>.
+    </h1>
+    <p class="lead" style="margin-top: 32px; max-width: 820px;">
+      The MCP error envelope grew three optional fields — <code>issues</code>, <code>warnings</code>, <code>details</code> —
+      and the editor bridge plus the engine's own dispatch path were rewired to populate them with every available row
+      instead of flattening to the first one.
+    </p>
+    <div class="hero-meta">
+      <span>4 files touched</span>
+      <span>+3 envelope fields</span>
+      <span>backwards compatible</span>
+      <span>tests deferred (manual)</span>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s1">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>01 — Spec mismatch</h3>
+        <p>The literal line range pointed at the wrong block. The intent was clear; the address was stale.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Reading the spec</p>
+        <h2>The spec said <code style="font-size:0.6em">mcp_bridge.ts:208-215</code>. The work was elsewhere.</h2>
+        <p>
+          Lines 208–215 in <code>mcp_bridge.ts</code> are inside <code>buildProjectControls</code> — project metadata
+          mapping. They have nothing to do with error envelopes. The code the spec actually describes — <code>errorResult()</code>
+          and <code>mapBusErrorToDispatch()</code> — lives at lines <strong>568–618</strong>.
+        </p>
+        <p>
+          Proceeded against the real error-mapping code rather than guessing what 208–215 once referred to.
+          The spec's body (preserve <code>issues[]</code>, <code>warnings[]</code>, add <code>details</code>) only makes
+          sense there.
+        </p>
+
+        <div class="callout">
+          <div class="label">Resolution</div>
+          <h3>Treat the line range as stale; honour the described intent.</h3>
+          <p>Flagging here so a future maintainer doesn't try to reconcile the address against the current file.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s2">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>02 — Edit at the source</h3>
+        <p>One envelope, two consumers. Extending it in one place keeps both honest.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Scope decision</p>
+        <h2>Touched <code style="font-size:0.6em">src/mcp/errors.ts</code> too, not just the bridge.</h2>
+        <p>
+          <code>MCPErrorBody</code> is the canonical envelope type, defined in the engine. Adding fields only in the
+          editor bridge would have required <code>as any</code> at call sites and left engine-side throws (the
+          <code>MCPToolError</code> path) unable to carry the new context — meaning a tool that already knows the
+          conflicting id could not surface it.
+        </p>
+
+        <svg viewBox="0 0 800 260" style="width:100%; height:auto; margin-top: 24px;" aria-label="Error envelope flow">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#5B9BFF"/>
+            </marker>
+          </defs>
+
+          <rect x="20" y="40" width="200" height="80" rx="6"
+                fill="#11161F" stroke="rgba(91,155,255,0.30)" stroke-width="1"/>
+          <text x="120" y="76" text-anchor="middle"
+                font-family="Fraunces, serif" font-size="17" fill="#E8ECF1">engine tool</text>
+          <text x="120" y="98" text-anchor="middle"
+                font-family="JetBrains Mono, monospace" font-size="11" fill="#7A8497">throw MCPToolError</text>
+
+          <rect x="20" y="160" width="200" height="80" rx="6"
+                fill="#11161F" stroke="rgba(91,155,255,0.30)" stroke-width="1"/>
+          <text x="120" y="196" text-anchor="middle"
+                font-family="Fraunces, serif" font-size="17" fill="#E8ECF1">editor bridge</text>
+          <text x="120" y="218" text-anchor="middle"
+                font-family="JetBrains Mono, monospace" font-size="11" fill="#7A8497">map bus errors</text>
+
+          <rect x="320" y="100" width="200" height="80" rx="6"
+                fill="#11161F" stroke="rgba(91,155,255,0.30)" stroke-width="1"/>
+          <text x="420" y="136" text-anchor="middle"
+                font-family="Fraunces, serif" font-size="17" fill="#E8ECF1">MCPErrorBody</text>
+          <text x="420" y="158" text-anchor="middle"
+                font-family="JetBrains Mono, monospace" font-size="11" fill="#7A8497">{code, message, hint,</text>
+          <text x="420" y="172" text-anchor="middle"
+                font-family="JetBrains Mono, monospace" font-size="11" fill="#7A8497">issues, warnings, details}</text>
+
+          <rect x="620" y="100" width="160" height="80" rx="6"
+                fill="#11161F" stroke="rgba(91,155,255,0.30)" stroke-width="1"/>
+          <text x="700" y="136" text-anchor="middle"
+                font-family="Fraunces, serif" font-size="17" fill="#E8ECF1">agent</text>
+          <text x="700" y="158" text-anchor="middle"
+                font-family="JetBrains Mono, monospace" font-size="11" fill="#7A8497">one wire shape</text>
+
+          <line x1="220" y1="80"  x2="320" y2="130" stroke="#5B9BFF" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <line x1="220" y1="200" x2="320" y2="150" stroke="#5B9BFF" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <line x1="520" y1="140" x2="620" y2="140" stroke="#5B9BFF" stroke-width="1.5" marker-end="url(#arrow)"/>
+        </svg>
+
+        <div class="ac">
+          <strong>Alternative considered</strong> · A parallel <code>EditorMCPErrorBody</code> in the bridge.
+          Rejected — agents consume one wire shape regardless of which path produced the error; two body types would
+          drift.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s3">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>03 — Field shape</h3>
+        <p>Symmetric for trivial parsing; one escape hatch for everything else.</p>
+      </div>
+      <div>
+        <p class="eyebrow">The new fields</p>
+        <h2>Three new optional fields on <code style="font-size:0.5em">MCPErrorBody</code>.</h2>
+
+        <ul class="bare" style="margin-top: 18px;">
+          <li><strong><code>issues?: ReadonlyArray&lt;MCPIssue&gt;</code></strong> — validation failures that caused
+            the error. Each row carries <code>message</code>, optional <code>path</code>, optional <code>code</code>.
+            Mirrors both Zod issue shape and the engine validator's <code>ValidationError</code>, so callers can map
+            either source without translation.</li>
+          <li><strong><code>warnings?: ReadonlyArray&lt;MCPIssue&gt;</code></strong> — non-fatal validator output (e.g.
+            <code>W_TWEEN_TRUNCATED</code>). Same shape as <code>issues</code> on purpose; agents shouldn't need a
+            second parser.</li>
+          <li><strong><code>details?: Record&lt;string, unknown&gt;</code></strong> — open-ended bag for error-specific
+            context (the conflicting tween id for <code>E_TWEEN_OVERLAP</code>; the rejected <code>name</code> for
+            project-create). Populated opportunistically; agents must tolerate it being absent.</li>
+        </ul>
+
+<pre style="margin-top: 28px;"><code><span class="tok-c">// src/mcp/errors.ts</span>
+<span class="tok-k">export interface</span> <span class="tok-a">MCPIssue</span> {
+  message: <span class="tok-k">string</span>;
+  path?: <span class="tok-k">string</span>;
+  code?: <span class="tok-k">string</span>;
+}
+
+<span class="tok-k">export interface</span> <span class="tok-a">MCPErrorBody</span> {
+  code: <span class="tok-a">MCPErrorCode</span>;
+  message: <span class="tok-k">string</span>;
+  hint?: <span class="tok-k">string</span>;
+  issues?: <span class="tok-a">ReadonlyArray</span>&lt;<span class="tok-a">MCPIssue</span>&gt;;
+  warnings?: <span class="tok-a">ReadonlyArray</span>&lt;<span class="tok-a">MCPIssue</span>&gt;;
+  details?: <span class="tok-a">Record</span>&lt;<span class="tok-k">string</span>, <span class="tok-k">unknown</span>&gt;;
+}</code></pre>
+
+        <div class="ac">
+          <strong>Why</strong> · Symmetric <code>issues</code> / <code>warnings</code> shape keeps the consumer trivial;
+          <code>details</code> is the escape hatch for things that don't fit the issue model.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s4">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>04 — Forward all rows</h3>
+        <p>The headline change. No more <code>[0]</code>.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Before / after</p>
+        <h2>Validation errors now forward the full array.</h2>
+        <p>
+          Previously, every validation path flattened to <code>err.issues[0]?.message</code> (or equivalent). Agents
+          would see one issue with no path attribution and had to re-run the validator client-side to discover what
+          else was wrong. After this change, <code>hint</code> keeps its single-line summary for human readers and
+          pre-existing UI surfaces; the new <code>issues</code> / <code>warnings</code> fields carry the whole story.
+        </p>
+
+        <div class="tbl">
+          <div class="row" style="grid-template-columns: 1.4fr 1fr 1.4fr;">
+            <div>Error class</div><div>Before</div><div>After (additionally)</div>
+          </div>
+          <div class="row" style="grid-template-columns: 1.4fr 1fr 1.4fr;">
+            <div class="factor"><code>CommandValidationError</code></div>
+            <div class="meh">MEH — first issue's <code>message</code></div>
+            <div class="win">WIN — full <code>issues[]</code> with path</div>
+          </div>
+          <div class="row" style="grid-template-columns: 1.4fr 1fr 1.4fr;">
+            <div class="factor"><code>PostValidationError</code></div>
+            <div class="meh">MEH — count + first <code>error.message</code></div>
+            <div class="win">WIN — full <code>issues[]</code> + <code>warnings[]</code></div>
+          </div>
+          <div class="row" style="grid-template-columns: 1.4fr 1fr 1.4fr;">
+            <div class="factor">Zod parse in <code>dispatchTool</code></div>
+            <div class="meh">MEH — first issue's <code>message</code> + path <code>hint</code></div>
+            <div class="win">WIN — full <code>issues[]</code> with dot-paths + Zod <code>code</code></div>
+          </div>
+        </div>
+
+        <hr class="rule" />
+
+<pre><code><span class="tok-c">// apps/editor/app/services/mcp_bridge.ts — mapBusErrorToDispatch</span>
+<span class="tok-k">if</span> (err <span class="tok-k">instanceof</span> <span class="tok-a">PostValidationError</span>) {
+  <span class="tok-k">const</span> issues: <span class="tok-a">MCPIssue</span>[] = err.result.errors.map((e) =&gt; {
+    <span class="tok-k">const</span> out: <span class="tok-a">MCPIssue</span> = { message: e.message, code: e.code }
+    <span class="tok-k">if</span> (e.path !== <span class="tok-k">undefined</span>) out.path = e.path
+    <span class="tok-k">return</span> out
+  })
+  <span class="tok-k">const</span> warnings: <span class="tok-a">MCPIssue</span>[] = err.result.warnings.map(<span class="tok-c">/* … */</span>)
+  <span class="tok-k">return</span> errorResult(
+    <span class="tok-s">'E_VALIDATION_FAILED'</span>,
+    err.message,
+    err.result.errors[0]?.message ?? <span class="tok-s">'Composition would fail validation after the mutation.'</span>,
+    { issues, warnings },
+  )
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s5">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>05 — Same contract everywhere</h3>
+        <p>Argument validation gets the upgrade too.</p>
+      </div>
+      <div>
+        <p class="eyebrow">dispatch.ts</p>
+        <h2>Zod parse failures attach the full <code style="font-size:0.5em">issues[]</code> list too.</h2>
+        <p>
+          Without this, the editor bridge would emit rich envelopes for command-level validation but the engine's own
+          argument validation (run before <em>any</em> handler, in both production and tests) would still flatten to a
+          single message. Agents would have to learn <em>which</em> path they hit to know whether <code>issues</code>
+          is present — exactly the inconsistency the spec was trying to remove.
+        </p>
+
+<pre><code><span class="tok-c">// src/mcp/dispatch.ts</span>
+<span class="tok-k">if</span> (!parsed.success) {
+  <span class="tok-k">const</span> issues: <span class="tok-a">MCPIssue</span>[] = parsed.error.issues.map((issue) =&gt; ({
+    message: issue.message,
+    path: issue.path.join(<span class="tok-s">"."</span>),
+    code: issue.code,
+  }));
+  <span class="tok-k">return</span> {
+    ok: <span class="tok-k">false</span>,
+    error: {
+      code: <span class="tok-s">"E_INVALID_VALUE"</span>,
+      message: parsed.error.issues[0]?.message ?? <span class="tok-s">"Invalid arguments."</span>,
+      hint: formatIssuePath(parsed.error.issues),
+      issues,
+    },
+  };
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s6">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>06 — Backwards compatible</h3>
+        <p>Additive fourth argument. Existing call sites untouched.</p>
+      </div>
+      <div>
+        <p class="eyebrow">MCPToolError</p>
+        <h2>An optional <code style="font-size:0.5em">extras</code> arg, not a reorder.</h2>
+        <p>
+          <code>MCPToolError(code, message, hint?)</code> is called from many tool handlers across the engine.
+          Re-ordering positional args or making any of them required would have rippled everywhere. Instead the
+          constructor grew a fourth optional <code>extras</code> object that carries the new fields. <code>toBody()</code>
+          attaches <code>issues</code> / <code>warnings</code> only when non-empty, and <code>details</code> only when
+          defined — so an envelope without extras is byte-identical to before.
+        </p>
+
+<pre><code><span class="tok-k">new</span> <span class="tok-a">MCPToolError</span>(
+  <span class="tok-s">"E_VALIDATION_FAILED"</span>,
+  <span class="tok-s">"Composition would fail validation."</span>,
+  <span class="tok-s">"Invalid tween at items.foo"</span>,
+  { issues, warnings, details: { conflictTweenId } },
+);</code></pre>
+
+        <div class="stats">
+          <div class="stat"><div class="n">4</div><div class="l">files touched</div></div>
+          <div class="stat"><div class="n">3</div><div class="l">new envelope fields</div></div>
+          <div class="stat"><div class="n">0</div><div class="l">existing call sites changed</div></div>
+          <div class="stat"><div class="n">0</div><div class="l">new tsc errors</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s7">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>07 — Footgun</h3>
+        <p>The editor reads a Bun-materialised copy of <code>src/</code>, not a live symlink.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Surprise from the existing repo</p>
+        <h2>Edits under <code style="font-size:0.5em">src/</code> need a <code style="font-size:0.5em">bun install</code> before <code style="font-size:0.5em">apps/editor</code> sees them.</h2>
+        <p>
+          <code>apps/editor</code> depends on the engine via <code>"davidup": "file:../.."</code>. Bun materialises that
+          as a real directory at <code>node_modules/.bun/davidup@root/node_modules/davidup</code> — not a symlink. So an
+          edit to <code>src/mcp/errors.ts</code> does not appear under <code>davidup/mcp</code> for the editor until
+          <code>bun install</code> re-syncs the snapshot.
+        </p>
+
+        <div class="callout">
+          <div class="label">What happened</div>
+          <h3>First typecheck failed with a phantom missing export.</h3>
+          <p>
+            <code>Module '"davidup/mcp"' has no exported member 'MCPIssue'.</code> The export was right there in
+            <code>src/mcp/index.ts</code>, but the editor's TypeScript was reading the stale snapshot. <code>bun install</code>
+            refreshed the snapshot and the error disappeared.
+          </p>
+        </div>
+
+        <div class="ac">
+          <strong>How to apply</strong> · After any edit under <code>src/</code> that the editor imports, run
+          <code>bun install</code> before typechecking or running the dev server inside <code>apps/editor</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="s8">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>08 — Deferred &amp; open</h3>
+        <p>Plumbing landed. Population per tool, and one open question.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Out of scope</p>
+        <h2>Plumbing is in. Each tool can now opt in to populating <code style="font-size:0.5em">details</code>.</h2>
+        <ul class="bare">
+          <li>Did <strong>not</strong> retrofit existing throw sites (e.g. <code>add_tween</code> for
+            <code>E_TWEEN_OVERLAP</code>) to populate <code>details</code> with the conflicting tween id. The fields
+            are reachable now, but only the validation-error paths use them. Each tool would benefit — separate sweep.</li>
+          <li>Did <strong>not</strong> surface <code>details</code> through the editor UI's error toasts; that surface
+            still reads <code>message</code> / <code>hint</code> only.</li>
+        </ul>
+
+        <div class="callout">
+          <div class="label">Open question</div>
+          <h3>Should <code>details</code> ever appear on <em>success</em> envelopes too?</h3>
+          <p>
+            E.g. for non-fatal warnings on a successful apply. Currently it's error-only. Leaving as-is until there's a
+            concrete need; flagging in case the answer is "yes, and soon".
+          </p>
+        </div>
+
+        <div class="ac" style="margin-top: 28px;">
+          <strong>Verification</strong> · No unit tests run, per the spec. <code>tsc --noEmit</code> clean for the
+          touched files in both the root project and <code>apps/editor</code>. Remaining editor-tsc errors
+          (ffmpeg-static types, missing DOM lib, missing <code>~/composables/useToasts</code>) are pre-existing and
+          unrelated.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="sig">Built so the next agent that gets a validation failure can act on it, not just read about it.</div>
+  <div>davidup polish 20.32 · implementation-notes · 2026-05-19</div>
+</footer>
+
+</body>
+</html>

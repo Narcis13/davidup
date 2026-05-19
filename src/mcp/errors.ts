@@ -36,26 +36,65 @@ export const MCP_ERROR_CODES = [
 
 export type MCPErrorCode = (typeof MCP_ERROR_CODES)[number];
 
+/**
+ * One row in `MCPErrorBody.issues[]` / `.warnings[]`. Shape is the lowest
+ * common denominator between Zod issues (`path: (string|number)[]`,
+ * `code: string`), the engine validator's `ValidationError` (`code`, `path`,
+ * `message`), and command-bus `CommandValidationError` issues (`path`,
+ * `message`). Consumers should treat any unknown `code` as informational.
+ */
+export interface MCPIssue {
+  message: string;
+  path?: string;
+  code?: string;
+}
+
 export interface MCPErrorBody {
   code: MCPErrorCode;
   message: string;
   hint?: string;
+  /** Validation failures that caused the error — one entry per failing rule. */
+  issues?: ReadonlyArray<MCPIssue>;
+  /** Non-fatal validator output (e.g. W_TWEEN_TRUNCATED) attached for context. */
+  warnings?: ReadonlyArray<MCPIssue>;
+  /** Error-specific structured context (conflicting ids, rejected values, …). */
+  details?: Record<string, unknown>;
+}
+
+export interface MCPToolErrorExtras {
+  issues?: ReadonlyArray<MCPIssue>;
+  warnings?: ReadonlyArray<MCPIssue>;
+  details?: Record<string, unknown>;
 }
 
 export class MCPToolError extends Error {
   readonly code: MCPErrorCode;
   readonly hint: string | undefined;
+  readonly issues: ReadonlyArray<MCPIssue> | undefined;
+  readonly warnings: ReadonlyArray<MCPIssue> | undefined;
+  readonly details: Record<string, unknown> | undefined;
 
-  constructor(code: MCPErrorCode, message: string, hint?: string) {
+  constructor(
+    code: MCPErrorCode,
+    message: string,
+    hint?: string,
+    extras?: MCPToolErrorExtras,
+  ) {
     super(message);
     this.name = "MCPToolError";
     this.code = code;
     this.hint = hint;
+    this.issues = extras?.issues;
+    this.warnings = extras?.warnings;
+    this.details = extras?.details;
   }
 
   toBody(): MCPErrorBody {
     const body: MCPErrorBody = { code: this.code, message: this.message };
     if (this.hint !== undefined) body.hint = this.hint;
+    if (this.issues !== undefined && this.issues.length > 0) body.issues = this.issues;
+    if (this.warnings !== undefined && this.warnings.length > 0) body.warnings = this.warnings;
+    if (this.details !== undefined) body.details = this.details;
     return body;
   }
 }
