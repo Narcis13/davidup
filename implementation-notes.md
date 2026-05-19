@@ -1,65 +1,50 @@
 # Implementation notes
 
-**Spec:** **20.32 — Structured error details in MCP responses.**
-- `mcp_bridge.ts:208-215` — preserve `issues[]` and `warnings[]` in `MCPErrorBody`. Add `details` field. Agents finally get actionable validation feedback instead of `errors[0].message`. dont run tests, i will test manually later
+**Spec:** **20.33 — Styled error pages.**
+- `pages/errors/not_found.vue` + `server_error.vue` — match editor visual style; surface a "back to projects" button.
 
 **Started:** 2026-05-19
 
 ---
 
-## Spec line numbers don't match the file
+## "Back to projects" points at `/`, not `/editor`
 
-The spec points at `mcp_bridge.ts:208-215`, but that range is inside `buildProjectControls` (project metadata mapping). The error-mapping code the spec describes lives at lines 568-618 — `errorResult()` and `mapBusErrorToDispatch()`. Proceeded against those, since the body of the spec (preserve `issues[]`/`warnings[]`, add `details`) only makes sense there.
+The "projects" surface in this app is the project picker at the root route (`apps/editor/start/routes.ts:21` → `HomeController.show` → `pages/home.vue`). `/editor` is the editing canvas for an already-loaded project, which is *not* the projects list. Used `<Link href="/">` for both error pages.
 
-**Why:** The spec's *intent* is unambiguous; the line numbers were almost certainly written against a stale snapshot. Flagging rather than guessing what 208-215 might have been.
+**Why:** The spec says "back to projects" — the picker IS the projects list (open + recent). Going to `/editor` would land on whatever project is loaded (or none), which is not what the wording implies.
 
-## Touched `src/mcp/errors.ts` as well as the bridge
+## Used Inertia `<Link>` instead of `<a href>`
 
-The spec called out `mcp_bridge.ts` only, but `MCPErrorBody` is the canonical envelope type defined in `src/mcp/errors.ts`. Adding fields only in the bridge would require widening to `as any` at the call sites and would leave engine-side `MCPToolError.toBody()` unable to populate them — meaning a tool that throws an `MCPToolError` with rich details can't propagate them through `dispatchTool`.
+Imported `Link` from `@inertiajs/vue3` for the button.
 
-**Why:** The envelope contract is shared between the engine's direct dispatch path and the editor's bridge. Extending it in one place keeps both consistent.
+**Why:** Consistent with `home.vue`'s navigation idiom (`router.visit('/editor')`) and avoids a full page reload when the user is already inside the Inertia app shell. For genuine 404s served by Adonis the page hits as a fresh request anyway, so `<Link>` doesn't break that path — it just helps when the not-found is reached via in-app navigation.
 
-**Alternative considered:** Keep `MCPErrorBody` minimal and add a parallel `EditorMCPErrorBody` in the bridge. Rejected — agents consume one wire shape regardless of which path produced the error; two body types would diverge.
+## Visual treatment: derived from `home.vue`, not lifted from a shared stylesheet
 
-## Shape of the new fields
+Both error pages reuse `home.vue`'s palette tokens inline (background radial, `#0a0a0a` base, `#5b7cfa` accent, `'Instrument Sans'` + `'JetBrains Mono'` pair, 12px uppercase brand chip).
 
-- `issues?: ReadonlyArray<MCPIssue>` — validation failures that prevented the command (Zod issues, post-validate `errors`). Each `MCPIssue` has `message`, optional `path`, optional `code`. Mirrors `ValidationError` from `schema/validator.ts` and Zod issue shape, so callers can do either.
-- `warnings?: ReadonlyArray<MCPIssue>` — non-fatal validator output (e.g. `W_TWEEN_TRUNCATED`). Same shape as issues for consistency; agents shouldn't need a second parser.
-- `details?: Record<string, unknown>` — open-ended bag for error-specific context (e.g. for `E_TWEEN_OVERLAP`, the conflicting tween id; for `E_INVALID_VALUE` from project create, the rejected name). Populated opportunistically; agents must tolerate it being absent.
+**Why:** There is no shared design-token module in `inertia/css/` worth importing for this — `home.vue` itself uses `<style scoped>` with literal values. Copying the same literal values keeps the look identical and avoids creating a new abstraction for two leaf pages.
 
-**Why:** Symmetric issues/warnings shape keeps the consumer trivial; `details` is the escape hatch for things that don't fit the issue model.
+**Alternative considered:** Extract a shared `error-page.css` or a Vue layout. Rejected as premature — two pages, tightly aligned in shape; if a third "marketing-style" page lands, that's the time to factor.
 
-## `CommandValidationError` now forwards all issues, not just `[0]`
+## 404 vs 500 differ in accent color, not layout
 
-Previous behaviour took `err.issues[0]` and dropped the rest into the message. After this change, the full array goes into `error.issues`, and `hint` keeps its single-issue path summary for human readers / backwards compat. Same for `PostValidationError`: full `result.errors`/`result.warnings` arrays are forwarded.
+Both pages share the same skeleton (brand chip → giant numeric code → title → sub → CTA). The 404 keeps the blue accent (`#5b7cfa` gradient on the digits); the 500 swaps the digits to the red error tone (`#ff6b6b` gradient) and adds a monospace `<pre>` block showing `error.message`.
 
-**Why:** That's the headline of the spec — "actionable validation feedback instead of `errors[0].message`".
+**Why:** Color is the cheapest cue that something went wrong server-side vs. just a missing route. Reusing the same skeleton keeps the visual rhythm with `home.vue`'s card-on-radial-bg vibe.
 
-## Zod parse failure in `dispatchTool` also gets the upgrade
+## `server_error.vue` falls back when `error.message` is missing/blank
 
-Updated `src/mcp/dispatch.ts` so input-schema failures attach the full `parsed.error.issues` list to the error body too. Without this, the editor bridge would emit rich errors for command-level validation but the engine's own arg validation would still flatten to a single message.
+The previous `server_error.vue` rendered `{{ error.message }}` directly, which prints `undefined` if the Inertia handler ever passes an object without `message`. Now a computed normalises to `"Something went wrong on the server."` when the message is missing or blank.
 
-**Why:** Same contract on both error paths; agents shouldn't have to learn which one they hit to know whether `issues` will be present.
-
-## Existing `MCPToolError` constructor — backwards compatible
-
-`MCPToolError(code, message, hint?)` is called from many sites. Added an optional fourth `extras` arg (`{ issues?, warnings?, details? }`) rather than re-ordering positional args. All existing call sites keep working unchanged.
-
-**Why:** Zero ripple for unrelated tool handlers. The new arg is purely additive.
+**Why:** Defensive against the page being rendered in dev with a thrown non-Error value (e.g. a string throw) or in production where Adonis may strip the message. Cheap to add, prevents an ugly bare `undefined` in the UI.
 
 ## Deferred / out-of-scope
 
-- Did not retrofit existing throw sites (e.g. `add_tween` for `E_TWEEN_OVERLAP`) to populate `details` with the conflicting tween id. The plumbing is now there but only the validation-error paths use it. Each tool would benefit but that's a separate sweep.
-- Did not surface `details` through the editor UI's error toasts; that surface still reads `message`/`hint` only.
-
-## Footgun: editor consumes a *copy* of `src/`, not a live symlink
-
-`apps/editor` depends on the engine via `"davidup": "file:../.."`. Bun materialises that as a real directory at `node_modules/.bun/davidup@root/node_modules/davidup` — not a symlink. So edits to `src/mcp/errors.ts` do not appear under `davidup/mcp` for the editor until `bun install` re-syncs the snapshot.
-
-**Why this matters:** First typecheck after the edit failed with `Module '"davidup/mcp"' has no exported member 'MCPIssue'`, even though the export was right there in `src/mcp/index.ts`. Ran `bun install` to refresh the snapshot, then the error cleared.
-
-**How to apply:** After any edit under `src/` that the editor imports, run `bun install` before typechecking or running the dev server inside `apps/editor`.
+- No "report this error" link, no error-id/correlation-id display. Not in the spec; would need server-side plumbing to be useful.
+- No retry button on the 500 page. Inertia errors during a POST don't reliably round-trip the original intent, so a generic "Retry" would mostly land back on the picker anyway.
+- No localisation — strings are hardcoded English. The rest of the editor is English-only today.
 
 ## Open questions
 
-- Should `details` ever be allowed on success envelopes too (e.g. for warnings on a successful apply)? Currently it's error-only. Leaving as-is until there's a concrete need.
+- None. The spec was clear; the only judgment call worth flagging is the `/` vs `/editor` destination, addressed above.
