@@ -271,6 +271,19 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       if (status.value === 'idle' && handle.value === null && !options.canvas.value) {
         return
       }
+      // When the stage isn't actively playing, the wall-clock baseline
+      // (lastAttachStartMs / lastAttachStartAt) keeps ticking even though the
+      // playhead ref is latched — readCurrentPlayhead() would return a stale
+      // time-since-pause value. Use the latched playhead ref instead so a
+      // composition mutation 5s after pause doesn't snap the playhead forward.
+      if (
+        status.value === 'paused' ||
+        status.value === 'stopped' ||
+        status.value === 'ended'
+      ) {
+        void start({ resumeAt: playhead.value })
+        return
+      }
       void start({ resume: true })
     },
     { flush: 'post' },

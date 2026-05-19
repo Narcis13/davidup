@@ -232,18 +232,28 @@ export default class ProjectsController {
     }
     projectEvents.on('changed', onChanged)
 
+    let cleaned = false
     const cleanup = (): void => {
+      if (cleaned) return
+      cleaned = true
       clearInterval(heartbeat)
       projectEvents.off('changed', onChanged)
     }
 
     return new Promise<void>((resolveStream) => {
-      const onClose = () => {
+      // Bind 'error' and 'finish' alongside 'close': if the socket errors
+      // before 'close' fires (or the response finishes without one), we'd
+      // otherwise leak a 'changed' listener on the projectEvents singleton.
+      // Over hours of dev reloads that trips setMaxListeners(64).
+      const onEnd = () => {
         cleanup()
         resolveStream()
       }
-      request.request.on('close', onClose)
-      raw.on('close', onClose)
+      request.request.on('close', onEnd)
+      request.request.on('error', onEnd)
+      raw.on('close', onEnd)
+      raw.on('error', onEnd)
+      raw.on('finish', onEnd)
     })
   }
 }
