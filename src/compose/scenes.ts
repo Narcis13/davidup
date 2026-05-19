@@ -1182,10 +1182,18 @@ function cloneRawAsset(a: Record<string, unknown>): Asset {
   const type = a.type;
   const src = a.src;
   if (typeof id !== "string" || id.length === 0) {
-    throw new MCPToolError("E_INVALID_VALUE", "Asset missing non-empty id.");
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Asset missing non-empty id.",
+      "Every entry in a scene's `assets` array must carry a string `id`.",
+    );
   }
   if (typeof src !== "string" || src.length === 0) {
-    throw new MCPToolError("E_INVALID_VALUE", `Asset "${id}" missing non-empty src.`);
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Asset "${id}" missing non-empty src.`,
+      "Every scene asset needs a `src` path (relative to the scene file or absolute).",
+    );
   }
   if (type === "image") {
     return { id, type: "image", src };

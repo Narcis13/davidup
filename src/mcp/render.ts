@@ -150,7 +150,11 @@ export function sampleTimes(duration: number, count: number): number[] {
 
 function ensureFiniteTime(t: number): void {
   if (!Number.isFinite(t) || t < 0) {
-    throw new MCPToolError("E_INVALID_VALUE", "time must be a non-negative finite number.");
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "time must be a non-negative finite number.",
+      "Pass seconds since composition start; must be ≥ 0 and finite (e.g. 0.5).",
+    );
   }
 }
 

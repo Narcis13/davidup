@@ -373,7 +373,11 @@ export class CompositionStore {
   registerAsset(input: RegisterAssetInput, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!input.id || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Asset id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Asset id must be a non-empty string.",
+        "Pass a stable string id (used later by add_sprite/add_text and remove_asset).",
+      );
     }
     if (comp.assets.has(input.id)) {
       throw new MCPToolError(
@@ -414,7 +418,11 @@ export class CompositionStore {
   removeAsset(assetId: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.assets.has(assetId)) {
-      throw new MCPToolError("E_NOT_FOUND", `No asset "${assetId}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No asset "${assetId}".`,
+        "Call list_assets to see registered asset ids.",
+      );
     }
     for (const [itemId, item] of comp.items) {
       if (item.type === "sprite" && item.asset === assetId) {
@@ -444,6 +452,7 @@ export class CompositionStore {
       throw new MCPToolError(
         "E_DUPLICATE_ID",
         `Layer id "${id}" already exists.`,
+        "Pick a different id, or omit `id` to let the store auto-assign.",
       );
     }
     const opacity = input.opacity ?? DEFAULT_OPACITY;
@@ -466,7 +475,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = comp.layers.get(id);
     if (!layer) {
-      throw new MCPToolError("E_NOT_FOUND", `No layer "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No layer "${id}".`,
+        "Inspect get_composition().layers to see existing layer ids, or call add_layer first.",
+      );
     }
     const next: Layer = { ...layer };
     if (props.z !== undefined) next.z = props.z;
@@ -486,7 +499,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = comp.layers.get(id);
     if (!layer) {
-      throw new MCPToolError("E_NOT_FOUND", `No layer "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No layer "${id}".`,
+        "Inspect get_composition().layers to see existing layer ids.",
+      );
     }
     if (layer.items.length > 0 && !cascade) {
       throw new MCPToolError(
@@ -635,7 +652,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = this.requireLayer(comp, input.layerId);
     if (typeof input.id !== "string" || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Item id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Item id must be a non-empty string.",
+        "Pass a stable string id; tweens and updates will reference it later.",
+      );
     }
     this.ensureNoItem(comp, input.id);
     const parsed = ItemSchema.safeParse(input.item);
@@ -655,7 +676,12 @@ export class CompositionStore {
   updateItem(id: string, props: UpdateItemProps, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     const item = comp.items.get(id);
-    if (!item) throw new MCPToolError("E_NOT_FOUND", `No item "${id}".`);
+    if (!item)
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${id}".`,
+        "Inspect get_composition().items for existing item ids, or add_sprite/add_text/add_shape/add_group first.",
+      );
     const next = applyItemUpdate(item, props);
     comp.items.set(id, next);
   }
@@ -667,7 +693,11 @@ export class CompositionStore {
   ): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.items.has(itemId)) {
-      throw new MCPToolError("E_NOT_FOUND", `No item "${itemId}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${itemId}".`,
+        "Inspect get_composition().items for existing item ids.",
+      );
     }
     const target = this.requireLayer(comp, targetLayerId);
     const sourceId = comp.itemLayer.get(itemId);
@@ -684,7 +714,11 @@ export class CompositionStore {
   removeItem(id: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.items.has(id)) {
-      throw new MCPToolError("E_NOT_FOUND", `No item "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${id}".`,
+        "Inspect get_composition().items for existing item ids.",
+      );
     }
     this.removeItemImpl(comp, id);
   }
@@ -737,7 +771,11 @@ export class CompositionStore {
 
     const id = input.id ?? this.nextTweenId(comp);
     if (comp.tweens.has(id)) {
-      throw new MCPToolError("E_DUPLICATE_ID", `Tween id "${id}" already exists.`);
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Tween id "${id}" already exists.`,
+        "Omit `id` to let the store auto-assign, or call remove_tween first to replace.",
+      );
     }
 
     this.ensureNoOverlap(comp, input.target, input.property, input.start, input.duration, null);
@@ -759,7 +797,12 @@ export class CompositionStore {
   updateTween(id: string, props: UpdateTweenProps, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     const tween = comp.tweens.get(id);
-    if (!tween) throw new MCPToolError("E_NOT_FOUND", `No tween "${id}".`);
+    if (!tween)
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No tween "${id}".`,
+        "Call list_tweens to see existing tween ids, or add_tween first.",
+      );
 
     const target = props.target ?? tween.target;
     const property = props.property ?? tween.property;
@@ -796,10 +839,18 @@ export class CompositionStore {
       );
     }
     if (duration <= 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween duration must be > 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween duration must be > 0.",
+        "Pass a positive number of seconds (e.g. duration: 0.5).",
+      );
     }
     if (start < 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween start must be ≥ 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween start must be ≥ 0.",
+        "Pass a non-negative seconds offset from the composition start.",
+      );
     }
 
     this.ensureNoOverlap(comp, target, property, start, duration, id);
@@ -820,7 +871,11 @@ export class CompositionStore {
   removeTween(id: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.tweens.delete(id)) {
-      throw new MCPToolError("E_NOT_FOUND", `No tween "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No tween "${id}".`,
+        "Call list_tweens to see existing tween ids.",
+      );
     }
   }
 
@@ -968,7 +1023,11 @@ export class CompositionStore {
   ): void {
     const comp = this.requireComposition(compositionId);
     if (typeof input.id !== "string" || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Item id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Item id must be a non-empty string.",
+        "Pass a stable string id; tweens and updates will reference it later.",
+      );
     }
     this.ensureNoItem(comp, input.id);
     const parsed = ItemSchema.safeParse(input.item);
@@ -991,7 +1050,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = this.requireLayer(comp, input.layerId);
     if (typeof input.id !== "string" || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Group id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Group id must be a non-empty string.",
+        "Pass a stable string id (used later by add_tween targets and update_item).",
+      );
     }
     this.ensureNoItem(comp, input.id);
     const group: GroupItem = {
@@ -1008,7 +1071,11 @@ export class CompositionStore {
   addRawTween(tween: Tween, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (comp.tweens.has(tween.id)) {
-      throw new MCPToolError("E_DUPLICATE_ID", `Tween id "${tween.id}" already exists.`);
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Tween id "${tween.id}" already exists.`,
+        "Pick a different id, or remove_tween the existing one first.",
+      );
     }
     const item = comp.items.get(tween.target);
     if (!item) {
@@ -1037,10 +1104,18 @@ export class CompositionStore {
       );
     }
     if (tween.duration <= 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween duration must be > 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween duration must be > 0.",
+        "Pass a positive number of seconds (e.g. duration: 0.5).",
+      );
     }
     if (tween.start < 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween start must be ≥ 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween start must be ≥ 0.",
+        "Pass a non-negative seconds offset from the composition start.",
+      );
     }
     this.ensureNoOverlap(
       comp,
@@ -1151,14 +1226,22 @@ export class CompositionStore {
   private requireLayer(comp: MutableComposition, layerId: string): Layer {
     const layer = comp.layers.get(layerId);
     if (!layer) {
-      throw new MCPToolError("E_NOT_FOUND", `No layer "${layerId}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No layer "${layerId}".`,
+        "Call add_layer to create it, or inspect get_composition().layers for existing layer ids.",
+      );
     }
     return layer;
   }
 
   private ensureNoItem(comp: MutableComposition, id: string): void {
     if (comp.items.has(id)) {
-      throw new MCPToolError("E_DUPLICATE_ID", `Item id "${id}" already exists.`);
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Item id "${id}" already exists.`,
+        "Pick a different id, omit `id` to let the store auto-assign, or remove_item first.",
+      );
     }
   }
 

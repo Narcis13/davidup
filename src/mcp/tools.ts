@@ -227,6 +227,19 @@ export interface RenderControls {
   list(): Promise<MCPRenderJobSnapshot[]> | MCPRenderJobSnapshot[];
   /** Resolves once the job is terminal (done or error). Never rejects. */
   waitFor(jobId: string): Promise<MCPRenderJobSnapshot>;
+  /**
+   * Cancel a non-terminal job. Returns the post-cancel snapshot (terminal
+   * status). Resolves to `null` if the jobId is unknown so handlers can
+   * surface E_NOT_FOUND uniformly.
+   *
+   * The underlying ffmpeg subprocess may continue running until it exits on
+   * its own — the editor's worker marks the job terminal immediately and
+   * leaves the orphan output behind, matching the project-switch abort path.
+   */
+  cancel(
+    jobId: string,
+    reason?: string,
+  ): Promise<MCPRenderJobSnapshot | null> | MCPRenderJobSnapshot | null;
 }
 
 export interface ToolDeps {
@@ -243,7 +256,7 @@ export interface ToolDeps {
 function requireProjectControls(deps: ToolDeps): ProjectControls {
   if (!deps.projectControls) {
     throw new MCPToolError(
-      "E_UNKNOWN",
+      "E_FEATURE_UNAVAILABLE",
       "Project lifecycle tools are not available on this MCP server.",
       "Connect through the editor (`davidup edit`) — the standalone engine server has no project concept.",
     );
@@ -254,7 +267,7 @@ function requireProjectControls(deps: ToolDeps): ProjectControls {
 function requireLibraryControls(deps: ToolDeps): LibraryControls {
   if (!deps.libraryControls) {
     throw new MCPToolError(
-      "E_UNKNOWN",
+      "E_FEATURE_UNAVAILABLE",
       "Library tools are not available on this MCP server.",
       "Connect through the editor (`davidup edit`) — the standalone engine server has no library service.",
     );
@@ -265,7 +278,7 @@ function requireLibraryControls(deps: ToolDeps): LibraryControls {
 function requireRenderControls(deps: ToolDeps): RenderControls {
   if (!deps.renderControls) {
     throw new MCPToolError(
-      "E_UNKNOWN",
+      "E_FEATURE_UNAVAILABLE",
       "Render queue tools are not available on this MCP server.",
       "Connect through the editor (`davidup edit`) — the standalone engine server has no render queue.",
     );
@@ -1691,7 +1704,7 @@ const renderToVideo = defineTool({
     "Always returns the same shape: " +
     "`{ jobId, status, outputPath, relativeOutputPath, totalFrames, startedAt, eventsUrl?, result }`. " +
     "`result` is `null` until the job completes; on success it carries `{ outputPath, relativeOutputPath, durationMs, frameCount }`. " +
-    "Default is async — the editor enqueues a job (polish §20.31) and returns immediately with `result: null`; " +
+    "Default is async — the editor enqueues a job and returns immediately with `result: null`; " +
     "poll `get_render` or pass `wait: true` to block until the render completes (then `result` is populated). " +
     "The standalone engine has no queue; calls always block and the response carries `status: \"done\"` with `result` populated. " +
     "On render failure the handler throws `E_RENDER_FAILED` rather than resolving with `status: \"error\"`.",
@@ -1796,7 +1809,7 @@ const getRender = defineTool({
   title: "Get render job",
   description:
     "Return a snapshot of a render job started by `render_to_video`: status, progress (latest frame/total/elapsedMs), terminal result on success, or error message on failure. " +
-    "Errors E_NOT_FOUND if the jobId is unknown, or E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Errors E_NOT_FOUND if the jobId is unknown, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {
     jobId: z.string().min(1),
   },
@@ -1820,12 +1833,44 @@ const listRenders = defineTool({
   description:
     "List render jobs the editor's queue is currently tracking, newest first. Each entry has the same shape as `get_render`. " +
     "The queue retains a bounded number of completed jobs; older ones are evicted lazily. " +
-    "Errors E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Errors E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {},
   handler: async (_args, deps) => {
     const ctrl = requireRenderControls(deps);
     const jobs = await ctrl.list();
     return { jobs };
+  },
+});
+
+const cancelRender = defineTool({
+  name: "cancel_render",
+  title: "Cancel render job",
+  description:
+    "Cancel a non-terminal render job started by `render_to_video`. The job is marked terminal (`status: \"error\"`) immediately and any SSE subscribers receive a clean shutdown event. The underlying ffmpeg subprocess may continue running until it exits on its own — the orphan output is left in the project's `renders/` directory. " +
+    "Calling cancel on an already-terminal job (`done` or `error`) is a no-op and returns the existing snapshot. " +
+    "Errors E_NOT_FOUND if the jobId is unknown, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    jobId: z.string().min(1),
+    reason: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Human-readable reason recorded on the job's terminal error event. Defaults to a generic 'cancelled by MCP client' message.",
+      ),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireRenderControls(deps);
+    const reason = args.reason ?? "Render cancelled by MCP client.";
+    const snap = await ctrl.cancel(args.jobId, reason);
+    if (!snap) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No render job with id "${args.jobId}".`,
+        "Call `list_renders` to see jobs that are still tracked in memory.",
+      );
+    }
+    return snap;
   },
 });
 
@@ -1835,7 +1880,7 @@ const currentProject = defineTool({
   name: "current_project",
   title: "Current project",
   description:
-    "Return information about the project currently loaded by the editor (root, paths, loadedAt). Returns `{ project: null }` when no project is loaded. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Return information about the project currently loaded by the editor (root, paths, loadedAt). Returns `{ project: null }` when no project is loaded. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {},
   handler: async (_args, deps) => {
     const ctrl = requireProjectControls(deps);
@@ -1848,7 +1893,7 @@ const listProjects = defineTool({
   name: "list_projects",
   title: "List recent projects",
   description:
-    "Return the editor's list of recently-opened projects, sorted newest first. Entries whose directory no longer exists are pruned. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Return the editor's list of recently-opened projects, sorted newest first. Entries whose directory no longer exists are pruned. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {},
   handler: async (_args, deps) => {
     const ctrl = requireProjectControls(deps);
@@ -1861,7 +1906,7 @@ const openProject = defineTool({
   name: "open_project",
   title: "Open project",
   description:
-    "Load a project from a directory on disk and make it the editor's active composition. Routes through the same controller path as POST /api/project in the UI (same validation, same path guard, same project-switch reset). Errors with E_NOT_FOUND if no composition.json exists at `path`, E_INVALID_VALUE if `path` is malformed or in a protected system location, or E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Load a project from a directory on disk and make it the editor's active composition. Routes through the same controller path as POST /api/project in the UI (same validation, same path guard, same project-switch reset). Errors with E_NOT_FOUND if no composition.json exists at `path`, E_INVALID_VALUE if `path` is malformed or in a protected system location, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {
     path: z.string().min(1),
   },
@@ -1879,7 +1924,7 @@ const listLibrary = defineTool({
   name: "list_library",
   title: "List library",
   description:
-    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`) and an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global). Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Call `get_library_thumbnail` with the item's `kind` + `id` to fetch a base64 PNG preview. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`) and an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global). Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Call `get_library_thumbnail` with the item's `kind` + `id` to fetch a base64 PNG preview. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {
     q: z.string().min(1).optional(),
     kind: LIBRARY_ITEM_KIND.optional(),
@@ -1899,7 +1944,7 @@ const getLibraryThumbnail = defineTool({
   name: "get_library_thumbnail",
   title: "Get library thumbnail",
   description:
-    "Return a base64-encoded PNG preview for a single Library item identified by `kind` + `id` (as returned by `list_library`). The first call synthesizes a tiny composition exercising the item and renders frame 0.5 via the same path the Library panel uses; subsequent calls hit an in-memory cache. When synthesis isn't viable the renderer falls back to a deterministic placeholder PNG and sets `placeholder: true`. Errors with E_NOT_FOUND if no item with that (kind, id) is in the current catalog, or E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Return a base64-encoded PNG preview for a single Library item identified by `kind` + `id` (as returned by `list_library`). The first call synthesizes a tiny composition exercising the item and renders frame 0.5 via the same path the Library panel uses; subsequent calls hit an in-memory cache. When synthesis isn't viable the renderer falls back to a deterministic placeholder PNG and sets `placeholder: true`. Errors with E_NOT_FOUND if no item with that (kind, id) is in the current catalog, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
   inputSchema: {
     kind: LIBRARY_ITEM_KIND,
     id: z.string().min(1),
@@ -2073,6 +2118,7 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   renderToVideo,
   getRender,
   listRenders,
+  cancelRender,
   // 4.7 — project lifecycle (polish §20.29)
   currentProject,
   listProjects,

@@ -292,7 +292,11 @@ export function buildProjectControls(store: ProjectStore): ProjectControls {
       } catch (err) {
         if (err instanceof ScaffoldError) {
           const code = err.code === 'E_TEMPLATE_NOT_FOUND' ? 'E_NOT_FOUND' : 'E_INVALID_VALUE'
-          throw new MCPToolError(code, err.message)
+          const hint =
+            err.code === 'E_TEMPLATE_NOT_FOUND'
+              ? 'Pass a known starter template (omit `template` to use "basic").'
+              : 'Pick a fresh `location`/`name` — the resolved target directory must not already contain a project.'
+          throw new MCPToolError(code, err.message, hint)
         }
         throw err
       }
@@ -406,10 +410,18 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
     requested: string,
   ): { absolute: string; relative: string } {
     if (requested.length === 0) {
-      throw new MCPToolError('E_INVALID_VALUE', '`outputPath` must not be empty.')
+      throw new MCPToolError(
+        'E_INVALID_VALUE',
+        '`outputPath` must not be empty.',
+        'Pass a filename like "out.mp4" — relative paths land in the project\'s renders/ directory.',
+      )
     }
     if (requested.includes('\0')) {
-      throw new MCPToolError('E_INVALID_VALUE', '`outputPath` contains a NUL byte.')
+      throw new MCPToolError(
+        'E_INVALID_VALUE',
+        '`outputPath` contains a NUL byte.',
+        'Strip control characters from the path.',
+      )
     }
     const absolute = isAbsolute(requested)
       ? resolvePath(requested)
@@ -524,6 +536,14 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
       await job.whenDone()
       return snapshot(job)
     },
+    cancel: (jobId: string, reason?: string): MCPRenderJobSnapshot | null => {
+      const job = renderJobs.get(jobId)
+      if (!job) return null
+      // `job.abort` is a no-op once the job is already terminal, so this
+      // gives `cancel` idempotent semantics without an explicit status check.
+      job.abort(reason ?? 'Render cancelled by MCP client.')
+      return snapshot(job)
+    },
   }
 }
 
@@ -551,21 +571,42 @@ function guardToMcpError(
   // Both guard failure modes map to E_INVALID_VALUE on the MCP surface —
   // there is no distinct "forbidden" code in the engine vocabulary, and from
   // the agent's perspective the request is simply not acceptable.
-  return new MCPToolError('E_INVALID_VALUE', guard.message)
+  const hint =
+    guard.code === 'E_FORBIDDEN_PATH'
+      ? 'Pick a path outside protected system locations (e.g. inside ~/Projects).'
+      : 'Pass an absolute, normalised path with no `..` segments or control characters.'
+  return new MCPToolError('E_INVALID_VALUE', guard.message, hint)
 }
 
 function projectLoadToMcpError(err: unknown): MCPToolError {
   if (err instanceof ProjectLoadError) {
-    const code: MCPErrorCode =
-      err.code === 'E_PROJECT_NOT_FOUND' || err.code === 'E_COMPOSITION_MISSING'
-        ? 'E_NOT_FOUND'
-        : err.code === 'E_COMPOSITION_PARSE' || err.code === 'E_COMPOSITION_INVALID'
-          ? 'E_VALIDATION_FAILED'
-          : 'E_NO_COMPOSITION'
-    return new MCPToolError(code, err.message)
+    let code: MCPErrorCode
+    let hint: string
+    if (err.code === 'E_PROJECT_NOT_FOUND' || err.code === 'E_COMPOSITION_MISSING') {
+      code = 'E_NOT_FOUND'
+      hint =
+        'Verify `path` points to a directory containing `composition.json`, or call `create_project` to scaffold one.'
+    } else if (err.code === 'E_COMPOSITION_PARSE' || err.code === 'E_COMPOSITION_INVALID') {
+      code = 'E_VALIDATION_FAILED'
+      hint =
+        'Fix the composition.json on disk (JSON syntax / schema) before reopening — the editor will not load an invalid project.'
+    } else {
+      code = 'E_NO_COMPOSITION'
+      hint = 'Open or create a project first; this operation needs an active composition.'
+    }
+    return new MCPToolError(code, err.message, hint)
   }
-  if (err instanceof Error) return new MCPToolError('E_UNKNOWN', err.message)
-  return new MCPToolError('E_UNKNOWN', String(err))
+  if (err instanceof Error)
+    return new MCPToolError(
+      'E_UNKNOWN',
+      err.message,
+      'Unexpected error loading the project — check editor logs for the underlying cause.',
+    )
+  return new MCPToolError(
+    'E_UNKNOWN',
+    String(err),
+    'Unexpected non-Error thrown while loading the project — check editor logs.',
+  )
 }
 
 // ──────────────── Helpers ────────────────
