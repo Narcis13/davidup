@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type {
   AssetSchema,
+  BlendModeSchema,
   CompositionMetaSchema,
   CompositionSchema,
   FontAssetSchema,
@@ -14,6 +15,8 @@ import type {
   TransformSchema,
   TweenSchema,
 } from "./zod.js";
+
+export type BlendMode = z.infer<typeof BlendModeSchema>;
 
 export type Composition = z.infer<typeof CompositionSchema>;
 export type CompositionMeta = z.infer<typeof CompositionMetaSchema>;

@@ -1,6 +1,43 @@
 import { z } from "zod";
 import { EASING_NAMES } from "../easings/index.js";
 
+// Canvas2D `globalCompositeOperation` values per HTML Living Standard. The
+// renderer passes `Layer.blendMode` straight to `ctx.globalCompositeOperation`
+// (see `src/engine/render.ts:150`), so anything outside this list produces
+// host-divergent behavior — browsers silently ignore unknowns, skia-canvas
+// throws. We also accept the CSS alias "normal" and map it to "source-over".
+export const CANVAS2D_COMPOSITE_OPS = [
+  "source-over",
+  "source-in",
+  "source-out",
+  "source-atop",
+  "destination-over",
+  "destination-in",
+  "destination-out",
+  "destination-atop",
+  "lighter",
+  "copy",
+  "xor",
+  "multiply",
+  "screen",
+  "overlay",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+] as const;
+
+export const BLEND_MODES = [...CANVAS2D_COMPOSITE_OPS, "normal"] as const;
+export const BlendModeSchema = z.enum(BLEND_MODES);
+
 export const CompositionMetaSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -87,7 +124,7 @@ export const LayerSchema = z.object({
   id: z.string().min(1),
   z: z.number(),
   opacity: z.number().min(0).max(1),
-  blendMode: z.string(),
+  blendMode: BlendModeSchema,
   items: z.array(z.string().min(1)),
 });
 

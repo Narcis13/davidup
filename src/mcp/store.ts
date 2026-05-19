@@ -15,6 +15,7 @@ import type { EasingName } from "../easings/index.js";
 import { validate, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
+  BlendMode,
   Composition,
   CompositionMeta,
   GroupItem,
@@ -34,7 +35,7 @@ import { MCPToolError } from "./errors.js";
 const COMPOSITION_VERSION = "0.1";
 const DEFAULT_BACKGROUND = "#000000";
 const DEFAULT_OPACITY = 1;
-const DEFAULT_BLEND_MODE = "normal";
+const DEFAULT_BLEND_MODE: BlendMode = "normal";
 
 const DEFAULT_TRANSFORM: Transform = {
   x: 0,
@@ -111,13 +112,13 @@ export interface AddLayerInput {
   id?: string;
   z: number;
   opacity?: number;
-  blendMode?: string;
+  blendMode?: BlendMode;
 }
 
 export interface UpdateLayerProps {
   z?: number;
   opacity?: number;
-  blendMode?: string;
+  blendMode?: BlendMode;
 }
 
 export interface AddSpriteInput {

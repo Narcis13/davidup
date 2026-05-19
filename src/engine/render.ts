@@ -12,6 +12,7 @@
 // stack handles transform matrix composition for free (per §5.4).
 
 import type {
+  BlendMode,
   GroupItem,
   Item,
   Layer,
@@ -144,9 +145,9 @@ function drawBackground(
   ctx.restore();
 }
 
-function applyBlendMode(ctx: Canvas2DContext, mode: string): void {
+function applyBlendMode(ctx: Canvas2DContext, mode: BlendMode): void {
   // CSS-style "normal" maps to Canvas2D's default "source-over"; everything
-  // else passes through (Canvas2D accepts most CSS blend mode names directly).
+  // else is a validated Canvas2D composite op (see CANVAS2D_COMPOSITE_OPS).
   ctx.globalCompositeOperation = mode === "normal" ? COMPOSITE_NORMAL : mode;
 }
 

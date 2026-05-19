@@ -48,6 +48,7 @@ import {
 import { renderToFile } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
 import type { Tween } from "../schema/types.js";
+import { BlendModeSchema } from "../schema/zod.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -57,6 +58,7 @@ import {
 import {
   CompositionStore,
   type SetMetaPropertyName,
+  type UpdateLayerProps,
 } from "./store.js";
 
 // ──────────────── Shared dependency container ────────────────
@@ -436,7 +438,7 @@ const addLayer = defineTool({
     id: z.string().min(1).optional(),
     z: z.number(),
     opacity: z.number().min(0).max(1).optional(),
-    blendMode: z.string().optional(),
+    blendMode: BlendModeSchema.optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -462,12 +464,12 @@ const updateLayer = defineTool({
     props: z.object({
       z: z.number().optional(),
       opacity: z.number().min(0).max(1).optional(),
-      blendMode: z.string().optional(),
+      blendMode: BlendModeSchema.optional(),
     }),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
-    const props: { z?: number; opacity?: number; blendMode?: string } = {};
+    const props: UpdateLayerProps = {};
     if (args.props.z !== undefined) props.z = args.props.z;
     if (args.props.opacity !== undefined) props.opacity = args.props.opacity;
     if (args.props.blendMode !== undefined) props.blendMode = args.props.blendMode;

@@ -19,6 +19,7 @@
 
 import { z } from 'zod'
 import { EASING_NAMES } from 'davidup/easings'
+import { BlendModeSchema } from 'davidup/schema'
 
 // ──────────────── Reusable fragments ────────────────
 
@@ -138,7 +139,7 @@ const addLayer = z.object({
     id: ID.optional(),
     z: z.number(),
     opacity: UNIT.optional(),
-    blendMode: z.string().optional(),
+    blendMode: BlendModeSchema.optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -151,7 +152,7 @@ const updateLayer = z.object({
     props: z.object({
       z: z.number().optional(),
       opacity: UNIT.optional(),
-      blendMode: z.string().optional(),
+      blendMode: BlendModeSchema.optional(),
     }),
     compositionId: COMPOSITION_ID,
   }),
