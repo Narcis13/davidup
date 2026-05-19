@@ -29,7 +29,8 @@ import type {
 } from "../schema/types.js";
 import { ItemSchema } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
-import type { TimeMapping } from "../compose/scenes.js";
+import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
+import type { TemplateDefinition } from "../compose/templates.js";
 import { MCPToolError } from "./errors.js";
 
 const COMPOSITION_VERSION = "0.1";
@@ -241,6 +242,15 @@ export class CompositionStore {
   private readonly compositions = new Map<string, MutableComposition>();
   private defaultId: string | null = null;
   private autoSeq = 0;
+  // Session-scoped user registries. Templates/scenes defined via the MCP
+  // `define_user_template`, `define_scene`, and `import_scene` tools live
+  // here instead of the process-global compose REGISTRY so two MCP sessions
+  // on the same backend never see each other's mutations (M4 — SaaS blocker).
+  // Built-ins and editor library_index entries continue to live on the
+  // process-global registry and are visible as a read-only fallback via the
+  // expansion functions' existing `options.{templates,scenes}` precedence.
+  private readonly userTemplates = new Map<string, TemplateDefinition>();
+  private readonly userScenes = new Map<string, SceneDefinition>();
 
   // ──────────────── Composition lifecycle ────────────────
 
@@ -1050,6 +1060,70 @@ export class CompositionStore {
       duration: tween.duration,
       ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
     });
+  }
+
+  // ──────────────── Session-scoped template / scene registries ────────────────
+
+  setUserTemplate(def: TemplateDefinition): void {
+    if (typeof def.id !== "string" || def.id.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Template definition must have a non-empty id.",
+      );
+    }
+    this.userTemplates.set(def.id, def);
+  }
+
+  getUserTemplate(id: string): TemplateDefinition | undefined {
+    return this.userTemplates.get(id);
+  }
+
+  hasUserTemplate(id: string): boolean {
+    return this.userTemplates.has(id);
+  }
+
+  removeUserTemplate(id: string): boolean {
+    return this.userTemplates.delete(id);
+  }
+
+  listUserTemplates(): TemplateDefinition[] {
+    return Array.from(this.userTemplates.values());
+  }
+
+  /** Snapshot for `expandTemplate(options.templates)`. */
+  userTemplateRecord(): Record<string, TemplateDefinition> {
+    return Object.fromEntries(this.userTemplates);
+  }
+
+  setUserScene(def: SceneDefinition): void {
+    if (typeof def.id !== "string" || def.id.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Scene definition must have a non-empty id.",
+      );
+    }
+    this.userScenes.set(def.id, def);
+  }
+
+  getUserScene(id: string): SceneDefinition | undefined {
+    return this.userScenes.get(id);
+  }
+
+  hasUserScene(id: string): boolean {
+    return this.userScenes.has(id);
+  }
+
+  removeUserScene(id: string): boolean {
+    return this.userScenes.delete(id);
+  }
+
+  listUserScenes(): SceneDefinition[] {
+    return Array.from(this.userScenes.values());
+  }
+
+  /** Snapshot for `expandSceneInstance(options.scenes)`. */
+  userSceneRecord(): Record<string, SceneDefinition> {
+    return Object.fromEntries(this.userScenes);
   }
 
   // ──────────────── Internals ────────────────

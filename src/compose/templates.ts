@@ -101,6 +101,15 @@ export function listTemplates(): TemplateDescriptor[] {
   return Array.from(REGISTRY.values()).map(toDescriptor);
 }
 
+/**
+ * Public projection of a {@link TemplateDefinition} into its lightweight
+ * descriptor. Used by callers that maintain their own (e.g. session-scoped)
+ * registry and need to merge it with `listTemplates()` for surfacing.
+ */
+export function templateDescriptor(def: TemplateDefinition): TemplateDescriptor {
+  return toDescriptor(def);
+}
+
 // ──────────────── Single-instance expansion ────────────────
 
 /**

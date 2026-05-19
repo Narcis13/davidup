@@ -8,7 +8,7 @@
 
 - The composition is canonical JSON. See [`design-doc.md`](./design-doc.md) for
   the full spec.
-- AI agents drive the engine through 25 atomic MCP tools. See
+- AI agents drive the engine through 44 atomic MCP tools. See
   [`examples/mcp-demo.md`](./examples/mcp-demo.md) for the agent walkthrough.
 - The implementation plan and phase breakdown lives in
   [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).

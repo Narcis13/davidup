@@ -178,6 +178,15 @@ export function listScenes(): SceneDescriptor[] {
   return Array.from(REGISTRY.values()).map(toDescriptor);
 }
 
+/**
+ * Public projection of a {@link SceneDefinition} into its lightweight
+ * descriptor. Used by callers that maintain their own (e.g. session-scoped)
+ * registry and need to merge it with `listScenes()` for surfacing.
+ */
+export function sceneDescriptor(def: SceneDefinition): SceneDescriptor {
+  return toDescriptor(def);
+}
+
 // ──────────────── Single-instance expansion ────────────────
 
 export interface ExpandSceneOptions {

@@ -13,6 +13,8 @@
 //     dispatcher wraps it in `{ error: { code, message, hint? } }` AND sets
 //     `isError: true` so MCP clients see it as an error too.
 
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 
 import {
@@ -27,12 +29,9 @@ import "../compose/builtInTemplates.js";
 import {
   expandSceneInstance,
   getSceneDefinition,
-  hasScene,
   listScenes,
   readSceneDefinition,
-  registerScene,
-  unregisterScene,
-  type SceneDefinition,
+  sceneDescriptor,
   type SceneInstance,
   type SceneParamDescriptor,
   type TimeMapping,
@@ -40,8 +39,9 @@ import {
 import {
   expandTemplate,
   listTemplates,
-  registerTemplate,
+  templateDescriptor,
   type TemplateDefinition,
+  type TemplateDescriptor,
   type TemplateInstance,
   type TemplateParamDescriptor,
 } from "../compose/templates.js";
@@ -253,6 +253,47 @@ function requireRenderControls(deps: ToolDeps): RenderControls {
     );
   }
   return deps.renderControls;
+}
+
+// Sandbox `import_scene`. In editor mode resolve relative to
+// `<project-root>/scenes/` and refuse paths that escape it; in standalone mode
+// refuse all filesystem reads unless the operator has opted in by setting
+// `DAVIDUP_ALLOW_FS=1`. Keeps an MCP client from coaxing the server into
+// reading arbitrary files (~/.ssh/id_rsa, /etc/passwd, …).
+async function resolveImportScenePath(
+  requested: string,
+  deps: ToolDeps,
+  path: typeof import("node:path"),
+): Promise<string> {
+  if (deps.projectControls) {
+    const project = await deps.projectControls.current();
+    if (!project) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        "import_scene needs an open project to sandbox filesystem reads.",
+        "Call `open_project` or `create_project` first; scene files are resolved under `<project>/scenes/`.",
+      );
+    }
+    const scenesDir = path.resolve(project.root, "scenes");
+    const resolved = path.resolve(scenesDir, requested);
+    const rel = path.relative(scenesDir, resolved);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene path "${requested}" resolves outside the project's scenes/ directory.`,
+        "Pass a path relative to `<project>/scenes/` (no `..` segments, no absolute paths).",
+      );
+    }
+    return resolved;
+  }
+  if (process.env.DAVIDUP_ALLOW_FS !== "1") {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "import_scene is disabled on this standalone MCP server.",
+      "Set `DAVIDUP_ALLOW_FS=1` in the server's environment to allow filesystem reads, or run the editor server which sandboxes reads to `<project>/scenes/`.",
+    );
+  }
+  return path.resolve(requested);
 }
 
 // ──────────────── Tool definition shape ────────────────
@@ -934,7 +975,13 @@ const applyTemplate = defineTool({
       ...(args.params !== undefined ? { params: args.params } : {}),
       ...(args.start !== undefined ? { start: args.start } : {}),
     };
-    const expanded = expandTemplate(instanceId, instance);
+    // Session-scoped user templates win over the process-global REGISTRY so
+    // two MCP sessions on the same backend never share `define_user_template`
+    // mutations. The expander falls back to the global REGISTRY when an id
+    // isn't present in the session record.
+    const expanded = expandTemplate(instanceId, instance, {
+      templates: store.userTemplateRecord(),
+    });
     // Run the §10.4 behavior pass on the template's tween array so any
     // `$behavior` blocks the template emitted resolve to literal tweens.
     const literalTweens = (
@@ -1000,8 +1047,16 @@ const listTemplatesTool = defineTool({
   description:
     "List the registered templates (built-ins plus any user templates registered via define_user_template), with their parameters and the local item ids each one emits.",
   inputSchema: {},
-  handler: () => {
-    return { templates: listTemplates() };
+  handler: (_args, { store }) => {
+    // Merge process-global registry (built-ins / library_index) with this
+    // session's user templates; session entries override globals on id
+    // collision, mirroring the precedence used at expansion time.
+    const merged = new Map<string, TemplateDescriptor>();
+    for (const d of listTemplates()) merged.set(d.id, d);
+    for (const def of store.listUserTemplates()) {
+      merged.set(def.id, templateDescriptor(def));
+    }
+    return { templates: Array.from(merged.values()) };
   },
 });
 
@@ -1009,7 +1064,7 @@ const defineUserTemplate = defineTool({
   name: "define_user_template",
   title: "Define user template",
   description:
-    "Register a user-defined template on the global registry. Last write wins per id, so a built-in can be shadowed by re-registering under the same id.",
+    "Register a user-defined template scoped to this MCP session. Last write wins per id, and session templates take precedence over the built-in / library-loaded global registry on the same id (so a built-in can be shadowed by re-registering under the same id). Definitions do not leak to other MCP sessions sharing the same backend.",
   inputSchema: {
     id: z.string().min(1),
     description: z.string().optional(),
@@ -1017,7 +1072,7 @@ const defineUserTemplate = defineTool({
     items: z.record(z.string().min(1), z.unknown()),
     tweens: z.array(z.unknown()).optional(),
   },
-  handler: (args) => {
+  handler: (args, { store }) => {
     const params: TemplateParamDescriptor[] = (args.params ?? []).map((p) => {
       const desc: TemplateParamDescriptor = { name: p.name, type: p.type };
       if (p.required === true) desc.required = true;
@@ -1034,7 +1089,7 @@ const defineUserTemplate = defineTool({
       tweens: args.tweens ?? [],
     };
     if (args.description !== undefined) def.description = args.description;
-    registerTemplate(def);
+    store.setUserTemplate(def);
     return { id: args.id };
   },
 });
@@ -1102,7 +1157,7 @@ const defineScene = defineTool({
   name: "define_scene",
   title: "Define scene",
   description:
-    "Register a scene definition on the global registry. A scene is a self-contained mini-composition with its own duration, items, tweens, params, and assets. Last write wins per id, so the same id can be re-registered to update a scene.",
+    "Register a scene definition scoped to this MCP session. A scene is a self-contained mini-composition with its own duration, items, tweens, params, and assets. Last write wins per id, and session scenes take precedence over the built-in / library-loaded global registry on the same id. Definitions do not leak to other MCP sessions sharing the same backend.",
   inputSchema: {
     id: z.string().min(1),
     description: z.string().optional(),
@@ -1114,7 +1169,7 @@ const defineScene = defineTool({
     items: z.record(z.string().min(1), z.unknown()),
     tweens: z.array(z.unknown()).optional(),
   },
-  handler: (args) => {
+  handler: (args, { store }) => {
     const def = readSceneDefinition(args.id, {
       ...(args.description !== undefined ? { description: args.description } : {}),
       duration: args.duration,
@@ -1135,7 +1190,7 @@ const defineScene = defineTool({
       return desc;
     });
     def.params = params;
-    registerScene(def);
+    store.setUserScene(def);
     return { sceneId: args.id };
   },
 });
@@ -1144,16 +1199,18 @@ const importScene = defineTool({
   name: "import_scene",
   title: "Import scene from file",
   description:
-    "Load a scene definition from a JSON file on disk and register it. The file's top-level shape mirrors `define_scene` (id, duration, items, tweens, params, assets, size, background).",
+    "Load a scene definition from a JSON file on disk and register it for this MCP session. The file's top-level shape mirrors `define_scene` (id, duration, items, tweens, params, assets, size, background). Filesystem reads are sandboxed: in the editor server `path` is resolved within `<project-root>/scenes/`; in the standalone engine server reads are refused unless the operator has set `DAVIDUP_ALLOW_FS=1`. Imports are session-scoped and do not leak to other MCP sessions sharing the same backend.",
   inputSchema: {
     path: z.string().min(1),
     id: z.string().min(1).optional(),
   },
-  handler: async (args) => {
+  handler: async (args, deps) => {
     const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const resolvedPath = await resolveImportScenePath(args.path, deps, path);
     let raw: string;
     try {
-      raw = await fs.readFile(args.path, "utf8");
+      raw = await fs.readFile(resolvedPath, "utf8");
     } catch (err) {
       throw new MCPToolError(
         "E_NOT_FOUND",
@@ -1188,7 +1245,7 @@ const importScene = defineTool({
       );
     }
     const def = readSceneDefinition(id, sceneObj);
-    registerScene(def);
+    deps.store.setUserScene(def);
     return { sceneId: id };
   },
 });
@@ -1199,8 +1256,16 @@ const listScenesTool = defineTool({
   description:
     "List the registered scenes (defined via define_scene or import_scene), with their params, duration, size, background, emitted item ids, and asset ids.",
   inputSchema: {},
-  handler: () => {
-    return { scenes: listScenes() };
+  handler: (_args, { store }) => {
+    // Merge the process-global scene registry (built-ins / library_index)
+    // with this session's user scenes; session entries override globals on
+    // id collision, mirroring the precedence used at expansion time.
+    const merged = new Map<string, ReturnType<typeof sceneDescriptor>>();
+    for (const d of listScenes()) merged.set(d.id, d);
+    for (const def of store.listUserScenes()) {
+      merged.set(def.id, sceneDescriptor(def));
+    }
+    return { scenes: Array.from(merged.values()) };
   },
 });
 
@@ -1208,18 +1273,18 @@ const removeScene = defineTool({
   name: "remove_scene",
   title: "Remove scene",
   description:
-    "Drop a scene from the registry. Note: existing scene-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
+    "Drop a scene previously registered in this MCP session by define_scene / import_scene. Process-global entries (built-ins, editor library) are not removable from a session and removing them is rejected. Existing scene-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
   inputSchema: {
     sceneId: z.string().min(1),
   },
-  handler: (args) => {
-    if (!hasScene(args.sceneId)) {
+  handler: (args, { store }) => {
+    if (!store.removeUserScene(args.sceneId)) {
       throw new MCPToolError(
         "E_NOT_FOUND",
-        `No scene "${args.sceneId}" in the registry.`,
+        `No scene "${args.sceneId}" in this session's registry.`,
+        "Session-scoped removal only affects scenes defined via define_scene or import_scene in this MCP session.",
       );
     }
-    unregisterScene(args.sceneId);
     return { ok: true as const };
   },
 });
@@ -1237,7 +1302,12 @@ function applySceneInstanceToStore(
     compositionId?: string;
   },
 ): { itemIds: string[]; tweenIds: string[]; assetIds: string[] } {
-  const def = getSceneDefinition(args.sceneId);
+  // Look up the scene in this session's registry first (the only place
+  // define_scene / import_scene write to). Fall back to the process-global
+  // registry for built-ins / editor library entries so a multi-tenant
+  // backend never lets a user-defined scene from session A appear in
+  // session B (M4 — SaaS blocker fix).
+  const def = store.getUserScene(args.sceneId) ?? getSceneDefinition(args.sceneId);
   if (!def) {
     throw new MCPToolError(
       "E_SCENE_UNKNOWN",
@@ -1253,7 +1323,11 @@ function applySceneInstanceToStore(
     ...(args.transform !== undefined ? { transform: args.transform } : {}),
     ...(args.time !== undefined ? { time: args.time } : {}),
   };
-  const expanded = expandSceneInstance(args.instanceId, sceneInstance);
+  // Pass the session's scene record into the expander so any nested scene
+  // references inside this scene also resolve session-first.
+  const expanded = expandSceneInstance(args.instanceId, sceneInstance, {
+    scenes: store.userSceneRecord(),
+  });
 
   // Run the §10.4 behavior pass on the scene's tween array so any
   // `$behavior` blocks the scene emitted resolve to literal tweens.
@@ -1576,16 +1650,29 @@ const renderThumbnailStripTool = defineTool({
   },
 });
 
+interface RenderToVideoResult {
+  jobId: string;
+  status: MCPRenderJobStatus;
+  outputPath: string;
+  relativeOutputPath: string;
+  totalFrames: number;
+  startedAt: number;
+  eventsUrl?: string;
+  result: MCPRenderJobResult | null;
+}
+
 const renderToVideo = defineTool({
   name: "render_to_video",
   title: "Render to video file",
   description:
     "Render the composition to an MP4 (or other ffmpeg-supported container). " +
-    "When hosted in the editor (polish §20.31), enqueues a job in the render queue and returns " +
-    "`{ jobId, status, outputPath, relativeOutputPath, totalFrames, eventsUrl? }` immediately; " +
-    "poll progress via `get_render`, or pass `wait: true` to block until the render completes " +
-    "(the v1.x backwards-compat shape `{ ok: true, outputPath, durationMs, frameCount, jobId }`). " +
-    "The standalone engine has no queue — `render_to_video` is always blocking there and `wait` is ignored.",
+    "Always returns the same shape: " +
+    "`{ jobId, status, outputPath, relativeOutputPath, totalFrames, startedAt, eventsUrl?, result }`. " +
+    "`result` is `null` until the job completes; on success it carries `{ outputPath, relativeOutputPath, durationMs, frameCount }`. " +
+    "Default is async — the editor enqueues a job (polish §20.31) and returns immediately with `result: null`; " +
+    "poll `get_render` or pass `wait: true` to block until the render completes (then `result` is populated). " +
+    "The standalone engine has no queue; calls always block and the response carries `status: \"done\"` with `result` populated. " +
+    "On render failure the handler throws `E_RENDER_FAILED` rather than resolving with `status: \"error\"`.",
   inputSchema: {
     outputPath: z.string().min(1),
     codec: z.enum(["libx264", "libx265"]).optional(),
@@ -1596,16 +1683,17 @@ const renderToVideo = defineTool({
       .boolean()
       .optional()
       .describe(
-        "If true, block until the render finishes and return the legacy blocking shape. Default is async (returns a jobId immediately) when a render queue is available.",
+        "If true, block until the render finishes so `result` is populated in the response. Default is async (returns a jobId immediately with `result: null`) when a render queue is available. Ignored on the standalone engine, which is always blocking.",
       ),
     compositionId: COMPOSITION_ID,
   },
-  handler: async (args, deps) => {
+  handler: async (args, deps): Promise<RenderToVideoResult> => {
     const { store, renderControls } = deps;
     ensureValidForRender(store, args.compositionId);
 
     // Editor-hosted: route through the render queue. Default is async — return
-    // a jobId. With `wait: true`, await completion and return the legacy shape.
+    // a snapshot with `result: null`. With `wait: true`, await completion and
+    // return the same shape with `result` populated.
     if (renderControls) {
       const startArgs: MCPRenderStartArgs = { outputPath: args.outputPath };
       if (args.codec !== undefined) startArgs.codec = args.codec;
@@ -1615,54 +1703,41 @@ const renderToVideo = defineTool({
 
       const snapshot = await renderControls.start(startArgs);
 
-      if (args.wait === true) {
-        const terminal = await renderControls.waitFor(snapshot.jobId);
-        if (terminal.status === "error") {
-          throw new MCPToolError(
-            "E_RENDER_FAILED",
-            terminal.error?.message ?? "Render job failed.",
-            "Inspect `get_render` for the terminal state.",
-          );
-        }
-        const r = terminal.result;
-        if (!r) {
-          throw new MCPToolError(
-            "E_RENDER_FAILED",
-            "Render job finished without a result payload.",
-          );
-        }
-        return {
-          ok: true as const,
-          jobId: terminal.jobId,
-          outputPath: r.outputPath,
-          relativeOutputPath: r.relativeOutputPath,
-          durationMs: r.durationMs,
-          frameCount: r.frameCount,
-        };
+      const finalSnap =
+        args.wait === true ? await renderControls.waitFor(snapshot.jobId) : snapshot;
+
+      if (args.wait === true && finalSnap.status === "error") {
+        throw new MCPToolError(
+          "E_RENDER_FAILED",
+          finalSnap.error?.message ?? "Render job failed.",
+          "Inspect `get_render` for the terminal state.",
+        );
+      }
+      if (args.wait === true && !finalSnap.result) {
+        throw new MCPToolError(
+          "E_RENDER_FAILED",
+          "Render job finished without a result payload.",
+        );
       }
 
-      const asyncResult: {
-        jobId: string;
-        status: MCPRenderJobStatus;
-        outputPath: string;
-        relativeOutputPath: string;
-        totalFrames: number;
-        startedAt: number;
-        eventsUrl?: string;
-      } = {
-        jobId: snapshot.jobId,
-        status: snapshot.status,
-        outputPath: snapshot.outputPath,
-        relativeOutputPath: snapshot.relativeOutputPath,
-        totalFrames: snapshot.totalFrames,
-        startedAt: snapshot.startedAt,
+      const out: RenderToVideoResult = {
+        jobId: finalSnap.jobId,
+        status: finalSnap.status,
+        outputPath: finalSnap.outputPath,
+        relativeOutputPath: finalSnap.relativeOutputPath,
+        totalFrames: finalSnap.totalFrames,
+        startedAt: finalSnap.startedAt,
+        result: finalSnap.result,
       };
-      if (snapshot.eventsUrl !== undefined) asyncResult.eventsUrl = snapshot.eventsUrl;
-      return asyncResult;
+      if (finalSnap.eventsUrl !== undefined) out.eventsUrl = finalSnap.eventsUrl;
+      return out;
     }
 
-    // Standalone engine: no queue. Always blocking.
+    // Standalone engine: no queue. Always blocking — synthesize a one-shot
+    // snapshot so the return shape matches the editor-hosted path.
     const comp = store.toJSON(args.compositionId);
+    const jobId = `local-${randomUUID()}`;
+    const startedAt = Date.now();
     try {
       const result = await renderToFile(comp, args.outputPath, {
         ...(args.codec !== undefined ? { codec: args.codec } : {}),
@@ -1671,10 +1746,18 @@ const renderToVideo = defineTool({
         ...(args.pixFmt !== undefined ? { pixFmt: args.pixFmt } : {}),
       });
       return {
-        ok: true as const,
+        jobId,
+        status: "done",
         outputPath: result.outputPath,
-        durationMs: result.durationMs,
-        frameCount: result.frameCount,
+        relativeOutputPath: result.outputPath,
+        totalFrames: result.frameCount,
+        startedAt,
+        result: {
+          outputPath: result.outputPath,
+          relativeOutputPath: result.outputPath,
+          durationMs: result.durationMs,
+          frameCount: result.frameCount,
+        },
       };
     } catch (err) {
       throw new MCPToolError(
