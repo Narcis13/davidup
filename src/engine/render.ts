@@ -185,19 +185,19 @@ function drawSprite(
     return;
   }
 
-  // Tint via "multiply" on a scratch surface, then mask back to the image's
-  // alpha with "destination-in". A flat fillRect with source-atop on the main
-  // ctx would *replace* the texture with a solid colour (pre-fix bug); multiply
-  // preserves luminance so highlights/shadows survive while pixels take the
-  // tint's hue.
+  // Paint a `source-atop` opaque tint fill onto the image (whose alpha channel
+  // we keep verbatim by drawing it first). Earlier code used `multiply` then
+  // `destination-in` to mask back, which double-counted the source alpha on
+  // semi-transparent PNGs (E2): the multiply blend tints through partially-
+  // transparent pixels, and the destination-in mask re-applies image alpha on
+  // top of the outer `globalAlpha × tr.opacity`. Trade-off: flat tint over the
+  // silhouette rather than a luminance-preserving multiply.
   const off = dc.createOffscreen(item.width, item.height);
   const oc = off.context;
   oc.drawImage(image, 0, 0, item.width, item.height);
-  oc.globalCompositeOperation = "multiply";
+  oc.globalCompositeOperation = "source-atop";
   oc.fillStyle = tint;
   oc.fillRect(0, 0, item.width, item.height);
-  oc.globalCompositeOperation = "destination-in";
-  oc.drawImage(image, 0, 0, item.width, item.height);
   // Restore default for any reuse of the offscreen by other code paths.
   oc.globalCompositeOperation = "source-over";
   ctx.drawImage(off.source, 0, 0, item.width, item.height);
