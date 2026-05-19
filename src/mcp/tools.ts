@@ -47,8 +47,9 @@ import {
 } from "../compose/templates.js";
 import { renderToFile } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
-import type { Tween } from "../schema/types.js";
-import { BlendModeSchema } from "../schema/zod.js";
+import { listTweenable } from "../schema/tweenable.js";
+import type { FontAsset, Tween } from "../schema/types.js";
+import { BLEND_MODES, BlendModeSchema } from "../schema/zod.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -96,9 +97,10 @@ export interface ProjectControls {
 }
 
 // Polish §20.30 — `list_library` MCP tool. The merged catalog the editor
-// returns from `GET /api/library`, plus a `thumbnailUrl` per item built from
-// `/api/library/thumbnail?kind=...&id=...`. Mirroring the HTTP response shape
-// means agents see exactly what humans see in the Library panel.
+// returns from `GET /api/library`. Mirroring the HTTP response shape means
+// agents see exactly what humans see in the Library panel. Thumbnails are
+// fetched on demand via the `get_library_thumbnail` tool (returns base64
+// inline) — relative HTTP URLs are useless to MCP clients with no base.
 
 export type MCPLibraryItemKind =
   | "template"
@@ -122,8 +124,6 @@ export interface MCPLibraryItem {
   duration?: number;
   url?: string;
   thumbnail?: string;
-  /** `/api/library/thumbnail?kind=<kind>&id=<id>` — the same path the UI uses. */
-  thumbnailUrl: string;
 }
 
 export interface MCPLibraryRootInfo {
@@ -155,8 +155,26 @@ export interface LibraryListArgs {
   scope?: MCPLibraryScope;
 }
 
+export interface LibraryThumbnailArgs {
+  kind: MCPLibraryItemKind;
+  id: string;
+}
+
+export interface MCPLibraryThumbnail {
+  /** Base64-encoded PNG. */
+  image: string;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+  /** True when the renderer fell back to a synthesized placeholder. */
+  placeholder: boolean;
+}
+
 export interface LibraryControls {
   list(args: LibraryListArgs): Promise<MCPLibraryCatalog> | MCPLibraryCatalog;
+  thumbnail(
+    args: LibraryThumbnailArgs,
+  ): Promise<MCPLibraryThumbnail> | MCPLibraryThumbnail;
 }
 
 // Polish §20.31 — async render via MCP. The editor injects `RenderControls`
@@ -549,7 +567,8 @@ const TRANSFORM_INPUT = {
 const addSprite = defineTool({
   name: "add_sprite",
   title: "Add sprite item",
-  description: "Add a sprite item to a layer.",
+  description:
+    "Add a sprite item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the item's width/height (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     asset: z.string().min(1),
@@ -589,7 +608,8 @@ const addSprite = defineTool({
 const addText = defineTool({
   name: "add_text",
   title: "Add text item",
-  description: "Add a text item to a layer.",
+  description:
+    "Add a text item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the text's measured box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     text: z.string(),
@@ -632,7 +652,8 @@ const addText = defineTool({
 const addShape = defineTool({
   name: "add_shape",
   title: "Add shape item",
-  description: "Add a rect / circle / polygon shape item.",
+  description:
+    "Add a rect / circle / polygon shape item. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the shape's bounding box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     kind: z.enum(["rect", "circle", "polygon"]),
@@ -677,7 +698,8 @@ const addShape = defineTool({
 const addGroup = defineTool({
   name: "add_group",
   title: "Add group item",
-  description: "Add a group item with optional initial child items list.",
+  description:
+    "Add a group item with optional initial child items list. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; children are drawn relative to this group origin. The group's `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the group's rotation/scale. `rotation` (set via `update_item`) is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     x: z.number(),
@@ -1433,7 +1455,7 @@ const addSceneInstance = defineTool({
   name: "add_scene_instance",
   title: "Add scene instance",
   description:
-    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
+    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. In `transform`, `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; `anchorX`/`anchorY` are fractional in 0..1 of the synthetic group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the scene's rotation/scale; `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
   inputSchema: {
     sceneId: z.string().min(1),
     layerId: z.string().min(1),
@@ -1857,7 +1879,7 @@ const listLibrary = defineTool({
   name: "list_library",
   title: "List library",
   description:
-    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`), an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global), and `thumbnailUrl` = `/api/library/thumbnail?kind=<kind>&id=<id>` — the same image URL the Library panel renders. Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
+    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`) and an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global). Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Call `get_library_thumbnail` with the item's `kind` + `id` to fetch a base64 PNG preview. Errors with E_UNKNOWN if the MCP server is not hosted inside an editor.",
   inputSchema: {
     q: z.string().min(1).optional(),
     kind: LIBRARY_ITEM_KIND.optional(),
@@ -1870,6 +1892,21 @@ const listLibrary = defineTool({
     if (args.kind !== undefined) listArgs.kind = args.kind;
     if (args.scope !== undefined) listArgs.scope = args.scope;
     return ctrl.list(listArgs);
+  },
+});
+
+const getLibraryThumbnail = defineTool({
+  name: "get_library_thumbnail",
+  title: "Get library thumbnail",
+  description:
+    "Return a base64-encoded PNG preview for a single Library item identified by `kind` + `id` (as returned by `list_library`). The first call synthesizes a tiny composition exercising the item and renders frame 0.5 via the same path the Library panel uses; subsequent calls hit an in-memory cache. When synthesis isn't viable the renderer falls back to a deterministic placeholder PNG and sets `placeholder: true`. Errors with E_NOT_FOUND if no item with that (kind, id) is in the current catalog, or E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    kind: LIBRARY_ITEM_KIND,
+    id: z.string().min(1),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireLibraryControls(deps);
+    return ctrl.thumbnail({ kind: args.kind, id: args.id });
   },
 });
 
@@ -1891,6 +1928,87 @@ const createProject = defineTool({
       ...(args.template !== undefined ? { template: args.template } : {}),
     });
     return { project };
+  },
+});
+
+// ──────────────── 4.9 Engine discovery (M5) ────────────────
+
+// Cheap, side-effect-free discovery tools so agents don't have to round-trip
+// through `E_INVALID_VALUE` (or the design doc) to learn the engine's
+// vocabulary. Mirrors the existing list_behaviors / list_templates pattern.
+
+const listEasingsTool = defineTool({
+  name: "list_easings",
+  title: "List easings",
+  description:
+    "List every easing name accepted by `add_tween` / `update_tween`. Pass one verbatim as the `easing` field. Identical across compositions and across standalone vs. editor servers.",
+  inputSchema: {},
+  handler: () => {
+    return { easings: [...EASING_NAMES] };
+  },
+});
+
+const listFontsTool = defineTool({
+  name: "list_fonts",
+  title: "List fonts",
+  description:
+    "List fonts available to `add_text`. `composition` lists font assets currently registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`.",
+  inputSchema: {
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, deps) => {
+    const composition = deps.store
+      .listAssets(args.compositionId)
+      .filter((a): a is FontAsset => a.type === "font")
+      .map((a) => ({ id: a.id, family: a.family, src: a.src }));
+    const library: {
+      id: string;
+      name?: string;
+      scope: "project" | "global";
+      source: string;
+      overridden?: boolean;
+    }[] = [];
+    if (deps.libraryControls) {
+      try {
+        const catalog = await deps.libraryControls.list({ kind: "font" });
+        for (const item of catalog.items) {
+          library.push({
+            id: item.id,
+            ...(item.name !== undefined ? { name: item.name } : {}),
+            scope: item.scope,
+            source: item.source,
+            ...(item.overridden !== undefined ? { overridden: item.overridden } : {}),
+          });
+        }
+      } catch {
+        // Library lookup is best-effort; an unavailable editor service must
+        // not block composition-scoped discovery.
+      }
+    }
+    return { composition, library };
+  },
+});
+
+const listEngineCapabilitiesTool = defineTool({
+  name: "list_engine_capabilities",
+  title: "List engine capabilities",
+  description:
+    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
+  inputSchema: {},
+  handler: () => {
+    return {
+      schemaVersion: "0.1",
+      easings: [...EASING_NAMES],
+      blendModes: [...BLEND_MODES],
+      itemTypes: ["sprite", "text", "shape", "group"] as const,
+      shapeKinds: ["rect", "circle", "polygon"] as const,
+      tweenable: {
+        sprite: listTweenable("sprite"),
+        text: listTweenable("text"),
+        shape: listTweenable("shape"),
+        group: listTweenable("group"),
+      },
+    };
   },
 });
 
@@ -1962,6 +2080,11 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   createProject,
   // 4.8 — library (polish §20.30)
   listLibrary,
+  getLibraryThumbnail,
+  // 4.9 — engine discovery (M5)
+  listEasingsTool,
+  listFontsTool,
+  listEngineCapabilitiesTool,
 ];
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);

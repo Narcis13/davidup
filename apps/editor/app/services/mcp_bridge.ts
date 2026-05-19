@@ -58,11 +58,12 @@ import {
   type DispatchRouter,
   type LibraryControls,
   type LibraryListArgs,
+  type LibraryThumbnailArgs,
   type MCPErrorCode,
   type MCPIssue,
   type MCPLibraryCatalog,
   type MCPLibraryItem,
-  type MCPLibraryItemKind,
+  type MCPLibraryThumbnail,
   type MCPRenderJobSnapshot,
   type MCPRenderStartArgs,
   type ProjectControls,
@@ -88,6 +89,9 @@ import libraryIndex, {
   LibraryIndex,
   type LibraryItem,
 } from '#services/library_index'
+import libraryThumbnail, {
+  LibraryThumbnailService,
+} from '#services/library_thumbnail'
 import projectStore, {
   ProjectLoadError,
   ProjectStore,
@@ -317,12 +321,14 @@ export function buildProjectControls(store: ProjectStore): ProjectControls {
  * Implements the MCP-side `LibraryControls` contract by delegating to the
  * same `libraryIndex` singleton the HTTP `GET /api/library` controller uses.
  * The returned payload matches `LibraryController#index` so agents see byte-
- * equal data to the Library panel — plus a `thumbnailUrl` per item, the same
- * `/api/library/thumbnail?kind=...&id=...` URL the UI renders.
+ * equal data to the Library panel. Thumbnails are served inline as base64
+ * PNGs via the `thumbnail()` method (agents have no base URL for the HTTP
+ * `/api/library/thumbnail?...` path).
  */
 export function buildLibraryControls(
   library: LibraryIndex,
   store: ProjectStore,
+  thumbnails: LibraryThumbnailService = libraryThumbnail,
 ): LibraryControls {
   return {
     list: (args: LibraryListArgs): MCPLibraryCatalog => {
@@ -345,6 +351,26 @@ export function buildLibraryControls(
         },
         items: items.map(toMcpLibraryItem),
         errors: catalog.errors,
+      }
+    },
+    thumbnail: async (args: LibraryThumbnailArgs): Promise<MCPLibraryThumbnail> => {
+      const items = library.search({ kind: args.kind })
+      const match = items.find((i) => i.id === args.id)
+      if (!match) {
+        throw new MCPToolError(
+          'E_NOT_FOUND',
+          `No ${args.kind} item with id "${args.id}" in the current library catalog.`,
+          'Call `list_library` to see the items currently indexed.',
+        )
+      }
+      thumbnails.invalidateOn(library.getCatalog().loadedAt)
+      const thumb = await thumbnails.forItem(match, library.root)
+      return {
+        image: thumb.buffer.toString('base64'),
+        mimeType: 'image/png',
+        width: thumb.width,
+        height: thumb.height,
+        placeholder: thumb.placeholder,
       }
     },
   }
@@ -507,7 +533,6 @@ function toMcpLibraryItem(item: LibraryItem): MCPLibraryItem {
     id: item.id,
     source: item.source,
     scope: item.scope,
-    thumbnailUrl: libraryThumbnailUrl(item.kind, item.id),
   }
   if (item.name !== undefined) out.name = item.name
   if (item.description !== undefined) out.description = item.description
@@ -518,11 +543,6 @@ function toMcpLibraryItem(item: LibraryItem): MCPLibraryItem {
   if (item.url !== undefined) out.url = item.url
   if (item.thumbnail !== undefined) out.thumbnail = item.thumbnail
   return out
-}
-
-function libraryThumbnailUrl(kind: MCPLibraryItemKind, id: string): string {
-  const params = new URLSearchParams({ kind, id })
-  return `/api/library/thumbnail?${params.toString()}`
 }
 
 function guardToMcpError(

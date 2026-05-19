@@ -59,7 +59,10 @@
     "list_projects",
     "open_project",
     "list_library",
-    "create_project"
+    "create_project",
+    "list_easings",
+    "list_fonts",
+    "list_engine_capabilities"
   ],
   "requirements": {
     "runtime": "bun >=1.1 (or node >=20)",

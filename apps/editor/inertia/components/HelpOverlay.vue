@@ -137,6 +137,10 @@ const mcpGroups: McpGroup[] = [
     group: 'Render',
     tools: ['render_preview_frame', 'render_thumbnail_strip', 'render_to_video'],
   },
+  {
+    group: 'Discovery',
+    tools: ['list_easings', 'list_fonts', 'list_engine_capabilities'],
+  },
 ]
 
 function close(): void {

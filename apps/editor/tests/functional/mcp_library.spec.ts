@@ -4,9 +4,11 @@
 |--------------------------------------------------------------------------
 |
 | list_library returns the same merged catalog as GET /api/library, including
-| `thumbnailUrl`, `scope`, and `overridden`. These tests drive the dispatcher
-| directly (no stdio transport) so the assertions can compare the MCP payload
-| against the live libraryIndex state.
+| `scope` and `overridden` per item. Thumbnails are no longer embedded as
+| relative URLs (agents have no base) — they're fetched on demand via the
+| separate `get_library_thumbnail` tool as base64 PNGs. These tests drive the
+| dispatcher directly (no stdio transport) so the assertions can compare the
+| MCP payload against the live libraryIndex state.
 */
 
 import { test } from '@japa/runner'
@@ -127,7 +129,7 @@ test.group('MCP list_library', (group) => {
     }
   })
 
-  test('returns the merged catalog after a project is loaded, with thumbnailUrl + scope per item', async ({
+  test('returns the merged catalog after a project is loaded, with scope per item', async ({
     assert,
   }) => {
     const dir = await makeProjectWithLibrary()
@@ -143,14 +145,10 @@ test.group('MCP list_library', (group) => {
       assert.equal(payload.attached, true)
       assert.equal(payload.projectRoot, dir)
       assert.isAtLeast(payload.items.length, 4)
-      // Every item carries a thumbnailUrl pointing at the same endpoint the UI uses.
+      // No relative-URL thumbnailUrl on items — thumbnails ship via the
+      // separate `get_library_thumbnail` tool as base64 PNGs.
       for (const item of payload.items) {
-        assert.equal(
-          item.thumbnailUrl,
-          `/api/library/thumbnail?kind=${encodeURIComponent(
-            item.kind
-          )}&id=${encodeURIComponent(item.id)}`
-        )
+        assert.notProperty(item, 'thumbnailUrl')
         assert.equal(item.scope, 'project')
       }
       const badge = payload.items.find((i) => i.kind === 'template' && i.id === 'badge')
