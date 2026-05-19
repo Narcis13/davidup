@@ -47,6 +47,12 @@ export {
   type MCPLibraryItemKind,
   type MCPLibraryRootInfo,
   type MCPLibraryScope,
+  type RenderControls,
+  type MCPRenderJobSnapshot,
+  type MCPRenderJobStatus,
+  type MCPRenderJobProgress,
+  type MCPRenderJobResult,
+  type MCPRenderStartArgs,
 } from "./tools.js";
 
 export {

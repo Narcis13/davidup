@@ -116,6 +116,13 @@ export interface RenderErrorEvent {
 
 export type RenderEvent = RenderProgressEvent | RenderDoneEvent | RenderErrorEvent
 
+export interface RenderJobRenderOptions {
+  codec?: 'libx264' | 'libx265'
+  crf?: number
+  preset?: string
+  pixFmt?: string
+}
+
 export interface RenderJobOptions {
   jobId: string
   composition: Composition
@@ -123,6 +130,8 @@ export interface RenderJobOptions {
   /** Path relative to project root — used in done events for UI links. */
   relativeOutputPath: string
   sourcePath: string
+  /** ffmpeg knobs overridable by MCP callers (§20.31). UI callers leave unset. */
+  renderOptions?: RenderJobRenderOptions
 }
 
 /**
@@ -139,6 +148,7 @@ export class RenderJob extends EventEmitter {
   readonly composition: Composition
   readonly sourcePath: string
   readonly startedAt: number
+  readonly renderOptions: RenderJobRenderOptions
 
   status: RenderJobStatus = 'pending'
   lastProgress: RenderProgressEvent | null = null
@@ -162,6 +172,7 @@ export class RenderJob extends EventEmitter {
     this.relativeOutputPath = opts.relativeOutputPath
     this.sourcePath = opts.sourcePath
     this.startedAt = Date.now()
+    this.renderOptions = opts.renderOptions ?? {}
     const meta = opts.composition.composition
     this.totalFrames = Math.max(1, Math.ceil(meta.duration * meta.fps))
 
@@ -211,10 +222,15 @@ export class RenderJob extends EventEmitter {
       const ffmpegPath = await resolveFfmpegPath()
 
       let lastFrame = 0
+      const ro = this.renderOptions
       const result = await renderToFile(renderable, this.outputPath, {
         sourcePath: this.sourcePath,
         ffmpegPath,
         movflagsFaststart: true,
+        ...(ro.codec !== undefined ? { codec: ro.codec } : {}),
+        ...(ro.crf !== undefined ? { crf: ro.crf } : {}),
+        ...(ro.preset !== undefined ? { preset: ro.preset } : {}),
+        ...(ro.pixFmt !== undefined ? { pixFmt: ro.pixFmt } : {}),
         onProgress: ({ frame, total }) => {
           lastFrame = frame
           const ev: RenderProgressEvent = {

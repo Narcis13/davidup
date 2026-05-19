@@ -45,7 +45,10 @@
 |     stdio surface when an agent is meant to attach).
 */
 
-import { join, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
+import { extname, isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path'
+import logger from '@adonisjs/core/services/logger'
 import {
   CompositionStore,
   MCPToolError,
@@ -59,12 +62,20 @@ import {
   type MCPLibraryCatalog,
   type MCPLibraryItem,
   type MCPLibraryItemKind,
+  type MCPRenderJobSnapshot,
+  type MCPRenderStartArgs,
   type ProjectControls,
   type ProjectInfo,
   type RecentProjectInfo,
+  type RenderControls,
   type ToolDeps,
 } from 'davidup/mcp'
 import { scaffoldProject, ScaffoldError } from 'davidup/cli/scaffold'
+
+import renderJobs, {
+  RenderJob,
+  type RenderJobRenderOptions,
+} from '../workers/render_worker.js'
 
 import commandBus, {
   CommandBus,
@@ -175,6 +186,7 @@ export function buildDeps(
     store: compositionStore,
     projectControls: buildProjectControls(store),
     libraryControls: buildLibraryControls(library, store),
+    renderControls: buildRenderControls(store),
   }
 }
 
@@ -333,6 +345,157 @@ export function buildLibraryControls(
         items: items.map(toMcpLibraryItem),
         errors: catalog.errors,
       }
+    },
+  }
+}
+
+/**
+ * Implements the MCP-side `RenderControls` contract (polish §20.31) by routing
+ * `render_to_video` through the same `renderJobs` registry the editor's
+ * `POST /api/renders` HTTP controller uses. The agent and the UI watch a
+ * single queue, so progress is consistent across surfaces.
+ *
+ * Path resolution mirrors `RendersController.store`:
+ *   - relative `outputPath` → resolved against `<project>/renders/`
+ *   - absolute `outputPath` → used as-is, but must live under the project root
+ *     (otherwise we'd render outside the project, which the controller never
+ *     does and the project_paths guards would also reject for the UI surface).
+ */
+export function buildRenderControls(store: ProjectStore): RenderControls {
+  function projectOrThrow(): { root: string; compositionPath: string } {
+    const p = store.project
+    if (!p) {
+      throw new MCPToolError(
+        'E_NO_COMPOSITION',
+        'No project loaded; render_to_video requires an active editor project.',
+        'Open a project in the editor before starting a render.',
+      )
+    }
+    return { root: p.root, compositionPath: p.compositionPath }
+  }
+
+  function resolveOutputPath(
+    projectRoot: string,
+    requested: string,
+  ): { absolute: string; relative: string } {
+    if (requested.length === 0) {
+      throw new MCPToolError('E_INVALID_VALUE', '`outputPath` must not be empty.')
+    }
+    if (requested.includes('\0')) {
+      throw new MCPToolError('E_INVALID_VALUE', '`outputPath` contains a NUL byte.')
+    }
+    const absolute = isAbsolute(requested)
+      ? resolvePath(requested)
+      : resolvePath(projectRoot, 'renders', requested)
+    // The path must resolve inside the project root — keep MCP renders inside
+    // the same sandbox the UI uses. Renders that escape would dodge the
+    // project switch / abort semantics ProjectStore enforces.
+    if (absolute !== projectRoot && !absolute.startsWith(projectRoot + sep)) {
+      throw new MCPToolError(
+        'E_INVALID_VALUE',
+        '`outputPath` must resolve inside the active project directory.',
+      )
+    }
+    // Default to `.mp4` if the caller omitted an extension — same UX as the
+    // HTTP controller's filename handling.
+    const withExt = extname(absolute) ? absolute : `${absolute}.mp4`
+    return { absolute: withExt, relative: relative(projectRoot, withExt) }
+  }
+
+  function snapshot(job: RenderJob): MCPRenderJobSnapshot {
+    const result =
+      job.final && job.final.type === 'done'
+        ? {
+            outputPath: job.final.outputPath,
+            relativeOutputPath: job.final.relativeOutputPath,
+            frameCount: job.final.frameCount,
+            durationMs: job.final.durationMs,
+          }
+        : null
+    const error =
+      job.final && job.final.type === 'error' ? { message: job.final.message } : null
+    const progress = job.lastProgress
+      ? {
+          frame: job.lastProgress.frame,
+          total: job.lastProgress.total,
+          elapsedMs: job.lastProgress.elapsedMs,
+        }
+      : null
+    return {
+      jobId: job.jobId,
+      status: job.status,
+      outputPath: job.outputPath,
+      relativeOutputPath: job.relativeOutputPath,
+      totalFrames: job.totalFrames,
+      startedAt: job.startedAt,
+      progress,
+      result,
+      error,
+      eventsUrl: `/api/renders/${job.jobId}/events`,
+    }
+  }
+
+  return {
+    start: async (args: MCPRenderStartArgs): Promise<MCPRenderJobSnapshot> => {
+      const project = projectOrThrow()
+      const composition = store.composition as
+        | { composition: { duration: number; fps: number; width: number; height: number } }
+        | null
+      if (!composition) {
+        throw new MCPToolError(
+          'E_NO_COMPOSITION',
+          'No composition is loaded for the active project.',
+        )
+      }
+      const paths = resolveOutputPath(project.root, args.outputPath)
+      await mkdir(resolvePath(paths.absolute, '..'), { recursive: true })
+
+      const renderOptions: RenderJobRenderOptions = {}
+      if (args.codec !== undefined) renderOptions.codec = args.codec
+      if (args.crf !== undefined) renderOptions.crf = args.crf
+      if (args.preset !== undefined) renderOptions.preset = args.preset
+      if (args.pixFmt !== undefined) renderOptions.pixFmt = args.pixFmt
+
+      const jobId = randomUUID()
+      const job = new RenderJob({
+        jobId,
+        composition: composition as never,
+        outputPath: paths.absolute,
+        relativeOutputPath: paths.relative,
+        sourcePath: project.compositionPath,
+        renderOptions,
+      })
+      renderJobs.add(job)
+
+      // Fire-and-forget: callers either poll via `get_render` or pass
+      // `wait: true` (which uses `waitFor` → `job.whenDone()`).
+      void job.run().catch((err) => {
+        logger.error({ err, jobId }, 'mcp_bridge: render job.run threw unexpectedly')
+      })
+
+      return snapshot(job)
+    },
+    get: (jobId: string): MCPRenderJobSnapshot | null => {
+      const job = renderJobs.get(jobId)
+      return job ? snapshot(job) : null
+    },
+    list: (): MCPRenderJobSnapshot[] => {
+      // Newest first — same order RendersController.index returns.
+      const jobs = renderJobs.list().map(snapshot)
+      jobs.reverse()
+      return jobs
+    },
+    waitFor: async (jobId: string): Promise<MCPRenderJobSnapshot> => {
+      const job = renderJobs.get(jobId)
+      if (!job) {
+        throw new MCPToolError(
+          'E_NOT_FOUND',
+          `No render job with id "${jobId}".`,
+          'Call `list_renders` to see jobs currently tracked.',
+        )
+      }
+      await job.whenDone()
+      return snapshot(job)
     },
   }
 }

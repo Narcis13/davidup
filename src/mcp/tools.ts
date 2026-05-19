@@ -157,6 +157,58 @@ export interface LibraryControls {
   list(args: LibraryListArgs): Promise<MCPLibraryCatalog> | MCPLibraryCatalog;
 }
 
+// Polish §20.31 — async render via MCP. The editor injects `RenderControls`
+// so `render_to_video` can enqueue a job in the editor's render queue (the
+// "Transmit job queue") and return a `jobId` immediately. The standalone
+// engine has no queue; render_to_video stays blocking there.
+
+export type MCPRenderJobStatus = "pending" | "running" | "done" | "error";
+
+export interface MCPRenderJobProgress {
+  frame: number;
+  total: number;
+  /** Milliseconds since the job started. */
+  elapsedMs: number;
+}
+
+export interface MCPRenderJobResult {
+  outputPath: string;
+  relativeOutputPath: string;
+  frameCount: number;
+  durationMs: number;
+}
+
+export interface MCPRenderJobSnapshot {
+  jobId: string;
+  status: MCPRenderJobStatus;
+  outputPath: string;
+  relativeOutputPath: string;
+  totalFrames: number;
+  /** Epoch ms when the job was enqueued. */
+  startedAt: number;
+  progress: MCPRenderJobProgress | null;
+  result: MCPRenderJobResult | null;
+  error: { message: string } | null;
+  /** SSE endpoint the editor exposes for live progress events. */
+  eventsUrl?: string;
+}
+
+export interface MCPRenderStartArgs {
+  outputPath: string;
+  codec?: "libx264" | "libx265";
+  crf?: number;
+  preset?: string;
+  pixFmt?: string;
+}
+
+export interface RenderControls {
+  start(args: MCPRenderStartArgs): Promise<MCPRenderJobSnapshot> | MCPRenderJobSnapshot;
+  get(jobId: string): Promise<MCPRenderJobSnapshot | null> | MCPRenderJobSnapshot | null;
+  list(): Promise<MCPRenderJobSnapshot[]> | MCPRenderJobSnapshot[];
+  /** Resolves once the job is terminal (done or error). Never rejects. */
+  waitFor(jobId: string): Promise<MCPRenderJobSnapshot>;
+}
+
 export interface ToolDeps {
   store: CompositionStore;
   // Injected for tests; production server passes nothing and the renderers
@@ -165,6 +217,7 @@ export interface ToolDeps {
   // Injected by the editor's mcp_bridge; missing in the standalone engine.
   projectControls?: ProjectControls;
   libraryControls?: LibraryControls;
+  renderControls?: RenderControls;
 }
 
 function requireProjectControls(deps: ToolDeps): ProjectControls {
@@ -187,6 +240,17 @@ function requireLibraryControls(deps: ToolDeps): LibraryControls {
     );
   }
   return deps.libraryControls;
+}
+
+function requireRenderControls(deps: ToolDeps): RenderControls {
+  if (!deps.renderControls) {
+    throw new MCPToolError(
+      "E_UNKNOWN",
+      "Render queue tools are not available on this MCP server.",
+      "Connect through the editor (`davidup edit`) — the standalone engine server has no render queue.",
+    );
+  }
+  return deps.renderControls;
 }
 
 // ──────────────── Tool definition shape ────────────────
@@ -1514,17 +1578,88 @@ const renderToVideo = defineTool({
   name: "render_to_video",
   title: "Render to video file",
   description:
-    "Render the composition to an MP4 (or other ffmpeg-supported container). Validates first.",
+    "Render the composition to an MP4 (or other ffmpeg-supported container). " +
+    "When hosted in the editor (polish §20.31), enqueues a job in the render queue and returns " +
+    "`{ jobId, status, outputPath, relativeOutputPath, totalFrames, eventsUrl? }` immediately; " +
+    "poll progress via `get_render`, or pass `wait: true` to block until the render completes " +
+    "(the v1.x backwards-compat shape `{ ok: true, outputPath, durationMs, frameCount, jobId }`). " +
+    "The standalone engine has no queue — `render_to_video` is always blocking there and `wait` is ignored.",
   inputSchema: {
     outputPath: z.string().min(1),
     codec: z.enum(["libx264", "libx265"]).optional(),
     crf: z.number().int().min(0).max(63).optional(),
     preset: z.string().optional(),
     pixFmt: z.string().optional(),
+    wait: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, block until the render finishes and return the legacy blocking shape. Default is async (returns a jobId immediately) when a render queue is available.",
+      ),
     compositionId: COMPOSITION_ID,
   },
-  handler: async (args, { store }) => {
+  handler: async (args, deps) => {
+    const { store, renderControls } = deps;
     ensureValidForRender(store, args.compositionId);
+
+    // Editor-hosted: route through the render queue. Default is async — return
+    // a jobId. With `wait: true`, await completion and return the legacy shape.
+    if (renderControls) {
+      const startArgs: MCPRenderStartArgs = { outputPath: args.outputPath };
+      if (args.codec !== undefined) startArgs.codec = args.codec;
+      if (args.crf !== undefined) startArgs.crf = args.crf;
+      if (args.preset !== undefined) startArgs.preset = args.preset;
+      if (args.pixFmt !== undefined) startArgs.pixFmt = args.pixFmt;
+
+      const snapshot = await renderControls.start(startArgs);
+
+      if (args.wait === true) {
+        const terminal = await renderControls.waitFor(snapshot.jobId);
+        if (terminal.status === "error") {
+          throw new MCPToolError(
+            "E_RENDER_FAILED",
+            terminal.error?.message ?? "Render job failed.",
+            "Inspect `get_render` for the terminal state.",
+          );
+        }
+        const r = terminal.result;
+        if (!r) {
+          throw new MCPToolError(
+            "E_RENDER_FAILED",
+            "Render job finished without a result payload.",
+          );
+        }
+        return {
+          ok: true as const,
+          jobId: terminal.jobId,
+          outputPath: r.outputPath,
+          relativeOutputPath: r.relativeOutputPath,
+          durationMs: r.durationMs,
+          frameCount: r.frameCount,
+        };
+      }
+
+      const asyncResult: {
+        jobId: string;
+        status: MCPRenderJobStatus;
+        outputPath: string;
+        relativeOutputPath: string;
+        totalFrames: number;
+        startedAt: number;
+        eventsUrl?: string;
+      } = {
+        jobId: snapshot.jobId,
+        status: snapshot.status,
+        outputPath: snapshot.outputPath,
+        relativeOutputPath: snapshot.relativeOutputPath,
+        totalFrames: snapshot.totalFrames,
+        startedAt: snapshot.startedAt,
+      };
+      if (snapshot.eventsUrl !== undefined) asyncResult.eventsUrl = snapshot.eventsUrl;
+      return asyncResult;
+    }
+
+    // Standalone engine: no queue. Always blocking.
     const comp = store.toJSON(args.compositionId);
     try {
       const result = await renderToFile(comp, args.outputPath, {
@@ -1546,6 +1681,44 @@ const renderToVideo = defineTool({
         "Check that ffmpeg is on $PATH and assets resolve from the working directory.",
       );
     }
+  },
+});
+
+const getRender = defineTool({
+  name: "get_render",
+  title: "Get render job",
+  description:
+    "Return a snapshot of a render job started by `render_to_video`: status, progress (latest frame/total/elapsedMs), terminal result on success, or error message on failure. " +
+    "Errors E_NOT_FOUND if the jobId is unknown, or E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    jobId: z.string().min(1),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireRenderControls(deps);
+    const snap = await ctrl.get(args.jobId);
+    if (!snap) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No render job with id "${args.jobId}".`,
+        "Call `list_renders` to see jobs that are still tracked in memory.",
+      );
+    }
+    return snap;
+  },
+});
+
+const listRenders = defineTool({
+  name: "list_renders",
+  title: "List render jobs",
+  description:
+    "List render jobs the editor's queue is currently tracking, newest first. Each entry has the same shape as `get_render`. " +
+    "The queue retains a bounded number of completed jobs; older ones are evicted lazily. " +
+    "Errors E_UNKNOWN if the MCP server is not hosted inside an editor.",
+  inputSchema: {},
+  handler: async (_args, deps) => {
+    const ctrl = requireRenderControls(deps);
+    const jobs = await ctrl.list();
+    return { jobs };
   },
 });
 
@@ -1695,6 +1868,8 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   renderPreviewFrameTool,
   renderThumbnailStripTool,
   renderToVideo,
+  getRender,
+  listRenders,
   // 4.7 — project lifecycle (polish §20.29)
   currentProject,
   listProjects,

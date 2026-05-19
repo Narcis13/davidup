@@ -363,3 +363,181 @@ test.group('MCP bridge · createEditorMcpServer factory', () => {
     // Don't .start() — that would attach stdio for real.
   })
 })
+
+// Polish §20.31 — `render_to_video` returns a jobId immediately by default;
+// `get_render` / `list_renders` snapshot the queue. We exercise the bridge's
+// `renderControls.start` path directly (no ffmpeg) by stubbing job.run via the
+// existing registry — RenderJob is constructed and added to `renderJobs`, then
+// we read snapshots back. The actual ffmpeg path is covered by renders.spec.ts.
+test.group('MCP bridge · async render (§20.31)', (group) => {
+  let dir: string
+
+  group.each.setup(async () => {
+    await projectStore.unload()
+    // Local require to avoid pulling render_worker into the suite-wide deps.
+    const renderJobs = (await import('../../app/workers/render_worker.js')).default
+    renderJobs.clear()
+    dir = await makeProject()
+    await projectStore.load(dir)
+    commandBus.reset()
+  })
+
+  group.each.teardown(async () => {
+    const renderJobs = (await import('../../app/workers/render_worker.js')).default
+    // Abort any in-flight jobs so background ffmpeg invocations don't outlive
+    // the test (the bridge fires-and-forgets job.run()).
+    renderJobs.abortInFlight('test teardown')
+    renderJobs.clear()
+    await projectStore.unload()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('render_to_video without `wait` returns jobId + eventsUrl + status', async ({
+    assert,
+  }) => {
+    const router = buildRouter(commandBus, projectStore)
+    const result = await dispatchTool(
+      findTool('render_to_video'),
+      { outputPath: 'mcp-test.mp4' },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isTrue(result.ok)
+    if (result.ok) {
+      const payload = result.result as {
+        jobId: string
+        status: string
+        outputPath: string
+        relativeOutputPath: string
+        totalFrames: number
+        eventsUrl: string
+      }
+      assert.isString(payload.jobId)
+      assert.notEqual(payload.jobId, '')
+      assert.isTrue(
+        ['pending', 'running', 'done', 'error'].includes(payload.status),
+        `unexpected status: ${payload.status}`
+      )
+      assert.equal(payload.relativeOutputPath, join('renders', 'mcp-test.mp4'))
+      assert.isAbove(payload.totalFrames, 0)
+      assert.equal(payload.eventsUrl, `/api/renders/${payload.jobId}/events`)
+    }
+  })
+
+  test('get_render returns a snapshot for a known jobId', async ({ assert }) => {
+    const router = buildRouter(commandBus, projectStore)
+    const start = await dispatchTool(
+      findTool('render_to_video'),
+      { outputPath: 'mcp-snapshot.mp4' },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isTrue(start.ok)
+    if (!start.ok) return
+    const { jobId } = start.result as { jobId: string }
+
+    const got = await dispatchTool(
+      findTool('get_render'),
+      { jobId },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isTrue(got.ok)
+    if (got.ok) {
+      const snap = got.result as { jobId: string; totalFrames: number; status: string }
+      assert.equal(snap.jobId, jobId)
+      assert.isAbove(snap.totalFrames, 0)
+    }
+  })
+
+  test('get_render errors E_NOT_FOUND for unknown ids', async ({ assert }) => {
+    const router = buildRouter(commandBus, projectStore)
+    const got = await dispatchTool(
+      findTool('get_render'),
+      { jobId: 'ghost-job' },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isFalse(got.ok)
+    if (!got.ok) assert.equal(got.error.code, 'E_NOT_FOUND')
+  })
+
+  test('list_renders returns enqueued jobs newest-first', async ({ assert }) => {
+    const router = buildRouter(commandBus, projectStore)
+    const a = await dispatchTool(
+      findTool('render_to_video'),
+      { outputPath: 'a.mp4' },
+      buildDeps(projectStore),
+      router
+    )
+    const b = await dispatchTool(
+      findTool('render_to_video'),
+      { outputPath: 'b.mp4' },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isTrue(a.ok)
+    assert.isTrue(b.ok)
+    const list = await dispatchTool(
+      findTool('list_renders'),
+      {},
+      buildDeps(projectStore),
+      router
+    )
+    assert.isTrue(list.ok)
+    if (list.ok) {
+      const { jobs } = list.result as { jobs: Array<{ jobId: string }> }
+      assert.isAtLeast(jobs.length, 2)
+      // Newest first
+      if (a.ok && b.ok) {
+        const { jobId: idA } = a.result as { jobId: string }
+        const { jobId: idB } = b.result as { jobId: string }
+        const idxA = jobs.findIndex((j) => j.jobId === idA)
+        const idxB = jobs.findIndex((j) => j.jobId === idB)
+        assert.isAtLeast(idxA, 0)
+        assert.isAtLeast(idxB, 0)
+        assert.isBelow(idxB, idxA)
+      }
+    }
+  })
+
+  test('outputPath escaping the project root is rejected with E_INVALID_VALUE', async ({
+    assert,
+  }) => {
+    const router = buildRouter(commandBus, projectStore)
+    const result = await dispatchTool(
+      findTool('render_to_video'),
+      { outputPath: '/tmp/escape-attempt.mp4' },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isFalse(result.ok)
+    if (!result.ok) assert.equal(result.error.code, 'E_INVALID_VALUE')
+  })
+
+  test('render_to_video without a project loaded errors E_NO_COMPOSITION', async ({
+    assert,
+  }) => {
+    await projectStore.unload()
+    const router = buildRouter(commandBus, projectStore)
+    const result = await dispatchTool(
+      findTool('render_to_video'),
+      { outputPath: 'no-project.mp4' },
+      buildDeps(projectStore),
+      router
+    )
+    assert.isFalse(result.ok)
+    if (!result.ok) {
+      // ensureValidForRender fires first (against an unloaded store), which
+      // surfaces as E_VALIDATION_FAILED in the standalone path; in the editor
+      // path the renderControls.start guard surfaces E_NO_COMPOSITION. The
+      // bridge uses fresh deps, so a never-loaded store yields the validation
+      // path. Either code is acceptable — we only want to ensure the call is
+      // rejected, never silently enqueued.
+      assert.isTrue(
+        ['E_NO_COMPOSITION', 'E_VALIDATION_FAILED'].includes(result.error.code),
+        `unexpected code: ${result.error.code}`
+      )
+    }
+  })
+})
