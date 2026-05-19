@@ -17,7 +17,7 @@
 // `${parentId}__${suffix}` id where `suffix` is fixed per behavior step.
 
 import type { EasingName } from "../easings/index.js";
-import { MCPToolError } from "../mcp/errors.js";
+import { MCPToolError } from "../engine/errors.js";
 import type { Tween } from "../schema/types.js";
 
 // ──────────────── Public types ────────────────

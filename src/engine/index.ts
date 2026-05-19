@@ -15,3 +15,13 @@ export {
   type TweenIndex,
 } from "./resolver.js";
 export { drawItem, drawScene, renderFrame } from "./render.js";
+export {
+  MCP_ERROR_CODES,
+  MCPToolError,
+  isMCPToolError,
+  toErrorBody,
+  type MCPErrorBody,
+  type MCPErrorCode,
+  type MCPIssue,
+  type MCPToolErrorExtras,
+} from "./errors.js";

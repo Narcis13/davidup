@@ -120,12 +120,27 @@ function resolveValue(
   return lerpColorString(active.from as string, active.to as string, eased);
 }
 
+// Properties whose negative values would crash some Canvas2D hosts
+// (e.g. `arc(r, r, -5, ...)` from `easeOutBack` overshooting past `to: 0`)
+// or are semantically nonsensical. Negative scale is meaningful (mirror) and
+// out-of-canvas positions are valid — those are NOT clamped here.
+const NON_NEGATIVE_PROPS: ReadonlySet<string> = new Set([
+  "width",
+  "height",
+  "fontSize",
+  "strokeWidth",
+  "cornerRadius",
+]);
+
 function clampForProperty(property: string, value: number | string): number | string {
-  // §3.3: opacity is clamped [0,1]. Other numeric properties pass through —
-  // negative scale is meaningful (mirror), out-of-canvas positions are valid.
-  if (property === "transform.opacity" && typeof value === "number") {
-    if (value < 0) return 0;
-    if (value > 1) return 1;
+  if (typeof value === "number") {
+    // §3.3: opacity is clamped [0,1].
+    if (property === "transform.opacity") {
+      if (value < 0) return 0;
+      if (value > 1) return 1;
+    } else if (NON_NEGATIVE_PROPS.has(property) && value < 0) {
+      return 0;
+    }
   }
   return value;
 }
@@ -148,24 +163,17 @@ function cloneItem(item: Item): Item {
 }
 
 function setByPath(item: Item, path: string, value: number | string): void {
+  // Every tweenable today is either a flat item property (`width`, `fontSize`,
+  // `tint`, …) or lives directly under `transform.*` — see schema/tweenable.ts.
+  // Anything else means a tweenable was added without updating this writer.
   const dot = path.indexOf(".");
   if (dot < 0) {
     (item as Record<string, unknown>)[path] = value;
     return;
   }
-  const head = path.slice(0, dot);
-  const tail = path.slice(dot + 1);
-  if (head === "transform") {
-    (item.transform as Record<string, unknown>)[tail] = value;
+  if (path.slice(0, dot) === "transform") {
+    (item.transform as Record<string, unknown>)[path.slice(dot + 1)] = value;
     return;
   }
-  // Phase 4 paths are at most one level deep, but keep a defensive fallback so
-  // future tweenable additions (e.g., shadow.blur) don't silently no-op.
-  const parts = path.split(".");
-  let cur: Record<string, unknown> = item as unknown as Record<string, unknown>;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const k = parts[i]!;
-    cur = cur[k] as Record<string, unknown>;
-  }
-  cur[parts[parts.length - 1]!] = value;
+  throw new Error(`resolver.setByPath: unsupported tweenable path "${path}"`);
 }

@@ -22,7 +22,7 @@
 // unchanged shape-wise — the §10 pipeline runs `expandBehaviors` next, so
 // they get expanded to literal tweens after templates have done their work.
 
-import { MCPToolError } from "../mcp/errors.js";
+import { MCPToolError } from "../engine/errors.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
 // ──────────────── Public types ────────────────

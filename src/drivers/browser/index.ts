@@ -179,6 +179,7 @@ export async function attach(
     compiled = (await precompile(comp, precompileOpts)) as Composition;
   }
 
+  const ownsLoader = options.loader === undefined;
   const loader = options.loader ?? new BrowserAssetLoader();
   await loader.preloadAll(compiled.assets);
 
@@ -209,14 +210,18 @@ export async function attach(
   const tick = (): void => {
     rafId = null;
     if (cancelled) return;
-    const t = (now() - startTime) / 1000;
-    if (t > duration) return;
+    const raw = (now() - startTime) / 1000;
+    // Clamp to [0, duration] so a seek() past the end still paints the final
+    // frame instead of leaving the canvas on whatever was there before.
+    const done = raw > duration;
+    const t = raw < 0 ? 0 : raw > duration ? duration : raw;
     renderFrame(compiled, t, ctx, {
       assets: loader,
       index: tweenIndex,
       createOffscreen,
     });
     lastRenderedT = t;
+    if (done) return;
     rafId = raf(tick);
   };
 
@@ -284,6 +289,12 @@ export async function attach(
         caf(rafId);
         rafId = null;
       }
+      // Release loader-owned resources tied to this attach. Image entries
+      // would be GC'd with the loader, but registered FontFaces survive on
+      // the global `document.fonts` set — those need an explicit clear so
+      // long-running editor sessions that switch projects don't accumulate
+      // one entry per loaded font.
+      if (ownsLoader) loader.clear();
     },
     seek(seconds: number): void {
       startTime = now() - seconds * 1000;

@@ -59,7 +59,7 @@
 // expansion time. Same id + same src = dedupe. Same id + different src =
 // `E_ASSET_CONFLICT`.
 
-import { MCPToolError } from "../mcp/errors.js";
+import { MCPToolError } from "../engine/errors.js";
 import type { Asset } from "../schema/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
