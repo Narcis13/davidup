@@ -32,6 +32,7 @@ import {
 } from '~/composables/useLibraryDrag'
 import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
 import { useSelection, type PickSourceInfo } from '~/composables/useSelection'
+import { useStageDrag } from '~/composables/useStageDrag'
 
 interface PickHit {
   itemId: string
@@ -257,6 +258,93 @@ function firstFontAssetId(): string | null {
   return null
 }
 
+// ──────────────── Drag-to-move (UX_GAPS §G phase 1) ────────────────
+//
+// Pointer-down on the canvas hit-tests for an item; if found, we stage a
+// pending drag. The composable arms the drag only after the pointer crosses
+// a small threshold so taps still flow through to `onCanvasClick`. On
+// commit, we emit a single `update_item` with the new {x, y} — server
+// validation and persistence run through the same code path as the
+// Inspector's number-field edits (see Inspector.vue's dispatchEdit).
+const drag = useStageDrag({
+  // 1 composition-pixel snap. Holding Alt during the drag disables it for
+  // sub-pixel nudges. Matches the timeline's Alt-bypass behaviour.
+  snapStep: 1,
+  onCommit(itemId, position) {
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id: itemId, props: { x: position.x, y: position.y } },
+      source: 'ui',
+    })
+  },
+  onArm(itemId) {
+    // Promote the dragged item to the active selection so the ring follows
+    // the ghost. We don't have a source-map entry for a drag-arm (the
+    // composable doesn't pick — Stage did, and discarded the source info),
+    // so pass null; the Inspector still resolves the rest of its state by
+    // id alone.
+    if (selection.selectedItemId.value !== itemId) {
+      selection.setSelectionFromPick(itemId, null)
+    }
+  },
+})
+
+function getItemPosition(itemId: string): { x: number; y: number } | null {
+  const items = (props.composition as { items?: unknown } | null)?.items
+  if (!items || typeof items !== 'object') return null
+  const it = (items as Record<string, unknown>)[itemId]
+  if (!it || typeof it !== 'object') return null
+  const t = (it as { transform?: unknown }).transform
+  if (!t || typeof t !== 'object') return null
+  const tx = (t as { x?: unknown }).x
+  const ty = (t as { y?: unknown }).y
+  if (typeof tx !== 'number' || typeof ty !== 'number') return null
+  return { x: tx, y: ty }
+}
+
+function cssToCompScaleFromCanvas(): { x: number; y: number } | null {
+  const canvasEl = canvas.value
+  if (!canvasEl) return null
+  const rect = canvasEl.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return {
+    x: canvasWidth.value / rect.width,
+    y: canvasHeight.value / rect.height,
+  }
+}
+
+function onCanvasPointerDown(event: PointerEvent): void {
+  // Only the primary button initiates a drag — middle/right-click stay free
+  // for future pan/context-menu work without colliding with item drag.
+  if (event.button !== 0) return
+  // Place mode and active library drags both own the next pointer event;
+  // staging a drag here would race them.
+  if (libraryDrag.isActive.value) return
+  if (itemToolbar.activeTool.value) return
+  if (!props.pickItemAt) return
+  const coords = clickCoordsToCanvas(event)
+  if (!coords) return
+  const hit = props.pickItemAt(coords.x, coords.y)
+  if (!hit) return
+  const pos = getItemPosition(hit.itemId)
+  // Items without a numeric transform.x/y (e.g. groups whose position is
+  // implicit) can't be dragged in phase 1 — let the click flow through and
+  // just select them.
+  if (!pos) return
+  const scale = cssToCompScaleFromCanvas()
+  if (!scale) return
+  const hitEl = (event.currentTarget as HTMLElement | null) ?? canvas.value
+  if (!hitEl) return
+  drag.begin({
+    event,
+    hitElement: hitEl,
+    cssToCompScale: scale,
+    itemId: hit.itemId,
+    originalX: pos.x,
+    originalY: pos.y,
+  })
+}
+
 function onCanvasClick(event: MouseEvent): void {
   if (libraryDrag.isActive.value) return
 
@@ -345,6 +433,18 @@ function drawSelectionRing(): void {
   const pts = bounds.corners
   if (pts.length < 2) return
 
+  // During an active drag of THIS item, the engine still renders the item
+  // at its committed transform — the ghost lives only on the overlay. We
+  // offset every corner by the in-progress translation so the ring visibly
+  // follows the cursor before pointerup commits the update_item.
+  let dx = 0
+  let dy = 0
+  const dActive = drag.active.value
+  if (dActive && dActive.itemId === id) {
+    dx = dActive.currentX - dActive.originalX
+    dy = dActive.currentY - dActive.originalY
+  }
+
   // Scale the stroke so it appears as ~2 CSS px regardless of how much CSS
   // has shrunk the composition (e.g., 1280-wide comp painted into a
   // 600-wide stage). Falling back to 2 when the CSS rect hasn't laid out
@@ -361,9 +461,9 @@ function drawSelectionRing(): void {
   // color for "this is selected."
   ctx.strokeStyle = '#5b7cfa'
   ctx.beginPath()
-  ctx.moveTo(pts[0]![0], pts[0]![1])
+  ctx.moveTo(pts[0]![0] + dx, pts[0]![1] + dy)
   for (let i = 1; i < pts.length; i++) {
-    ctx.lineTo(pts[i]![0], pts[i]![1])
+    ctx.lineTo(pts[i]![0] + dx, pts[i]![1] + dy)
   }
   ctx.closePath()
   ctx.stroke()
@@ -400,6 +500,17 @@ watch(
   },
 )
 
+// Ghost-follows-cursor: redraw on every drag-state mutation so the ring
+// tracks the pointer between RAF ticks. (RAF still drives the base loop,
+// this just removes any visible lag on fast cursor sweeps.)
+watch(
+  () => drag.active.value,
+  () => {
+    drawSelectionRing()
+  },
+  { deep: true }
+)
+
 onBeforeUnmount(() => {
   if (unsubscribeTick) {
     unsubscribeTick()
@@ -430,6 +541,7 @@ onBeforeUnmount(() => {
       :width="canvasWidth"
       :height="canvasHeight"
       :style="{ aspectRatio: aspect }"
+      @pointerdown="onCanvasPointerDown"
       @click="onCanvasClick"
     />
     <!--
