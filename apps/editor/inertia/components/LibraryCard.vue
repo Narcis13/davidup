@@ -20,7 +20,32 @@ const props = defineProps<{
   item: LibraryItem
   /** Cache-buster bumped when the catalog reloads. */
   generation?: number
+  /** Disables the promote action while a request is in flight. */
+  promoteBusy?: boolean
 }>()
+
+const emit = defineEmits<{
+  (event: 'promote', item: LibraryItem): void
+}>()
+
+// Promotion is only meaningful for JSON definitions authored as standalone
+// files inside the project library. Inline entries (index.json) and
+// asset/font binaries are out of scope for v1.
+const PROMOTABLE_KINDS = new Set(['template', 'behavior', 'scene'])
+
+const canPromote = computed(() => {
+  if (props.item.scope !== 'project') return false
+  if (!PROMOTABLE_KINDS.has(props.item.kind)) return false
+  if (!props.item.source || props.item.source === 'index.json') return false
+  return true
+})
+
+function onPromote(event: Event): void {
+  event.stopPropagation()
+  event.preventDefault()
+  if (!canPromote.value || props.promoteBusy) return
+  emit('promote', props.item)
+}
 
 // Step 14: library cards are draggable. We push the catalog payload onto the
 // shared `useLibraryDrag` state and the dataTransfer MIME so Stage / Timeline
@@ -143,6 +168,22 @@ const overrideTitle = computed(() =>
       >
         {{ scopeChip }}
       </span>
+      <button
+        v-if="canPromote"
+        type="button"
+        class="promote-btn"
+        :disabled="promoteBusy"
+        :title="`Promote to global library (move to ~/.davidup/library)`"
+        :aria-label="`Promote ${displayName} to global library`"
+        data-testid="library-promote"
+        draggable="false"
+        @mousedown.stop
+        @click="onPromote"
+        @keydown.enter.stop="onPromote"
+        @keydown.space.stop="onPromote"
+      >
+        {{ promoteBusy ? '…' : '↑ 🌐' }}
+      </button>
     </div>
     <div class="meta">
       <h3 class="name" :class="{ 'name-overridden': isOverridden }" :title="displayName">
@@ -271,6 +312,39 @@ const overrideTitle = computed(() =>
   background: rgba(0, 0, 0, 0.55);
   pointer-events: none;
   user-select: none;
+}
+
+.promote-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: rgba(91, 124, 250, 0.18);
+  border: 1px solid rgba(91, 124, 250, 0.45);
+  color: #c9d4ff;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+  z-index: 2;
+}
+
+.library-card:hover .promote-btn,
+.library-card:focus-within .promote-btn {
+  opacity: 1;
+}
+
+.promote-btn:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.32);
+  transform: translateY(-1px);
+}
+
+.promote-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
 }
 
 .library-card[data-overridden='true'] .scope-chip {

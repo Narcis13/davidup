@@ -2,9 +2,16 @@ import type { HttpContext } from '@adonisjs/core/http'
 import libraryIndex, { type LibraryItemKind, type LibraryScope } from '#services/library_index'
 import libraryThumbnail from '#services/library_thumbnail'
 import projectStore from '#services/project_store'
+import { promoteLibraryItem, PromoteError } from '#services/promote_library_item'
+import {
+  saveLibraryDefinition,
+  SaveDefinitionError,
+  type DefinitionKind,
+} from '#services/save_library_definition'
 
 const ALLOWED_KINDS: LibraryItemKind[] = ['template', 'behavior', 'scene', 'asset', 'font']
 const ALLOWED_SCOPES: LibraryScope[] = ['project', 'global']
+const PROMOTABLE_KINDS: LibraryItemKind[] = ['template', 'behavior', 'scene']
 
 function isAllowedKind(value: string): value is LibraryItemKind {
   return (ALLOWED_KINDS as readonly string[]).includes(value)
@@ -104,5 +111,155 @@ export default class LibraryController {
     response.header('cache-control', 'public, max-age=60')
     if (thumb.placeholder) response.header('x-thumbnail-placeholder', '1')
     return response.send(thumb.buffer)
+  }
+
+  /**
+   * POST /api/library/promote — copy a project-scoped library definition
+   * into the global pool, then delete it from the project. Body:
+   *   { kind: 'template'|'behavior'|'scene', id: string, force?: boolean }
+   *
+   * Out of scope today: `asset`, `font`, and inline (index.json) entries.
+   * The library watcher picks the file move up on its own; this handler
+   * also calls `libraryIndex.flush()` so the response already reflects
+   * the merged catalog.
+   */
+  async promote({ request, response }: HttpContext) {
+    const body = request.body() as { kind?: unknown; id?: unknown; force?: unknown }
+    const kindRaw = typeof body.kind === 'string' ? body.kind : ''
+    const id = typeof body.id === 'string' ? body.id : ''
+    if (!kindRaw || !id) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Body `kind` and `id` are required.' },
+      })
+    }
+    if (!isAllowedKind(kindRaw)) {
+      return response.badRequest({
+        error: {
+          code: 'E_BAD_REQUEST',
+          message: `Unknown kind "${kindRaw}". Allowed: ${ALLOWED_KINDS.join(', ')}.`,
+        },
+      })
+    }
+    if (!(PROMOTABLE_KINDS as readonly string[]).includes(kindRaw)) {
+      return response.status(422).send({
+        error: {
+          code: 'E_KIND_UNSUPPORTED',
+          message: `Promotion is only supported for ${PROMOTABLE_KINDS.join(', ')} today.`,
+        },
+      })
+    }
+    const force = body.force === true
+
+    try {
+      const result = await promoteLibraryItem({ kind: kindRaw, id, force })
+      return response.ok({ ...result })
+    } catch (err) {
+      if (err instanceof PromoteError) {
+        const status =
+          err.code === 'E_BAD_REQUEST'
+            ? 400
+            : err.code === 'E_ITEM_NOT_FOUND'
+              ? 404
+              : err.code === 'E_TARGET_EXISTS'
+                ? 409
+                : err.code === 'E_KIND_UNSUPPORTED' ||
+                    err.code === 'E_INLINE_ITEM' ||
+                    err.code === 'E_NO_PROJECT_LIBRARY' ||
+                    err.code === 'E_NO_GLOBAL_LIBRARY'
+                  ? 422
+                  : 500
+        return response.status(status).send({
+          error: { code: err.code, message: err.message, details: err.details },
+        })
+      }
+      throw err
+    }
+  }
+
+  /**
+   * POST /api/library/definitions — write a user-authored template /
+   * behavior / scene to disk under either the project library or the
+   * global library. The body shape:
+   *   {
+   *     kind: 'template'|'behavior'|'scene',
+   *     id: string,
+   *     target: 'project'|'global',
+   *     body: { ...definition fields (description, params, items, tweens, …) },
+   *     force?: boolean,
+   *   }
+   *
+   * The `target` field is the user-facing "save to Project | Global" choice
+   * — same shape used for asset uploads. The watcher in library_index
+   * propagates the new file to the merged catalog automatically.
+   */
+  async saveDefinition({ request, response }: HttpContext) {
+    const raw = request.body() as {
+      kind?: unknown
+      id?: unknown
+      target?: unknown
+      body?: unknown
+      force?: unknown
+    }
+    const kind = typeof raw.kind === 'string' ? raw.kind : ''
+    const id = typeof raw.id === 'string' ? raw.id : ''
+    const target = typeof raw.target === 'string' ? raw.target : ''
+    if (!kind || !id || !target) {
+      return response.badRequest({
+        error: {
+          code: 'E_BAD_REQUEST',
+          message: 'Body `kind`, `id`, and `target` are required.',
+        },
+      })
+    }
+    if (!(['template', 'behavior', 'scene'] as const).includes(kind as DefinitionKind)) {
+      return response.badRequest({
+        error: {
+          code: 'E_BAD_REQUEST',
+          message: `Unknown kind "${kind}". Allowed: template, behavior, scene.`,
+        },
+      })
+    }
+    if (target !== 'project' && target !== 'global') {
+      return response.badRequest({
+        error: {
+          code: 'E_BAD_REQUEST',
+          message: `Unknown target "${target}". Allowed: project, global.`,
+        },
+      })
+    }
+    if (!raw.body || typeof raw.body !== 'object' || Array.isArray(raw.body)) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Body `body` must be a JSON object.' },
+      })
+    }
+    const force = raw.force === true
+
+    try {
+      const result = await saveLibraryDefinition({
+        kind: kind as DefinitionKind,
+        id,
+        target,
+        body: raw.body as Record<string, unknown>,
+        force,
+      })
+      return response.created({ ...result })
+    } catch (err) {
+      if (err instanceof SaveDefinitionError) {
+        const status =
+          err.code === 'E_BAD_REQUEST'
+            ? 400
+            : err.code === 'E_TARGET_EXISTS'
+              ? 409
+              : err.code === 'E_KIND_UNSUPPORTED' ||
+                  err.code === 'E_NO_PROJECT_LIBRARY' ||
+                  err.code === 'E_NO_GLOBAL_LIBRARY'
+                ? 422
+                : 500
+        return response.status(status).send({
+          error: { code: err.code, message: err.message, details: err.details },
+        })
+      }
+      throw err
+    }
   }
 }

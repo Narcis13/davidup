@@ -400,6 +400,28 @@ export class LibraryIndex {
     if (this.#reloadInFlight) await this.#reloadInFlight.catch(() => {})
   }
 
+  /**
+   * Force the catalog to re-read every attached root NOW. Use when a request
+   * handler just wrote/moved a library file on disk — the watcher will pick
+   * it up, but on a debounce, and the request response would race the
+   * watcher. This bypasses the debounce so the catalog reflects the
+   * post-write state before the handler responds.
+   */
+  async reloadNow(): Promise<void> {
+    if (this.#reloadTimer) {
+      clearTimeout(this.#reloadTimer)
+      this.#reloadTimer = null
+    }
+    if (this.#reloadInFlight) {
+      await this.#reloadInFlight.catch(() => {})
+    }
+    const p = this.#reload()
+    this.#reloadInFlight = p.finally(() => {
+      this.#reloadInFlight = null
+    })
+    await p
+  }
+
   /** Filtered view over the merged catalog. Filters are AND-combined. */
   search(opts: LibrarySearch = {}): LibraryItem[] {
     let items = this.#catalog.items

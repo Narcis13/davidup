@@ -23,15 +23,62 @@ import {
   useLibrary,
   LIBRARY_TABS,
   LIBRARY_SCOPES,
+  type LibraryItem,
   type LibraryTab,
   type LibraryScopeFilter,
 } from '~/composables/useLibrary'
 import { useAssetUpload, isUploadableFile } from '~/composables/useAssetUpload'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import LibraryCard from '~/components/LibraryCard.vue'
+import SaveDefinitionDialog from '~/components/SaveDefinitionDialog.vue'
+import { useToasts } from '~/composables/useToasts'
 
 const lib = useLibrary({ initialTab: 'template' })
 const uploads = useAssetUpload()
+const toasts = useToasts()
+
+// Promote requests in flight, keyed by `${kind}::${id}`. Each card's
+// disabled state is derived from this map so two rapid clicks don't fire
+// duplicate POSTs.
+const promoting = ref<Set<string>>(new Set())
+const promoteKey = (item: LibraryItem) => `${item.kind}::${item.id}`
+
+// ─── Save-definition dialog (target picker for new templates/scenes/behaviors) ───
+const saveDialogOpen = ref(false)
+const saveDialogKind = computed<'template' | 'behavior' | 'scene'>(() => {
+  const t = lib.tab.value
+  if (t === 'template' || t === 'behavior' || t === 'scene') return t
+  return 'template'
+})
+const saveDialogTarget = computed<'project' | 'global'>(() =>
+  lib.scope.value === 'global' ? 'global' : 'project',
+)
+
+function openSaveDialog() {
+  saveDialogOpen.value = true
+}
+
+function onDefinitionSaved(payload: {
+  kind: string
+  id: string
+  target: string
+  relative: string
+}): void {
+  toasts.success(
+    `Saved ${payload.kind} "${payload.id}" to ${payload.target} library`,
+    { dedupeKey: `library:save:${payload.kind}:${payload.id}` },
+  )
+  // Reveal the matching tab so the new card lands somewhere the user can
+  // see it without hunting through filters.
+  if (
+    payload.kind === 'template' ||
+    payload.kind === 'behavior' ||
+    payload.kind === 'scene'
+  ) {
+    lib.tab.value = payload.kind
+  }
+  void lib.refresh()
+}
 
 const tabLabels: Record<LibraryTab, string> = {
   template: 'Templates',
@@ -134,6 +181,96 @@ function onDrop(event: DragEvent): void {
   // silent no-op.
   uploads.uploadFiles(Array.from(files), { target: uploadTarget.value })
 }
+
+// ─── Promote (project → global) ───────────────────────────────────────────
+//
+// The card emits `promote` for templates/behaviors/scenes that came from a
+// standalone JSON file inside the project library. We post to
+// `/api/library/promote`, then refresh so the merged catalog reflects the
+// move (the file watcher would converge within ~1s anyway, but explicit
+// refresh keeps the UI in lockstep with the response).
+async function onPromote(item: LibraryItem): Promise<void> {
+  const key = promoteKey(item)
+  if (promoting.value.has(key)) return
+  promoting.value = new Set([...promoting.value, key])
+  let res: Response
+  try {
+    res = await fetch('/api/library/promote', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-inertia': 'false' },
+      body: JSON.stringify({ kind: item.kind, id: item.id }),
+    })
+  } catch (err) {
+    promoting.value = removeKey(promoting.value, key)
+    toasts.error(`Promote failed: ${(err as Error).message}`, {
+      dedupeKey: `library:promote:${key}`,
+    })
+    return
+  }
+  promoting.value = removeKey(promoting.value, key)
+  const body = (await res.json().catch(() => null)) as
+    | { error?: { code?: string; message?: string } }
+    | { kind: string; id: string; toRelative: string }
+    | null
+  if (!res.ok) {
+    const err = (body as { error?: { code?: string; message?: string } } | null)?.error
+    const code = err?.code
+    if (code === 'E_TARGET_EXISTS') {
+      const proceed = window.confirm(
+        `Global library already has "${item.id}". Overwrite the existing global copy with the project version?`,
+      )
+      if (proceed) await retryPromoteForced(item)
+      return
+    }
+    toasts.error(err?.message ?? `Promote failed (HTTP ${res.status})`, {
+      dedupeKey: `library:promote:${key}`,
+    })
+    return
+  }
+  toasts.success(`Promoted ${item.kind} "${item.id}" to global library`, {
+    dedupeKey: `library:promote:${key}:ok`,
+  })
+  await lib.refresh()
+}
+
+async function retryPromoteForced(item: LibraryItem): Promise<void> {
+  const key = promoteKey(item)
+  promoting.value = new Set([...promoting.value, key])
+  let res: Response
+  try {
+    res = await fetch('/api/library/promote', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-inertia': 'false' },
+      body: JSON.stringify({ kind: item.kind, id: item.id, force: true }),
+    })
+  } catch (err) {
+    promoting.value = removeKey(promoting.value, key)
+    toasts.error(`Promote failed: ${(err as Error).message}`, {
+      dedupeKey: `library:promote:${key}`,
+    })
+    return
+  }
+  promoting.value = removeKey(promoting.value, key)
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    toasts.error(body?.error?.message ?? `Promote failed (HTTP ${res.status})`, {
+      dedupeKey: `library:promote:${key}`,
+    })
+    return
+  }
+  toasts.success(`Promoted ${item.kind} "${item.id}" to global library (overwrote)`, {
+    dedupeKey: `library:promote:${key}:ok`,
+  })
+  await lib.refresh()
+}
+
+function removeKey(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set)
+  next.delete(key)
+  return next
+}
 </script>
 
 <template>
@@ -165,6 +302,15 @@ function onDrop(event: DragEvent): void {
         @click="lib.refresh()"
       >
         ⟳
+      </button>
+      <button
+        type="button"
+        class="new-def-btn"
+        title="Save a new template, behavior, or scene"
+        data-testid="library-new-definition"
+        @click="openSaveDialog"
+      >
+        + New
       </button>
     </div>
 
@@ -236,6 +382,8 @@ function onDrop(event: DragEvent): void {
         :key="`${item.kind}:${item.id}:${item.scope}:${item.source}`"
         :item="item"
         :generation="lib.generation.value"
+        :promote-busy="promoting.has(`${item.kind}::${item.id}`)"
+        @promote="onPromote"
       />
     </div>
 
@@ -261,6 +409,14 @@ function onDrop(event: DragEvent): void {
         <p class="drop-sub">Images, video, or audio — added to the Assets library</p>
       </div>
     </div>
+
+    <SaveDefinitionDialog
+      :open="saveDialogOpen"
+      :kind="saveDialogKind"
+      :initial-target="saveDialogTarget"
+      @close="saveDialogOpen = false"
+      @saved="onDefinitionSaved"
+    />
   </div>
 </template>
 
@@ -364,6 +520,27 @@ function onDrop(event: DragEvent): void {
 .refresh-btn:disabled {
   opacity: 0.5;
   cursor: progress;
+}
+
+.new-def-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  background: rgba(91, 124, 250, 0.16);
+  border: 1px solid rgba(91, 124, 250, 0.4);
+  color: #c9d4ff;
+  border-radius: 4px;
+  padding: 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.new-def-btn:hover {
+  background: rgba(91, 124, 250, 0.26);
+  border-color: rgba(91, 124, 250, 0.65);
+  color: #e5e5e5;
 }
 
 .scope-tabs {

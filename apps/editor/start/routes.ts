@@ -39,6 +39,8 @@ router
     router.put('/editor-state', [EditorStateController, 'update'])
     router.get('/library', [LibraryController, 'index'])
     router.get('/library/thumbnail', [LibraryController, 'thumbnail'])
+    router.post('/library/promote', [LibraryController, 'promote'])
+    router.post('/library/definitions', [LibraryController, 'saveDefinition'])
     router.post('/assets', [AssetsController, 'store'])
     router.post('/renders', [RendersController, 'store'])
     router.get('/renders', [RendersController, 'index'])
