@@ -11,7 +11,7 @@
 // reconnect re-aligns the progress bar.
 
 import { computed, reactive, readonly, type ComputedRef } from 'vue'
-import { useToasts } from '~/composables/useToasts'
+import { useToasts } from './useToasts'
 
 const RENDER_TOAST_KEY = 'render:current'
 

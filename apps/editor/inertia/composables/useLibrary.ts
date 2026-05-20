@@ -13,7 +13,7 @@
 //   - manual refresh(): explicit, used by a tiny ⟳ button + tests
 
 import { computed, ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useToasts } from '~/composables/useToasts'
+import { useToasts } from './useToasts'
 
 export type LibraryItemKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
 

@@ -14,7 +14,7 @@
 
 import { ref, shallowRef, triggerRef, type Ref, type ShallowRef } from 'vue'
 import type { ValidationResult } from 'davidup/schema'
-import { useToasts } from '~/composables/useToasts'
+import { useToasts } from './useToasts'
 
 // The server (`app/types/commands.ts`) is the single source of truth for
 // the Command discriminated union. The client only needs the wire shape;
