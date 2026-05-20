@@ -35,7 +35,7 @@ const shortcuts = computed<Shortcut[]>(() => [
   { keys: [`${modKey.value}`, 'R'], label: 'Render to MP4' },
   { keys: [`${modKey.value}`, 'S'], label: 'Save (force flush)' },
   { keys: ['?'], label: 'Toggle this help overlay' },
-  { keys: ['Esc'], label: 'Dismiss overlays / menus' },
+  { keys: ['Esc'], label: 'Dismiss overlays / menus / cancel place mode' },
 ])
 
 interface DragAffordance {
@@ -45,6 +45,11 @@ interface DragAffordance {
 }
 
 const dragAffordances: DragAffordance[] = [
+  {
+    from: 'Stage toolbar button (Rectangle / Circle / Text / Sprite)',
+    to: 'Stage canvas',
+    result: 'Click the toolbar button, then click the stage to place the primitive on the topmost layer.',
+  },
   {
     from: 'Library card (template / behavior / scene)',
     to: 'Timeline track',

@@ -30,6 +30,7 @@ import {
   buildCommandsForStageDrop,
   useLibraryDrag,
 } from '~/composables/useLibraryDrag'
+import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
 import { useSelection, type PickSourceInfo } from '~/composables/useSelection'
 
 interface PickHit {
@@ -71,6 +72,7 @@ const emit = defineEmits<{
 }>()
 
 const selection = useSelection()
+const itemToolbar = useItemToolbar()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const overlay = ref<HTMLCanvasElement | null>(null)
@@ -171,8 +173,113 @@ function clickCoordsToCanvas(event: MouseEvent): { x: number; y: number } | null
   }
 }
 
+function buildPlaceCommand(
+  tool: PlaceTool,
+  layerId: string,
+  x: number,
+  y: number,
+): Command | null {
+  switch (tool.kind) {
+    case 'shape-rect':
+      return {
+        kind: 'add_shape',
+        payload: {
+          layerId,
+          kind: 'rect',
+          x,
+          y,
+          width: 240,
+          height: 120,
+          fillColor: '#5b7cfa',
+          cornerRadius: 8,
+        },
+        source: 'ui',
+      }
+    case 'shape-circle':
+      return {
+        kind: 'add_shape',
+        payload: {
+          layerId,
+          kind: 'circle',
+          x,
+          y,
+          width: 160,
+          height: 160,
+          fillColor: '#5b7cfa',
+        },
+        source: 'ui',
+      }
+    case 'text':
+      return {
+        kind: 'add_text',
+        payload: {
+          layerId,
+          text: tool.text,
+          // The toolbar gates the text button on `fontAssets.length > 0`, so
+          // there is always at least one font registered. We rely on the
+          // composition we read at click time having one too; on the off
+          // chance it doesn't, the server validator will surface the issue.
+          font: firstFontAssetId() ?? 'default',
+          fontSize: 48,
+          color: '#ffffff',
+          x,
+          y,
+          anchorX: 0.5,
+          anchorY: 0.5,
+          align: 'center',
+        },
+        source: 'ui',
+      }
+    case 'sprite':
+      return {
+        kind: 'add_sprite',
+        payload: {
+          layerId,
+          asset: tool.asset,
+          x,
+          y,
+          width: 240,
+          height: 240,
+          anchorX: 0.5,
+          anchorY: 0.5,
+        },
+        source: 'ui',
+      }
+  }
+}
+
+function firstFontAssetId(): string | null {
+  const assets = props.composition?.assets
+  if (!Array.isArray(assets)) return null
+  for (const a of assets as Array<{ id?: unknown; type?: unknown }>) {
+    if (a?.type === 'font' && typeof a.id === 'string') return a.id
+  }
+  return null
+}
+
 function onCanvasClick(event: MouseEvent): void {
   if (libraryDrag.isActive.value) return
+
+  // Toolbar place mode takes precedence over hit-testing: a click on the
+  // canvas while a primitive tool is active drops the primitive at the
+  // cursor position on the topmost layer, then clears the tool. We never
+  // route the click through `pickItemAt` in this mode — selecting the
+  // freshly-placed item happens implicitly when the bus response echoes
+  // the new id, which the toolbar consumer can hook into later.
+  const tool = itemToolbar.activeTool.value
+  if (tool) {
+    const layerId = layerForDropId.value
+    const coords = clickCoordsToCanvas(event)
+    if (!layerId || !coords) {
+      itemToolbar.clearTool()
+      return
+    }
+    const command = buildPlaceCommand(tool, layerId, coords.x, coords.y)
+    itemToolbar.clearTool()
+    if (command) emit('apply', command)
+    return
+  }
+
   if (!props.pickItemAt) return
   const coords = clickCoordsToCanvas(event)
   if (!coords) return
@@ -309,6 +416,7 @@ onBeforeUnmount(() => {
     :data-library-drag-active="libraryDrag.isActive.value ? 'true' : 'false'"
     :data-library-hover="isHover ? 'true' : 'false'"
     :data-payload-kind="libraryDrag.payload.value?.kind ?? null"
+    :data-place-mode="itemToolbar.isActive.value ? 'true' : 'false'"
     data-testid="stage-wrap"
     @dragenter="onDragEnter"
     @dragover="onDragOver"
@@ -379,6 +487,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
   /* Crosshair signals the canvas is clickable for hit-testing (step 16). */
   cursor: crosshair;
+}
+
+/* Place mode (UX_GAPS section A) — emphasise the canvas is in "drop"
+ * mode by ringing it in brand blue so the user can tell their next click
+ * will add a primitive, not select one. */
+.stage-wrap[data-place-mode='true'] .stage-canvas {
+  box-shadow: 0 0 0 2px rgba(91, 124, 250, 0.7);
+  cursor: copy;
 }
 
 /* Selection-ring overlay (step 20.18). Positioned absolutely against

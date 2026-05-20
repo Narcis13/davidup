@@ -30,6 +30,7 @@ import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
 import HelpOverlay from '~/components/HelpOverlay.vue'
 import Inspector from '~/components/Inspector.vue'
+import ItemToolbar from '~/components/ItemToolbar.vue'
 import Library from '~/components/Library.vue'
 import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
@@ -417,6 +418,10 @@ onBeforeUnmount(() => {
     </template>
 
     <template #stage>
+      <ItemToolbar
+        v-if="bus.composition.value"
+        :composition="bus.composition.value"
+      />
       <Stage
         v-if="bus.composition.value"
         ref="stageRef"

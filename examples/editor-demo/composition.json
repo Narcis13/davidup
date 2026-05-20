@@ -37,7 +37,11 @@
       "blendMode": "normal",
       "items": [
         "title",
-        "item-1"
+        "item-1",
+        "item-2",
+        "item-3",
+        "item-4",
+        "item-5"
       ]
     }
   ],
@@ -92,6 +96,75 @@
         "anchorX": 0,
         "anchorY": 0,
         "opacity": 0.82
+      }
+    },
+    "item-2": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 1137,
+        "y": 585,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 240,
+      "height": 120,
+      "fillColor": "#5b7cfa",
+      "cornerRadius": 8
+    },
+    "item-3": {
+      "type": "shape",
+      "kind": "circle",
+      "transform": {
+        "x": 137,
+        "y": 585,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      },
+      "width": 160,
+      "height": 160,
+      "fillColor": "#5b7cfa"
+    },
+    "item-4": {
+      "type": "text",
+      "text": "Hello UX_GAPS",
+      "font": "font-display",
+      "fontSize": 48,
+      "color": "#ffffff",
+      "transform": {
+        "x": 851,
+        "y": 512,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      },
+      "align": "center"
+    },
+    "item-5": {
+      "type": "sprite",
+      "asset": "ball",
+      "width": 240,
+      "height": 240,
+      "transform": {
+        "x": 36,
+        "y": 441,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
       }
     }
   },
