@@ -15,8 +15,10 @@
 // not arm visual state until the pointer moves past DRAG_THRESHOLD_PX. If the
 // pointer comes up before the threshold, we leave click semantics alone (the
 // bar's `@click` handler still fires and selects the tween). If the drag did
-// arm, we install a one-shot capture-phase click suppressor so the trailing
-// click doesn't also mutate selection on top of the drag commit.
+// arm, we install a one-shot capture-phase click suppressor *on the bar
+// element itself* so the trailing click doesn't also mutate selection on top
+// of the drag commit. Scoping to the bar (not `document`) prevents an
+// unrelated click elsewhere on the page from being swallowed.
 
 import { ref, type Ref } from 'vue'
 import {
@@ -81,6 +83,13 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
     tween: { id: string; target: string; start: number; duration: number }
     mode: DragMode
     laneEl: HTMLElement
+    /**
+     * The element that received the pointerdown (the bar body for `move`, or
+     * the resize handle for resize modes). We attach the trailing click
+     * suppressor here — not on `document` — so an unrelated click elsewhere
+     * on the page is never swallowed if no click fires on the bar itself.
+     */
+    barEl: HTMLElement
     startX: number
     pointerId: number
   }
@@ -126,10 +135,17 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
     if (args.event.button !== 0) return
     cancel()
     args.event.preventDefault()
+    // `currentTarget` is only valid during dispatch — capture it synchronously
+    // so we can scope the post-drag click suppressor to this exact element.
+    const barEl =
+      (args.event.currentTarget as HTMLElement | null) ??
+      (args.event.target as HTMLElement | null)
+    if (!barEl) return
     pending = {
       tween: args.tween,
       mode: args.mode,
       laneEl: args.laneElement,
+      barEl,
       startX: args.event.clientX,
       pointerId: args.event.pointerId,
     }
@@ -206,7 +222,16 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
     }
     const snapshot = active.value
     const tween = pending.tween
-    document.addEventListener('click', suppressNextClick, { capture: true, once: true })
+    const barEl = pending.barEl
+    barEl.addEventListener('click', suppressNextClick, { capture: true, once: true })
+    // Safety cleanup: the trailing click after pointerup dispatches in the
+    // same task, so a follow-up macrotask runs strictly after. If no click
+    // ever arrived (rare — e.g. pointer moved off the bar before up), this
+    // removes the dormant listener so a future real click isn't swallowed.
+    // If the listener already fired via `once: true`, this is a no-op.
+    setTimeout(() => {
+      barEl.removeEventListener('click', suppressNextClick, true)
+    }, 0)
     teardown()
     if (!snapshot) return
     const newStart = roundTime(snapshot.currentStart)

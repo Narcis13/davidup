@@ -3,14 +3,19 @@
 // Pipeline (per PRD §18):
 //   1. Stream the upload into a temp file (handled by AdonisJS bodyparser).
 //   2. Compute a SHA-256 content hash of the bytes.
-//   3. Pick a deterministic filename `<hash><ext>` under `<library>/assets/`.
-//   4. Detect kind (image | video | audio) and run ffprobe (for video/audio)
-//      or read pixel dimensions (for image) to fill in metadata.
+//   3. Pick a deterministic filename `<hash><ext>`. Fonts (ttf/otf/woff/
+//      woff2) land in `<library>/fonts/`; everything else in
+//      `<library>/assets/`.
+//   4. Detect kind (image | video | audio | font) and run ffprobe (for
+//      video/audio) or read pixel dimensions (for image) to fill in
+//      metadata. Fonts skip probing — the family/weight/style would need
+//      an OpenType parser; the human-facing name is taken from the
+//      original filename.
 //   5. Extract a thumbnail PNG (video only — images are rendered by the
 //      existing library_thumbnail service from the source file).
-//   6. Register the asset entry in `<library>/index.json` (creating the
-//      file if missing). Re-uploading the exact same bytes is a no-op and
-//      returns the existing record.
+//   6. Register the entry in `<library>/index.json` — fonts go into the
+//      `fonts` array, everything else into `assets`. Re-uploading the
+//      exact same bytes is a no-op and returns the existing record.
 //   7. Return the asset record.
 //
 // The pipeline is intentionally project-aware: it requires a loaded project
@@ -26,7 +31,7 @@ import projectStore from '#services/project_store'
 import libraryIndex from '#services/library_index'
 import globalLibraryRoot from '#services/global_library_root'
 
-export type AssetKind = 'image' | 'video' | 'audio'
+export type AssetKind = 'image' | 'video' | 'audio' | 'font'
 
 export type AssetTarget = 'project' | 'global'
 
@@ -44,6 +49,13 @@ export interface AssetRecord {
   duration?: number
   /** Path relative to the library root, when one was extracted. */
   thumbnail?: string
+  /**
+   * Human-readable note about a non-fatal ingest issue. Set when the file
+   * was persisted but probing produced unexpected results (e.g. skia was
+   * available but `loadImage` threw on an image). Consumers may surface this
+   * in the UI; its absence means the ingest had no caveats.
+   */
+  warning?: string
   createdAt: string
 }
 
@@ -97,6 +109,10 @@ const MIME_BY_EXT: Record<string, { kind: AssetKind; mediaType: string }> = {
   '.m4a': { kind: 'audio', mediaType: 'audio/mp4' },
   '.aac': { kind: 'audio', mediaType: 'audio/aac' },
   '.flac': { kind: 'audio', mediaType: 'audio/flac' },
+  '.ttf': { kind: 'font', mediaType: 'font/ttf' },
+  '.otf': { kind: 'font', mediaType: 'font/otf' },
+  '.woff': { kind: 'font', mediaType: 'font/woff' },
+  '.woff2': { kind: 'font', mediaType: 'font/woff2' },
 }
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -115,6 +131,16 @@ const MIME_TO_EXT: Record<string, string> = {
   'audio/mp4': '.m4a',
   'audio/aac': '.aac',
   'audio/flac': '.flac',
+  'font/ttf': '.ttf',
+  'font/otf': '.otf',
+  'font/woff': '.woff',
+  'font/woff2': '.woff2',
+  // Legacy / non-standard MIME types browsers still send for fonts.
+  'application/font-sfnt': '.ttf',
+  'application/x-font-ttf': '.ttf',
+  'application/x-font-otf': '.otf',
+  'application/font-woff': '.woff',
+  'application/font-woff2': '.woff2',
 }
 
 function detectMediaType(clientName: string, contentType: string | undefined): {
@@ -322,26 +348,38 @@ async function loadSkia(): Promise<SkiaCanvasShim | null> {
   }
 }
 
-async function readImageDims(
-  file: string
-): Promise<{ width: number; height: number } | null> {
+type ImageProbeOutcome =
+  | { status: 'ok'; width: number; height: number }
+  | { status: 'skia-unavailable' }
+  | { status: 'probe-failed' }
+
+async function readImageDims(file: string): Promise<ImageProbeOutcome> {
   const skia = await loadSkia()
-  if (!skia) return null
+  if (!skia) return { status: 'skia-unavailable' }
   try {
     const img = await skia.loadImage(file)
     if (typeof img.width === 'number' && typeof img.height === 'number') {
-      return { width: img.width, height: img.height }
+      return { status: 'ok', width: img.width, height: img.height }
     }
+    // skia returned, but the dims weren't numbers — treat as a probe failure.
+    return { status: 'probe-failed' }
   } catch (err) {
     logger.warn({ err, file }, 'asset_pipeline: loadImage failed for dim read')
+    return { status: 'probe-failed' }
   }
-  return null
 }
 
 interface ProbeMetadata {
   width?: number
   height?: number
   duration?: number
+  /**
+   * Set when probing was attempted and failed in a way the caller should
+   * surface (e.g. skia was available but `loadImage` threw). Absent when
+   * probing succeeded *or* when no probing was attempted (e.g. skia not
+   * installed) — the latter is a system capability gap, not a file problem.
+   */
+  warning?: string
 }
 
 async function probeMedia(
@@ -350,11 +388,20 @@ async function probeMedia(
   ffprobePath: string | null
 ): Promise<ProbeMetadata> {
   const out: ProbeMetadata = {}
+  if (kind === 'font') {
+    // Nothing useful to probe for fonts at the bytes level; the family /
+    // weight / style would require an OpenType parser. v1.0 derives the
+    // human-facing name from the original filename in the record-builder
+    // step, so leave metadata empty here.
+    return out
+  }
   if (kind === 'image') {
-    const dims = await readImageDims(file)
-    if (dims) {
-      out.width = dims.width
-      out.height = dims.height
+    const outcome = await readImageDims(file)
+    if (outcome.status === 'ok') {
+      out.width = outcome.width
+      out.height = outcome.height
+    } else if (outcome.status === 'probe-failed') {
+      out.warning = 'Could not read image dimensions (loadImage failed)'
     }
     return out
   }
@@ -465,16 +512,25 @@ export class AssetPipeline {
     }
 
     const { hash, size } = await hashFile(input.tmpPath)
-    const assetsDir = join(libraryRoot, 'assets')
-    await ensureDir(assetsDir)
+    // Fonts live under `library/fonts/` and are registered in the index's
+    // `fonts` array (so `library_index.readFontItem` picks them up). Every
+    // other kind goes under `library/assets/` and into the `assets` array.
+    const isFont = detected.kind === 'font'
+    const subdir = isFont ? 'fonts' : 'assets'
+    const indexArrayKey: 'fonts' | 'assets' = isFont ? 'fonts' : 'assets'
+    const storeDir = join(libraryRoot, subdir)
+    await ensureDir(storeDir)
 
     const finalName = `${hash}${detected.ext}`
-    const finalPath = join(assetsDir, finalName)
-    const relativeUrl = `assets/${finalName}`
+    const finalPath = join(storeDir, finalName)
+    const relativeUrl = `${subdir}/${finalName}`
     const indexPath = join(libraryRoot, 'index.json')
 
     const existingIndex = await readIndex(indexPath)
-    const existingRecord = findAssetById(existingIndex.assets as unknown[], hash)
+    const existingRecord = findAssetById(
+      existingIndex[indexArrayKey] as unknown[] | undefined,
+      hash
+    )
     if (existingRecord && (await pathExists(finalPath))) {
       // Idempotent: same bytes already ingested. Drop the tmp upload.
       await fs.unlink(input.tmpPath).catch(() => {})
@@ -505,10 +561,10 @@ export class AssetPipeline {
     let thumbnail: string | undefined
     if (detected.kind === 'video' && effectiveFfmpeg) {
       const thumbName = `${hash}.thumb.png`
-      const thumbPath = join(assetsDir, thumbName)
+      const thumbPath = join(storeDir, thumbName)
       const thumbAt = meta.duration ? Math.min(meta.duration / 2, 1) : 0
       const ok = await extractVideoThumbnail(effectiveFfmpeg, finalPath, thumbPath, thumbAt)
-      if (ok) thumbnail = `assets/${thumbName}`
+      if (ok) thumbnail = `${subdir}/${thumbName}`
     }
 
     const record: AssetRecord = {
@@ -525,25 +581,26 @@ export class AssetPipeline {
     if (meta.height !== undefined) record.height = meta.height
     if (meta.duration !== undefined) record.duration = meta.duration
     if (thumbnail) record.thumbnail = thumbnail
+    if (meta.warning) record.warning = meta.warning
 
     const nextIndex: IndexShape = {
       version: typeof existingIndex.version === 'string' ? existingIndex.version : '0.1',
       templates: Array.isArray(existingIndex.templates) ? existingIndex.templates : [],
       behaviors: Array.isArray(existingIndex.behaviors) ? existingIndex.behaviors : [],
       scenes: Array.isArray(existingIndex.scenes) ? existingIndex.scenes : [],
-      fonts: Array.isArray(existingIndex.fonts) ? existingIndex.fonts : [],
+      fonts: Array.isArray(existingIndex.fonts) ? [...existingIndex.fonts] : [],
       assets: Array.isArray(existingIndex.assets) ? [...existingIndex.assets] : [],
     }
     // Preserve any other top-level keys the user authored.
     for (const [k, v] of Object.entries(existingIndex)) {
       if (!(k in nextIndex)) nextIndex[k] = v
     }
-    const assets = nextIndex.assets as unknown[]
-    const existingIdx = assets.findIndex(
+    const bucket = nextIndex[indexArrayKey] as unknown[]
+    const existingIdx = bucket.findIndex(
       (a) => a && typeof a === 'object' && (a as { id?: unknown }).id === record.id
     )
-    if (existingIdx >= 0) assets[existingIdx] = record
-    else assets.push(record)
+    if (existingIdx >= 0) bucket[existingIdx] = record
+    else bucket.push(record)
 
     await writeIndexAtomic(indexPath, nextIndex)
 

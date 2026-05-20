@@ -501,7 +501,9 @@ watch(
         <div
           v-if="duration > 0"
           class="playhead playhead-line"
-          :style="{ left: `calc(160px + (100% - 160px) * ${playhead / duration})` }"
+          :style="{
+            left: `calc(var(--ruler-gutter-width) + (100% - var(--ruler-gutter-width)) * ${playhead / duration})`,
+          }"
         />
         <div
           v-if="libraryDrag.isActive.value"
@@ -526,6 +528,7 @@ watch(
 
 <style scoped>
 .timeline {
+  --ruler-gutter-width: 160px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -619,7 +622,7 @@ watch(
 
 .ruler-row {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: var(--ruler-gutter-width) 1fr;
   align-items: stretch;
   flex: 0 0 auto;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);

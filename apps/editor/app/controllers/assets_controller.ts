@@ -19,6 +19,12 @@ const ALLOWED_EXTNAMES = [
   'm4a',
   'aac',
   'flac',
+  // Fonts — pipeline stores these in `library/fonts/` and registers them
+  // in the `fonts` array of `index.json` (D6 in vision/davidup-v1.0-manual).
+  'ttf',
+  'otf',
+  'woff',
+  'woff2',
 ]
 
 export default class AssetsController {

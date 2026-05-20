@@ -49,6 +49,23 @@ interface CreateRenderBody {
   filename?: unknown
 }
 
+/**
+ * Checks that `target` is strictly inside `dir`. Uses `path.relative` for
+ * canonical containment (a path that escapes `dir` produces a result that
+ * starts with `..` or is absolute). On macOS HFS+ / APFS (default
+ * case-insensitive), a byte-for-byte `startsWith` check is case-sensitive
+ * even though the filesystem isn't — two strings that refer to the same
+ * directory can disagree, so we lower-case both sides on darwin as well.
+ */
+function isPathInside(dir: string, target: string): boolean {
+  const norm = (p: string) => (process.platform === 'darwin' ? p.toLowerCase() : p)
+  const rel = relative(norm(dir), norm(target))
+  if (rel === '') return false
+  if (rel.startsWith('..')) return false
+  if (isAbsolute(rel)) return false
+  return true
+}
+
 export default class RendersController {
   /**
    * POST /api/renders — start a render of the currently-loaded composition.
@@ -343,7 +360,7 @@ export default class RendersController {
     }
     const target = resolvePath(project.root, 'renders', filename)
     const inside = resolvePath(project.root, 'renders')
-    if (!target.startsWith(inside + '/')) {
+    if (!isPathInside(inside, target)) {
       return response.forbidden({
         error: { code: 'E_FORBIDDEN', message: 'File outside renders/ directory' },
       })
@@ -393,7 +410,7 @@ export default class RendersController {
     }
     const target = resolvePath(project.root, 'renders', filename)
     const inside = resolvePath(project.root, 'renders')
-    if (!target.startsWith(inside + '/') && target !== inside) {
+    if (!isPathInside(inside, target)) {
       return response.forbidden({
         error: { code: 'E_FORBIDDEN', message: 'File outside renders/ directory' },
       })

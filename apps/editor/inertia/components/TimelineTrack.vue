@@ -292,7 +292,7 @@ const markerTitle = computed<string>(() => {
 <style scoped>
 .track {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: var(--ruler-gutter-width, 160px) 1fr;
   align-items: stretch;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   min-height: 24px;

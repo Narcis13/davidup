@@ -141,7 +141,12 @@ export function readDropPayload(event: DragEvent): LibraryDragPayload | null {
         parsed.defaults && typeof parsed.defaults === 'object'
           ? (parsed.defaults as Record<string, unknown>)
           : {},
-      duration: typeof parsed.duration === 'number' ? parsed.duration : undefined,
+      duration:
+        typeof parsed.duration === 'number' &&
+        Number.isFinite(parsed.duration) &&
+        parsed.duration > 0
+          ? parsed.duration
+          : undefined,
     }
   } catch {
     return null
