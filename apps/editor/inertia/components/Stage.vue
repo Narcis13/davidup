@@ -34,6 +34,11 @@ import { useActiveLayer } from '~/composables/useActiveLayer'
 import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
 import { useSelection, type PickSourceInfo } from '~/composables/useSelection'
 import { useStageDrag } from '~/composables/useStageDrag'
+import {
+  useStageHandle,
+  type HandleKind,
+} from '~/composables/useStageHandle'
+import type { ItemGeom } from '~/composables/stageHandleMath'
 
 interface PickHit {
   itemId: string
@@ -296,6 +301,240 @@ function getItemPosition(itemId: string): { x: number; y: number } | null {
   return { x: tx, y: ty }
 }
 
+// Resolve the full transform + width/height for an item, with safe defaults
+// for fields the engine fills in implicitly. Returns null if the item is
+// missing or of a type that can't be resize-/rotate-manipulated (text,
+// group — see UX_GAPS §G).
+function getResolvableItem(
+  itemId: string,
+): { type: string; geom: ItemGeom } | null {
+  const items = (props.composition as { items?: unknown } | null)?.items
+  if (!items || typeof items !== 'object') return null
+  const it = (items as Record<string, unknown>)[itemId]
+  if (!it || typeof it !== 'object') return null
+  const obj = it as {
+    type?: unknown
+    transform?: Record<string, unknown>
+    width?: unknown
+    height?: unknown
+  }
+  const type = typeof obj.type === 'string' ? obj.type : ''
+  if (type !== 'shape' && type !== 'sprite') return null
+  const t = obj.transform ?? {}
+  const num = (v: unknown, d: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : d
+  const width = typeof obj.width === 'number' ? obj.width : 0
+  const height = typeof obj.height === 'number' ? obj.height : 0
+  if (width <= 0 || height <= 0) return null
+  return {
+    type,
+    geom: {
+      x: num(t.x, 0),
+      y: num(t.y, 0),
+      width,
+      height,
+      scaleX: num(t.scaleX, 1),
+      scaleY: num(t.scaleY, 1),
+      rotation: num(t.rotation, 0),
+      anchorX: num(t.anchorX, 0.5),
+      anchorY: num(t.anchorY, 0.5),
+    },
+  }
+}
+
+// ──────────────── Resize + rotation handles (UX_GAPS §G phase 2) ────────────────
+//
+// HTML divs sit on top of the selection-ring overlay (which is
+// pointer-events: none) and own their own pointer events. The handle's
+// pointerdown captures the item's geometry snapshot, then useStageHandle
+// runs the live drag against window-level listeners — same shape as
+// useStageDrag. On commit we emit a single `update_item` carrying the
+// changed props (width/height/x/y for resize; rotation for rotate).
+const handleDrag = useStageHandle({
+  minSize: 1,
+  onCommit(itemId, _kind, change) {
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id: itemId, props: change as Record<string, number> },
+      source: 'ui',
+    })
+  },
+})
+
+// Compute the 4 world-space corners (TL, TR, BR, BL) of an item's local
+// rect under its current geom. Mirrors what the engine's `getItemBoundsAt`
+// returns — used as a local fallback during an in-progress resize/rotate so
+// the ring + handles can track the cursor before the command is committed.
+function computeCornersFromGeom(g: ItemGeom): Array<[number, number]> {
+  const c = Math.cos(g.rotation)
+  const s = Math.sin(g.rotation)
+  const sx = g.scaleX
+  const sy = g.scaleY
+  const lefts: Array<[number, number]> = [
+    [-g.anchorX * g.width, -g.anchorY * g.height],
+    [(1 - g.anchorX) * g.width, -g.anchorY * g.height],
+    [(1 - g.anchorX) * g.width, (1 - g.anchorY) * g.height],
+    [-g.anchorX * g.width, (1 - g.anchorY) * g.height],
+  ]
+  return lefts.map(([lx, ly]) => {
+    const px = lx * sx
+    const py = ly * sy
+    return [g.x + c * px - s * py, g.y + s * px + c * py] as [number, number]
+  })
+}
+
+interface HandlePoint {
+  x: number
+  y: number
+}
+interface HandlePositions {
+  tl: HandlePoint
+  t: HandlePoint
+  tr: HandlePoint
+  r: HandlePoint
+  br: HandlePoint
+  b: HandlePoint
+  bl: HandlePoint
+  l: HandlePoint
+  rot: HandlePoint
+  /** Tangent angle of the top edge, used to align cursor-style hints. */
+  topAngleDeg: number
+}
+
+// Wrap-relative CSS positions for each handle. Recomputed every tick + on
+// reactive deps; null when no item is selected or the canvas hasn't laid
+// out yet.
+const handlePositions = ref<HandlePositions | null>(null)
+const currentCorners = ref<Array<[number, number]> | null>(null)
+
+function pickActiveCornersFor(id: string): Array<[number, number]> | null {
+  // 1. Live resize/rotate: derive from in-progress geom (engine still
+  //    renders the previous geometry until pointerup commits).
+  const h = handleDrag.active.value
+  if (h && h.itemId === id) {
+    return computeCornersFromGeom(h.current)
+  }
+  // 2. Otherwise use engine bounds, offset by any in-progress translate.
+  if (!props.getItemBoundsAt) return null
+  const bounds = props.getItemBoundsAt(id)
+  if (!bounds) return null
+  let dx = 0
+  let dy = 0
+  const d = drag.active.value
+  if (d && d.itemId === id) {
+    dx = d.currentX - d.originalX
+    dy = d.currentY - d.originalY
+  }
+  return bounds.corners.map(([x, y]) => [x + dx, y + dy] as [number, number])
+}
+
+function pickActiveCorners(): Array<[number, number]> | null {
+  const id = selection.selectedItemId.value
+  if (!id) return null
+  return pickActiveCornersFor(id)
+}
+
+// Project composition pixel → wrap-relative CSS pixel using the overlay's
+// current synced rect (syncOverlayRect already wrote left/top/width/height
+// styles, so they're authoritative for the on-screen mapping).
+function recomputeHandlePositions(
+  corners: ReadonlyArray<readonly [number, number]> | null,
+): HandlePositions | null {
+  if (!corners || corners.length < 4) return null
+  const overlayEl = overlay.value
+  if (!overlayEl) return null
+  const ox = parseFloat(overlayEl.style.left || '0')
+  const oy = parseFloat(overlayEl.style.top || '0')
+  const ow = parseFloat(overlayEl.style.width || '0')
+  const oh = parseFloat(overlayEl.style.height || '0')
+  if (!ow || !oh) return null
+  const sX = ow / canvasWidth.value
+  const sY = oh / canvasHeight.value
+  const proj = (cx: number, cy: number): HandlePoint => ({
+    x: ox + cx * sX,
+    y: oy + cy * sY,
+  })
+  const tl = proj(corners[0]![0], corners[0]![1])
+  const tr = proj(corners[1]![0], corners[1]![1])
+  const br = proj(corners[2]![0], corners[2]![1])
+  const bl = proj(corners[3]![0], corners[3]![1])
+  const mid = (a: HandlePoint, b: HandlePoint): HandlePoint => ({
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  })
+  const t = mid(tl, tr)
+  const r = mid(tr, br)
+  const b = mid(br, bl)
+  const l = mid(bl, tl)
+  // Outward normal on the top edge (rotate tangent by −90° in screen-Y-down
+  // convention so the handle sits above the item, never overlapping it).
+  const tx = tr.x - tl.x
+  const ty = tr.y - tl.y
+  const len = Math.hypot(tx, ty) || 1
+  const nx = ty / len
+  const ny = -tx / len
+  const ROT_OFFSET = 28
+  const rot = { x: t.x + nx * ROT_OFFSET, y: t.y + ny * ROT_OFFSET }
+  return {
+    tl,
+    t,
+    tr,
+    r,
+    br,
+    b,
+    bl,
+    l,
+    rot,
+    topAngleDeg: (Math.atan2(ty, tx) * 180) / Math.PI,
+  }
+}
+
+// Show handles only when a SINGLE item with a resolvable resize geom is
+// selected (shape / sprite). Multi-selection (marquee) renders rings
+// around each item but no handles — the bulk-transform UX is part of Gap
+// Q's multi-select foundation. Text + group fall through to the
+// hit-test click flow but expose no handles.
+const showHandles = computed<boolean>(() => {
+  if (selection.selectedItemIds.value.length !== 1) return false
+  const id = selection.selectedItemId.value
+  if (!id) return false
+  return getResolvableItem(id) !== null
+})
+
+function onHandlePointerDown(event: PointerEvent, kind: HandleKind): void {
+  if (event.button !== 0) return
+  event.stopPropagation()
+  // The handle div itself is the element that should receive the
+  // trailing-click suppressor; tossing pointerdown to window-listeners is
+  // useStageHandle's job from here.
+  const id = selection.selectedItemId.value
+  if (!id) return
+  const item = getResolvableItem(id)
+  if (!item) return
+  const canvasEl = canvas.value
+  if (!canvasEl) return
+  const rect = canvasEl.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return
+  handleDrag.begin({
+    event,
+    hitElement: event.currentTarget as HTMLElement,
+    cssToCompScale: {
+      x: canvasWidth.value / rect.width,
+      y: canvasHeight.value / rect.height,
+    },
+    canvasRect: {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    },
+    canvasComp: { width: canvasWidth.value, height: canvasHeight.value },
+    kind,
+    itemId: id,
+    geom: item.geom,
+  })
+}
+
 function cssToCompScaleFromCanvas(): { x: number; y: number } | null {
   const canvasEl = canvas.value
   if (!canvasEl) return null
@@ -319,7 +558,13 @@ function onCanvasPointerDown(event: PointerEvent): void {
   const coords = clickCoordsToCanvas(event)
   if (!coords) return
   const hit = props.pickItemAt(coords.x, coords.y)
-  if (!hit) return
+  if (!hit) {
+    // Empty stage — stage a marquee. The marquee only arms after the
+    // pointer crosses a small threshold so a plain click still falls through
+    // to onCanvasClick (which clears the selection).
+    beginMarquee(event, coords)
+    return
+  }
   const pos = getItemPosition(hit.itemId)
   // Items without a numeric transform.x/y (e.g. groups whose position is
   // implicit) can't be dragged in phase 1 — let the click flow through and
@@ -337,6 +582,155 @@ function onCanvasPointerDown(event: PointerEvent): void {
     originalX: pos.x,
     originalY: pos.y,
   })
+}
+
+// ──────────────── Marquee multi-select (UX_GAPS §G phase 3) ────────────────
+//
+// Pointer-down on empty stage stages a marquee. Threshold-armed (3 px) so a
+// plain click on empty space still clears the selection via onCanvasClick.
+// On commit we iterate composition.items, AABB-test each item's bounds
+// against the marquee rect, and call setMultiSelection with the hits in
+// reverse layer order (topmost first). Inspector / Timeline still read
+// selectedItemId as the "primary" — Gap Q tracks the broader multi-select
+// integration; for now the ring renders for every lassoed id and the
+// Inspector edits the first one.
+
+interface MarqueeState {
+  /** Start point in composition coords. */
+  startX: number
+  startY: number
+  /** Live cursor position in composition coords. */
+  curX: number
+  curY: number
+  /** True only after the pointer crossed the arm threshold. */
+  armed: boolean
+}
+
+const marquee = ref<MarqueeState | null>(null)
+let marqueePointerId: number | null = null
+let marqueeStartClient: { x: number; y: number } | null = null
+
+const MARQUEE_THRESHOLD_PX = 3
+
+function beginMarquee(event: PointerEvent, coords: { x: number; y: number }): void {
+  cancelMarquee()
+  marqueePointerId = event.pointerId
+  marqueeStartClient = { x: event.clientX, y: event.clientY }
+  marquee.value = {
+    startX: coords.x,
+    startY: coords.y,
+    curX: coords.x,
+    curY: coords.y,
+    armed: false,
+  }
+  window.addEventListener('pointermove', onMarqueeMove)
+  window.addEventListener('pointerup', onMarqueeUp)
+  window.addEventListener('pointercancel', onMarqueeCancel)
+}
+
+function onMarqueeMove(event: PointerEvent): void {
+  if (marqueePointerId !== event.pointerId) return
+  const state = marquee.value
+  const start = marqueeStartClient
+  if (!state || !start) return
+  if (!state.armed) {
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+    if (Math.hypot(dx, dy) < MARQUEE_THRESHOLD_PX) return
+    state.armed = true
+  }
+  const c = clickCoordsToCanvas(event)
+  if (!c) return
+  state.curX = c.x
+  state.curY = c.y
+  // Trigger reactivity: ref<MarqueeState> is shallow; replace to bump.
+  marquee.value = { ...state }
+  drawSelectionRing()
+}
+
+function onMarqueeUp(event: PointerEvent): void {
+  if (marqueePointerId !== event.pointerId) return
+  const state = marquee.value
+  cancelMarquee()
+  if (!state || !state.armed) return
+  const minX = Math.min(state.startX, state.curX)
+  const minY = Math.min(state.startY, state.curY)
+  const maxX = Math.max(state.startX, state.curX)
+  const maxY = Math.max(state.startY, state.curY)
+  if (maxX - minX < 1 || maxY - minY < 1) return
+  const hits = findItemsInRect(minX, minY, maxX, maxY)
+  // Tiny suppressor so onCanvasClick (which runs after pointerup) doesn't
+  // immediately clear the selection we just set.
+  const canvasEl = canvas.value
+  if (canvasEl) {
+    const suppress = (e: MouseEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+    canvasEl.addEventListener('click', suppress, { capture: true, once: true })
+    setTimeout(() => canvasEl.removeEventListener('click', suppress, true), 0)
+  }
+  selection.setMultiSelection(hits)
+  drawSelectionRing()
+}
+
+function onMarqueeCancel(): void {
+  cancelMarquee()
+  drawSelectionRing()
+}
+
+function cancelMarquee(): void {
+  window.removeEventListener('pointermove', onMarqueeMove)
+  window.removeEventListener('pointerup', onMarqueeUp)
+  window.removeEventListener('pointercancel', onMarqueeCancel)
+  marquee.value = null
+  marqueePointerId = null
+  marqueeStartClient = null
+}
+
+// AABB intersection in composition coords. Iterates `composition.layers`
+// from top-of-stack (last layer renders on top — first in the .layers array
+// is back, last is front) so the returned list orders topmost-first.
+function findItemsInRect(
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): string[] {
+  const comp = props.composition as
+    | {
+        layers?: ReadonlyArray<{ items?: ReadonlyArray<string> }>
+        items?: Record<string, unknown>
+      }
+    | null
+  if (!comp || !props.getItemBoundsAt) return []
+  const layers = comp.layers ?? []
+  const items = comp.items ?? {}
+  const hits: string[] = []
+  // Layers render back-to-front by index, so reverse-iterate for topmost first.
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const layer = layers[i]
+    const ids = layer?.items ?? []
+    for (let j = ids.length - 1; j >= 0; j--) {
+      const id = ids[j]
+      if (!id || !(id in items)) continue
+      const bounds = props.getItemBoundsAt(id)
+      if (!bounds) continue
+      let bMinX = Infinity
+      let bMinY = Infinity
+      let bMaxX = -Infinity
+      let bMaxY = -Infinity
+      for (const [cx, cy] of bounds.corners) {
+        if (cx < bMinX) bMinX = cx
+        if (cy < bMinY) bMinY = cy
+        if (cx > bMaxX) bMaxX = cx
+        if (cy > bMaxY) bMaxY = cy
+      }
+      if (bMinX > maxX || bMaxX < minX || bMinY > maxY || bMaxY < minY) continue
+      hits.push(id)
+    }
+  }
+  return hits
 }
 
 function onCanvasClick(event: MouseEvent): void {
@@ -418,27 +812,6 @@ function drawSelectionRing(): void {
   // selection was cleared between frames.
   ctx.clearRect(0, 0, overlayEl.width, overlayEl.height)
 
-  const id = selection.selectedItemId.value
-  if (!id) return
-  if (!props.getItemBoundsAt) return
-
-  const bounds = props.getItemBoundsAt(id)
-  if (!bounds) return
-  const pts = bounds.corners
-  if (pts.length < 2) return
-
-  // During an active drag of THIS item, the engine still renders the item
-  // at its committed transform — the ghost lives only on the overlay. We
-  // offset every corner by the in-progress translation so the ring visibly
-  // follows the cursor before pointerup commits the update_item.
-  let dx = 0
-  let dy = 0
-  const dActive = drag.active.value
-  if (dActive && dActive.itemId === id) {
-    dx = dActive.currentX - dActive.originalX
-    dy = dActive.currentY - dActive.originalY
-  }
-
   // Scale the stroke so it appears as ~2 CSS px regardless of how much CSS
   // has shrunk the composition (e.g., 1280-wide comp painted into a
   // 600-wide stage). Falling back to 2 when the CSS rect hasn't laid out
@@ -447,21 +820,54 @@ function drawSelectionRing(): void {
   const scaleX = rect.width > 0 ? overlayEl.width / rect.width : 1
   const lineWidth = 2 * Math.max(scaleX, 1)
 
+  const ids = selection.selectedItemIds.value
+  const primaryId = selection.selectedItemId.value
+
+  // For each selected id, draw a ring. Handles + currentCorners only track
+  // the primary (first / single) selection so the Inspector + handle drag
+  // both have a single source of truth.
   ctx.save()
   ctx.lineWidth = lineWidth
   ctx.lineJoin = 'round'
-  // The brand-blue ring matches the rest of the editor's selection chrome
-  // (Inspector header, Library hover) so users don't have to learn a new
-  // color for "this is selected."
   ctx.strokeStyle = '#5b7cfa'
-  ctx.beginPath()
-  ctx.moveTo(pts[0]![0] + dx, pts[0]![1] + dy)
-  for (let i = 1; i < pts.length; i++) {
-    ctx.lineTo(pts[i]![0] + dx, pts[i]![1] + dy)
+
+  let primaryCorners: Array<[number, number]> | null = null
+  for (const id of ids) {
+    const pts = pickActiveCornersFor(id)
+    if (!pts || pts.length < 2) continue
+    if (id === primaryId) primaryCorners = pts
+    ctx.beginPath()
+    ctx.moveTo(pts[0]![0], pts[0]![1])
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i]![0], pts[i]![1])
+    }
+    ctx.closePath()
+    ctx.stroke()
   }
-  ctx.closePath()
-  ctx.stroke()
   ctx.restore()
+
+  currentCorners.value = primaryCorners
+  handlePositions.value =
+    ids.length === 1 ? recomputeHandlePositions(primaryCorners) : null
+
+  // Marquee rectangle. Dashed, semi-transparent fill — Figma-style.
+  const m = marquee.value
+  if (m && m.armed) {
+    const x0 = Math.min(m.startX, m.curX)
+    const y0 = Math.min(m.startY, m.curY)
+    const w = Math.abs(m.curX - m.startX)
+    const h = Math.abs(m.curY - m.startY)
+    if (w > 0 && h > 0) {
+      ctx.save()
+      ctx.fillStyle = 'rgba(91, 124, 250, 0.12)'
+      ctx.fillRect(x0, y0, w, h)
+      ctx.lineWidth = lineWidth * 0.75
+      ctx.setLineDash([6 * scaleX, 4 * scaleX])
+      ctx.strokeStyle = '#5b7cfa'
+      ctx.strokeRect(x0, y0, w, h)
+      ctx.restore()
+    }
+  }
 }
 
 let unsubscribeTick: (() => void) | null = null
@@ -505,11 +911,33 @@ watch(
   { deep: true }
 )
 
+// Same eager redraw for resize / rotate — the engine renders the item's
+// committed geom until pointerup, so the ring + handles have to track the
+// in-progress state on their own.
+watch(
+  () => handleDrag.active.value,
+  () => {
+    drawSelectionRing()
+  },
+  { deep: true }
+)
+
+// Selection-set changes (single → multi via marquee, multi → single via
+// click): redraw so stale rings clear and new rings paint immediately.
+watch(
+  () => selection.selectedItemIds.value,
+  () => {
+    drawSelectionRing()
+  },
+  { deep: true }
+)
+
 onBeforeUnmount(() => {
   if (unsubscribeTick) {
     unsubscribeTick()
     unsubscribeTick = null
   }
+  cancelMarquee()
   clearOverlay()
 })
 </script>
@@ -554,6 +982,51 @@ onBeforeUnmount(() => {
       :height="canvasHeight"
       aria-hidden="true"
     />
+    <!--
+      Resize + rotation handles (UX_GAPS §G phase 2). Rendered as
+      absolutely-positioned HTML so they own pointer events (the overlay
+      canvas above is `pointer-events: none`). Positions are written by
+      `recomputeHandlePositions()` every tick + on reactive deps so they
+      track the selection ring in lock-step. Only shape / sprite items
+      expose handles — text / group fall through to the click hit-test.
+    -->
+    <template v-if="showHandles && handlePositions">
+      <div
+        v-for="kind in (['tl','t','tr','r','br','b','bl','l'] as const)"
+        :key="kind"
+        class="stage-handle"
+        :class="['stage-handle--' + kind]"
+        :data-handle="kind"
+        :data-testid="'stage-handle-' + kind"
+        :style="{
+          left: handlePositions[kind].x + 'px',
+          top: handlePositions[kind].y + 'px',
+        }"
+        @pointerdown="(e: PointerEvent) => onHandlePointerDown(e, kind)"
+      />
+      <div
+        class="stage-handle stage-handle--rot"
+        data-handle="rot"
+        data-testid="stage-handle-rot"
+        :style="{
+          left: handlePositions.rot.x + 'px',
+          top: handlePositions.rot.y + 'px',
+        }"
+        @pointerdown="(e: PointerEvent) => onHandlePointerDown(e, 'rot')"
+      />
+      <div
+        class="stage-handle-tether"
+        :style="{
+          left: handlePositions.t.x + 'px',
+          top: handlePositions.t.y + 'px',
+          width: '2px',
+          height: '28px',
+          transform: 'translate(-50%, -100%) rotate(' + (handlePositions.topAngleDeg + 90) + 'deg)',
+          transformOrigin: '50% 100%',
+        }"
+        aria-hidden="true"
+      />
+    </template>
     <div
       v-if="libraryDrag.isActive.value && dropAcceptsThisPayload()"
       class="drop-overlay"
@@ -612,6 +1085,63 @@ onBeforeUnmount(() => {
   position: absolute;
   display: block;
   pointer-events: none;
+}
+
+/* Resize + rotation handles (UX_GAPS §G phase 2). Eight 10×10 squares
+ * positioned at the corners + edge midpoints of the selection ring, plus
+ * a circle 28 px above the top edge for rotation. `inline-style`
+ * left/top come from recomputeHandlePositions(); the transform centers
+ * the handle on the projected point so they sit *on* the ring, not below
+ * it. Cursors are static (CSS doesn't easily rotate cursors with the
+ * item) — the canonical resize cursor for each pair is good enough.
+ */
+.stage-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  background: #ffffff;
+  border: 1.5px solid #5b7cfa;
+  box-sizing: border-box;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 2;
+}
+.stage-handle--tl,
+.stage-handle--br {
+  cursor: nwse-resize;
+}
+.stage-handle--tr,
+.stage-handle--bl {
+  cursor: nesw-resize;
+}
+.stage-handle--t,
+.stage-handle--b {
+  cursor: ns-resize;
+}
+.stage-handle--l,
+.stage-handle--r {
+  cursor: ew-resize;
+}
+.stage-handle--rot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #5b7cfa;
+  border-color: #ffffff;
+  cursor: crosshair;
+}
+
+/* A thin line connecting the top-edge midpoint to the rotation handle, so
+ * the floating handle reads as anchored to the item even when the item is
+ * rotated. */
+.stage-handle-tether {
+  position: absolute;
+  background: #5b7cfa;
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .drop-overlay {
