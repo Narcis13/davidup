@@ -34,6 +34,7 @@ import Inspector from '~/components/Inspector.vue'
 import ItemToolbar from '~/components/ItemToolbar.vue'
 import LayersPanel from '~/components/LayersPanel.vue'
 import Library from '~/components/Library.vue'
+import Outliner from '~/components/Outliner.vue'
 import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
 import StatusBar from '~/components/StatusBar.vue'
@@ -466,6 +467,10 @@ onBeforeUnmount(() => {
         v-if="bus.composition.value"
         :composition="bus.composition.value"
         @apply="bus.apply"
+      />
+      <Outliner
+        v-if="bus.composition.value"
+        :composition="bus.composition.value"
       />
       <Stage
         v-if="bus.composition.value"
