@@ -13,6 +13,7 @@
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
+import { useActiveLayer } from '~/composables/useActiveLayer'
 import type { Composition } from '~/composables/useCommandBus'
 
 const props = defineProps<{
@@ -20,20 +21,13 @@ const props = defineProps<{
 }>()
 
 const toolbar = useItemToolbar()
+const activeLayer = useActiveLayer()
 
 // ── derived: which layer placement targets ─────────────────────────────
-// Mirrors the rule from Stage.vue's `layerForDropId` — topmost layer wins.
-// We expose it so the toolbar can disable itself when no layer exists
-// (theoretical: scaffolded compositions always have at least one).
-const targetLayerId = computed<string | null>(() => {
-  const comp = props.composition
-  if (!comp || !Array.isArray(comp.layers)) return null
-  for (let i = comp.layers.length - 1; i >= 0; i -= 1) {
-    const l = comp.layers[i] as { id?: unknown } | undefined
-    if (l && typeof l.id === 'string') return l.id
-  }
-  return null
-})
+// LayersPanel sets `activeLayer.activeLayerId`; we honour it when set, and
+// fall back to the topmost layer otherwise — same rule Stage.vue uses, so
+// place mode and library drag stay consistent.
+const targetLayerId = computed<string | null>(() => activeLayer.resolveTarget(props.composition))
 
 // ── derived: font assets registered on the composition ─────────────────
 // `add_text` requires a `font` field naming an asset of type 'font'. In a

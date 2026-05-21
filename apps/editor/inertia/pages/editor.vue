@@ -31,6 +31,7 @@ import EditorLayout from '~/layouts/editor.vue'
 import HelpOverlay from '~/components/HelpOverlay.vue'
 import Inspector from '~/components/Inspector.vue'
 import ItemToolbar from '~/components/ItemToolbar.vue'
+import LayersPanel from '~/components/LayersPanel.vue'
 import Library from '~/components/Library.vue'
 import SourceDrawer from '~/components/SourceDrawer.vue'
 import Stage from '~/components/Stage.vue'
@@ -427,6 +428,11 @@ onBeforeUnmount(() => {
       <ItemToolbar
         v-if="bus.composition.value"
         :composition="bus.composition.value"
+      />
+      <LayersPanel
+        v-if="bus.composition.value"
+        :composition="bus.composition.value"
+        @apply="bus.apply"
       />
       <Stage
         v-if="bus.composition.value"

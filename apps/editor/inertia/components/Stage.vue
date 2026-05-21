@@ -30,6 +30,7 @@ import {
   buildCommandsForStageDrop,
   useLibraryDrag,
 } from '~/composables/useLibraryDrag'
+import { useActiveLayer } from '~/composables/useActiveLayer'
 import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
 import { useSelection, type PickSourceInfo } from '~/composables/useSelection'
 import { useStageDrag } from '~/composables/useStageDrag'
@@ -74,6 +75,7 @@ const emit = defineEmits<{
 
 const selection = useSelection()
 const itemToolbar = useItemToolbar()
+const activeLayer = useActiveLayer()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const overlay = ref<HTMLCanvasElement | null>(null)
@@ -88,17 +90,9 @@ const aspect = computed(() => `${canvasWidth.value} / ${canvasHeight.value}`)
 const libraryDrag = useLibraryDrag()
 const isHover = computed(() => libraryDrag.hover.value === 'stage')
 
-const layerForDropId = computed<string | null>(() => {
-  const comp = props.composition
-  if (!comp || !Array.isArray(comp.layers)) return null
-  // Prefer the highest-z layer (rendered on top) so dropped items land in
-  // the foreground; layers come ordered low→high in the canonical schema.
-  for (let i = comp.layers.length - 1; i >= 0; i -= 1) {
-    const l = comp.layers[i] as { id?: unknown } | undefined
-    if (l && typeof l.id === 'string') return l.id
-  }
-  return null
-})
+const layerForDropId = computed<string | null>(() =>
+  activeLayer.resolveTarget(props.composition),
+)
 
 function dropAcceptsThisPayload(): boolean {
   const p = libraryDrag.payload.value
