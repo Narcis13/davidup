@@ -33,12 +33,28 @@ import LibraryCard from '~/components/LibraryCard.vue'
 import SaveDefinitionDialog from '~/components/SaveDefinitionDialog.vue'
 import { useToasts } from '~/composables/useToasts'
 
+// Composition is optional so the panel still renders when no project is
+// loaded. When present we compute usage counts per asset id (UX_GAPS §J's
+// "asset usage panel"): how many sprite/text items in the composition
+// currently reference that asset, plus whether the asset is even registered
+// in `composition.assets`. The remove button uses these to decide whether
+// to call `remove_asset` directly or to confirm with the user first.
+type CompositionLike = {
+  assets?: ReadonlyArray<{ id?: unknown; type?: unknown }>
+  items?: Record<string, { type?: unknown; asset?: unknown; font?: unknown }>
+}
+
+const props = defineProps<{
+  composition?: CompositionLike | null
+}>()
+
 const lib = useLibrary({ initialTab: 'template' })
 const uploads = useAssetUpload()
 const toasts = useToasts()
 
 const emit = defineEmits<{
   (event: 'apply-template', item: LibraryItem): void
+  (event: 'remove-asset', payload: { id: string; cascade: boolean }): void
 }>()
 
 function onApply(item: LibraryItem): void {
@@ -50,6 +66,84 @@ function onApply(item: LibraryItem): void {
 // duplicate POSTs.
 const promoting = ref<Set<string>>(new Set())
 const promoteKey = (item: LibraryItem) => `${item.kind}::${item.id}`
+
+// ─── Asset usage / removal (UX_GAPS §J) ──────────────────────────────────
+//
+// `remove_asset` only knows about `composition.assets`; library catalog
+// entries are file-tracked separately. So for each library asset card we
+// surface (a) whether its id is currently *registered* in the loaded
+// composition, and (b) how many sprite/text items still reference it.
+//
+// A button on the card emits `remove-asset` upward — the page wires that
+// to `bus.apply({ kind: 'remove_asset', ... })`. We do the usage check
+// *here* (UI side) so the user gets a fast, accurate confirm prompt rather
+// than discovering the issue only after the server rejects the call.
+
+interface AssetUsageEntry {
+  registered: boolean
+  usages: number
+  usingItemIds: ReadonlyArray<string>
+}
+
+const assetIndex = computed<Map<string, AssetUsageEntry>>(() => {
+  const map = new Map<string, AssetUsageEntry>()
+  const comp = props.composition
+  if (!comp) return map
+  // Seed entries for everything actually registered in composition.assets so
+  // a registered-but-unused asset still shows up as `registered: true`.
+  for (const a of comp.assets ?? []) {
+    const id = typeof a?.id === 'string' ? a.id : null
+    if (!id) continue
+    if (!map.has(id)) {
+      map.set(id, { registered: true, usages: 0, usingItemIds: [] })
+    } else {
+      const cur = map.get(id)!
+      map.set(id, { ...cur, registered: true })
+    }
+  }
+  const items = comp.items ?? {}
+  for (const [itemId, item] of Object.entries(items)) {
+    if (!item || typeof item !== 'object') continue
+    const refs: string[] = []
+    if (item.type === 'sprite' && typeof item.asset === 'string') refs.push(item.asset)
+    if (item.type === 'text' && typeof item.font === 'string') refs.push(item.font)
+    for (const ref of refs) {
+      const cur = map.get(ref) ?? { registered: false, usages: 0, usingItemIds: [] }
+      map.set(ref, {
+        registered: cur.registered,
+        usages: cur.usages + 1,
+        usingItemIds: [...cur.usingItemIds, itemId],
+      })
+    }
+  }
+  return map
+})
+
+function usageFor(item: LibraryItem): AssetUsageEntry | null {
+  if (item.kind !== 'asset' && item.kind !== 'font') return null
+  return assetIndex.value.get(item.id) ?? { registered: false, usages: 0, usingItemIds: [] }
+}
+
+function onRemoveAsset(item: LibraryItem): void {
+  if (item.kind !== 'asset' && item.kind !== 'font') return
+  const usage = assetIndex.value.get(item.id)
+  if (!usage || !usage.registered) {
+    toasts.warning(`Asset "${item.id}" is not registered in this composition.`, {
+      dedupeKey: `library:remove-asset:${item.id}:unreg`,
+    })
+    return
+  }
+  if (usage.usages > 0) {
+    const sample = usage.usingItemIds.slice(0, 3).join(', ')
+    const tail = usage.usingItemIds.length > 3 ? `, …(+${usage.usingItemIds.length - 3} more)` : ''
+    const ok = window.confirm(
+      `"${item.id}" is referenced by ${usage.usages} item${usage.usages === 1 ? '' : 's'} (${sample}${tail}).\n\n` +
+        `Removing the asset will fail until those items are deleted or reassigned. Continue anyway?`,
+    )
+    if (!ok) return
+  }
+  emit('remove-asset', { id: item.id, cascade: false })
+}
 
 // ─── Save-definition dialog (target picker for new templates/scenes/behaviors) ───
 const saveDialogOpen = ref(false)
@@ -391,8 +485,10 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         :item="item"
         :generation="lib.generation.value"
         :promote-busy="promoting.has(`${item.kind}::${item.id}`)"
+        :asset-usage="usageFor(item)"
         @promote="onPromote"
         @apply="onApply"
+        @remove="onRemoveAsset"
       />
     </div>
 

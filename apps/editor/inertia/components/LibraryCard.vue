@@ -16,17 +16,30 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { LibraryItem } from '~/composables/useLibrary'
 import { useLibraryDrag } from '~/composables/useLibraryDrag'
 
+interface AssetUsageEntry {
+  registered: boolean
+  usages: number
+  usingItemIds: ReadonlyArray<string>
+}
+
 const props = defineProps<{
   item: LibraryItem
   /** Cache-buster bumped when the catalog reloads. */
   generation?: number
   /** Disables the promote action while a request is in flight. */
   promoteBusy?: boolean
+  /**
+   * Usage info for `kind: 'asset'` / `kind: 'font'` cards. Null for other
+   * kinds (templates, scenes, behaviors). When present, drives the "Used
+   * by N · Unused · Not registered" badge and gates the remove button.
+   */
+  assetUsage?: AssetUsageEntry | null
 }>()
 
 const emit = defineEmits<{
   (event: 'promote', item: LibraryItem): void
   (event: 'apply', item: LibraryItem): void
+  (event: 'remove', item: LibraryItem): void
 }>()
 
 // Promotion is only meaningful for JSON definitions authored as standalone
@@ -141,6 +154,57 @@ const isOverridden = computed(() => props.item.overridden === true)
 const overrideTitle = computed(() =>
   isOverridden.value ? 'Shadowed by a project entry with the same id' : ''
 )
+
+// ─── Asset usage / remove (UX_GAPS §J) ───────────────────────────────────
+const isAssetKind = computed(() => props.item.kind === 'asset' || props.item.kind === 'font')
+
+const usageBadge = computed<{ tone: 'reg' | 'unused' | 'unreg'; text: string; title: string } | null>(() => {
+  if (!isAssetKind.value) return null
+  const u = props.assetUsage
+  if (!u) return null
+  if (!u.registered) {
+    return {
+      tone: 'unreg',
+      text: 'Not registered',
+      title: 'No entry in the current composition\'s `assets` array — the engine cannot resolve it until registered.',
+    }
+  }
+  if (u.usages === 0) {
+    return {
+      tone: 'unused',
+      text: 'Unused',
+      title: 'Registered in composition.assets but no item currently references it. Safe to remove.',
+    }
+  }
+  const sample = u.usingItemIds.slice(0, 3).join(', ')
+  const tail = u.usingItemIds.length > 3 ? `, …(+${u.usingItemIds.length - 3})` : ''
+  return {
+    tone: 'reg',
+    text: `Used by ${u.usages}`,
+    title: `Referenced by: ${sample}${tail}`,
+  }
+})
+
+const canRemove = computed<boolean>(() => {
+  if (!isAssetKind.value) return false
+  const u = props.assetUsage
+  return u !== null && u !== undefined && u.registered
+})
+
+const removeTitle = computed<string>(() => {
+  if (!isAssetKind.value) return ''
+  const u = props.assetUsage
+  if (!u || !u.registered) return 'Asset is not registered in the current composition'
+  if (u.usages > 0) return `Remove "${props.item.id}" from composition.assets (${u.usages} item(s) still reference it — will need to be reassigned first)`
+  return `Remove "${props.item.id}" from composition.assets`
+})
+
+function onRemove(event: Event): void {
+  event.stopPropagation()
+  event.preventDefault()
+  if (!canRemove.value) return
+  emit('remove', props.item)
+}
 </script>
 
 <template>
@@ -219,6 +283,19 @@ const overrideTitle = computed(() =>
       >
         {{ hasParams ? 'Apply…' : 'Apply' }}
       </button>
+      <button
+        v-if="canRemove"
+        type="button"
+        class="remove-btn"
+        :title="removeTitle"
+        :aria-label="`Remove asset ${displayName} from composition`"
+        data-testid="library-remove-asset"
+        draggable="false"
+        @mousedown.stop
+        @click="onRemove"
+        @keydown.enter.stop="onRemove"
+        @keydown.space.stop="onRemove"
+      >✕</button>
     </div>
     <div class="meta">
       <h3 class="name" :class="{ 'name-overridden': isOverridden }" :title="displayName">
@@ -233,6 +310,16 @@ const overrideTitle = computed(() =>
         <span class="prov-dot" />
         <span class="prov-text">{{ provenance }}</span>
         <span v-if="isOverridden" class="prov-note">overridden</span>
+      </p>
+      <p
+        v-if="usageBadge"
+        class="usage"
+        :data-tone="usageBadge.tone"
+        :title="usageBadge.title"
+        data-testid="library-asset-usage"
+      >
+        <span class="usage-dot" />
+        <span class="usage-text">{{ usageBadge.text }}</span>
       </p>
     </div>
   </article>
@@ -411,6 +498,37 @@ const overrideTitle = computed(() =>
   transform: translateY(-1px);
 }
 
+.remove-btn {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(255, 90, 90, 0.16);
+  border: 1px solid rgba(255, 90, 90, 0.42);
+  color: #ffb4b4;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+  z-index: 2;
+  font-family: inherit;
+}
+
+.library-card:hover .remove-btn,
+.library-card:focus-within .remove-btn {
+  opacity: 1;
+}
+
+.remove-btn:hover {
+  background: rgba(255, 90, 90, 0.32);
+  border-color: rgba(255, 90, 90, 0.7);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
 .library-card[data-overridden='true'] .scope-chip {
   opacity: 0.45;
 }
@@ -517,5 +635,48 @@ const overrideTitle = computed(() =>
   text-decoration: line-through;
   text-decoration-color: rgba(255, 184, 107, 0.55);
   text-decoration-thickness: 1px;
+}
+
+.usage {
+  font-size: 10px;
+  margin: 2px 0 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.usage[data-tone='reg'] {
+  color: #8aa8ff;
+}
+
+.usage[data-tone='reg'] .usage-dot {
+  background: #5b7cfa;
+}
+
+.usage[data-tone='unused'] {
+  color: #d4d4d4;
+}
+
+.usage[data-tone='unused'] .usage-dot {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.usage[data-tone='unreg'] {
+  color: #707070;
+}
+
+.usage[data-tone='unreg'] .usage-dot {
+  background: rgba(255, 255, 255, 0.18);
 }
 </style>

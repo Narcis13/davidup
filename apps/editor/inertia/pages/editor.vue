@@ -408,6 +408,21 @@ function onApplyTemplateConfirm(payload: { params: Record<string, unknown> }): v
   applyTemplateState.value = null
 }
 
+// ─── UX_GAPS §J: remove asset from composition.assets ────────────────────
+//
+// The Library panel has already run the usage check (and shown the confirm
+// dialog when needed) — by the time we get here the user has acknowledged
+// any risk. We forward the call straight to the same command bus the
+// Inspector uses; the server's `remove_asset` handler will still reject
+// with E_ASSET_IN_USE if items reference it, and StatusBar surfaces that.
+function onLibraryRemoveAsset(payload: { id: string; cascade: boolean }): void {
+  void bus.apply({
+    kind: 'remove_asset',
+    payload: { id: payload.id },
+    source: 'ui',
+  })
+}
+
 // ─── UX_GAPS §D: composition settings dialog ─────────────────────────────
 const compositionSettingsOpen = ref(false)
 
@@ -579,7 +594,11 @@ onBeforeUnmount(() => {
     @redo="bus.redo"
   >
     <template #library>
-      <Library @apply-template="onLibraryApply" />
+      <Library
+        :composition="bus.composition.value"
+        @apply-template="onLibraryApply"
+        @remove-asset="onLibraryRemoveAsset"
+      />
     </template>
 
     <template #stage>

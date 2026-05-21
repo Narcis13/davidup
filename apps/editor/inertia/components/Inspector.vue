@@ -43,6 +43,7 @@ import EnumInput from '~/components/inputs/Enum.vue'
 import BooleanInput from '~/components/inputs/Boolean.vue'
 import PercentInput from '~/components/inputs/Percent.vue'
 import RawJsonInput from '~/components/inputs/RawJson.vue'
+import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
 
 type ItemLike = {
   type: 'sprite' | 'text' | 'shape' | 'group'
@@ -155,6 +156,27 @@ const compositionDuration = computed<number>(() => {
   return typeof d === 'number' && d > 0 ? d : 0
 })
 
+// Composition's registered assets — the source of truth for the sprite/font
+// pickers. Reads through `as` so the typed Composition's `assets` field stays
+// a `ReadonlyArray<{ src?: unknown }>` without forcing AssetPicker to learn
+// that wider shape.
+type InspectorAsset = { id: string; type?: string; family?: string; src?: string }
+
+const compositionAssets = computed<ReadonlyArray<InspectorAsset>>(() => {
+  const list = props.composition?.assets
+  if (!Array.isArray(list)) return []
+  const out: InspectorAsset[] = []
+  for (const a of list as Array<{ id?: unknown; type?: unknown; family?: unknown; src?: unknown }>) {
+    if (typeof a?.id !== 'string') continue
+    const item: InspectorAsset = { id: a.id }
+    if (typeof a.type === 'string') item.type = a.type
+    if (typeof a.family === 'string') item.family = a.family
+    if (typeof a.src === 'string') item.src = a.src
+    out.push(item)
+  }
+  return out
+})
+
 // ──────────────── Field registry ────────────────
 //
 // The PRD R2 mitigation: a registry of input components keyed by Zod meta-
@@ -165,7 +187,16 @@ const compositionDuration = computed<number>(() => {
 // Step 20.22: `boolean`, `percent`, and `json` join the registry; any
 // schema kind not listed here falls through to the `RawJson` editor so an
 // unknown type can never block editing (PRD R2).
-type FieldKind = 'number' | 'string' | 'color' | 'enum' | 'time' | 'boolean' | 'percent' | 'json'
+type FieldKind =
+  | 'number'
+  | 'string'
+  | 'color'
+  | 'enum'
+  | 'time'
+  | 'boolean'
+  | 'percent'
+  | 'json'
+  | 'asset'
 
 interface FieldDef {
   key: string
@@ -178,6 +209,8 @@ interface FieldDef {
   options?: ReadonlyArray<string>
   multiline?: boolean
   placeholder?: string
+  /** Used with `kind: 'asset'` to filter the picker by asset type. */
+  assetType?: 'image' | 'font'
 }
 
 const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
@@ -204,7 +237,7 @@ const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
 ]
 
 const SPRITE_FIELDS: ReadonlyArray<FieldDef> = [
-  { key: 'asset', label: 'asset', kind: 'string', path: 'asset' },
+  { key: 'asset', label: 'asset', kind: 'asset', path: 'asset', assetType: 'image' },
   { key: 'width', label: 'width', kind: 'number', path: 'width', min: 0, step: 1 },
   { key: 'height', label: 'height', kind: 'number', path: 'height', min: 0, step: 1 },
   { key: 'tint', label: 'tint', kind: 'color', path: 'tint' },
@@ -212,7 +245,7 @@ const SPRITE_FIELDS: ReadonlyArray<FieldDef> = [
 
 const TEXT_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'text', label: 'text', kind: 'string', path: 'text', multiline: true },
-  { key: 'font', label: 'font', kind: 'string', path: 'font' },
+  { key: 'font', label: 'font', kind: 'asset', path: 'font', assetType: 'font' },
   { key: 'fontSize', label: 'fontSize', kind: 'number', path: 'fontSize', min: 1, step: 1 },
   { key: 'color', label: 'color', kind: 'color', path: 'color' },
   {
@@ -298,10 +331,27 @@ const INPUT_FOR_KIND = {
   boolean: BooleanInput,
   percent: PercentInput,
   json: RawJsonInput,
+  asset: AssetPickerInput,
 } as const
 
 function inputFor(field: FieldDef) {
   return (INPUT_FOR_KIND as Record<string, unknown>)[field.kind] ?? RawJsonInput
+}
+
+/**
+ * Extra props for kind-specific inputs that don't fit the generic
+ * label/min/max/step/options surface. Today only the asset picker needs it
+ * (composition assets + type filter); we keep this off the `<component>`
+ * tag for every input so the others don't see noise in `$attrs`.
+ */
+function extraPropsFor(field: FieldDef): Record<string, unknown> {
+  if (field.kind === 'asset') {
+    return {
+      assets: compositionAssets.value,
+      assetType: field.assetType,
+    }
+  }
+  return {}
 }
 
 // ──────────────── Provenance ────────────────
@@ -812,6 +862,7 @@ function onSelectionChange(event: Event): void {
                   :multiline="field.multiline"
                   :overridden="isOverridden(field)"
                   :disabled="pending"
+                  v-bind="extraPropsFor(field)"
                   @update:model-value="(v: unknown) => dispatchEdit(field, v)"
                 />
               </div>
@@ -908,6 +959,7 @@ function onSelectionChange(event: Event): void {
                   :multiline="field.multiline"
                   :overridden="isOverridden(field)"
                   :disabled="pending"
+                  v-bind="extraPropsFor(field)"
                   @update:model-value="(v: unknown) => dispatchEdit(field, v)"
                 />
               </div>
