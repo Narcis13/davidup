@@ -114,7 +114,7 @@
         "rotation": 0,
         "anchorX": 0,
         "anchorY": 0,
-        "opacity": 1
+        "opacity": 0.5
       },
       "width": 240,
       "height": 120,
@@ -126,13 +126,13 @@
       "kind": "circle",
       "transform": {
         "x": 137,
-        "y": 585,
+        "y": 400,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
         "anchorX": 0,
         "anchorY": 0,
-        "opacity": 1
+        "opacity": 0.5
       },
       "width": 160,
       "height": 160,
@@ -146,7 +146,7 @@
       "color": "#ffffff",
       "transform": {
         "x": 851,
-        "y": 512,
+        "y": 400,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
@@ -162,8 +162,8 @@
       "width": 240,
       "height": 240,
       "transform": {
-        "x": 36,
-        "y": 441,
+        "x": 16,
+        "y": 400,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,

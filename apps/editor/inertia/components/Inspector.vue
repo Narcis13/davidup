@@ -134,6 +134,38 @@ const selectedItem = computed<ItemLike | null>(() => {
   return item ?? null
 })
 
+// UX_GAPS §Q multi-select — resolve every selected id to its item. Used by the
+// Mixed-badge logic + bulk dispatchEdit. Missing ids (deleted between marquee
+// and render) are silently dropped so the Inspector never throws on stale state.
+const selectedItems = computed<ReadonlyArray<ItemLike>>(() => {
+  const comp = props.composition
+  const ids = selection.selectedItemIds.value
+  if (!comp || ids.length === 0) return []
+  const items = comp.items as Record<string, ItemLike>
+  const out: ItemLike[] = []
+  for (const id of ids) {
+    const item = items[id]
+    if (item) out.push(item)
+  }
+  return out
+})
+
+const multiCount = computed<number>(() => selectedItems.value.length)
+const isMultiSelect = computed<boolean>(() => multiCount.value > 1)
+
+// `null` whenever the selection is empty OR the selected items have mixed
+// types. The type-specific section only renders when this is non-null, so
+// multi-select across mixed types collapses to the Transform-only editor.
+const commonItemType = computed<ItemLike['type'] | null>(() => {
+  const items = selectedItems.value
+  if (items.length === 0) return null
+  const first = items[0]!.type
+  for (let i = 1; i < items.length; i++) {
+    if (items[i]!.type !== first) return null
+  }
+  return first
+})
+
 const selectedItemLastSource = computed<CommandSource | null>(() => {
   const id = selection.selectedItemId.value
   const map = props.itemLastSource
@@ -301,9 +333,11 @@ const SHAPE_FIELDS: ReadonlyArray<FieldDef> = [
 ]
 
 const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
-  const item = selectedItem.value
-  if (!item) return []
-  switch (item.type) {
+  // Multi-select across mixed item types: hide the type-specific section
+  // entirely. Only Transform — common to every item — keeps rendering.
+  const type = commonItemType.value
+  if (!type) return []
+  switch (type) {
     case 'sprite':
       return SPRITE_FIELDS
     case 'text':
@@ -321,7 +355,24 @@ function valueFor(field: FieldDef): unknown {
   return readPath(selectedItem.value, field.path)
 }
 
+// UX_GAPS §Q — true when multi-select and at least two selected items
+// disagree on the field's value. Drives the "Mixed" badge per row and
+// suppresses the orange override dot (override-vs-defaults stops being
+// meaningful when N items are in scope).
+function isMixed(field: FieldDef): boolean {
+  const items = selectedItems.value
+  if (items.length < 2) return false
+  const first = readPath(items[0]!, field.path)
+  for (let i = 1; i < items.length; i++) {
+    if (!sameValue(first, readPath(items[i]!, field.path))) return true
+  }
+  return false
+}
+
 function isOverridden(field: FieldDef): boolean {
+  // Mixed values in multi-select don't have a single defaults to compare
+  // against — collapse to "not overridden" so the Mixed badge owns the row.
+  if (isMultiSelect.value) return false
   const current = readPath(selectedItem.value, field.path)
   const def = readPath(defaultsItem.value, field.path)
   // Items born in this session (no entry in the defaults snapshot) are
@@ -450,17 +501,30 @@ function onProvenanceClick(): void {
 }
 
 function dispatchEdit(field: FieldDef, raw: unknown): void {
-  const id = selection.selectedItemId.value
-  if (!id) return
   // `update_item.props` uses flat keys — both transform overrides and
   // type-specific fields share the same namespace. See applyItemUpdate
   // in src/mcp/store.ts.
-  const command: Command = {
-    kind: 'update_item',
-    payload: { id, props: { [field.key]: raw } },
-    source: 'ui',
+  //
+  // Multi-select bulk edit (UX_GAPS §Q): fire one `update_item` per
+  // selected id. The command bus serialises through the server one at a
+  // time; per-item failures show up as individual toasts so the user can
+  // tell which targets accepted the change. The Mixed badge then either
+  // clears (everyone now agrees) or stays on if some items rejected.
+  const ids = selection.selectedItemIds.value
+  const targets =
+    ids.length > 0
+      ? ids
+      : selection.selectedItemId.value
+        ? [selection.selectedItemId.value]
+        : []
+  if (targets.length === 0) return
+  for (const id of targets) {
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id, props: { [field.key]: raw } },
+      source: 'ui',
+    } as Command)
   }
-  emit('apply', command)
 }
 
 // ──────────────── Add-tween authoring (UX_GAPS §C) ────────────────
@@ -483,6 +547,10 @@ interface AddTweenPopoverState {
 const addTweenPopover = ref<AddTweenPopoverState | null>(null)
 
 function isFieldTweenable(field: FieldDef): boolean {
+  // Tween authoring is single-target by construction (`add_tween` carries
+  // one `target` id). Hide the `+ animate` button while multiple items
+  // are selected so the user doesn't think a click would animate them all.
+  if (isMultiSelect.value) return false
   const item = selectedItem.value
   if (!item) return false
   return getTweenable(item.type as ItemType, field.path) !== undefined
@@ -765,6 +833,17 @@ function onSelectionChange(event: Event): void {
           </option>
         </select>
       </label>
+      <!-- UX_GAPS §Q — when N>1 items are selected (marquee or shift-click),
+           the dropdown still shows the "primary" id; this chip surfaces the
+           extra count so the user knows their edit will fan out to N items. -->
+      <p
+        v-if="isMultiSelect"
+        class="multi-chip"
+        data-testid="inspector-multi-chip"
+      >
+        <span class="multi-chip-count">{{ multiCount }}</span>
+        <span class="multi-chip-label">items selected · bulk edit</span>
+      </p>
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
@@ -843,7 +922,7 @@ function onSelectionChange(event: Event): void {
 
     <template v-else>
       <div
-        v-if="selectedItemLocked"
+        v-if="selectedItemLocked && !isMultiSelect"
         class="locked-banner"
         data-testid="inspector-locked-banner"
         role="status"
@@ -863,24 +942,26 @@ function onSelectionChange(event: Event): void {
       </div>
       <fieldset
         class="locked-fieldset"
-        :class="{ locked: selectedItemLocked }"
-        :disabled="selectedItemLocked"
+        :class="{ locked: selectedItemLocked && !isMultiSelect }"
+        :disabled="selectedItemLocked && !isMultiSelect"
       >
       <section class="section">
         <header class="section-header">
           <span class="section-title">Transform</span>
           <span class="section-meta-group">
             <span
-              v-if="showAiEditPill"
+              v-if="showAiEditPill && !isMultiSelect"
               class="ai-edit-pill"
               data-testid="inspector-ai-edit-pill"
               title="Most recent change to this item came from an MCP / AI tool call"
             >AI edit</span>
-            <span class="section-meta">{{ selectedItem.type }}</span>
+            <span class="section-meta">
+              {{ isMultiSelect ? `${multiCount} selected` : selectedItem.type }}
+            </span>
           </span>
         </header>
         <p
-          v-if="provenance"
+          v-if="provenance && !isMultiSelect"
           class="provenance"
           data-testid="inspector-provenance"
           :title="provenanceTitle ?? undefined"
@@ -890,9 +971,21 @@ function onSelectionChange(event: Event): void {
           <span class="provenance-path">{{ provenance.text }}</span>
           <span class="provenance-shortcut" aria-hidden="true">⌘J</span>
         </p>
+        <p
+          v-if="isMultiSelect && !commonItemType"
+          class="multi-note"
+          data-testid="inspector-multi-mixed-types"
+        >
+          Mixed types selected — only Transform fields are editable in bulk.
+        </p>
         <div class="fields">
           <template v-for="field in TRANSFORM_FIELDS" :key="`tx-${field.key}`">
-            <div class="field-row" :data-field="field.key">
+            <div
+              class="field-row"
+              :class="{ mixed: isMixed(field) }"
+              :data-field="field.key"
+              :data-mixed="isMixed(field) ? 'true' : 'false'"
+            >
               <div class="field-row-input">
                 <component
                   :is="inputFor(field)"
@@ -909,6 +1002,12 @@ function onSelectionChange(event: Event): void {
                   v-bind="extraPropsFor(field)"
                   @update:model-value="(v: unknown) => dispatchEdit(field, v)"
                 />
+                <span
+                  v-if="isMixed(field)"
+                  class="mixed-badge"
+                  :data-testid="`inspector-mixed-${field.key}`"
+                  title="Selected items have different values. Editing will set them all to the same value."
+                >Mixed</span>
               </div>
               <button
                 v-if="isFieldTweenable(field)"
@@ -985,11 +1084,19 @@ function onSelectionChange(event: Event): void {
 
       <section v-if="itemSpecificFields.length > 0" class="section">
         <header class="section-header">
-          <span class="section-title">{{ selectedItem.type }}</span>
+          <span class="section-title">{{ commonItemType ?? selectedItem.type }}</span>
+          <span v-if="isMultiSelect" class="section-meta">
+            {{ multiCount }} selected
+          </span>
         </header>
         <div class="fields">
           <template v-for="field in itemSpecificFields" :key="`item-${field.key}`">
-            <div class="field-row" :data-field="field.key">
+            <div
+              class="field-row"
+              :class="{ mixed: isMixed(field) }"
+              :data-field="field.key"
+              :data-mixed="isMixed(field) ? 'true' : 'false'"
+            >
               <div class="field-row-input">
                 <component
                   :is="inputFor(field)"
@@ -1006,6 +1113,12 @@ function onSelectionChange(event: Event): void {
                   v-bind="extraPropsFor(field)"
                   @update:model-value="(v: unknown) => dispatchEdit(field, v)"
                 />
+                <span
+                  v-if="isMixed(field)"
+                  class="mixed-badge"
+                  :data-testid="`inspector-mixed-${field.key}`"
+                  title="Selected items have different values. Editing will set them all to the same value."
+                >Mixed</span>
               </div>
               <button
                 v-if="isFieldTweenable(field)"
@@ -1304,6 +1417,78 @@ function onSelectionChange(event: Event): void {
 
 .field-row-input {
   min-width: 0;
+  position: relative;
+}
+
+/* UX_GAPS §Q — Mixed indicator. The badge sits at the right edge of the
+ * field-row input column so it overlaps the input without pushing layout.
+ * `.field-row.mixed` mutes the input's value so the user reads it as "this
+ * is one of N values" rather than the canonical value. */
+.field-row.mixed .field-row-input :deep(input),
+.field-row.mixed .field-row-input :deep(select),
+.field-row.mixed .field-row-input :deep(textarea) {
+  color: rgba(229, 229, 229, 0.55);
+  border-color: rgba(255, 198, 107, 0.45);
+}
+
+.mixed-badge {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1a1a1a;
+  background: #ffc66b;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.multi-chip {
+  margin: 8px 0 0;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(91, 124, 250, 0.14);
+  border: 1px solid rgba(91, 124, 250, 0.45);
+  border-radius: 999px;
+  color: #aab7ff;
+  font-size: 11px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+}
+
+.multi-chip-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 600;
+  background: rgba(91, 124, 250, 0.35);
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.multi-chip-label {
+  letter-spacing: 0.04em;
+}
+
+.multi-note {
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #ffe2a8;
+  background: rgba(255, 198, 107, 0.08);
+  border: 1px solid rgba(255, 198, 107, 0.32);
+  border-radius: 4px;
 }
 
 .animate-btn {
