@@ -30,6 +30,8 @@ interface Shortcut {
 const shortcuts = computed<Shortcut[]>(() => [
   { keys: ['Space'], label: 'Play / pause the stage' },
   { keys: ['Backspace'], label: 'Delete the current selection' },
+  { keys: [`${modKey.value}`, 'Z'], label: 'Undo the most recent edit' },
+  { keys: [`${modKey.value}`, '⇧', 'Z'], label: 'Redo the most recently undone edit' },
   { keys: [`${modKey.value}`, '0'], label: 'Fit timeline (reset playhead to start)' },
   { keys: [`${modKey.value}`, 'J'], label: 'Toggle reveal-in-source drawer' },
   { keys: [`${modKey.value}`, 'R'], label: 'Render to MP4' },

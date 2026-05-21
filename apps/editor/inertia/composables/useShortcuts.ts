@@ -49,6 +49,10 @@ export interface UseShortcutsOptions {
   forceFlush?: () => void | Promise<void>
   /** `?` — toggle the help overlay (shortcuts, drag-and-drop, MCP cheat-sheet). */
   toggleHelp?: () => void | Promise<void>
+  /** ⌘Z / Ctrl+Z — undo the most recent forward edit. */
+  undo?: () => void | Promise<void>
+  /** ⌘⇧Z / Ctrl+Shift+Z — redo the most recently undone edit. */
+  redo?: () => void | Promise<void>
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -122,10 +126,31 @@ export function useShortcuts(options: UseShortcutsOptions): void {
       return
     }
 
-    // ── Platform-mod chords ── ⌘ on macOS, Ctrl elsewhere. We refuse the
-    // Shift/Alt variants so the user can still hit ⌘⇧R (hard refresh) etc.
+    // ── Platform-mod chords ── ⌘ on macOS, Ctrl elsewhere. Alt always
+    // disqualifies (those map to OS-level shortcuts). Shift is accepted only
+    // for the explicit redo chord below; every other chord refuses it so the
+    // user can still hit ⌘⇧R (hard refresh) etc.
     if (!hasPlatformMod(event)) return
-    if (event.altKey || event.shiftKey) return
+    if (event.altKey) return
+
+    // ⌘Z / Ctrl+Z (no Shift) → undo. ⌘⇧Z / Ctrl+Shift+Z → redo. We branch
+    // on `event.key` (capital `Z` when Shift is held, lowercase `z`
+    // otherwise) and on `event.shiftKey` so both layouts route correctly.
+    if (event.key === 'z' || event.key === 'Z') {
+      if (event.shiftKey) {
+        if (!options.redo) return
+        event.preventDefault()
+        invoke(options.redo)
+      } else {
+        if (!options.undo) return
+        event.preventDefault()
+        invoke(options.undo)
+      }
+      return
+    }
+
+    // The remaining chords reject Shift (see hard-refresh note above).
+    if (event.shiftKey) return
 
     // `event.key` for letters is the *lowercase* form when no Shift is held,
     // matching the UI Events spec. The digit row reports the digit itself.

@@ -32,7 +32,42 @@ const props = defineProps<{
   projectRoot?: string | null
   pending?: boolean
   commandError?: string | null
+  undoStackSize?: number
+  redoStackSize?: number
 }>()
+
+const emit = defineEmits<{
+  (event: 'undo'): void
+  (event: 'redo'): void
+}>()
+
+const canUndo = computed<boolean>(() => (props.undoStackSize ?? 0) > 0)
+const canRedo = computed<boolean>(() => (props.redoStackSize ?? 0) > 0)
+
+const isMacPlatform = computed<boolean>(() => {
+  if (typeof navigator === 'undefined') return false
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
+})
+
+const undoTitle = computed<string>(() => {
+  const mod = isMacPlatform.value ? '⌘' : 'Ctrl+'
+  return canUndo.value ? `Undo (${mod}Z)` : 'Nothing to undo'
+})
+
+const redoTitle = computed<string>(() => {
+  const mod = isMacPlatform.value ? '⌘⇧' : 'Ctrl+Shift+'
+  return canRedo.value ? `Redo (${mod}Z)` : 'Nothing to redo'
+})
+
+function onUndo(): void {
+  if (!canUndo.value) return
+  emit('undo')
+}
+
+function onRedo(): void {
+  if (!canRedo.value) return
+  emit('redo')
+}
 
 const panel = usePanelLayout()
 
@@ -293,6 +328,36 @@ watch(
       </div>
 
       <div class="app-bar-center" data-testid="app-bar-save-status">
+        <div class="history-group" data-testid="history-group">
+          <button
+            type="button"
+            class="history-btn"
+            data-testid="undo-btn"
+            :title="undoTitle"
+            :aria-label="undoTitle"
+            :disabled="!canUndo"
+            @click="onUndo"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 7v6h6" />
+              <path d="M21 17a8 8 0 0 0-8-8H3" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="history-btn"
+            data-testid="redo-btn"
+            :title="redoTitle"
+            :aria-label="redoTitle"
+            :disabled="!canRedo"
+            @click="onRedo"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 7v6h-6" />
+              <path d="M3 17a8 8 0 0 1 8-8h10" />
+            </svg>
+          </button>
+        </div>
         <span v-if="saveStatus.label" class="save-status" :data-tone="saveStatus.tone">
           <span class="save-status-dot" aria-hidden="true" />
           {{ saveStatus.label }}
@@ -432,6 +497,43 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 12px;
+}
+
+.history-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.history-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, color 120ms ease;
+  padding: 0;
+}
+
+.history-btn:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.16);
+  color: #e7ecff;
+}
+
+.history-btn:disabled {
+  color: #555;
+  cursor: default;
 }
 
 .app-bar-right {

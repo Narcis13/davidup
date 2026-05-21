@@ -70,6 +70,7 @@ export interface ChangeEvent {
   prev: Composition
   next: Composition
   undoStackSize: number
+  redoStackSize: number
   /**
    * True when this event was produced by `undo()` rather than a forward
    * `apply()`. The `command` and `source` fields carry the *original*
@@ -78,12 +79,15 @@ export interface ChangeEvent {
    * MCP-attributed change.
    */
   undo: boolean
+  /** True when this event was produced by `redo()` re-applying a previously-undone command. */
+  redo: boolean
 }
 
 export interface ApplyResult {
   composition: Composition
   command: Command
   undoStackSize: number
+  redoStackSize: number
   /**
    * The payload the underlying MCP tool would have returned (e.g. `{ itemId }`
    * for `add_sprite`, `{ tweenIds }` for `apply_behavior`). Surfaced for the
@@ -104,10 +108,20 @@ interface UndoEntry {
   command: Command
 }
 
+// Redo entry — produced when `undo()` pops a snapshot. We keep the *forward*
+// (post-apply) composition so we can restore it on redo, plus the command
+// that produced it so subscribers still see the original `source`. A fresh
+// forward `apply()` clears the redo stack (linear history; no branching).
+interface RedoEntry {
+  snapshot: Composition
+  command: Command
+}
+
 export class CommandBus {
   readonly #projectStore: ProjectStore
   readonly #undoDepth: number
   readonly #undoStack: UndoEntry[] = []
+  readonly #redoStack: RedoEntry[] = []
   readonly #subscribers = new Set<Subscriber>()
   // Serialization chain: each apply() splices itself onto the tail. Reading
   // `#projectStore.composition` and writing it back straddles an `await`, so
@@ -124,6 +138,11 @@ export class CommandBus {
   /** Number of snapshots currently available for undo (max = undoDepth). */
   get undoStackSize(): number {
     return this.#undoStack.length
+  }
+
+  /** Number of snapshots currently available for redo. Cleared by any forward apply(). */
+  get redoStackSize(): number {
+    return this.#redoStack.length
   }
 
   /**
@@ -187,6 +206,10 @@ export class CommandBus {
     }
 
     this.#pushUndo(current, command)
+    // A new forward edit makes the previously-undone branch unreachable —
+    // linear history (FR-09). Clearing here keeps undo/redo semantics simple
+    // and matches user expectation from every other editor on the planet.
+    this.#redoStack.length = 0
     this.#projectStore.update(next)
 
     const event: ChangeEvent = {
@@ -195,7 +218,9 @@ export class CommandBus {
       prev: current,
       next,
       undoStackSize: this.#undoStack.length,
+      redoStackSize: this.#redoStack.length,
       undo: false,
+      redo: false,
     }
     this.#emit(event)
 
@@ -203,6 +228,7 @@ export class CommandBus {
       composition: next,
       command,
       undoStackSize: this.#undoStack.length,
+      redoStackSize: this.#redoStack.length,
       toolResult,
     }
   }
@@ -210,8 +236,8 @@ export class CommandBus {
   /**
    * Pop the most recent snapshot off the undo stack and make it the current
    * composition. Returns the restored composition or `null` if the stack is
-   * empty. The redo stack is intentionally not implemented — the PRD calls
-   * for a linear, project-scoped undo (FR-09); redo lands in a later step.
+   * empty. The forward state is pushed onto the redo stack so `redo()` can
+   * re-apply it without re-running the command (linear history per FR-09).
    *
    * The emitted ChangeEvent carries the *original* command's source — undoing
    * an MCP edit reports `source: 'mcp'` so per-item "AI edit" attribution
@@ -221,6 +247,13 @@ export class CommandBus {
     const entry = this.#undoStack.pop()
     if (!entry) return null
     const current = this.#projectStore.composition as Composition | null
+    if (current) {
+      // Stash the forward state on the redo stack so redo() can restore it.
+      // We snapshot here too — `current` may be mutated by future apply()s
+      // that don't see this branch (the next forward apply() will clear redo
+      // anyway, but we want safety until then).
+      this.#redoStack.push({ snapshot: deepClone(current), command: entry.command })
+    }
     this.#projectStore.update(entry.snapshot)
     if (current) {
       const event: ChangeEvent = {
@@ -229,7 +262,45 @@ export class CommandBus {
         prev: current,
         next: entry.snapshot,
         undoStackSize: this.#undoStack.length,
+        redoStackSize: this.#redoStack.length,
         undo: true,
+        redo: false,
+      }
+      this.#emit(event)
+    }
+    return entry.snapshot
+  }
+
+  /**
+   * Pop the most recent snapshot off the redo stack and make it the current
+   * composition. Mirror of `undo()` — pushes the pre-redo state back onto
+   * the undo stack so the user can yo-yo without losing history. Returns
+   * the restored composition or `null` if the redo stack is empty (no
+   * undone command to replay).
+   */
+  redo(): Composition | null {
+    const entry = this.#redoStack.pop()
+    if (!entry) return null
+    const current = this.#projectStore.composition as Composition | null
+    if (current) {
+      // Move the current state (which is the pre-redo / undone snapshot)
+      // back onto the undo stack so a follow-up undo restores it.
+      this.#undoStack.push({ snapshot: deepClone(current), command: entry.command })
+      while (this.#undoStack.length > this.#undoDepth) {
+        this.#undoStack.shift()
+      }
+    }
+    this.#projectStore.update(entry.snapshot)
+    if (current) {
+      const event: ChangeEvent = {
+        command: entry.command,
+        source: entry.command.source,
+        prev: current,
+        next: entry.snapshot,
+        undoStackSize: this.#undoStack.length,
+        redoStackSize: this.#redoStack.length,
+        undo: false,
+        redo: true,
       }
       this.#emit(event)
     }
@@ -244,21 +315,23 @@ export class CommandBus {
     }
   }
 
-  /** Drop every subscriber and clear the undo stack. Used in tests. */
+  /** Drop every subscriber and clear the undo + redo stacks. Used in tests. */
   reset(): void {
     this.#subscribers.clear()
     this.#undoStack.length = 0
+    this.#redoStack.length = 0
     this.#queue = Promise.resolve()
   }
 
   /**
-   * Clear the undo stack without touching subscribers or the serialization
-   * queue. Called by `ProjectStore#load()` on a project switch — the undo
-   * history is project-scoped (FR-09), so reverting into the prior project's
-   * snapshots after switching would corrupt the new composition.
+   * Clear the undo + redo stacks without touching subscribers or the
+   * serialization queue. Called by `ProjectStore#load()` on a project switch
+   * — history is project-scoped (FR-09), so reverting into the prior
+   * project's snapshots after switching would corrupt the new composition.
    */
   resetUndo(): void {
     this.#undoStack.length = 0
+    this.#redoStack.length = 0
   }
 
   #pushUndo(snapshot: Composition, command: Command): void {

@@ -288,6 +288,8 @@ useShortcuts({
   render: startRender,
   forceFlush,
   toggleHelp,
+  undo: () => bus.undo(),
+  redo: () => bus.redo(),
 })
 
 // ─── Step 18b: window-level file drop ────────────────────────────────────
@@ -412,6 +414,10 @@ onBeforeUnmount(() => {
     :project-root="project?.root ?? null"
     :pending="bus.pending.value"
     :command-error="bus.error.value"
+    :undo-stack-size="bus.undoStackSize.value"
+    :redo-stack-size="bus.redoStackSize.value"
+    @undo="bus.undo"
+    @redo="bus.redo"
   >
     <template #library>
       <Library />

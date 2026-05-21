@@ -99,6 +99,14 @@ export interface UseCommandBusReturn {
    */
   errorReport: Ref<CommandErrorReport | null>
   apply: (command: Command) => Promise<void>
+  /** Pop the most recent forward edit and restore the pre-edit composition. */
+  undo: () => Promise<void>
+  /** Re-apply the most recently undone edit. */
+  redo: () => Promise<void>
+  /** Reactive size of the server's undo stack. 0 disables the undo button. */
+  undoStackSize: Ref<number>
+  /** Reactive size of the server's redo stack. 0 disables the redo button. */
+  redoStackSize: Ref<number>
   /**
    * Source of the most recent mutation that touched each item id. The
    * Inspector reads this to render the "AI edit" pill when the selected
@@ -142,6 +150,12 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
   const pending = ref(false)
   const error = ref<string | null>(null)
   const errorReport = ref<CommandErrorReport | null>(null)
+  // Mirrored from every /api/command, /api/command/undo, /api/command/redo
+  // response. Header buttons + ⌘Z/⌘⇧Z shortcuts consult these to enable /
+  // disable themselves. Seeded at 0 — a fresh page load has no in-session
+  // history, even though the project may have edits on disk.
+  const undoStackSize = ref(0)
+  const redoStackSize = ref(0)
   // Per-item last-edit attribution. shallowRef + manual triggerRef avoids
   // wrapping every Map mutation in a reactive proxy — the Inspector only
   // reads .get() and never iterates, so deep reactivity buys nothing.
@@ -179,11 +193,15 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
         composition: Composition
         command: Command
         toolResult?: unknown
+        undoStackSize?: number
+        redoStackSize?: number
       }
       composition.value = rewriteAssetsForBrowser(data.composition)
       errorReport.value = null
       sink?.clearCommandError()
       sink?.setComposition(composition.value)
+      if (typeof data.undoStackSize === 'number') undoStackSize.value = data.undoStackSize
+      if (typeof data.redoStackSize === 'number') redoStackSize.value = data.redoStackSize
 
       // The server echoes the parsed command (with `source` defaulted). Use
       // that — not the outgoing `command` — so any server-side normalisation
@@ -202,12 +220,77 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     }
   }
 
+  // Shared body for undo() + redo(). Both endpoints return the same
+  // envelope; the only difference is the URL. A 409 response means the
+  // respective stack is empty — silent no-op (no toast) since the button
+  // would normally be disabled in that state; only an out-of-sync client
+  // (or a stale shortcut press) ever hits it.
+  async function callHistory(path: '/api/command/undo' | '/api/command/redo'): Promise<void> {
+    pending.value = true
+    error.value = null
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+      })
+      if (!res.ok) {
+        // 409 with E_UNDO_EMPTY / E_REDO_EMPTY: stay silent — the UI keeps
+        // its disabled state in sync with the next response. Other failures
+        // (404 no-project, network) flow through to toast + error ref so
+        // they're not invisible.
+        const report = await parseErrorBody(res)
+        if (report.code === 'E_UNDO_EMPTY' || report.code === 'E_REDO_EMPTY') {
+          // Pull the latest stack sizes if the server hinted at them via
+          // the response body — defensive only; the codes above don't
+          // currently carry them.
+          return
+        }
+        errorReport.value = report
+        sink?.recordCommandError(report)
+        useToasts().error(report.message, {
+          message: report.hint ?? report.code,
+          dedupeKey: `command:${report.code}`,
+        })
+        throw new Error(report.message)
+      }
+      const data = (await res.json()) as {
+        composition: Composition
+        undoStackSize?: number
+        redoStackSize?: number
+      }
+      composition.value = rewriteAssetsForBrowser(data.composition)
+      errorReport.value = null
+      sink?.clearCommandError()
+      sink?.setComposition(composition.value)
+      if (typeof data.undoStackSize === 'number') undoStackSize.value = data.undoStackSize
+      if (typeof data.redoStackSize === 'number') redoStackSize.value = data.redoStackSize
+    } catch (err) {
+      error.value = (err as Error).message ?? String(err)
+    } finally {
+      pending.value = false
+    }
+  }
+
+  async function undo(): Promise<void> {
+    if (undoStackSize.value === 0) return
+    await callHistory('/api/command/undo')
+  }
+
+  async function redo(): Promise<void> {
+    if (redoStackSize.value === 0) return
+    await callHistory('/api/command/redo')
+  }
+
   return {
     composition,
     pending,
     error,
     errorReport,
     apply,
+    undo,
+    redo,
+    undoStackSize,
+    redoStackSize,
     itemLastSource,
   }
 }
