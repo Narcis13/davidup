@@ -37,6 +37,14 @@ const lib = useLibrary({ initialTab: 'template' })
 const uploads = useAssetUpload()
 const toasts = useToasts()
 
+const emit = defineEmits<{
+  (event: 'apply-template', item: LibraryItem): void
+}>()
+
+function onApply(item: LibraryItem): void {
+  emit('apply-template', item)
+}
+
 // Promote requests in flight, keyed by `${kind}::${id}`. Each card's
 // disabled state is derived from this map so two rapid clicks don't fire
 // duplicate POSTs.
@@ -384,6 +392,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         :generation="lib.generation.value"
         :promote-busy="promoting.has(`${item.kind}::${item.id}`)"
         @promote="onPromote"
+        @apply="onApply"
       />
     </div>
 

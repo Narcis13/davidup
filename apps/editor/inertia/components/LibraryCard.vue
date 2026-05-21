@@ -26,6 +26,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'promote', item: LibraryItem): void
+  (event: 'apply', item: LibraryItem): void
 }>()
 
 // Promotion is only meaningful for JSON definitions authored as standalone
@@ -45,6 +46,21 @@ function onPromote(event: Event): void {
   event.preventDefault()
   if (!canPromote.value || props.promoteBusy) return
   emit('promote', props.item)
+}
+
+// "Apply…" button: deliberate insertion path for parameterized templates,
+// opening the override dialog. Available on every template card so the
+// non-param case also has a click-to-apply affordance.
+const canApply = computed(() => props.item.kind === 'template')
+const hasParams = computed(
+  () => Array.isArray(props.item.params) && props.item.params.length > 0,
+)
+
+function onApply(event: Event): void {
+  event.stopPropagation()
+  event.preventDefault()
+  if (!canApply.value) return
+  emit('apply', props.item)
 }
 
 // Step 14: library cards are draggable. We push the catalog payload onto the
@@ -183,6 +199,25 @@ const overrideTitle = computed(() =>
         @keydown.space.stop="onPromote"
       >
         {{ promoteBusy ? '…' : '↑ 🌐' }}
+      </button>
+      <button
+        v-if="canApply"
+        type="button"
+        class="apply-btn"
+        :title="hasParams
+          ? `Apply ${displayName} with custom parameters`
+          : `Apply ${displayName}`"
+        :aria-label="hasParams
+          ? `Apply ${displayName} with parameters`
+          : `Apply ${displayName}`"
+        data-testid="library-apply"
+        draggable="false"
+        @mousedown.stop
+        @click="onApply"
+        @keydown.enter.stop="onApply"
+        @keydown.space.stop="onApply"
+      >
+        {{ hasParams ? 'Apply…' : 'Apply' }}
       </button>
     </div>
     <div class="meta">
@@ -345,6 +380,35 @@ const overrideTitle = computed(() =>
 .promote-btn:disabled {
   opacity: 0.55;
   cursor: progress;
+}
+
+.apply-btn {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 9px;
+  border-radius: 4px;
+  background: rgba(255, 184, 107, 0.18);
+  border: 1px solid rgba(255, 184, 107, 0.45);
+  color: #ffd0a3;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+  z-index: 2;
+  font-family: inherit;
+}
+
+.library-card:hover .apply-btn,
+.library-card:focus-within .apply-btn {
+  opacity: 1;
+}
+
+.apply-btn:hover {
+  background: rgba(255, 184, 107, 0.32);
+  transform: translateY(-1px);
 }
 
 .library-card[data-overridden='true'] .scope-chip {

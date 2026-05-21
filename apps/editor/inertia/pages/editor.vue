@@ -28,6 +28,7 @@ import { useShortcuts } from '~/composables/useShortcuts'
 import { useToasts } from '~/composables/useToasts'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
+import ApplyTemplateDialog from '~/components/ApplyTemplateDialog.vue'
 import CompositionSettingsDialog from '~/components/CompositionSettingsDialog.vue'
 import HelpOverlay from '~/components/HelpOverlay.vue'
 import Inspector from '~/components/Inspector.vue'
@@ -40,6 +41,7 @@ import Stage from '~/components/Stage.vue'
 import StatusBar from '~/components/StatusBar.vue'
 import Timeline from '~/components/Timeline.vue'
 import Toasts from '~/components/Toasts.vue'
+import type { LibraryItem } from '~/composables/useLibrary'
 
 interface CompositionSource {
   text: string
@@ -293,6 +295,118 @@ function onHelpToggleEvent(): void {
   toggleHelp()
 }
 
+// ─── Apply-with-params dialog (UX_GAPS §I) ───────────────────────────────
+// Clicking the "Apply…" button on a parameterized library template opens
+// this dialog so the user can override param values per insertion. The
+// drag-and-drop path continues to apply silently with brand defaults; this
+// is the deliberate, click-driven entry point.
+interface ApplyTemplateState {
+  item: LibraryItem
+  layerId: string
+  start: number
+  defaults: Record<string, unknown>
+}
+const applyTemplateState = ref<ApplyTemplateState | null>(null)
+const applyTemplateOpen = computed(() => applyTemplateState.value !== null)
+
+function resolveDefaultsForApply(item: LibraryItem): Record<string, unknown> {
+  // Mirrors the brand-defaults logic in `useLibraryDrag.resolveDefaultParams`
+  // so the dialog opens with the same starting values the drag path would
+  // have used silently. Required params with no `default` get a string
+  // placeholder so the user sees something they can edit.
+  const out: Record<string, unknown> = {}
+  const params = Array.isArray(item.params) ? (item.params as unknown[]) : []
+  for (const raw of params) {
+    const p = raw as { name?: string; type?: string; required?: boolean; default?: unknown }
+    if (!p || typeof p.name !== 'string' || p.name.length === 0) continue
+    if (Object.prototype.hasOwnProperty.call(p, 'default') && p.default !== undefined) {
+      out[p.name] = p.default
+      continue
+    }
+    if (p.required) {
+      switch (p.type) {
+        case 'number':
+          out[p.name] = 0
+          break
+        case 'boolean':
+          out[p.name] = false
+          break
+        case 'color':
+          out[p.name] = '#ffffff'
+          break
+        default:
+          out[p.name] = item.name ?? item.id
+      }
+    }
+  }
+  return out
+}
+
+function pickHostLayerId(): string | null {
+  const comp = bus.composition.value
+  if (!comp || !Array.isArray(comp.layers) || comp.layers.length === 0) return null
+  const first = comp.layers[0]
+  return typeof first?.id === 'string' ? first.id : null
+}
+
+function onLibraryApply(item: LibraryItem): void {
+  if (item.kind !== 'template') return
+  const layerId = pickHostLayerId()
+  if (!layerId) {
+    toasts.error('No layers available to host the template.', {
+      dedupeKey: 'apply-template:no-layer',
+    })
+    return
+  }
+  const start = Math.max(0, stage.playhead.value ?? 0)
+  const defaults = resolveDefaultsForApply(item)
+  const params = Array.isArray(item.params) ? item.params : []
+  if (params.length === 0) {
+    // Non-parameterized templates skip the dialog entirely.
+    dispatchApplyTemplate(item, layerId, start, defaults)
+    return
+  }
+  applyTemplateState.value = { item, layerId, start, defaults }
+}
+
+function closeApplyTemplate(): void {
+  applyTemplateState.value = null
+}
+
+function makeTemplateInstanceId(templateId: string, start: number): string {
+  const millis = Math.round(start * 1000)
+  const suffix = Date.now().toString(36).slice(-4)
+  const sanitized = templateId.replace(/[^a-zA-Z0-9_-]/g, '_')
+  return `${sanitized}_${millis}_${suffix}`
+}
+
+function dispatchApplyTemplate(
+  item: LibraryItem,
+  layerId: string,
+  start: number,
+  params: Record<string, unknown>,
+): void {
+  const id = makeTemplateInstanceId(item.id, start)
+  void bus.apply({
+    kind: 'apply_template',
+    payload: {
+      templateId: item.id,
+      layerId,
+      start,
+      ...(Object.keys(params).length > 0 ? { params } : {}),
+      id,
+    },
+    source: 'ui',
+  })
+}
+
+function onApplyTemplateConfirm(payload: { params: Record<string, unknown> }): void {
+  const state = applyTemplateState.value
+  if (!state) return
+  dispatchApplyTemplate(state.item, state.layerId, state.start, payload.params)
+  applyTemplateState.value = null
+}
+
 // ─── UX_GAPS §D: composition settings dialog ─────────────────────────────
 const compositionSettingsOpen = ref(false)
 
@@ -455,7 +569,7 @@ onBeforeUnmount(() => {
     @redo="bus.redo"
   >
     <template #library>
-      <Library />
+      <Library @apply-template="onLibraryApply" />
     </template>
 
     <template #stage>
@@ -553,6 +667,16 @@ onBeforeUnmount(() => {
     :composition="bus.composition.value"
     @close="closeCompositionSettings"
     @apply="bus.apply"
+  />
+
+  <ApplyTemplateDialog
+    :open="applyTemplateOpen"
+    :item="applyTemplateState?.item ?? null"
+    :initial-values="applyTemplateState?.defaults"
+    :layer-id="applyTemplateState?.layerId ?? null"
+    :start="applyTemplateState?.start"
+    @close="closeApplyTemplate"
+    @apply="onApplyTemplateConfirm"
   />
 
   <Toasts />
