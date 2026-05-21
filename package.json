@@ -23,7 +23,8 @@
     "dev:four-scenes": "vite --config examples/four-scenes-browser/vite.config.ts",
     "build:four-scenes": "vite build --config examples/four-scenes-browser/vite.config.ts",
     "mcp": "bun run src/mcp/bin.ts",
-    "cli": "bun run src/cli/bin.ts"
+    "cli": "bun run src/cli/bin.ts",
+    "seed:library": "bun run scripts/seed-global-library.ts"
   },
   "bin": {
     "davidup-mcp": "./src/mcp/bin.ts",

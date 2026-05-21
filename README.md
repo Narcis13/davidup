@@ -65,6 +65,21 @@ integration test in `tests/drivers/node.integration.test.ts` renders the
 §3.1 hello-world via the full skia-canvas + ffmpeg pipeline and verifies
 the MP4 with `ffprobe`.
 
+### Seed the global library (one-off)
+
+Populate `$DAVIDUP_LIBRARY` (default `~/.davidup/library`) with a curated
+starter pack — ~10 ready-to-drag templates, the 11 built-in behaviors as
+draggable cards, and ~10 open-source fonts (downloaded from the
+`@fontsource` jsdelivr mirror). Re-run any time; the script is idempotent.
+
+```bash
+bun run seed:library                  # full seed (network needed for fonts)
+bun run seed:library -- --skip-fonts  # offline mode
+bun run seed:library -- --dry-run     # preview without writing
+```
+
+See `scripts/seed-global-library.ts` for the catalog and to add your own.
+
 ---
 
 ## Quickstart — three flavors of "hello world"
