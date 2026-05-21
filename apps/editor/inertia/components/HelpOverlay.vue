@@ -11,9 +11,17 @@
 // (and inventing one for six entries would be overkill).
 
 import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useEditorPrefs } from '~/composables/useEditorPrefs'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (event: 'close'): void }>()
+
+const prefs = useEditorPrefs()
+
+async function reshowOnboarding(): Promise<void> {
+  await prefs.resetOnboarding()
+  emit('close')
+}
 
 const isMac = computed<boolean>(() => {
   if (typeof navigator === 'undefined') return false
@@ -53,6 +61,36 @@ const dragAffordances: DragAffordance[] = [
     from: 'Inspector "+ animate" pill on a tweenable field',
     to: 'Same field row',
     result: 'Opens a popover to author a new tween for that property — confirm to dispatch add_tween.',
+  },
+  {
+    from: 'Inspector "Move to" dropdown',
+    to: 'Layer choice',
+    result: 'Reparents the selected item between layers via move_item_to_layer.',
+  },
+  {
+    from: 'Inspector "Name" field',
+    to: 'Selected item',
+    result: 'Sets a friendly label that shows up in the Outliner / Layers panel alongside the raw id.',
+  },
+  {
+    from: 'Double-click a Layers panel row label',
+    to: 'Same row',
+    result: 'Inline-rename the layer — Enter commits, Esc cancels. Saves as a friendly name beside the id.',
+  },
+  {
+    from: 'Recent-color swatch in any Inspector color picker',
+    to: 'Same field',
+    result: 'Applies the picked color — the strip remembers the last 8 unique hex values you used.',
+  },
+  {
+    from: 'Render button / ⌘R',
+    to: 'Editor toolbar',
+    result: 'Opens the render dialog so you can pick a preset and filename before kickoff.',
+  },
+  {
+    from: 'Render history checkbox',
+    to: 'Past render row',
+    result: 'Multi-select renders to bulk-delete; the Rename button retitles a render in place.',
   },
   {
     from: 'Stage toolbar button (Rectangle / Circle / Text / Sprite)',
@@ -296,6 +334,13 @@ onBeforeUnmount(() => {
       </div>
 
       <footer class="help-footer">
+        <button
+          type="button"
+          class="reshow-btn"
+          data-testid="help-overlay-reshow-onboarding"
+          title="Show the get-started overlay again"
+          @click="reshowOnboarding"
+        >Re-show onboarding</button>
         <span>Press <kbd>?</kbd> or <kbd>Esc</kbd> to close.</span>
       </footer>
     </div>
@@ -586,8 +631,26 @@ kbd {
   color: #909090;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reshow-btn {
+  appearance: none;
+  background: rgba(91, 124, 250, 0.1);
+  border: 1px solid rgba(91, 124, 250, 0.32);
+  color: #c8d2ff;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.reshow-btn:hover {
+  background: rgba(91, 124, 250, 0.2);
+  border-color: rgba(91, 124, 250, 0.5);
+  color: #ffffff;
 }
 
 .help-footer kbd {

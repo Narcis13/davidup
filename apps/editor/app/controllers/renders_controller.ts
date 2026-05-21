@@ -19,7 +19,7 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, stat } from 'node:fs/promises'
+import { mkdir, readdir, rename as renameFile, stat, unlink } from 'node:fs/promises'
 import { extname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 
 import type { HttpContext } from '@adonisjs/core/http'
@@ -47,6 +47,51 @@ function timestampStamp(now = new Date()): string {
 interface CreateRenderBody {
   /** Optional output filename, relative to `renders/` or absolute under the project. */
   filename?: unknown
+  /** Optional ffmpeg knobs — codec / crf / preset / pixFmt. Forwarded to the worker. */
+  renderOptions?: unknown
+}
+
+const ALLOWED_CODECS = new Set(['libx264', 'libx265'])
+const ALLOWED_PRESETS = new Set([
+  'ultrafast',
+  'superfast',
+  'veryfast',
+  'faster',
+  'fast',
+  'medium',
+  'slow',
+  'slower',
+  'veryslow',
+])
+const ALLOWED_PIX_FMTS = new Set(['yuv420p', 'yuv422p', 'yuv444p', 'yuv420p10le'])
+
+function parseRenderOptions(raw: unknown): {
+  codec?: 'libx264' | 'libx265'
+  crf?: number
+  preset?: string
+  pixFmt?: string
+} | null {
+  if (!raw || typeof raw !== 'object') return null
+  const src = raw as Record<string, unknown>
+  const out: {
+    codec?: 'libx264' | 'libx265'
+    crf?: number
+    preset?: string
+    pixFmt?: string
+  } = {}
+  if (typeof src.codec === 'string' && ALLOWED_CODECS.has(src.codec)) {
+    out.codec = src.codec as 'libx264' | 'libx265'
+  }
+  if (typeof src.crf === 'number' && Number.isFinite(src.crf) && src.crf >= 0 && src.crf <= 51) {
+    out.crf = Math.round(src.crf)
+  }
+  if (typeof src.preset === 'string' && ALLOWED_PRESETS.has(src.preset)) {
+    out.preset = src.preset
+  }
+  if (typeof src.pixFmt === 'string' && ALLOWED_PIX_FMTS.has(src.pixFmt)) {
+    out.pixFmt = src.pixFmt
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 /**
@@ -107,6 +152,8 @@ export default class RendersController {
     const outputPath = join(rendersDir, safeName)
     const relativeOutputPath = relative(project.root, outputPath)
 
+    const renderOptions = parseRenderOptions(body.renderOptions)
+
     const jobId = randomUUID()
     const job = new RenderJob({
       jobId,
@@ -114,6 +161,7 @@ export default class RendersController {
       outputPath,
       relativeOutputPath,
       sourcePath: project.compositionPath,
+      ...(renderOptions ? { renderOptions } : {}),
     })
     renderJobs.add(job)
 
@@ -385,6 +433,116 @@ export default class RendersController {
       })
     }
     return response.ok({ ok: true, action, filename })
+  }
+
+  /**
+   * POST /api/renders/delete — UX_GAPS §O. Delete one-or-more renders by
+   * basename. The basenames must be plain filenames inside the project's
+   * `renders/` directory; otherwise the deletion is refused. Returns the
+   * list of files actually removed (so the client can prune its UI even if
+   * some entries were already gone).
+   */
+  async destroy({ request, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const body = (request.body() ?? {}) as { filenames?: unknown }
+    const names = Array.isArray(body.filenames) ? body.filenames : null
+    if (!names || names.length === 0) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: '`filenames` must be a non-empty array' },
+      })
+    }
+    const rendersDir = resolvePath(project.root, 'renders')
+    const deleted: string[] = []
+    const skipped: Array<{ filename: string; reason: string }> = []
+    for (const raw of names) {
+      const name = typeof raw === 'string' ? raw : ''
+      if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) {
+        skipped.push({ filename: String(raw), reason: 'invalid filename' })
+        continue
+      }
+      const target = resolvePath(rendersDir, name)
+      if (!isPathInside(rendersDir, target)) {
+        skipped.push({ filename: name, reason: 'outside renders directory' })
+        continue
+      }
+      try {
+        await unlink(target)
+        deleted.push(name)
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') {
+          deleted.push(name)
+        } else {
+          skipped.push({ filename: name, reason: code ?? 'delete failed' })
+        }
+      }
+    }
+    return response.ok({ deleted, skipped })
+  }
+
+  /**
+   * POST /api/renders/rename — UX_GAPS §O. Rename a render file in-place
+   * within the project's `renders/` directory. New name must be a basename
+   * (no path separators or `..`). If the existing file is missing or the
+   * destination already exists, returns a 409 so the UI can refresh.
+   */
+  async rename({ request, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const body = (request.body() ?? {}) as { filename?: unknown; newFilename?: unknown }
+    const from = typeof body.filename === 'string' ? body.filename : ''
+    const to = typeof body.newFilename === 'string' ? body.newFilename.trim() : ''
+    if (!from || from.includes('..') || from.includes('/') || from.includes('\\')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid source filename' },
+      })
+    }
+    if (!to || to.includes('..') || to.includes('/') || to.includes('\\')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid destination filename' },
+      })
+    }
+    // Preserve `.mp4` if the user dropped it.
+    const dest = extname(to) ? to : `${to}.mp4`
+    if (dest === from) {
+      return response.ok({ ok: true, filename: from, renamed: false })
+    }
+    const rendersDir = resolvePath(project.root, 'renders')
+    const srcPath = resolvePath(rendersDir, from)
+    const dstPath = resolvePath(rendersDir, dest)
+    if (!isPathInside(rendersDir, srcPath) || !isPathInside(rendersDir, dstPath)) {
+      return response.forbidden({
+        error: { code: 'E_FORBIDDEN', message: 'Path outside renders/ directory' },
+      })
+    }
+    if (!existsSync(srcPath)) {
+      return response.notFound({
+        error: { code: 'E_NOT_FOUND', message: 'Render file not found' },
+      })
+    }
+    if (existsSync(dstPath)) {
+      return response.status(409).send({
+        error: { code: 'E_DEST_EXISTS', message: `A file named "${dest}" already exists.` },
+      })
+    }
+    try {
+      await renameFile(srcPath, dstPath)
+    } catch (err) {
+      logger.warn({ err, from, to: dest }, 'renders_controller: rename failed')
+      return response.internalServerError({
+        error: { code: 'E_RENAME_FAILED', message: (err as Error).message },
+      })
+    }
+    return response.ok({ ok: true, filename: dest, renamed: true })
   }
 
   /**

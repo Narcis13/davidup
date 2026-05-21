@@ -34,6 +34,11 @@ const files = ref<RenderFile[]>([])
 const isLoading = ref<boolean>(false)
 const loadError = ref<string | null>(null)
 
+// UX_GAPS §O — bulk-delete + rename.
+const selected = ref<Set<string>>(new Set())
+const renameTarget = ref<string | null>(null)
+const renameInput = ref<string>('')
+
 async function refresh(): Promise<void> {
   isLoading.value = true
   loadError.value = null
@@ -106,6 +111,111 @@ function formatRelative(ms: number): string {
   return new Date(ms).toLocaleDateString()
 }
 
+function isSelected(name: string): boolean {
+  return selected.value.has(name)
+}
+
+function toggleSelected(name: string): void {
+  const next = new Set(selected.value)
+  if (next.has(name)) next.delete(name)
+  else next.add(name)
+  selected.value = next
+}
+
+function clearSelection(): void {
+  selected.value = new Set()
+}
+
+const selectedCount = computed<number>(() => selected.value.size)
+
+async function deleteSelected(): Promise<void> {
+  const names = Array.from(selected.value)
+  if (names.length === 0) return
+  const ok =
+    typeof window === 'undefined' ||
+    window.confirm(
+      `Delete ${names.length} render${names.length === 1 ? '' : 's'}? This removes the .mp4 file${names.length === 1 ? '' : 's'} from disk.`,
+    )
+  if (!ok) return
+  try {
+    const res = await fetch('/api/renders/delete', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filenames: names }),
+    })
+    if (!res.ok) {
+      let detail = `Delete failed (${res.status})`
+      try {
+        const body = (await res.json()) as { error?: { message?: string } }
+        detail = body.error?.message ?? detail
+      } catch {
+        /* ignore */
+      }
+      toasts.error('Delete failed', { message: detail })
+      return
+    }
+    const body = (await res.json()) as { deleted: string[]; skipped: Array<{ filename: string; reason: string }> }
+    clearSelection()
+    await refresh()
+    if (body.skipped.length > 0) {
+      toasts.error(`Some renders weren't deleted (${body.skipped.length})`, {
+        message: body.skipped.map((s) => `${s.filename}: ${s.reason}`).join('\n'),
+      })
+    } else {
+      toasts.success(`Deleted ${body.deleted.length} render${body.deleted.length === 1 ? '' : 's'}`)
+    }
+  } catch (err) {
+    toasts.error('Delete failed', { message: (err as Error).message || 'Network error' })
+  }
+}
+
+function beginRename(name: string): void {
+  renameTarget.value = name
+  // Strip .mp4 so the user only edits the meaningful basename.
+  renameInput.value = name.replace(/\.mp4$/i, '')
+}
+
+function cancelRename(): void {
+  renameTarget.value = null
+  renameInput.value = ''
+}
+
+async function commitRename(): Promise<void> {
+  const from = renameTarget.value
+  const next = renameInput.value.trim()
+  if (!from) return
+  if (!next || next === from || next === from.replace(/\.mp4$/i, '')) {
+    cancelRename()
+    return
+  }
+  try {
+    const res = await fetch('/api/renders/rename', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: from, newFilename: next }),
+    })
+    if (!res.ok) {
+      let detail = `Rename failed (${res.status})`
+      try {
+        const body = (await res.json()) as { error?: { message?: string } }
+        detail = body.error?.message ?? detail
+      } catch {
+        /* ignore */
+      }
+      toasts.error('Rename failed', { message: detail })
+      return
+    }
+    const body = (await res.json()) as { filename: string }
+    cancelRename()
+    await refresh()
+    toasts.success(`Renamed to ${body.filename}`)
+  } catch (err) {
+    toasts.error('Rename failed', { message: (err as Error).message || 'Network error' })
+  }
+}
+
 async function doShell(filename: string, action: 'reveal' | 'play'): Promise<void> {
   try {
     const res = await fetch('/api/renders/shell', {
@@ -161,47 +271,112 @@ async function doShell(filename: string, action: 'reveal' | 'play'): Promise<voi
       <div v-else-if="files.length === 0" class="history-empty" data-testid="render-history-empty">
         No renders yet.
       </div>
-      <ul v-else class="history-list" data-testid="render-history-list">
+      <div
+        v-if="selectedCount > 0"
+        class="bulk-bar"
+        data-testid="render-history-bulk"
+      >
+        <span class="bulk-label">
+          {{ selectedCount }} selected
+        </span>
+        <button
+          type="button"
+          class="row-btn"
+          data-testid="render-history-bulk-clear"
+          @click="clearSelection"
+        >Clear</button>
+        <button
+          type="button"
+          class="row-btn row-btn-delete"
+          data-testid="render-history-bulk-delete"
+          @click="deleteSelected"
+        >Delete</button>
+      </div>
+      <ul v-if="files.length > 0" class="history-list" data-testid="render-history-list">
         <li
           v-for="file in files"
           :key="file.filename"
           class="history-row"
+          :class="{ selected: isSelected(file.filename), 'is-renaming': renameTarget === file.filename }"
           :data-testid="`render-history-row-${file.filename}`"
         >
+          <input
+            type="checkbox"
+            class="row-check"
+            :checked="isSelected(file.filename)"
+            :data-testid="`render-history-check-${file.filename}`"
+            :aria-label="`Select ${file.filename}`"
+            @change="toggleSelected(file.filename)"
+          />
           <div class="row-main">
-            <a
-              :href="`/project-renders/${file.filename}`"
-              target="_blank"
-              rel="noopener"
-              class="row-name"
-              :title="file.relativePath"
-              data-testid="render-history-link"
-            >
-              {{ file.filename }}
-            </a>
-            <span class="row-meta">
-              {{ formatSize(file.sizeBytes) }} · {{ formatRelative(file.modifiedAt) }}
-            </span>
+            <template v-if="renameTarget === file.filename">
+              <input
+                v-model="renameInput"
+                type="text"
+                spellcheck="false"
+                class="row-rename-input"
+                :data-testid="`render-history-rename-input-${file.filename}`"
+                @keydown.enter.prevent="commitRename"
+                @keydown.esc.prevent="cancelRename"
+              />
+              <span class="row-meta">
+                {{ formatSize(file.sizeBytes) }} · {{ formatRelative(file.modifiedAt) }}
+              </span>
+            </template>
+            <template v-else>
+              <a
+                :href="`/project-renders/${file.filename}`"
+                target="_blank"
+                rel="noopener"
+                class="row-name"
+                :title="file.relativePath"
+                data-testid="render-history-link"
+              >
+                {{ file.filename }}
+              </a>
+              <span class="row-meta">
+                {{ formatSize(file.sizeBytes) }} · {{ formatRelative(file.modifiedAt) }}
+              </span>
+            </template>
           </div>
           <div class="row-actions">
-            <button
-              type="button"
-              class="row-btn"
-              data-testid="render-history-reveal"
-              title="Reveal in Finder"
-              @click="doShell(file.filename, 'reveal')"
-            >
-              Reveal
-            </button>
-            <button
-              type="button"
-              class="row-btn row-btn-play"
-              data-testid="render-history-play"
-              title="Play in QuickTime"
-              @click="doShell(file.filename, 'play')"
-            >
-              Play
-            </button>
+            <template v-if="renameTarget === file.filename">
+              <button
+                type="button"
+                class="row-btn"
+                :data-testid="`render-history-rename-cancel-${file.filename}`"
+                @click="cancelRename"
+              >Cancel</button>
+              <button
+                type="button"
+                class="row-btn row-btn-play"
+                :data-testid="`render-history-rename-save-${file.filename}`"
+                @click="commitRename"
+              >Save</button>
+            </template>
+            <template v-else>
+              <button
+                type="button"
+                class="row-btn"
+                :data-testid="`render-history-rename-${file.filename}`"
+                title="Rename"
+                @click="beginRename(file.filename)"
+              >Rename</button>
+              <button
+                type="button"
+                class="row-btn"
+                data-testid="render-history-reveal"
+                title="Reveal in Finder"
+                @click="doShell(file.filename, 'reveal')"
+              >Reveal</button>
+              <button
+                type="button"
+                class="row-btn row-btn-play"
+                data-testid="render-history-play"
+                title="Play in QuickTime"
+                @click="doShell(file.filename, 'play')"
+              >Play</button>
+            </template>
           </div>
         </li>
       </ul>
@@ -372,5 +547,68 @@ async function doShell(filename: string, action: 'reveal' | 'play'): Promise<voi
   background: rgba(91, 220, 130, 0.15);
   border-color: rgba(91, 220, 130, 0.5);
   color: #c8f3d2;
+}
+
+.row-btn-delete {
+  border-color: rgba(255, 107, 107, 0.35);
+  color: #ffb4b4;
+}
+
+.row-btn-delete:hover {
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.7);
+  color: #ffffff;
+}
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: rgba(91, 124, 250, 0.08);
+  border: 1px solid rgba(91, 124, 250, 0.4);
+  border-radius: 5px;
+}
+
+.bulk-label {
+  flex: 1 1 auto;
+  font-size: 11px;
+  color: #aab7ff;
+  font-feature-settings: 'tnum';
+}
+
+.row-check {
+  flex: 0 0 auto;
+  cursor: pointer;
+  accent-color: #5b7cfa;
+  margin: 0;
+}
+
+.history-row.selected {
+  background: rgba(91, 124, 250, 0.12);
+  outline: 1px solid rgba(91, 124, 250, 0.42);
+}
+
+.history-row.is-renaming {
+  background: rgba(91, 124, 250, 0.08);
+}
+
+.row-rename-input {
+  background: #161616;
+  border: 1px solid rgba(91, 124, 250, 0.55);
+  color: #e5e5e5;
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  width: 100%;
+}
+
+.row-rename-input:focus {
+  outline: none;
+  border-color: rgba(91, 124, 250, 0.85);
+  box-shadow: 0 0 0 1px rgba(91, 124, 250, 0.4);
 }
 </style>

@@ -513,6 +513,7 @@ const addLayer = defineTool({
     blendMode: BlendModeSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -524,6 +525,7 @@ const addLayer = defineTool({
         ...(args.blendMode !== undefined ? { blendMode: args.blendMode } : {}),
         ...(args.visible !== undefined ? { visible: args.visible } : {}),
         ...(args.locked !== undefined ? { locked: args.locked } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -547,6 +549,7 @@ const updateLayer = defineTool({
       blendMode: BlendModeSchema.optional(),
       visible: z.boolean().optional(),
       locked: z.boolean().optional(),
+      name: z.string().max(80).optional(),
     }),
     compositionId: COMPOSITION_ID,
   },
@@ -557,6 +560,7 @@ const updateLayer = defineTool({
     if (args.props.blendMode !== undefined) props.blendMode = args.props.blendMode;
     if (args.props.visible !== undefined) props.visible = args.props.visible;
     if (args.props.locked !== undefined) props.locked = args.props.locked;
+    if (args.props.name !== undefined) props.name = args.props.name;
     store.updateLayer(args.id, props, args.compositionId);
     return { ok: true as const };
   },
@@ -604,6 +608,7 @@ const addSprite = defineTool({
     ...TRANSFORM_INPUT,
     tint: z.string().optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -623,6 +628,7 @@ const addSprite = defineTool({
         ...(args.scaleY !== undefined ? { scaleY: args.scaleY } : {}),
         ...(args.tint !== undefined ? { tint: args.tint } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -649,6 +655,7 @@ const addText = defineTool({
     rotation: z.number().optional(),
     opacity: z.number().min(0).max(1).optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -667,6 +674,7 @@ const addText = defineTool({
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -694,6 +702,7 @@ const addShape = defineTool({
     rotation: z.number().optional(),
     opacity: z.number().min(0).max(1).optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -713,6 +722,7 @@ const addShape = defineTool({
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -731,6 +741,7 @@ const addGroup = defineTool({
     y: z.number(),
     childItemIds: z.array(z.string().min(1)).optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -741,6 +752,7 @@ const addGroup = defineTool({
         y: args.y,
         ...(args.childItemIds !== undefined ? { childItemIds: args.childItemIds } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -777,6 +789,8 @@ const ITEM_PROP_SHAPE = z
     // item; `locked: true` is purely a hint to the editor.
     visible: z.boolean(),
     locked: z.boolean(),
+    // §P friendly label — display-only; never replaces the id.
+    name: z.string().max(80),
   })
   .partial();
 

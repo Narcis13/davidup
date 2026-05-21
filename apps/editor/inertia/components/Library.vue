@@ -18,7 +18,7 @@
 // library_index watcher picks the new files up within ~1s and the panel's
 // 2-second poll refreshes the catalog so the new card appears.
 
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   useLibrary,
   LIBRARY_TABS,
@@ -51,6 +51,29 @@ const props = defineProps<{
 const lib = useLibrary({ initialTab: 'template' })
 const uploads = useAssetUpload()
 const toasts = useToasts()
+
+// UX_GAPS §S — Onboarding overlay (and any future caller) can ask us to
+// switch tabs via a window event. Keeps the coupling one-way: the Library
+// doesn't need to know about the overlay.
+function onFocusTabEvent(event: Event): void {
+  const detail = (event as CustomEvent).detail as { tab?: string } | null
+  const tab = detail?.tab
+  if (typeof tab === 'string' && (LIBRARY_TABS as ReadonlyArray<string>).includes(tab)) {
+    lib.tab.value = tab as LibraryTab
+  }
+}
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('davidup:focus-library-tab', onFocusTabEvent)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('davidup:focus-library-tab', onFocusTabEvent)
+  }
+})
 
 const emit = defineEmits<{
   (event: 'apply-template', item: LibraryItem): void

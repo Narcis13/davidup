@@ -173,12 +173,32 @@ watch(
   },
 )
 
+// UX_GAPS §S — OnboardingOverlay routes its "Add a shape" CTA through a
+// window event so this component can stay decoupled from the overlay.
+function onFocusToolbarEvent(event: Event): void {
+  const detail = (event as CustomEvent).detail as { kind?: string } | null
+  const kind = detail?.kind
+  if (kind === 'rect' || kind === 'circle') {
+    pickShape(kind)
+  } else if (kind === 'text') {
+    startText()
+  } else if (kind === 'sprite') {
+    startSprite()
+  }
+}
+
 onMounted(() => {
-  if (typeof window !== 'undefined') window.addEventListener('keydown', onKeydown)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', onKeydown)
+    window.addEventListener('davidup:focus-toolbar-button', onFocusToolbarEvent)
+  }
 })
 
 onBeforeUnmount(() => {
-  if (typeof window !== 'undefined') window.removeEventListener('keydown', onKeydown)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', onKeydown)
+    window.removeEventListener('davidup:focus-toolbar-button', onFocusToolbarEvent)
+  }
   toolbar.clearTool()
 })
 

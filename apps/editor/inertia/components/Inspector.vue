@@ -229,6 +229,67 @@ const compositionAssets = computed<ReadonlyArray<InspectorAsset>>(() => {
   return out
 })
 
+// UX_GAPS §E — layer list for the "Move to layer" dropdown. Sorted top-to-
+// bottom (high z first) so the option order matches LayersPanel / Outliner.
+interface LayerOption { id: string; z: number }
+
+const compositionLayers = computed<ReadonlyArray<LayerOption>>(() => {
+  const layers = props.composition?.layers
+  if (!Array.isArray(layers)) return []
+  const out: LayerOption[] = []
+  for (const l of layers as ReadonlyArray<Record<string, unknown>>) {
+    const id = typeof l.id === 'string' ? l.id : null
+    if (!id) continue
+    out.push({ id, z: typeof l.z === 'number' ? l.z : 0 })
+  }
+  out.sort((a, b) => b.z - a.z)
+  return out
+})
+
+// Which layer directly owns the currently-selected item (layer.items[]
+// contains the id). Group children return null — they're not layer-rooted.
+const selectedItemLayerId = computed<string | null>(() => {
+  const comp = props.composition
+  const id = selection.selectedItemId.value
+  if (!comp || !id) return null
+  const layers = (comp.layers ?? []) as ReadonlyArray<{ id: string; items: ReadonlyArray<string> }>
+  for (const layer of layers) {
+    if (Array.isArray(layer.items) && layer.items.includes(id)) return layer.id
+  }
+  return null
+})
+
+function onMoveItemToLayer(event: Event): void {
+  const target = event.target as HTMLSelectElement
+  const targetLayerId = target.value
+  const itemId = selection.selectedItemId.value
+  if (!itemId || !targetLayerId) return
+  if (selectedItemLayerId.value === targetLayerId) return
+  emit('apply', {
+    kind: 'move_item_to_layer',
+    payload: { itemId, targetLayerId },
+    source: 'ui',
+  })
+}
+
+// UX_GAPS §P — friendly item name.
+const selectedItemName = computed<string>(() => {
+  const item = selectedItem.value as ({ name?: unknown } | null)
+  return typeof item?.name === 'string' ? item.name : ''
+})
+
+function onNameInput(event: Event): void {
+  const target = event.target as HTMLInputElement
+  const id = selection.selectedItemId.value
+  if (!id) return
+  const trimmed = target.value.slice(0, 80)
+  emit('apply', {
+    kind: 'update_item',
+    payload: { id, props: { name: trimmed } },
+    source: 'ui',
+  })
+}
+
 // ──────────────── Field registry ────────────────
 //
 // The PRD R2 mitigation: a registry of input components keyed by Zod meta-
@@ -945,6 +1006,23 @@ function onSelectionChange(event: Event): void {
         :class="{ locked: selectedItemLocked && !isMultiSelect }"
         :disabled="selectedItemLocked && !isMultiSelect"
       >
+      <section v-if="!isMultiSelect" class="section" data-testid="inspector-name-section">
+        <label class="item-name-row">
+          <span class="item-name-label">Name</span>
+          <input
+            type="text"
+            class="item-name-input"
+            data-testid="inspector-item-name"
+            maxlength="80"
+            spellcheck="false"
+            :value="selectedItemName"
+            :placeholder="`Optional — id is ${selection.selectedItemId.value}`"
+            :disabled="pending || selectedItemLocked"
+            @change="onNameInput"
+          />
+        </label>
+      </section>
+
       <section class="section">
         <header class="section-header">
           <span class="section-title">Transform</span>
@@ -1080,6 +1158,35 @@ function onSelectionChange(event: Event): void {
             </div>
           </template>
         </div>
+      </section>
+
+      <section
+        v-if="!isMultiSelect && selectedItemLayerId !== null && compositionLayers.length > 0"
+        class="section"
+        data-testid="inspector-layer-section"
+      >
+        <header class="section-header">
+          <span class="section-title">Layer</span>
+          <span class="section-meta">{{ selectedItemLayerId }}</span>
+        </header>
+        <label class="layer-move">
+          <span class="layer-move-label">Move to</span>
+          <select
+            class="layer-move-select"
+            data-testid="inspector-move-layer"
+            :value="selectedItemLayerId ?? ''"
+            :disabled="pending"
+            @change="onMoveItemToLayer"
+          >
+            <option
+              v-for="layer in compositionLayers"
+              :key="layer.id"
+              :value="layer.id"
+            >
+              {{ layer.id }} · z {{ layer.z }}
+            </option>
+          </select>
+        </label>
       </section>
 
       <section v-if="itemSpecificFields.length > 0" class="section">
@@ -1644,5 +1751,72 @@ function onSelectionChange(event: Event): void {
   padding: 1px 4px;
   border-radius: 3px;
   flex: 0 0 auto;
+}
+
+.layer-move {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.layer-move-label {
+  color: #a3a3a3;
+}
+
+.layer-move-select {
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e5e5e5;
+  font: inherit;
+  padding: 4px 6px;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.layer-move-select:focus {
+  outline: 1px solid #5b7cfa;
+  outline-offset: 1px;
+}
+
+.layer-move-select:disabled {
+  opacity: 0.45;
+}
+
+.item-name-row {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.item-name-label {
+  color: #a3a3a3;
+}
+
+.item-name-input {
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e5e5e5;
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  padding: 4px 6px;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.item-name-input::placeholder {
+  color: #5a5a5a;
+}
+
+.item-name-input:focus {
+  outline: 1px solid #5b7cfa;
+  outline-offset: 1px;
+}
+
+.item-name-input:disabled {
+  opacity: 0.45;
 }
 </style>

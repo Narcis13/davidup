@@ -19,8 +19,24 @@ export type PanelLayout = {
   bottomHeight: number
 }
 
+export type RenderPreset = 'draft' | 'web' | 'final'
+
+export type RenderPrefs = {
+  /** Last preset the user picked in the render dialog. */
+  preset: RenderPreset
+  /** Most recently used custom basename (empty ≡ auto-stamp). */
+  filename: string
+}
+
+export type OnboardingState = {
+  /** True once the user dismisses the empty-state overlay. */
+  dismissed: boolean
+}
+
 export type EditorState = {
   panelLayout: PanelLayout
+  renderPrefs: RenderPrefs
+  onboarding: OnboardingState
 }
 
 export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
@@ -29,14 +45,27 @@ export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   bottomHeight: 220,
 }
 
+export const DEFAULT_RENDER_PREFS: RenderPrefs = {
+  preset: 'web',
+  filename: '',
+}
+
+export const DEFAULT_ONBOARDING: OnboardingState = {
+  dismissed: false,
+}
+
 export const PANEL_LIMITS = {
   leftWidth: { min: 180, max: 600 },
   rightWidth: { min: 180, max: 600 },
   bottomHeight: { min: 120, max: 600 },
 } as const
 
+const RENDER_PRESETS: ReadonlySet<RenderPreset> = new Set(['draft', 'web', 'final'])
+
 const DEFAULT_STATE: EditorState = {
   panelLayout: { ...DEFAULT_PANEL_LAYOUT },
+  renderPrefs: { ...DEFAULT_RENDER_PREFS },
+  onboarding: { ...DEFAULT_ONBOARDING },
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -62,6 +91,24 @@ function normalizePanelLayout(input: unknown): PanelLayout {
     PANEL_LIMITS.bottomHeight.max,
   )
   return { leftWidth: left, rightWidth: right, bottomHeight: bottom }
+}
+
+function normalizeRenderPrefs(input: unknown): RenderPrefs {
+  const src = (input ?? {}) as Partial<Record<keyof RenderPrefs, unknown>>
+  const preset =
+    typeof src.preset === 'string' && RENDER_PRESETS.has(src.preset as RenderPreset)
+      ? (src.preset as RenderPreset)
+      : DEFAULT_RENDER_PREFS.preset
+  const filename =
+    typeof src.filename === 'string' ? src.filename.slice(0, 120) : DEFAULT_RENDER_PREFS.filename
+  return { preset, filename }
+}
+
+function normalizeOnboarding(input: unknown): OnboardingState {
+  const src = (input ?? {}) as Partial<Record<keyof OnboardingState, unknown>>
+  return {
+    dismissed: src.dismissed === true,
+  }
 }
 
 export class EditorStateStore {
@@ -110,10 +157,16 @@ export class EditorStateStore {
         )
       }
     }
-    const panelLayout = normalizePanelLayout(
-      (parsed as { panelLayout?: unknown } | null)?.panelLayout,
-    )
-    this.#state = { panelLayout }
+    const root = (parsed ?? {}) as {
+      panelLayout?: unknown
+      renderPrefs?: unknown
+      onboarding?: unknown
+    }
+    this.#state = {
+      panelLayout: normalizePanelLayout(root.panelLayout),
+      renderPrefs: normalizeRenderPrefs(root.renderPrefs),
+      onboarding: normalizeOnboarding(root.onboarding),
+    }
     this.#loaded = true
     return this.#state
   }
@@ -123,10 +176,23 @@ export class EditorStateStore {
    * Returns the resulting state. Unknown fields in `patch.panelLayout` are
    * dropped; numeric fields are clamped to {@link PANEL_LIMITS}.
    */
-  async update(patch: { panelLayout?: Partial<PanelLayout> }): Promise<EditorState> {
+  async update(patch: {
+    panelLayout?: Partial<PanelLayout>
+    renderPrefs?: Partial<RenderPrefs>
+    onboarding?: Partial<OnboardingState>
+  }): Promise<EditorState> {
     const current = await this.read()
     const nextLayout = normalizePanelLayout({ ...current.panelLayout, ...patch.panelLayout })
-    const next: EditorState = { panelLayout: nextLayout }
+    const nextRender = normalizeRenderPrefs({ ...current.renderPrefs, ...patch.renderPrefs })
+    const nextOnboarding = normalizeOnboarding({
+      ...current.onboarding,
+      ...patch.onboarding,
+    })
+    const next: EditorState = {
+      panelLayout: nextLayout,
+      renderPrefs: nextRender,
+      onboarding: nextOnboarding,
+    }
     await this.#write(next)
     this.#state = next
     return next

@@ -116,6 +116,7 @@ export interface AddLayerInput {
   blendMode?: BlendMode;
   visible?: boolean;
   locked?: boolean;
+  name?: string;
 }
 
 export interface UpdateLayerProps {
@@ -124,6 +125,7 @@ export interface UpdateLayerProps {
   blendMode?: BlendMode;
   visible?: boolean;
   locked?: boolean;
+  name?: string;
 }
 
 export interface AddSpriteInput {
@@ -141,6 +143,7 @@ export interface AddSpriteInput {
   scaleY?: number;
   tint?: string;
   id?: string;
+  name?: string;
 }
 
 export interface AddTextInput {
@@ -157,6 +160,7 @@ export interface AddTextInput {
   rotation?: number;
   opacity?: number;
   id?: string;
+  name?: string;
 }
 
 export interface AddShapeInput {
@@ -174,6 +178,7 @@ export interface AddShapeInput {
   rotation?: number;
   opacity?: number;
   id?: string;
+  name?: string;
 }
 
 export interface AddGroupInput {
@@ -182,6 +187,7 @@ export interface AddGroupInput {
   y: number;
   childItemIds?: ReadonlyArray<string>;
   id?: string;
+  name?: string;
 }
 
 export interface UpdateItemProps {
@@ -217,6 +223,8 @@ export interface UpdateItemProps {
   // §M flags (all item types).
   visible?: boolean;
   locked?: boolean;
+  // §P friendly label — display-only; never replaces the id.
+  name?: string;
 }
 
 export interface AddTweenInput {
@@ -472,6 +480,7 @@ export class CompositionStore {
       items: [],
       ...(input.visible !== undefined ? { visible: input.visible } : {}),
       ...(input.locked !== undefined ? { locked: input.locked } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     });
     return id;
   }
@@ -499,6 +508,7 @@ export class CompositionStore {
     if (props.blendMode !== undefined) next.blendMode = props.blendMode;
     if (props.visible !== undefined) next.visible = props.visible;
     if (props.locked !== undefined) next.locked = props.locked;
+    if (props.name !== undefined) next.name = props.name;
     comp.layers.set(id, next);
   }
 
@@ -557,6 +567,7 @@ export class CompositionStore {
       height: input.height,
       transform,
       ...(input.tint !== undefined ? { tint: input.tint } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, sprite);
     comp.itemLayer.set(id, layer.id);
@@ -587,6 +598,7 @@ export class CompositionStore {
       color: input.color,
       transform,
       ...(input.align !== undefined ? { align: input.align } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, text);
     comp.itemLayer.set(id, layer.id);
@@ -620,6 +632,7 @@ export class CompositionStore {
       ...(input.strokeColor !== undefined ? { strokeColor: input.strokeColor } : {}),
       ...(input.strokeWidth !== undefined ? { strokeWidth: input.strokeWidth } : {}),
       ...(input.cornerRadius !== undefined ? { cornerRadius: input.cornerRadius } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, shape);
     comp.itemLayer.set(id, layer.id);
@@ -660,6 +673,7 @@ export class CompositionStore {
       type: "group",
       items: [...childIds],
       transform,
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, group);
     comp.itemLayer.set(id, layer.id);
@@ -1522,12 +1536,13 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
     transform.opacity = props.opacity;
   }
 
-  // §M visibility/lock flags apply to every item type. We allow them in
-  // every variant's allowlist below.
-  const flagPatch: { visible?: boolean; locked?: boolean } = {};
+  // §M visibility/lock flags + §P name apply to every item type. They all
+  // appear in every variant's allowlist below.
+  const flagPatch: { visible?: boolean; locked?: boolean; name?: string } = {};
   if (props.visible !== undefined) flagPatch.visible = props.visible;
   if (props.locked !== undefined) flagPatch.locked = props.locked;
-  const COMMON_ALLOWED = ["visible", "locked"] as const;
+  if (props.name !== undefined) flagPatch.name = props.name;
+  const COMMON_ALLOWED = ["visible", "locked", "name"] as const;
 
   switch (item.type) {
     case "sprite": {

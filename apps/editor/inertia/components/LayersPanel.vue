@@ -39,6 +39,8 @@ interface LayerRow {
   // recomputing on every keystroke.
   visible: boolean
   locked: boolean
+  // §P friendly name — when set, the row displays it next to the id.
+  name: string
 }
 
 const props = defineProps<{
@@ -72,6 +74,7 @@ const rows = computed<LayerRow[]>(() => {
       items: Array.isArray(l.items) ? (l.items as ReadonlyArray<string>) : [],
       visible: l.visible !== false,
       locked: l.locked === true,
+      name: typeof l.name === 'string' ? l.name : '',
     })
   }
   out.sort((a, b) => b.z - a.z)
@@ -312,6 +315,41 @@ function isItemSelected(itemId: string): boolean {
 function toggleCollapsed(): void {
   collapsed.value = !collapsed.value
 }
+
+// UX_GAPS §P — inline rename. Double-click the row label opens an input;
+// Enter commits an `update_layer` with `name`, Esc cancels. Empty input
+// clears the name (falls back to the raw id).
+const renamingLayerId = ref<string | null>(null)
+const renameDraft = ref<string>('')
+
+function beginRenameLayer(row: LayerRow): void {
+  renamingLayerId.value = row.id
+  renameDraft.value = row.name
+}
+
+function cancelRenameLayer(): void {
+  renamingLayerId.value = null
+  renameDraft.value = ''
+}
+
+function commitRenameLayer(row: LayerRow): void {
+  const id = renamingLayerId.value
+  if (!id || id !== row.id) {
+    cancelRenameLayer()
+    return
+  }
+  const next = renameDraft.value.trim().slice(0, 80)
+  if (next === (row.name ?? '')) {
+    cancelRenameLayer()
+    return
+  }
+  emit('apply', {
+    kind: 'update_layer',
+    payload: { id: row.id, props: { name: next } },
+    source: 'ui',
+  })
+  cancelRenameLayer()
+}
 </script>
 
 <template>
@@ -370,13 +408,16 @@ function toggleCollapsed(): void {
               <span class="caret" :class="{ open: isExpanded(row.id) }" aria-hidden="true">▸</span>
             </button>
             <button
+              v-if="renamingLayerId !== row.id"
               type="button"
               class="row-label"
-              :title="`Set ${row.id} as the active layer (z=${row.z})`"
+              :title="`Set ${row.id} as the active layer (z=${row.z}). Double-click to rename.`"
               :data-testid="`layers-row-${row.id}-select`"
               @click="selectLayer(row)"
+              @dblclick.stop="beginRenameLayer(row)"
             >
-              <span class="row-id">{{ row.id }}</span>
+              <span class="row-id">{{ row.name || row.id }}</span>
+              <span v-if="row.name" class="row-subid" :title="`Layer id: ${row.id}`">{{ row.id }}</span>
               <span class="row-meta">
                 z {{ row.z }}
                 <span v-if="row.items.length > 0" class="row-item-count">
@@ -385,6 +426,19 @@ function toggleCollapsed(): void {
                 <span v-if="targetLayerId === row.id" class="row-target-pill" title="Newly placed items land here">target</span>
               </span>
             </button>
+            <input
+              v-else
+              v-model="renameDraft"
+              type="text"
+              spellcheck="false"
+              maxlength="80"
+              class="row-rename-input"
+              :placeholder="`Friendly name — empty resets to ${row.id}`"
+              :data-testid="`layers-row-${row.id}-rename-input`"
+              @keydown.enter.prevent="commitRenameLayer(row)"
+              @keydown.esc.prevent="cancelRenameLayer"
+              @blur="commitRenameLayer(row)"
+            />
             <div class="row-actions">
               <button
                 type="button"
@@ -732,6 +786,35 @@ function toggleCollapsed(): void {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.row-subid {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: #707070;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+.row-rename-input {
+  flex: 1 1 auto;
+  background: #161616;
+  border: 1px solid rgba(91, 124, 250, 0.55);
+  color: #f0f0f0;
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.row-rename-input:focus {
+  outline: none;
+  border-color: rgba(91, 124, 250, 0.85);
+  box-shadow: 0 0 0 1px rgba(91, 124, 250, 0.4);
 }
 
 .row-meta {

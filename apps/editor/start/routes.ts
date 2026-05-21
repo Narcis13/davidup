@@ -48,6 +48,8 @@ router
     router.get('/renders', [RendersController, 'index'])
     router.get('/renders/files', [RendersController, 'files'])
     router.post('/renders/shell', [RendersController, 'shell'])
+    router.post('/renders/delete', [RendersController, 'destroy'])
+    router.post('/renders/rename', [RendersController, 'rename'])
     router.get('/renders/:id', [RendersController, 'show'])
     router.get('/renders/:id/events', [RendersController, 'events'])
   })

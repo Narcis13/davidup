@@ -66,8 +66,13 @@ function fileBasename(path: string | null): string {
   return i >= 0 ? path.slice(i + 1) : path
 }
 
-async function onClickRender(): Promise<void> {
-  await render.startRender()
+function onClickRender(): void {
+  // UX_GAPS §N — funnel every kickoff path (button, ⌘R) through the
+  // RenderDialog so the user always sees the per-render knobs. The dialog
+  // owns the actual `useRender.startRender()` call once the user confirms.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('davidup:open-render-dialog'))
+  }
 }
 
 function onDismiss(): void {

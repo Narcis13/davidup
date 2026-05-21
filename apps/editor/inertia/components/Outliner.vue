@@ -24,6 +24,7 @@ interface RawItem {
   items?: unknown
   text?: unknown
   asset?: unknown
+  name?: unknown
 }
 
 const props = defineProps<{
@@ -123,11 +124,20 @@ function buildNode(itemId: string, ancestorIds: ReadonlySet<string>): OutlinerTr
       if (node) children.push(node)
     }
   }
+  // §P — if the item carries a friendly `name`, surface it as the label and
+  // demote the raw id to a detail hint. Keeps filtering predictable (the
+  // filter still searches `id`, `type`, and `detail` — which now includes id).
+  const friendlyName = typeof item?.name === 'string' && item.name.length > 0 ? item.name : null
+  const detail = itemDetail(item)
   return {
     id: itemId,
     type,
-    label: itemId,
-    detail: itemDetail(item),
+    label: friendlyName ?? itemId,
+    detail: friendlyName
+      ? detail
+        ? `${itemId} · ${detail}`
+        : itemId
+      : detail,
     glyph: itemTypeGlyph(item),
     children,
     hasChildren: children.length > 0,

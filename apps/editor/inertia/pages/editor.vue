@@ -32,6 +32,8 @@ import EditorLayout from '~/layouts/editor.vue'
 import ApplyTemplateDialog from '~/components/ApplyTemplateDialog.vue'
 import CompositionSettingsDialog from '~/components/CompositionSettingsDialog.vue'
 import HelpOverlay from '~/components/HelpOverlay.vue'
+import OnboardingOverlay from '~/components/OnboardingOverlay.vue'
+import RenderDialog from '~/components/RenderDialog.vue'
 import Inspector from '~/components/Inspector.vue'
 import ItemToolbar from '~/components/ItemToolbar.vue'
 import LayersPanel from '~/components/LayersPanel.vue'
@@ -157,6 +159,25 @@ function onRevealIssue(payload: { jsonPointer: string | null; path: string | und
   } else {
     manualSourcePointer.value = null
   }
+  // UX_GAPS §R — also deep-link the selection so the Inspector swings to
+  // the offending item / tween, not just the source drawer line. The path
+  // shape is the validator's "dotted" form: items.<id>... / tweens.<id>...
+  // / layers.<id>... — we only set selection for items and tweens (layers
+  // aren't selectable today).
+  if (payload.path) {
+    const parts = payload.path.split('.')
+    const head = parts[0]
+    const targetId = typeof parts[1] === 'string' ? parts[1] : null
+    if (head === 'items' && targetId) {
+      selection.setSelection(targetId)
+    } else if (head === 'tweens' && targetId) {
+      // Pick the tween bar so the Inspector flips into tween mode and the
+      // Timeline highlights the offending tween.
+      const tweens = (bus.composition.value?.tweens ?? []) as ReadonlyArray<{ id: string; target: string }>
+      const tw = tweens.find((t) => t.id === targetId)
+      if (tw) selection.setTweenSelection(targetId, tw.target)
+    }
+  }
   drawerOpen.value = true
   void refetchCompositionSource()
 }
@@ -207,6 +228,18 @@ function onOpenSceneSource(sceneInstanceId: string): void {
   void refetchCompositionSource()
 }
 
+// UX_GAPS §S — onboarding's "Drop files" CTA flashes the file-drop veil so
+// the user can see the dedicated zone before going looking for it.
+let flashTimer: ReturnType<typeof setTimeout> | null = null
+function flashDropZone(): void {
+  isEditorFileDrag.value = true
+  if (flashTimer) clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => {
+    isEditorFileDrag.value = false
+    flashTimer = null
+  }, 1600)
+}
+
 // RFC-6901 token escape — matches the encoder used by the precompile source
 // map. Inlined here so we don't have to pull the compose module into the
 // browser bundle just for two character substitutions.
@@ -252,18 +285,48 @@ function fitTimeline(): void {
   stage.seek(0)
 }
 
+// ─── UX_GAPS §N: render configuration dialog ─────────────────────────────
+const renderDialogOpen = ref(false)
+
+function openRenderDialog(): void {
+  // ⌘R / RenderStrip button / app-bar render button all route through here
+  // so the user always confronts the config dialog before kickoff.
+  if (!bus.composition.value) return
+  if (render.isBusy.value) {
+    toasts.error('A render is already running.', {
+      dedupeKey: 'render:start-error',
+    })
+    return
+  }
+  renderDialogOpen.value = true
+}
+
+function closeRenderDialog(): void {
+  renderDialogOpen.value = false
+}
+
+function onRenderConfirm(payload: {
+  filename?: string
+  renderOptions: { codec: string; crf: number; preset: string; pixFmt: string }
+}): void {
+  renderDialogOpen.value = false
+  void render
+    .startRender({
+      ...(payload.filename ? { filename: payload.filename } : {}),
+      renderOptions: payload.renderOptions as never,
+    })
+    .then((result) => {
+      if (!result.ok && result.error) {
+        toasts.error(result.error.message, {
+          message: result.error.code,
+          dedupeKey: 'render:start-error',
+        })
+      }
+    })
+}
+
 function startRender(): void {
-  void render.startRender().then((result) => {
-    if (!result.ok && result.error) {
-      // The render machinery doesn't toast its own kickoff failures (those
-      // only show up via the SSE stream); ⌘R can fail synchronously when a
-      // render is already in flight, so surface that explicitly here.
-      toasts.error(result.error.message, {
-        message: result.error.code,
-        dedupeKey: 'render:start-error',
-      })
-    }
-  })
+  openRenderDialog()
 }
 
 function forceFlush(): void {
@@ -532,6 +595,12 @@ onMounted(() => {
       'davidup:toggle-composition-settings',
       onCompositionSettingsToggleEvent,
     )
+    // RenderStrip / external triggers dispatch this so every kickoff path
+    // surfaces the configuration dialog before starting the worker.
+    window.addEventListener('davidup:open-render-dialog', openRenderDialog)
+    // OnboardingOverlay → flash the file-drop zone so the user sees where
+    // dropping files goes (UX_GAPS §S).
+    window.addEventListener('davidup:flash-drop-zone', flashDropZone)
 
     if (typeof EventSource !== 'undefined') {
       projectEventSource = new EventSource('/api/projects/events')
@@ -571,6 +640,12 @@ onBeforeUnmount(() => {
       'davidup:toggle-composition-settings',
       onCompositionSettingsToggleEvent,
     )
+    window.removeEventListener('davidup:open-render-dialog', openRenderDialog)
+    window.removeEventListener('davidup:flash-drop-zone', flashDropZone)
+    if (flashTimer) {
+      clearTimeout(flashTimer)
+      flashTimer = null
+    }
   }
   if (projectEventSource) {
     projectEventSource.close()
@@ -711,6 +786,16 @@ onBeforeUnmount(() => {
     @close="closeApplyTemplate"
     @apply="onApplyTemplateConfirm"
   />
+
+  <RenderDialog
+    :open="renderDialogOpen"
+    :composition="bus.composition.value"
+    :busy="render.isBusy.value"
+    @close="closeRenderDialog"
+    @confirm="onRenderConfirm"
+  />
+
+  <OnboardingOverlay v-if="bus.composition.value" />
 
   <Toasts />
 </template>

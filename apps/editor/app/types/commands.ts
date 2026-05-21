@@ -98,6 +98,8 @@ const ITEM_PROPS = z
     // §M flags (engine-honored visibility, editor-only lock).
     visible: z.boolean(),
     locked: z.boolean(),
+    // §P friendly label — display-only; ids stay load-bearing.
+    name: z.string().max(80),
   })
   .partial()
 
@@ -145,6 +147,7 @@ const addLayer = z.object({
     blendMode: BlendModeSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -161,6 +164,8 @@ const updateLayer = z.object({
       // §M flags (engine-honored visibility, editor-only lock).
       visible: z.boolean().optional(),
       locked: z.boolean().optional(),
+      // §P friendly layer name (display-only).
+      name: z.string().max(80).optional(),
     }),
     compositionId: COMPOSITION_ID,
   }),
@@ -189,6 +194,7 @@ const addSprite = z.object({
     ...TRANSFORM_INPUT,
     tint: z.string().optional(),
     id: ID.optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -210,6 +216,7 @@ const addText = z.object({
     rotation: z.number().optional(),
     opacity: UNIT.optional(),
     id: ID.optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -232,6 +239,7 @@ const addShape = z.object({
     rotation: z.number().optional(),
     opacity: UNIT.optional(),
     id: ID.optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -245,6 +253,7 @@ const addGroup = z.object({
     y: z.number(),
     childItemIds: z.array(ID).optional(),
     id: ID.optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,

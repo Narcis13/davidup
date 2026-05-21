@@ -162,8 +162,16 @@ function pushHistory(job: RenderJobInternal): void {
   if (state.history.length > HISTORY_LIMIT) state.history.length = HISTORY_LIMIT
 }
 
+export interface RenderOverrides {
+  codec?: 'libx264' | 'libx265'
+  crf?: number
+  preset?: string
+  pixFmt?: string
+}
+
 interface StartRenderOptions {
   filename?: string
+  renderOptions?: RenderOverrides
 }
 
 interface StartRenderResult {
@@ -186,11 +194,16 @@ async function startRender(opts: StartRenderOptions = {}): Promise<StartRenderRe
   state.current = null
 
   try {
+    const reqBody: Record<string, unknown> = {}
+    if (opts.filename) reqBody.filename = opts.filename
+    if (opts.renderOptions && Object.keys(opts.renderOptions).length > 0) {
+      reqBody.renderOptions = opts.renderOptions
+    }
     const res = await fetch('/api/renders', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(opts.filename ? { filename: opts.filename } : {}),
+      body: JSON.stringify(reqBody),
     })
     if (!res.ok) {
       let detail: { code?: string; message?: string } | null = null

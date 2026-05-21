@@ -8,6 +8,7 @@
 // value matches `#[0-9a-fA-F]{3,8}`.
 
 import { computed } from 'vue'
+import { useRecentColors } from '~/composables/useRecentColors'
 
 const props = defineProps<{
   modelValue: string | undefined
@@ -40,14 +41,26 @@ const swatchValue = computed(() => {
   return '#000000'
 })
 
+const recentColors = useRecentColors()
+
+function emitAndRemember(next: string): void {
+  emit('update:modelValue', next)
+  if (typeof next === 'string' && HEX_RE.test(next)) recentColors.push(next)
+}
+
 function onPicker(event: Event): void {
   const target = event.target as HTMLInputElement
-  emit('update:modelValue', target.value)
+  emitAndRemember(target.value)
 }
 
 function onText(event: Event): void {
   const target = event.target as HTMLInputElement
-  emit('update:modelValue', target.value)
+  emitAndRemember(target.value)
+}
+
+function onSwatchPick(color: string): void {
+  if (props.disabled) return
+  emitAndRemember(color)
 }
 </script>
 
@@ -73,6 +86,23 @@ function onText(event: Event): void {
         :disabled="disabled"
         @change="onText"
       />
+      <span
+        v-if="recentColors.recent.value.length > 0"
+        class="swatches"
+        data-testid="color-recent-swatches"
+        aria-label="Recently used colors"
+      >
+        <button
+          v-for="c in recentColors.recent.value"
+          :key="c"
+          type="button"
+          class="swatch"
+          :style="{ background: c }"
+          :title="c"
+          :disabled="disabled"
+          @click="onSwatchPick(c)"
+        />
+      </span>
     </span>
   </label>
 </template>
@@ -157,5 +187,38 @@ function onText(event: Event): void {
 .color-input.disabled {
   opacity: 0.45;
   pointer-events: none;
+}
+
+.swatches {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0;
+  cursor: pointer;
+}
+
+.swatch:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.45);
+  transform: scale(1.1);
+}
+
+.swatch:focus-visible {
+  outline: 1px solid #5b7cfa;
+  outline-offset: 1px;
+}
+
+.swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 </style>

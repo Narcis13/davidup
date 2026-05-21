@@ -80,9 +80,16 @@ export const TransformSchema = z.object({
 // without a migration. The engine skips drawing when `visible === false`;
 // `locked` is purely a hint to the editor (Inspector + Stage drag refuse
 // edits) and is ignored by the renderer.
+//
+// Per UX_GAPS §P: `name` is an optional human-friendly label rendered next
+// to the id in the Inspector / LayersPanel / Outliner. It never replaces
+// the id (existing references still resolve by id); the engine ignores it.
+// Capped at 80 chars so an oversize label can't blow up the source map
+// reveal or status-bar paths.
 export const ItemFlagsSchema = {
   visible: z.boolean().optional(),
   locked: z.boolean().optional(),
+  name: z.string().max(80).optional(),
 } as const;
 
 export const SpriteItemSchema = z.object({
