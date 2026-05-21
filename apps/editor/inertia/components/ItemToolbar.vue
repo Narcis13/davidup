@@ -10,6 +10,10 @@
 // The toolbar never invents a new mutation path — it only dispatches the
 // existing `add_shape` / `add_text` / `add_sprite` commands through the
 // command bus, same shape as the MCP server's tools.
+//
+// UX_GAPS §L: Group / Ungroup live at the bottom of the rail behind a
+// separator. They're verbs (not create tools) so they don't enter place
+// mode — they dispatch immediately against the current selection.
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
@@ -18,6 +22,15 @@ import type { Composition } from '~/composables/useCommandBus'
 
 const props = defineProps<{
   composition: Composition | null
+  /** True while the current selection can be wrapped in a new group (≥2 items, same layer). */
+  canGroup: boolean
+  /** True while the current selection is a single group eligible for flatten. */
+  canUngroup: boolean
+}>()
+
+const emit = defineEmits<{
+  (event: 'group'): void
+  (event: 'ungroup'): void
 }>()
 
 const toolbar = useItemToolbar()
@@ -248,6 +261,36 @@ const buttons = computed<ToolButton[]>(() => [
       <span class="tool-label">{{ btn.label }}</span>
     </button>
 
+    <div class="tool-divider" aria-hidden="true" />
+
+    <button
+      type="button"
+      class="tool-btn"
+      :disabled="!canGroup"
+      :title="canGroup
+        ? 'Group selection (⌘G / Ctrl+G)'
+        : 'Select 2+ items on the same layer to group'"
+      data-testid="item-toolbar-group"
+      @click="emit('group')"
+    >
+      <span class="tool-glyph" aria-hidden="true">⛶</span>
+      <span class="tool-label">Group</span>
+    </button>
+
+    <button
+      type="button"
+      class="tool-btn"
+      :disabled="!canUngroup"
+      :title="canUngroup
+        ? 'Ungroup selected group (⌘⇧G / Ctrl+Shift+G)'
+        : 'Select a single group to ungroup'"
+      data-testid="item-toolbar-ungroup"
+      @click="emit('ungroup')"
+    >
+      <span class="tool-glyph" aria-hidden="true">⊟</span>
+      <span class="tool-label">Ungroup</span>
+    </button>
+
     <div
       v-if="toolbar.isActive.value"
       class="place-banner"
@@ -376,6 +419,12 @@ const buttons = computed<ToolButton[]>(() => [
 .tool-glyph {
   font-size: 18px;
   line-height: 1;
+}
+
+.tool-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 4px;
 }
 
 .tool-label {

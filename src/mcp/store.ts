@@ -621,6 +621,25 @@ export class CompositionStore {
     const layer = this.requireLayer(comp, input.layerId);
     const id = input.id ?? this.nextItemId(comp);
     this.ensureNoItem(comp, id);
+    const childIds = input.childItemIds ?? [];
+    // Validate every child up front so we never half-build a group that
+    // references a phantom id (which would otherwise only surface later via
+    // validate() as E_ITEM_MISSING).
+    for (const cid of childIds) {
+      if (cid === id) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Group "${id}" cannot list itself as a child.`,
+        );
+      }
+      if (!comp.items.has(cid)) {
+        throw new MCPToolError(
+          "E_NOT_FOUND",
+          `add_group child item "${cid}" not found.`,
+          "Inspect get_composition().items for existing item ids.",
+        );
+      }
+    }
     const transform: Transform = {
       ...DEFAULT_TRANSFORM,
       x: input.x,
@@ -628,12 +647,35 @@ export class CompositionStore {
     };
     const group: GroupItem = {
       type: "group",
-      items: input.childItemIds ? [...input.childItemIds] : [],
+      items: [...childIds],
       transform,
     };
     comp.items.set(id, group);
     comp.itemLayer.set(id, layer.id);
     pushUnique(layer.items, id);
+    // Detach each child from anywhere else that references it: layer.items
+    // (so the renderer doesn't draw it twice — once at the layer root and
+    // once through the new group's children) and any other group.items (so
+    // re-grouping moves it cleanly between groups instead of duplicating).
+    // `itemLayer` is updated to point at the new group's layer so future
+    // remove/move operations have an authoritative source-layer to peel off.
+    for (const cid of childIds) {
+      for (const otherLayer of comp.layers.values()) {
+        if (otherLayer.items.includes(cid)) {
+          otherLayer.items = otherLayer.items.filter((x) => x !== cid);
+        }
+      }
+      for (const [otherId, other] of comp.items) {
+        if (otherId === id || otherId === cid) continue;
+        if (other.type === "group" && other.items.includes(cid)) {
+          comp.items.set(otherId, {
+            ...other,
+            items: other.items.filter((x) => x !== cid),
+          });
+        }
+      }
+      comp.itemLayer.set(cid, layer.id);
+    }
     return id;
   }
 

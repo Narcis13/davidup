@@ -26,6 +26,7 @@ import { useAssetUpload } from '~/composables/useAssetUpload'
 import { useRender } from '~/composables/useRender'
 import { useShortcuts } from '~/composables/useShortcuts'
 import { useToasts } from '~/composables/useToasts'
+import { useGroupActions } from '~/composables/useGroupActions'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
 import ApplyTemplateDialog from '~/components/ApplyTemplateDialog.vue'
@@ -419,6 +420,13 @@ function onCompositionSettingsToggleEvent(): void {
   compositionSettingsOpen.value = !compositionSettingsOpen.value
 }
 
+// ─── UX_GAPS §L: group / ungroup ─────────────────────────────────────────
+const groupActions = useGroupActions({
+  getComposition: () => bus.composition.value,
+  selection,
+  apply: bus.apply,
+})
+
 useShortcuts({
   togglePlay: () => stage.togglePlay(),
   deleteSelection,
@@ -429,6 +437,8 @@ useShortcuts({
   toggleHelp,
   undo: () => bus.undo(),
   redo: () => bus.redo(),
+  group: () => groupActions.group(),
+  ungroup: () => groupActions.ungroup(),
 })
 
 // ─── Step 18b: window-level file drop ────────────────────────────────────
@@ -576,6 +586,10 @@ onBeforeUnmount(() => {
       <ItemToolbar
         v-if="bus.composition.value"
         :composition="bus.composition.value"
+        :can-group="groupActions.canGroup.value"
+        :can-ungroup="groupActions.canUngroup.value"
+        @group="groupActions.group"
+        @ungroup="groupActions.ungroup"
       />
       <LayersPanel
         v-if="bus.composition.value"

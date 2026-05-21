@@ -765,10 +765,24 @@ function onCanvasClick(event: MouseEvent): void {
   // stale). The driver, when not given an explicit t, computes the same
   // clock value it just used to render — so picks always match pixels.
   const hit = props.pickItemAt(coords.x, coords.y)
+  // Shift / Cmd-click extends the multi-selection — required for UX_GAPS §L
+  // Group when the user wants to pick specific items rather than marquee
+  // everything in a rectangle. Clicking the same id again toggles it off.
+  const additive = event.shiftKey || event.metaKey || event.ctrlKey
   if (hit) {
-    selection.setSelectionFromPick(hit.itemId, hit.source ?? null)
-  } else {
+    if (additive) {
+      const current = selection.selectedItemIds.value
+      const exists = current.includes(hit.itemId)
+      const next = exists
+        ? current.filter((id) => id !== hit.itemId)
+        : [hit.itemId, ...current]
+      selection.setMultiSelection(next)
+    } else {
+      selection.setSelectionFromPick(hit.itemId, hit.source ?? null)
+    }
+  } else if (!additive) {
     // Clicking empty stage clears the selection — matches Figma/Sketch.
+    // Additive empty clicks preserve the existing multi-selection.
     selection.setSelectionFromPick(null)
   }
 }

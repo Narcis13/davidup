@@ -53,6 +53,10 @@ export interface UseShortcutsOptions {
   undo?: () => void | Promise<void>
   /** ⌘⇧Z / Ctrl+Shift+Z — redo the most recently undone edit. */
   redo?: () => void | Promise<void>
+  /** ⌘G / Ctrl+G — group the current multi-selection. */
+  group?: () => void | Promise<void>
+  /** ⌘⇧G / Ctrl+Shift+G — ungroup the selected group. */
+  ungroup?: () => void | Promise<void>
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -145,6 +149,23 @@ export function useShortcuts(options: UseShortcutsOptions): void {
         if (!options.undo) return
         event.preventDefault()
         invoke(options.undo)
+      }
+      return
+    }
+
+    // ⌘G / Ctrl+G → group; ⌘⇧G / Ctrl+Shift+G → ungroup. Same letter, the
+    // Shift modifier flips the verb (matches Figma / Illustrator / Sketch).
+    // We must claim this chord *before* the generic "reject Shift" gate
+    // below so the ungroup variant isn't silently dropped.
+    if (event.key === 'g' || event.key === 'G') {
+      if (event.shiftKey) {
+        if (!options.ungroup) return
+        event.preventDefault()
+        invoke(options.ungroup)
+      } else {
+        if (!options.group) return
+        event.preventDefault()
+        invoke(options.group)
       }
       return
     }

@@ -32,6 +32,8 @@ const shortcuts = computed<Shortcut[]>(() => [
   { keys: ['Backspace'], label: 'Delete the current selection (item — or tween when a Timeline bar is selected)' },
   { keys: [`${modKey.value}`, 'Z'], label: 'Undo the most recent edit' },
   { keys: [`${modKey.value}`, '⇧', 'Z'], label: 'Redo the most recently undone edit' },
+  { keys: [`${modKey.value}`, 'G'], label: 'Group selection (2+ items on same layer)' },
+  { keys: [`${modKey.value}`, '⇧', 'G'], label: 'Ungroup selected group (flatten children back to the layer)' },
   { keys: [`${modKey.value}`, '0'], label: 'Fit timeline (reset playhead to start)' },
   { keys: [`${modKey.value}`, 'J'], label: 'Toggle reveal-in-source drawer' },
   { keys: [`${modKey.value}`, 'R'], label: 'Render to MP4' },
@@ -56,6 +58,11 @@ const dragAffordances: DragAffordance[] = [
     from: 'Stage toolbar button (Rectangle / Circle / Text / Sprite)',
     to: 'Stage canvas',
     result: 'Click the toolbar button, then click the stage to place the primitive on the topmost layer.',
+  },
+  {
+    from: 'Shift / ⌘ / Ctrl-click on a Stage item',
+    to: 'Item on the stage',
+    result: 'Adds (or removes) the clicked item from the multi-selection. Pair with ⌘G to wrap two or more selected items in a group.',
   },
   {
     from: 'Library card (template / behavior / scene)',
