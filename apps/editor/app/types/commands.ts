@@ -95,6 +95,9 @@ const ITEM_PROPS = z
     cornerRadius: NON_NEG,
     points: POINTS,
     items: z.array(ID),
+    // §M flags (engine-honored visibility, editor-only lock).
+    visible: z.boolean(),
+    locked: z.boolean(),
   })
   .partial()
 
@@ -140,6 +143,8 @@ const addLayer = z.object({
     z: z.number(),
     opacity: UNIT.optional(),
     blendMode: BlendModeSchema.optional(),
+    visible: z.boolean().optional(),
+    locked: z.boolean().optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -153,6 +158,9 @@ const updateLayer = z.object({
       z: z.number().optional(),
       opacity: UNIT.optional(),
       blendMode: BlendModeSchema.optional(),
+      // §M flags (engine-honored visibility, editor-only lock).
+      visible: z.boolean().optional(),
+      locked: z.boolean().optional(),
     }),
     compositionId: COMPOSITION_ID,
   }),

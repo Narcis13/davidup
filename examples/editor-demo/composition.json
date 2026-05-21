@@ -28,7 +28,8 @@
       "blendMode": "normal",
       "items": [
         "card"
-      ]
+      ],
+      "visible": true
     },
     {
       "id": "fg",
@@ -42,7 +43,8 @@
         "item-3",
         "item-4",
         "item-5"
-      ]
+      ],
+      "visible": true
     }
   ],
   "items": {
@@ -62,7 +64,9 @@
       "width": 720,
       "height": 200,
       "fillColor": "#1b2451",
-      "cornerRadius": 24
+      "cornerRadius": 24,
+      "visible": true,
+      "locked": false
     },
     "title": {
       "type": "text",
@@ -80,7 +84,8 @@
         "anchorY": 0.5,
         "opacity": 0
       },
-      "align": "center"
+      "align": "center",
+      "visible": true
     },
     "item-1": {
       "type": "sprite",

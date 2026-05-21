@@ -15,10 +15,12 @@
 //    Stage place mode so primitives land on the row the user selected)
 //  - Click an item row → select it (Inspector switches to it)
 //
-// Rename / visibility / lock are out of scope: the engine schema has no
-// rename for layer ids (they're the references items use), and no
-// `visible` / `locked` flags. UX_GAPS §B and §M call those out as future
-// engine work.
+// Rename is out of scope: the engine schema has no rename for layer ids
+// (they're the references items use). UX_GAPS §M visibility/lock landed —
+// each row shows an eye / lock toggle that dispatches `update_layer` (for
+// the row itself) or `update_item` (for each item child). Hidden layers /
+// items are skipped by the renderer; locked is a hint the Inspector and
+// Stage drag honor.
 
 import { computed, ref } from 'vue'
 import { BLEND_MODES } from 'davidup/schema'
@@ -32,6 +34,11 @@ interface LayerRow {
   opacity: number
   blendMode: string
   items: ReadonlyArray<string>
+  // §M flags: absent in older project JSON ⇒ visible/unlocked. Pulling them
+  // into the row shape lets the template render the right glyph without
+  // recomputing on every keystroke.
+  visible: boolean
+  locked: boolean
 }
 
 const props = defineProps<{
@@ -63,6 +70,8 @@ const rows = computed<LayerRow[]>(() => {
       opacity: typeof l.opacity === 'number' ? l.opacity : 1,
       blendMode: typeof l.blendMode === 'string' ? l.blendMode : 'normal',
       items: Array.isArray(l.items) ? (l.items as ReadonlyArray<string>) : [],
+      visible: l.visible !== false,
+      locked: l.locked === true,
     })
   }
   out.sort((a, b) => b.z - a.z)
@@ -169,6 +178,59 @@ function setOpacity(row: LayerRow, event: Event): void {
   emit('apply', {
     kind: 'update_layer',
     payload: { id: row.id, props: { opacity: next } },
+    source: 'ui',
+  })
+}
+
+// §M visibility / lock toggles. Both are absent-by-default in the schema,
+// so we send the *new* truthy value explicitly; the server records it on
+// the layer and the renderer skips drawing hidden layers entirely.
+function toggleLayerVisible(row: LayerRow): void {
+  emit('apply', {
+    kind: 'update_layer',
+    payload: { id: row.id, props: { visible: !row.visible } },
+    source: 'ui',
+  })
+}
+
+function toggleLayerLocked(row: LayerRow): void {
+  emit('apply', {
+    kind: 'update_layer',
+    payload: { id: row.id, props: { locked: !row.locked } },
+    source: 'ui',
+  })
+}
+
+// Item-level lookup — items live keyed by id on the composition. We avoid
+// caching a derived map because the few times per second the user clicks an
+// eye/lock the .[id] read is trivially fast.
+function getItem(itemId: string): { visible?: boolean; locked?: boolean } | undefined {
+  const items = props.composition?.items as Record<string, { visible?: boolean; locked?: boolean }> | undefined
+  return items?.[itemId]
+}
+
+function isItemVisible(itemId: string): boolean {
+  return getItem(itemId)?.visible !== false
+}
+
+function isItemLocked(itemId: string): boolean {
+  return getItem(itemId)?.locked === true
+}
+
+function toggleItemVisible(itemId: string): void {
+  const current = isItemVisible(itemId)
+  emit('apply', {
+    kind: 'update_item',
+    payload: { id: itemId, props: { visible: !current } },
+    source: 'ui',
+  })
+}
+
+function toggleItemLocked(itemId: string): void {
+  const current = isItemLocked(itemId)
+  emit('apply', {
+    kind: 'update_item',
+    payload: { id: itemId, props: { locked: !current } },
     source: 'ui',
   })
 }
@@ -326,6 +388,30 @@ function toggleCollapsed(): void {
             <div class="row-actions">
               <button
                 type="button"
+                class="row-btn flag"
+                :class="{ off: !row.visible }"
+                :title="row.visible ? 'Hide layer (renderer skips it)' : 'Show layer'"
+                :aria-label="row.visible ? 'Hide layer' : 'Show layer'"
+                :aria-pressed="!row.visible"
+                :data-testid="`layers-row-${row.id}-visible`"
+                @click.stop="toggleLayerVisible(row)"
+              >
+                {{ row.visible ? '👁' : '⊘' }}
+              </button>
+              <button
+                type="button"
+                class="row-btn flag"
+                :class="{ on: row.locked }"
+                :title="row.locked ? 'Unlock layer (allow edits)' : 'Lock layer (prevent edits)'"
+                :aria-label="row.locked ? 'Unlock layer' : 'Lock layer'"
+                :aria-pressed="row.locked"
+                :data-testid="`layers-row-${row.id}-locked`"
+                @click.stop="toggleLayerLocked(row)"
+              >
+                {{ row.locked ? '🔒' : '🔓' }}
+              </button>
+              <button
+                type="button"
                 class="row-btn"
                 :disabled="idx === 0"
                 title="Move layer up (higher z)"
@@ -390,7 +476,7 @@ function toggleCollapsed(): void {
               v-for="itemId in row.items"
               :key="itemId"
               class="row-item"
-              :class="{ selected: isItemSelected(itemId) }"
+              :class="{ selected: isItemSelected(itemId), hidden: !isItemVisible(itemId) }"
             >
               <button
                 type="button"
@@ -402,6 +488,32 @@ function toggleCollapsed(): void {
                 <span class="row-item-glyph" aria-hidden="true">{{ itemTypeGlyph(itemId) }}</span>
                 <span class="row-item-id">{{ itemId }}</span>
               </button>
+              <div class="row-item-actions">
+                <button
+                  type="button"
+                  class="row-btn flag"
+                  :class="{ off: !isItemVisible(itemId) }"
+                  :title="isItemVisible(itemId) ? 'Hide item' : 'Show item'"
+                  :aria-label="isItemVisible(itemId) ? 'Hide item' : 'Show item'"
+                  :aria-pressed="!isItemVisible(itemId)"
+                  :data-testid="`layers-item-${itemId}-visible`"
+                  @click.stop="toggleItemVisible(itemId)"
+                >
+                  {{ isItemVisible(itemId) ? '👁' : '⊘' }}
+                </button>
+                <button
+                  type="button"
+                  class="row-btn flag"
+                  :class="{ on: isItemLocked(itemId) }"
+                  :title="isItemLocked(itemId) ? 'Unlock item' : 'Lock item'"
+                  :aria-label="isItemLocked(itemId) ? 'Unlock item' : 'Lock item'"
+                  :aria-pressed="isItemLocked(itemId)"
+                  :data-testid="`layers-item-${itemId}-locked`"
+                  @click.stop="toggleItemLocked(itemId)"
+                >
+                  {{ isItemLocked(itemId) ? '🔒' : '🔓' }}
+                </button>
+              </div>
             </li>
           </ul>
           <p v-else-if="isExpanded(row.id)" class="row-items-empty">No items.</p>
@@ -687,6 +799,20 @@ function toggleCollapsed(): void {
   color: #ffcccc;
 }
 
+/* §M flag buttons. .off / .on tint signal the "active" (non-default)
+ * states (hidden / locked) so the row reads at a glance. */
+.row-btn.flag {
+  font-size: 11px;
+}
+.row-btn.flag.off {
+  color: #ff8a8a;
+  background: rgba(255, 90, 90, 0.08);
+}
+.row-btn.flag.on {
+  color: #ffc66b;
+  background: rgba(255, 198, 107, 0.1);
+}
+
 .row-controls {
   display: flex;
   flex-direction: column;
@@ -760,6 +886,20 @@ function toggleCollapsed(): void {
 
 .row-item {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.row-item.hidden .row-item-btn {
+  opacity: 0.55;
+}
+
+.row-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
 }
 
 .row-item-btn {
@@ -769,7 +909,8 @@ function toggleCollapsed(): void {
   color: #c0c0c0;
   font: inherit;
   font-size: 11.5px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   padding: 3px 6px;
   border-radius: 4px;

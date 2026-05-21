@@ -139,6 +139,8 @@ export function hydrateStore(
         z: layer.z,
         opacity: layer.opacity,
         blendMode: layer.blendMode,
+        ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+        ...(layer.locked !== undefined ? { locked: layer.locked } : {}),
       },
       compositionId
     )

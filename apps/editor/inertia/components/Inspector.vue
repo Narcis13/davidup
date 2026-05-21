@@ -143,6 +143,26 @@ const selectedItemLastSource = computed<CommandSource | null>(() => {
 
 const showAiEditPill = computed<boolean>(() => selectedItemLastSource.value === 'mcp')
 
+// §M lock: when the selected item carries `locked: true`, every edit input
+// (and the field-level "+ animate" buttons that dispatch update_item /
+// add_tween from this panel) is disabled, and a banner offers an unlock
+// button. The flag is editor-side only — the engine ignores it — so the
+// only way it shows up here is through the Layers panel toggle.
+const selectedItemLocked = computed<boolean>(() => {
+  const item = selectedItem.value as ({ locked?: unknown } | null)
+  return item?.locked === true
+})
+
+function unlockSelectedItem(): void {
+  const id = selection.selectedItemId.value
+  if (!id) return
+  emit('apply', {
+    kind: 'update_item',
+    payload: { id, props: { locked: false } },
+    source: 'ui',
+  })
+}
+
 const defaultsItem = computed<ItemLike | null>(() => {
   const base = props.defaults
   const id = selection.selectedItemId.value
@@ -822,6 +842,30 @@ function onSelectionChange(event: Event): void {
     </section>
 
     <template v-else>
+      <div
+        v-if="selectedItemLocked"
+        class="locked-banner"
+        data-testid="inspector-locked-banner"
+        role="status"
+      >
+        <span class="locked-icon" aria-hidden="true">🔒</span>
+        <span class="locked-text">
+          This item is locked. Edits are disabled while the lock is on.
+        </span>
+        <button
+          type="button"
+          class="locked-unlock"
+          data-testid="inspector-unlock"
+          @click="unlockSelectedItem"
+        >
+          Unlock
+        </button>
+      </div>
+      <fieldset
+        class="locked-fieldset"
+        :class="{ locked: selectedItemLocked }"
+        :disabled="selectedItemLocked"
+      >
       <section class="section">
         <header class="section-header">
           <span class="section-title">Transform</span>
@@ -1035,6 +1079,7 @@ function onSelectionChange(event: Event): void {
           </template>
         </div>
       </section>
+      </fieldset>
     </template>
   </div>
 </template>
@@ -1096,6 +1141,58 @@ function onSelectionChange(event: Event): void {
 .empty {
   color: #707070;
   font-size: 13px;
+}
+
+/* §M locked-state UI. The banner is the visible signpost; the fieldset
+ * dims and disables the form below it. `disabled` on a fieldset natively
+ * disables every nested form control, so we don't have to thread an extra
+ * disabled prop into every input. */
+.locked-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 198, 107, 0.12);
+  border: 1px solid rgba(255, 198, 107, 0.45);
+  color: #ffe2a8;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.locked-icon {
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+.locked-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.locked-unlock {
+  appearance: none;
+  background: rgba(255, 198, 107, 0.18);
+  border: 1px solid rgba(255, 198, 107, 0.55);
+  color: #ffe2a8;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.locked-unlock:hover {
+  background: rgba(255, 198, 107, 0.32);
+}
+.locked-fieldset {
+  appearance: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.locked-fieldset.locked {
+  opacity: 0.55;
+  filter: saturate(0.7);
 }
 
 .section {

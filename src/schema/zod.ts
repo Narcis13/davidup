@@ -75,6 +75,16 @@ export const TransformSchema = z.object({
   opacity: z.number().min(0).max(1),
 });
 
+// Per UX_GAPS §M: `visible` and `locked` are optional booleans on every item
+// (and layer). Absent ≡ visible & unlocked, keeping older project JSON valid
+// without a migration. The engine skips drawing when `visible === false`;
+// `locked` is purely a hint to the editor (Inspector + Stage drag refuse
+// edits) and is ignored by the renderer.
+export const ItemFlagsSchema = {
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
+} as const;
+
 export const SpriteItemSchema = z.object({
   type: z.literal("sprite"),
   asset: z.string().min(1),
@@ -82,6 +92,7 @@ export const SpriteItemSchema = z.object({
   height: z.number().nonnegative(),
   tint: z.string().optional(),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const TextItemSchema = z.object({
@@ -92,6 +103,7 @@ export const TextItemSchema = z.object({
   color: z.string(),
   align: z.enum(["left", "center", "right"]).optional(),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const ShapeItemSchema = z.object({
@@ -105,12 +117,14 @@ export const ShapeItemSchema = z.object({
   strokeWidth: z.number().nonnegative().optional(),
   cornerRadius: z.number().nonnegative().optional(),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const GroupItemSchema = z.object({
   type: z.literal("group"),
   items: z.array(z.string().min(1)),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const ItemSchema = z.discriminatedUnion("type", [
@@ -126,6 +140,7 @@ export const LayerSchema = z.object({
   opacity: z.number().min(0).max(1),
   blendMode: BlendModeSchema,
   items: z.array(z.string().min(1)),
+  ...ItemFlagsSchema,
 });
 
 export const TweenSchema = z.object({

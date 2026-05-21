@@ -505,12 +505,14 @@ const addLayer = defineTool({
   name: "add_layer",
   title: "Add layer",
   description:
-    "Add a layer with z-index. Optional opacity, blendMode, explicit id.",
+    "Add a layer with z-index. Optional opacity, blendMode, visible/locked flags, explicit id.",
   inputSchema: {
     id: z.string().min(1).optional(),
     z: z.number(),
     opacity: z.number().min(0).max(1).optional(),
     blendMode: BlendModeSchema.optional(),
+    visible: z.boolean().optional(),
+    locked: z.boolean().optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -520,6 +522,8 @@ const addLayer = defineTool({
         ...(args.id !== undefined ? { id: args.id } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
         ...(args.blendMode !== undefined ? { blendMode: args.blendMode } : {}),
+        ...(args.visible !== undefined ? { visible: args.visible } : {}),
+        ...(args.locked !== undefined ? { locked: args.locked } : {}),
       },
       args.compositionId,
     );
@@ -530,13 +534,19 @@ const addLayer = defineTool({
 const updateLayer = defineTool({
   name: "update_layer",
   title: "Update layer",
-  description: "Patch a layer's z, opacity, or blendMode.",
+  description:
+    "Patch a layer's z, opacity, blendMode, visibility, or lock state. " +
+    "`visible: false` hides the layer (and everything in it) from the renderer; " +
+    "`locked: true` is a hint to the editor that the layer's contents should not " +
+    "be edited (the engine ignores it).",
   inputSchema: {
     id: z.string().min(1),
     props: z.object({
       z: z.number().optional(),
       opacity: z.number().min(0).max(1).optional(),
       blendMode: BlendModeSchema.optional(),
+      visible: z.boolean().optional(),
+      locked: z.boolean().optional(),
     }),
     compositionId: COMPOSITION_ID,
   },
@@ -545,6 +555,8 @@ const updateLayer = defineTool({
     if (args.props.z !== undefined) props.z = args.props.z;
     if (args.props.opacity !== undefined) props.opacity = args.props.opacity;
     if (args.props.blendMode !== undefined) props.blendMode = args.props.blendMode;
+    if (args.props.visible !== undefined) props.visible = args.props.visible;
+    if (args.props.locked !== undefined) props.locked = args.props.locked;
     store.updateLayer(args.id, props, args.compositionId);
     return { ok: true as const };
   },
@@ -761,6 +773,10 @@ const ITEM_PROP_SHAPE = z
     cornerRadius: z.number().nonnegative(),
     points: POINTS,
     items: z.array(z.string().min(1)),
+    // §M flags. Setting `visible: false` keeps the renderer from drawing the
+    // item; `locked: true` is purely a hint to the editor.
+    visible: z.boolean(),
+    locked: z.boolean(),
   })
   .partial();
 

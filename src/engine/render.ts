@@ -70,12 +70,16 @@ export function drawScene(
 
   const sorted = sortLayersByZ(scene.layers);
   for (const layer of sorted) {
+    // §M visibility: absent ≡ visible. Skipping early avoids the save/restore
+    // pair and any descendant draws — a hidden layer is truly free at render.
+    if (layer.visible === false) continue;
     ctx.save();
     ctx.globalAlpha = ctx.globalAlpha * layer.opacity;
     applyBlendMode(ctx, layer.blendMode);
     for (const itemId of layer.items) {
       const item = scene.items[itemId];
       if (!item) continue;
+      if (item.visible === false) continue;
       drawItem(ctx, item, scene, assets, dc);
     }
     ctx.restore();
@@ -293,6 +297,7 @@ function drawGroupChildren(
   for (const childId of item.items) {
     const child = scene.items[childId];
     if (!child) continue;
+    if (child.visible === false) continue;
     drawItem(ctx, child, scene, dc.assets, dc);
   }
 }

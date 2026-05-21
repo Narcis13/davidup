@@ -114,12 +114,16 @@ export interface AddLayerInput {
   z: number;
   opacity?: number;
   blendMode?: BlendMode;
+  visible?: boolean;
+  locked?: boolean;
 }
 
 export interface UpdateLayerProps {
   z?: number;
   opacity?: number;
   blendMode?: BlendMode;
+  visible?: boolean;
+  locked?: boolean;
 }
 
 export interface AddSpriteInput {
@@ -210,6 +214,9 @@ export interface UpdateItemProps {
   points?: ReadonlyArray<readonly [number, number]>;
   // Group-specific.
   items?: ReadonlyArray<string>;
+  // §M flags (all item types).
+  visible?: boolean;
+  locked?: boolean;
 }
 
 export interface AddTweenInput {
@@ -463,6 +470,8 @@ export class CompositionStore {
       opacity,
       blendMode: input.blendMode ?? DEFAULT_BLEND_MODE,
       items: [],
+      ...(input.visible !== undefined ? { visible: input.visible } : {}),
+      ...(input.locked !== undefined ? { locked: input.locked } : {}),
     });
     return id;
   }
@@ -488,6 +497,8 @@ export class CompositionStore {
       next.opacity = props.opacity;
     }
     if (props.blendMode !== undefined) next.blendMode = props.blendMode;
+    if (props.visible !== undefined) next.visible = props.visible;
+    if (props.locked !== undefined) next.locked = props.locked;
     comp.layers.set(id, next);
   }
 
@@ -1425,10 +1436,17 @@ function cloneLayer(layer: Layer): Layer {
     opacity: layer.opacity,
     blendMode: layer.blendMode,
     items: [...layer.items],
+    ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+    ...(layer.locked !== undefined ? { locked: layer.locked } : {}),
   };
 }
 
 function cloneItem(item: Item): Item {
+  // §M flags propagate through every clone path so toJSON round-trips them.
+  const flags = {
+    ...(item.visible !== undefined ? { visible: item.visible } : {}),
+    ...(item.locked !== undefined ? { locked: item.locked } : {}),
+  };
   switch (item.type) {
     case "sprite":
       return {
@@ -1438,6 +1456,7 @@ function cloneItem(item: Item): Item {
         height: item.height,
         transform: { ...item.transform },
         ...(item.tint !== undefined ? { tint: item.tint } : {}),
+        ...flags,
       };
     case "text":
       return {
@@ -1448,6 +1467,7 @@ function cloneItem(item: Item): Item {
         color: item.color,
         transform: { ...item.transform },
         ...(item.align !== undefined ? { align: item.align } : {}),
+        ...flags,
       };
     case "shape":
       return {
@@ -1463,12 +1483,14 @@ function cloneItem(item: Item): Item {
         ...(item.strokeColor !== undefined ? { strokeColor: item.strokeColor } : {}),
         ...(item.strokeWidth !== undefined ? { strokeWidth: item.strokeWidth } : {}),
         ...(item.cornerRadius !== undefined ? { cornerRadius: item.cornerRadius } : {}),
+        ...flags,
       };
     case "group":
       return {
         type: "group",
         items: [...item.items],
         transform: { ...item.transform },
+        ...flags,
       };
   }
 }
@@ -1500,6 +1522,13 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
     transform.opacity = props.opacity;
   }
 
+  // §M visibility/lock flags apply to every item type. We allow them in
+  // every variant's allowlist below.
+  const flagPatch: { visible?: boolean; locked?: boolean } = {};
+  if (props.visible !== undefined) flagPatch.visible = props.visible;
+  if (props.locked !== undefined) flagPatch.locked = props.locked;
+  const COMMON_ALLOWED = ["visible", "locked"] as const;
+
   switch (item.type) {
     case "sprite": {
       const next: SpriteItem = {
@@ -1508,6 +1537,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.asset !== undefined ? { asset: props.asset } : {}),
         ...(props.width !== undefined ? { width: props.width } : {}),
         ...(props.height !== undefined ? { height: props.height } : {}),
+        ...flagPatch,
       };
       if (props.tint !== undefined) next.tint = props.tint;
       rejectKeys(props, item.type, [
@@ -1523,6 +1553,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }
@@ -1534,6 +1565,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.font !== undefined ? { font: props.font } : {}),
         ...(props.fontSize !== undefined ? { fontSize: props.fontSize } : {}),
         ...(props.color !== undefined ? { color: props.color } : {}),
+        ...flagPatch,
       };
       if (props.align !== undefined) next.align = props.align;
       rejectKeys(props, item.type, [
@@ -1550,6 +1582,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }
@@ -1568,6 +1601,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.strokeColor !== undefined ? { strokeColor: props.strokeColor } : {}),
         ...(props.strokeWidth !== undefined ? { strokeWidth: props.strokeWidth } : {}),
         ...(props.cornerRadius !== undefined ? { cornerRadius: props.cornerRadius } : {}),
+        ...flagPatch,
       };
       rejectKeys(props, item.type, [
         "width",
@@ -1585,6 +1619,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }
@@ -1593,6 +1628,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...item,
         transform,
         ...(props.items !== undefined ? { items: [...props.items] } : {}),
+        ...flagPatch,
       };
       rejectKeys(props, item.type, [
         "items",
@@ -1604,6 +1640,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }

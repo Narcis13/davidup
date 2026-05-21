@@ -301,6 +301,17 @@ function getItemPosition(itemId: string): { x: number; y: number } | null {
   return { x: tx, y: ty }
 }
 
+// §M lock: items flagged `locked: true` are still selectable from the stage
+// (so the user can see they're locked) but their pointer drag and resize/
+// rotate handles are no-ops. The Inspector banner is the canonical way out.
+function isItemLocked(itemId: string): boolean {
+  const items = (props.composition as { items?: unknown } | null)?.items
+  if (!items || typeof items !== 'object') return false
+  const it = (items as Record<string, unknown>)[itemId]
+  if (!it || typeof it !== 'object') return false
+  return (it as { locked?: unknown }).locked === true
+}
+
 // Resolve the full transform + width/height for an item, with safe defaults
 // for fields the engine fills in implicitly. Returns null if the item is
 // missing or of a type that can't be resize-/rotate-manipulated (text,
@@ -498,6 +509,7 @@ const showHandles = computed<boolean>(() => {
   if (selection.selectedItemIds.value.length !== 1) return false
   const id = selection.selectedItemId.value
   if (!id) return false
+  if (isItemLocked(id)) return false
   return getResolvableItem(id) !== null
 })
 
@@ -570,6 +582,8 @@ function onCanvasPointerDown(event: PointerEvent): void {
   // implicit) can't be dragged in phase 1 — let the click flow through and
   // just select them.
   if (!pos) return
+  // Locked items: the click still selects them, but we don't stage a drag.
+  if (isItemLocked(hit.itemId)) return
   const scale = cssToCompScaleFromCanvas()
   if (!scale) return
   const hitEl = (event.currentTarget as HTMLElement | null) ?? canvas.value
