@@ -27,7 +27,7 @@
 // reload — making override detection a "what changed in this tab" hint
 // rather than "what diverges from the source-of-truth defaults".
 
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EASING_NAMES } from 'davidup/easings'
 import { getTweenable, listTweenable } from 'davidup/schema'
 import type { ItemType } from 'davidup/schema'
@@ -71,6 +71,12 @@ const props = defineProps<{
   defaults: Composition | null
   pending?: boolean
   error?: string | null
+  /**
+   * Current playhead time (seconds). Used as the default `start` value when
+   * authoring a new tween via the field-level `+ animate` button so the
+   * tween lands where the user is currently scrubbed (UX_GAPS §C).
+   */
+  playhead?: number
   // Step 20.2 — most recent edit source per item id. When the selected
   // item's last change came from MCP, the header renders an "AI edit"
   // pill (foundation for FR-13). Optional so existing callers that don't
@@ -387,6 +393,188 @@ function dispatchEdit(field: FieldDef, raw: unknown): void {
   emit('apply', command)
 }
 
+// ──────────────── Add-tween authoring (UX_GAPS §C) ────────────────
+//
+// Each tweenable field renders a tiny `+` button next to the input. Clicking
+// it opens an inline popover with `from / to / start / duration / easing`
+// controls (seeded from the field's current value and the editor playhead).
+// On confirm we dispatch a single `add_tween` command — the same shape the
+// MCP add_tween tool produces, keeping UI ↔ MCP equivalence intact.
+
+interface AddTweenPopoverState {
+  field: FieldDef
+  from: number | string
+  to: number | string
+  start: number
+  duration: number
+  easing: string
+}
+
+const addTweenPopover = ref<AddTweenPopoverState | null>(null)
+
+function isFieldTweenable(field: FieldDef): boolean {
+  const item = selectedItem.value
+  if (!item) return false
+  return getTweenable(item.type as ItemType, field.path) !== undefined
+}
+
+function tweenValueKindForField(field: FieldDef): 'number' | 'color' | 'unknown' {
+  const item = selectedItem.value
+  if (!item) return 'unknown'
+  const desc = getTweenable(item.type as ItemType, field.path)
+  return desc ? desc.kind : 'unknown'
+}
+
+function inputForKind(kind: 'number' | 'color' | 'unknown') {
+  switch (kind) {
+    case 'number':
+      return NumberInput
+    case 'color':
+      return ColorInput
+    default:
+      return RawJsonInput
+  }
+}
+
+function snapStart(t: number, duration: number): number {
+  // Clamp `start` so `start + duration` stays within the composition. We
+  // intentionally keep it simple — the server validator owns the final
+  // word; this just makes the seed feel sensible.
+  if (!Number.isFinite(t) || t < 0) return 0
+  const dur = compositionDuration.value
+  if (dur <= 0) return Math.max(0, t)
+  const max = Math.max(0, dur - duration)
+  return Math.min(max, Math.max(0, t))
+}
+
+function openAddTweenPopover(field: FieldDef): void {
+  const item = selectedItem.value
+  if (!item) return
+  const desc = getTweenable(item.type as ItemType, field.path)
+  if (!desc) return
+  const current = readPath(item, field.path)
+  // Sensible defaults: from = current value, to = current value (user nudges
+  // it), start = current playhead clipped into the composition, duration =
+  // min(1s, remaining time). Falls back to neutral colours/0 when the field
+  // hasn't been assigned yet.
+  const fallback: number | string = desc.kind === 'color' ? '#ffffff' : 0
+  const seed: number | string =
+    desc.kind === 'color'
+      ? typeof current === 'string'
+        ? current
+        : fallback
+      : typeof current === 'number'
+        ? current
+        : 0
+  const compDur = compositionDuration.value > 0 ? compositionDuration.value : 1
+  const duration = Math.min(1, Math.max(0.1, compDur))
+  const start = snapStart(props.playhead ?? 0, duration)
+  addTweenPopover.value = {
+    field,
+    from: seed,
+    to: seed,
+    start,
+    duration,
+    easing: 'linear',
+  }
+}
+
+function closeAddTweenPopover(): void {
+  addTweenPopover.value = null
+}
+
+function updateAddTweenField<K extends keyof AddTweenPopoverState>(
+  key: K,
+  value: AddTweenPopoverState[K],
+): void {
+  const cur = addTweenPopover.value
+  if (!cur) return
+  addTweenPopover.value = { ...cur, [key]: value }
+}
+
+function confirmAddTween(): void {
+  const state = addTweenPopover.value
+  const id = selection.selectedItemId.value
+  if (!state || !id) return
+  const payload: Record<string, unknown> = {
+    target: id,
+    property: state.field.path,
+    from: state.from,
+    to: state.to,
+    start: Math.max(0, state.start),
+    duration: Math.max(0.05, state.duration),
+    easing: state.easing,
+  }
+  const command: Command = {
+    kind: 'add_tween',
+    payload,
+    source: 'ui',
+  }
+  emit('apply', command)
+  addTweenPopover.value = null
+}
+
+function isAddTweenPopoverFor(field: FieldDef): boolean {
+  const cur = addTweenPopover.value
+  return !!cur && cur.field.key === field.key && cur.field.path === field.path
+}
+
+// Close any open popover when the user changes selection so we don't issue
+// an add_tween for a stale target.
+watch(
+  () => selection.selectedItemId.value,
+  () => {
+    addTweenPopover.value = null
+  },
+)
+watch(
+  () => selection.selectedTweenId.value,
+  (tid) => {
+    if (tid) addTweenPopover.value = null
+  },
+)
+
+// Esc dismisses the add-tween popover. We register at the window level so
+// the user can back out without focusing the popover first — same UX as
+// ItemToolbar's Esc handling.
+function onAddTweenKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') return
+  if (!addTweenPopover.value) return
+  event.preventDefault()
+  closeAddTweenPopover()
+}
+
+onMounted(() => {
+  if (typeof window !== 'undefined') window.addEventListener('keydown', onAddTweenKeydown)
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('keydown', onAddTweenKeydown)
+})
+
+// ──────────────── Remove-tween (UX_GAPS §C) ──────────────────────
+// Dispatch helper for the "Delete tween" button shown in tween mode. The
+// page's deleteSelection (Backspace) also calls remove_tween via the same
+// path when a tween is selected — both flow through the bus.
+
+function deleteSelectedTween(): void {
+  // Read via the function reference defined further down (closure resolution
+  // happens at call time, so we can refer to `selectedTween` here even
+  // though the `const` lives below for narrative grouping).
+  const tw = selectedTween.value
+  if (!tw) return
+  // Mirror editor.vue:deleteSelection's invariant — drop the tween selection
+  // before dispatching so the Inspector immediately falls back to item mode
+  // (it would do so anyway when the response arrives, but this avoids a
+  // momentary "tween not found" render between command and response).
+  selection.setTweenSelection(null)
+  emit('apply', {
+    kind: 'remove_tween',
+    payload: { id: tw.id },
+    source: 'ui',
+  })
+}
+
 // ──────────────── Tween editor (step 20.24) ────────────────
 //
 // When the Timeline emits a bar click, `useSelection.setTweenSelection`
@@ -527,6 +715,14 @@ function onSelectionChange(event: Event): void {
             title="Return to item editor (keeps item selected)"
             @click="clearTweenSelection"
           >Edit item</button>
+          <button
+            type="button"
+            class="tween-delete"
+            data-testid="inspector-tween-delete"
+            title="Delete this tween (Backspace also works while a tween is selected)"
+            :disabled="pending"
+            @click="deleteSelectedTween"
+          >Delete tween</button>
         </span>
       </header>
       <div class="fields">
@@ -602,20 +798,92 @@ function onSelectionChange(event: Event): void {
         </p>
         <div class="fields">
           <template v-for="field in TRANSFORM_FIELDS" :key="`tx-${field.key}`">
-            <component
-              :is="inputFor(field)"
-              :model-value="valueFor(field)"
-              :label="field.label"
-              :min="field.min"
-              :max="field.kind === 'time' ? compositionDuration : field.max"
-              :step="field.step"
-              :options="field.options ?? []"
-              :placeholder="field.placeholder"
-              :multiline="field.multiline"
-              :overridden="isOverridden(field)"
-              :disabled="pending"
-              @update:model-value="(v: unknown) => dispatchEdit(field, v)"
-            />
+            <div class="field-row" :data-field="field.key">
+              <div class="field-row-input">
+                <component
+                  :is="inputFor(field)"
+                  :model-value="valueFor(field)"
+                  :label="field.label"
+                  :min="field.min"
+                  :max="field.kind === 'time' ? compositionDuration : field.max"
+                  :step="field.step"
+                  :options="field.options ?? []"
+                  :placeholder="field.placeholder"
+                  :multiline="field.multiline"
+                  :overridden="isOverridden(field)"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => dispatchEdit(field, v)"
+                />
+              </div>
+              <button
+                v-if="isFieldTweenable(field)"
+                type="button"
+                class="animate-btn"
+                :class="{ active: isAddTweenPopoverFor(field) }"
+                :disabled="pending"
+                :data-testid="`inspector-animate-${field.key}`"
+                :title="`Animate ${field.label} — add a tween for this property`"
+                @click="isAddTweenPopoverFor(field) ? closeAddTweenPopover() : openAddTweenPopover(field)"
+              >+ animate</button>
+              <div
+                v-if="isAddTweenPopoverFor(field) && addTweenPopover"
+                class="animate-popover"
+                data-testid="inspector-animate-popover"
+              >
+                <div class="animate-popover-title">
+                  Animate <code>{{ field.path }}</code>
+                </div>
+                <component
+                  :is="inputForKind(tweenValueKindForField(field))"
+                  :model-value="addTweenPopover.from"
+                  label="from"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => updateAddTweenField('from', v as number | string)"
+                />
+                <component
+                  :is="inputForKind(tweenValueKindForField(field))"
+                  :model-value="addTweenPopover.to"
+                  label="to"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => updateAddTweenField('to', v as number | string)"
+                />
+                <TimeInput
+                  :model-value="addTweenPopover.start"
+                  label="start"
+                  :max="compositionDuration"
+                  :disabled="pending"
+                  @update:model-value="(v: number) => updateAddTweenField('start', v)"
+                />
+                <TimeInput
+                  :model-value="addTweenPopover.duration"
+                  label="duration"
+                  :max="compositionDuration"
+                  :disabled="pending"
+                  @update:model-value="(v: number) => updateAddTweenField('duration', v)"
+                />
+                <EnumInput
+                  :model-value="addTweenPopover.easing"
+                  label="easing"
+                  :options="EASING_NAMES"
+                  :disabled="pending"
+                  @update:model-value="(v: string) => updateAddTweenField('easing', v)"
+                />
+                <div class="animate-popover-actions">
+                  <button
+                    type="button"
+                    class="animate-popover-btn ghost"
+                    @click="closeAddTweenPopover"
+                  >Cancel</button>
+                  <button
+                    type="button"
+                    class="animate-popover-btn primary"
+                    :disabled="pending"
+                    data-testid="inspector-animate-confirm"
+                    @click="confirmAddTween"
+                  >Add tween</button>
+                </div>
+              </div>
+            </div>
           </template>
         </div>
       </section>
@@ -626,20 +894,92 @@ function onSelectionChange(event: Event): void {
         </header>
         <div class="fields">
           <template v-for="field in itemSpecificFields" :key="`item-${field.key}`">
-            <component
-              :is="inputFor(field)"
-              :model-value="valueFor(field)"
-              :label="field.label"
-              :min="field.min"
-              :max="field.kind === 'time' ? compositionDuration : field.max"
-              :step="field.step"
-              :options="field.options ?? []"
-              :placeholder="field.placeholder"
-              :multiline="field.multiline"
-              :overridden="isOverridden(field)"
-              :disabled="pending"
-              @update:model-value="(v: unknown) => dispatchEdit(field, v)"
-            />
+            <div class="field-row" :data-field="field.key">
+              <div class="field-row-input">
+                <component
+                  :is="inputFor(field)"
+                  :model-value="valueFor(field)"
+                  :label="field.label"
+                  :min="field.min"
+                  :max="field.kind === 'time' ? compositionDuration : field.max"
+                  :step="field.step"
+                  :options="field.options ?? []"
+                  :placeholder="field.placeholder"
+                  :multiline="field.multiline"
+                  :overridden="isOverridden(field)"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => dispatchEdit(field, v)"
+                />
+              </div>
+              <button
+                v-if="isFieldTweenable(field)"
+                type="button"
+                class="animate-btn"
+                :class="{ active: isAddTweenPopoverFor(field) }"
+                :disabled="pending"
+                :data-testid="`inspector-animate-${field.key}`"
+                :title="`Animate ${field.label} — add a tween for this property`"
+                @click="isAddTweenPopoverFor(field) ? closeAddTweenPopover() : openAddTweenPopover(field)"
+              >+ animate</button>
+              <div
+                v-if="isAddTweenPopoverFor(field) && addTweenPopover"
+                class="animate-popover"
+                data-testid="inspector-animate-popover"
+              >
+                <div class="animate-popover-title">
+                  Animate <code>{{ field.path }}</code>
+                </div>
+                <component
+                  :is="inputForKind(tweenValueKindForField(field))"
+                  :model-value="addTweenPopover.from"
+                  label="from"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => updateAddTweenField('from', v as number | string)"
+                />
+                <component
+                  :is="inputForKind(tweenValueKindForField(field))"
+                  :model-value="addTweenPopover.to"
+                  label="to"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => updateAddTweenField('to', v as number | string)"
+                />
+                <TimeInput
+                  :model-value="addTweenPopover.start"
+                  label="start"
+                  :max="compositionDuration"
+                  :disabled="pending"
+                  @update:model-value="(v: number) => updateAddTweenField('start', v)"
+                />
+                <TimeInput
+                  :model-value="addTweenPopover.duration"
+                  label="duration"
+                  :max="compositionDuration"
+                  :disabled="pending"
+                  @update:model-value="(v: number) => updateAddTweenField('duration', v)"
+                />
+                <EnumInput
+                  :model-value="addTweenPopover.easing"
+                  label="easing"
+                  :options="EASING_NAMES"
+                  :disabled="pending"
+                  @update:model-value="(v: string) => updateAddTweenField('easing', v)"
+                />
+                <div class="animate-popover-actions">
+                  <button
+                    type="button"
+                    class="animate-popover-btn ghost"
+                    @click="closeAddTweenPopover"
+                  >Cancel</button>
+                  <button
+                    type="button"
+                    class="animate-popover-btn primary"
+                    :disabled="pending"
+                    data-testid="inspector-animate-confirm"
+                    @click="confirmAddTween"
+                  >Add tween</button>
+                </div>
+              </div>
+            </div>
           </template>
         </div>
       </section>
@@ -774,6 +1114,145 @@ function onSelectionChange(event: Event): void {
 .tween-back:focus-visible {
   outline: 1px solid #5b7cfa;
   outline-offset: 1px;
+}
+
+.tween-delete {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffb4b4;
+  background: rgba(255, 90, 90, 0.08);
+  border: 1px solid rgba(255, 90, 90, 0.35);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tween-delete:hover:not(:disabled) {
+  background: rgba(255, 90, 90, 0.18);
+  border-color: rgba(255, 90, 90, 0.6);
+  color: #ffffff;
+}
+
+.tween-delete:focus-visible {
+  outline: 1px solid #ff6b6b;
+  outline-offset: 1px;
+}
+
+.tween-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-row-input {
+  min-width: 0;
+}
+
+.animate-btn {
+  flex: 0 0 auto;
+  appearance: none;
+  background: rgba(91, 124, 250, 0.08);
+  border: 1px solid rgba(91, 124, 250, 0.32);
+  color: #aab7ff;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.animate-btn:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.18);
+  border-color: rgba(91, 124, 250, 0.6);
+  color: #ffffff;
+}
+
+.animate-btn.active {
+  background: rgba(91, 124, 250, 0.32);
+  border-color: rgba(91, 124, 250, 0.8);
+  color: #ffffff;
+}
+
+.animate-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.animate-popover {
+  grid-column: 1 / -1;
+  margin: 4px 0 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(91, 124, 250, 0.06);
+  border: 1px solid rgba(91, 124, 250, 0.32);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.animate-popover-title {
+  font-size: 11px;
+  color: #aab7ff;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.animate-popover-title code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: #d4d4d4;
+}
+
+.animate-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.animate-popover-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #d4d4d4;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.animate-popover-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.animate-popover-btn.primary {
+  background: rgba(91, 124, 250, 0.22);
+  border-color: rgba(91, 124, 250, 0.6);
+  color: #ffffff;
+}
+
+.animate-popover-btn.primary:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.36);
+}
+
+.animate-popover-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .fields {

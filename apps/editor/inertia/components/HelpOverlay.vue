@@ -29,7 +29,7 @@ interface Shortcut {
 
 const shortcuts = computed<Shortcut[]>(() => [
   { keys: ['Space'], label: 'Play / pause the stage' },
-  { keys: ['Backspace'], label: 'Delete the current selection' },
+  { keys: ['Backspace'], label: 'Delete the current selection (item — or tween when a Timeline bar is selected)' },
   { keys: [`${modKey.value}`, 'Z'], label: 'Undo the most recent edit' },
   { keys: [`${modKey.value}`, '⇧', 'Z'], label: 'Redo the most recently undone edit' },
   { keys: [`${modKey.value}`, '0'], label: 'Fit timeline (reset playhead to start)' },
@@ -37,7 +37,7 @@ const shortcuts = computed<Shortcut[]>(() => [
   { keys: [`${modKey.value}`, 'R'], label: 'Render to MP4' },
   { keys: [`${modKey.value}`, 'S'], label: 'Save (force flush)' },
   { keys: ['?'], label: 'Toggle this help overlay' },
-  { keys: ['Esc'], label: 'Dismiss overlays / menus / cancel place mode' },
+  { keys: ['Esc'], label: 'Dismiss overlays / menus / cancel place mode / close animate popover' },
 ])
 
 interface DragAffordance {
@@ -47,6 +47,11 @@ interface DragAffordance {
 }
 
 const dragAffordances: DragAffordance[] = [
+  {
+    from: 'Inspector "+ animate" pill on a tweenable field',
+    to: 'Same field row',
+    result: 'Opens a popover to author a new tween for that property — confirm to dispatch add_tween.',
+  },
   {
     from: 'Stage toolbar button (Rectangle / Circle / Text / Sprite)',
     to: 'Stage canvas',

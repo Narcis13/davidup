@@ -220,6 +220,16 @@ function onRevealSourceFromInspector(): void {
 }
 
 function deleteSelection(): void {
+  // UX_GAPS §C: when a Timeline bar is selected, Backspace deletes the
+  // tween — not the item the bar targets. Without this branch the user has
+  // no keyboard path to remove a tween, and accidentally taps Backspace
+  // expecting to scrub the animation away but lose the whole sprite.
+  const tweenId = selection.selectedTweenId.value
+  if (tweenId) {
+    selection.setTweenSelection(null)
+    void bus.apply({ kind: 'remove_tween', payload: { id: tweenId } })
+    return
+  }
   const id = selection.selectedItemId.value
   if (!id) return
   // Pre-emptively clear the selection so the Inspector doesn't try to render
@@ -458,6 +468,7 @@ onBeforeUnmount(() => {
         :defaults="props.defaults"
         :pending="bus.pending.value"
         :error="bus.error.value"
+        :playhead="stage.playhead.value"
         :item-last-source="bus.itemLastSource.value"
         :last-pick-source="selection.lastPickSource.value"
         @apply="bus.apply"
