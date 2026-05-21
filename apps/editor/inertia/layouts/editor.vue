@@ -187,6 +187,15 @@ function onHelp(): void {
   }
 }
 
+function onCompositionSettings(): void {
+  // The dialog itself lives in pages/editor.vue where the command bus is
+  // wired up. The layout just signals the request — keeps this shell free
+  // of composition-state coupling.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('davidup:toggle-composition-settings'))
+  }
+}
+
 function onDocClick(event: MouseEvent): void {
   if (!dropdownOpen.value) return
   const root = dropdownRoot.value
@@ -368,6 +377,18 @@ watch(
         <div class="app-bar-render">
           <RenderStrip />
         </div>
+        <button
+          type="button"
+          class="comp-settings-btn"
+          title="Composition settings (width, height, fps, duration, background)"
+          aria-label="Composition settings"
+          data-testid="composition-settings-btn"
+          :disabled="!projectRoot"
+          @click="onCompositionSettings"
+        >
+          <span class="comp-settings-gear" aria-hidden="true">⚙</span>
+          <span class="comp-settings-label">Composition</span>
+        </button>
         <button
           type="button"
           class="help-btn"
@@ -830,6 +851,45 @@ watch(
   background: rgba(91, 124, 250, 0.15);
   border-color: rgba(91, 124, 250, 0.5);
   color: #e7ecff;
+}
+
+.comp-settings-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+  height: 22px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  flex: 0 0 auto;
+}
+
+.comp-settings-btn:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.15);
+  border-color: rgba(91, 124, 250, 0.5);
+  color: #e7ecff;
+}
+
+.comp-settings-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.comp-settings-gear {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.comp-settings-label {
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
 }
 
 .panel {

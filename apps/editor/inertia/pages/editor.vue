@@ -28,6 +28,7 @@ import { useShortcuts } from '~/composables/useShortcuts'
 import { useToasts } from '~/composables/useToasts'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import EditorLayout from '~/layouts/editor.vue'
+import CompositionSettingsDialog from '~/components/CompositionSettingsDialog.vue'
 import HelpOverlay from '~/components/HelpOverlay.vue'
 import Inspector from '~/components/Inspector.vue'
 import ItemToolbar from '~/components/ItemToolbar.vue'
@@ -291,6 +292,18 @@ function onHelpToggleEvent(): void {
   toggleHelp()
 }
 
+// ─── UX_GAPS §D: composition settings dialog ─────────────────────────────
+const compositionSettingsOpen = ref(false)
+
+function closeCompositionSettings(): void {
+  compositionSettingsOpen.value = false
+}
+
+function onCompositionSettingsToggleEvent(): void {
+  if (!bus.composition.value) return
+  compositionSettingsOpen.value = !compositionSettingsOpen.value
+}
+
 useShortcuts({
   togglePlay: () => stage.togglePlay(),
   deleteSelection,
@@ -373,6 +386,12 @@ onMounted(() => {
     // The app-bar's `?` button dispatches this event so we don't need a
     // layout↔page prop coupling just for the help overlay.
     window.addEventListener('davidup:toggle-help', onHelpToggleEvent)
+    // App-bar's ⚙ button signals via the same window-event pattern so the
+    // layout doesn't need to know about the command bus.
+    window.addEventListener(
+      'davidup:toggle-composition-settings',
+      onCompositionSettingsToggleEvent,
+    )
 
     if (typeof EventSource !== 'undefined') {
       projectEventSource = new EventSource('/api/projects/events')
@@ -408,6 +427,10 @@ onBeforeUnmount(() => {
     window.removeEventListener('dragleave', onWindowDragLeave)
     window.removeEventListener('drop', onWindowDrop)
     window.removeEventListener('davidup:toggle-help', onHelpToggleEvent)
+    window.removeEventListener(
+      'davidup:toggle-composition-settings',
+      onCompositionSettingsToggleEvent,
+    )
   }
   if (projectEventSource) {
     projectEventSource.close()
@@ -519,6 +542,13 @@ onBeforeUnmount(() => {
   </div>
 
   <HelpOverlay :open="helpOpen" @close="closeHelp" />
+
+  <CompositionSettingsDialog
+    :open="compositionSettingsOpen"
+    :composition="bus.composition.value"
+    @close="closeCompositionSettings"
+    @apply="bus.apply"
+  />
 
   <Toasts />
 </template>
