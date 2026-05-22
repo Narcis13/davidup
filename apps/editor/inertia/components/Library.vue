@@ -77,11 +77,16 @@ onBeforeUnmount(() => {
 
 const emit = defineEmits<{
   (event: 'apply-template', item: LibraryItem): void
+  (event: 'add-item', item: LibraryItem): void
   (event: 'remove-asset', payload: { id: string; cascade: boolean }): void
 }>()
 
 function onApply(item: LibraryItem): void {
   emit('apply-template', item)
+}
+
+function onAdd(item: LibraryItem): void {
+  emit('add-item', item)
 }
 
 // Promote requests in flight, keyed by `${kind}::${id}`. Each card's
@@ -511,6 +516,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         :asset-usage="usageFor(item)"
         @promote="onPromote"
         @apply="onApply"
+        @add="onAdd"
         @remove="onRemoveAsset"
       />
     </div>

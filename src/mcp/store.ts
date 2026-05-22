@@ -177,6 +177,8 @@ export interface AddShapeInput {
   cornerRadius?: number;
   rotation?: number;
   opacity?: number;
+  anchorX?: number;
+  anchorY?: number;
   id?: string;
   name?: string;
 }
@@ -616,6 +618,8 @@ export class CompositionStore {
       x: input.x,
       y: input.y,
       rotation: input.rotation ?? DEFAULT_TRANSFORM.rotation,
+      anchorX: input.anchorX ?? DEFAULT_TRANSFORM.anchorX,
+      anchorY: input.anchorY ?? DEFAULT_TRANSFORM.anchorY,
       opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
     };
     ensureUnitInterval("opacity", transform.opacity);

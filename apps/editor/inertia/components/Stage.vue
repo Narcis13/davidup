@@ -192,6 +192,8 @@ function buildPlaceCommand(
           height: 120,
           fillColor: '#5b7cfa',
           cornerRadius: 8,
+          anchorX: 0.5,
+          anchorY: 0.5,
         },
         source: 'ui',
       }
@@ -206,6 +208,8 @@ function buildPlaceCommand(
           width: 160,
           height: 160,
           fillColor: '#5b7cfa',
+          anchorX: 0.5,
+          anchorY: 0.5,
         },
         source: 'ui',
       }
@@ -255,6 +259,57 @@ function firstFontAssetId(): string | null {
     if (a?.type === 'font' && typeof a.id === 'string') return a.id
   }
   return null
+}
+
+function snapshotItemIds(): Set<string> {
+  const items = (props.composition as { items?: Record<string, unknown> } | null)?.items
+  return new Set(items && typeof items === 'object' ? Object.keys(items) : [])
+}
+
+// Emit a place-mode command and promote the freshly-created item to the
+// active selection once the bus's response lands. Without this, the
+// Inspector keeps showing the previously selected item until the user
+// clicks the new one on canvas (UX_FINDINGS §5). The bus is async, and
+// Stage doesn't have a direct handle to it — instead we diff
+// `props.composition.items` against a pre-emit snapshot and pick up the
+// new id from the next composition update. A timeout drops the watcher
+// if the apply fails so a later unrelated update can't latch onto it.
+function placeAndSelect(command: Command): void {
+  const beforeIds = snapshotItemIds()
+  let resolved = false
+  const stop = watch(
+    () => props.composition,
+    (next) => {
+      if (resolved) return
+      const items = (next as { items?: Record<string, unknown> } | null)?.items
+      if (!items || typeof items !== 'object') {
+        resolved = true
+        clearTimeout(timer)
+        stop()
+        return
+      }
+      for (const id of Object.keys(items)) {
+        if (!beforeIds.has(id)) {
+          resolved = true
+          clearTimeout(timer)
+          stop()
+          selection.setSelectionFromPick(id, null)
+          return
+        }
+      }
+      // Composition changed but no new item appeared — bail so we don't
+      // latch onto an unrelated future addition.
+      resolved = true
+      clearTimeout(timer)
+      stop()
+    },
+  )
+  const timer = setTimeout(() => {
+    if (resolved) return
+    resolved = true
+    stop()
+  }, 5000)
+  emit('apply', command)
 }
 
 // ──────────────── Drag-to-move (UX_GAPS §G phase 1) ────────────────
@@ -753,9 +808,9 @@ function onCanvasClick(event: MouseEvent): void {
   // Toolbar place mode takes precedence over hit-testing: a click on the
   // canvas while a primitive tool is active drops the primitive at the
   // cursor position on the topmost layer, then clears the tool. We never
-  // route the click through `pickItemAt` in this mode — selecting the
-  // freshly-placed item happens implicitly when the bus response echoes
-  // the new id, which the toolbar consumer can hook into later.
+  // route the click through `pickItemAt` in this mode — `placeAndSelect`
+  // diffs the composition once the bus response lands and promotes the
+  // new id to the active selection (UX_FINDINGS §5).
   const tool = itemToolbar.activeTool.value
   if (tool) {
     const layerId = layerForDropId.value
@@ -766,7 +821,7 @@ function onCanvasClick(event: MouseEvent): void {
     }
     const command = buildPlaceCommand(tool, layerId, coords.x, coords.y)
     itemToolbar.clearTool()
-    if (command) emit('apply', command)
+    if (command) placeAndSelect(command)
     return
   }
 

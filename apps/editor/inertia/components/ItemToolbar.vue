@@ -240,7 +240,7 @@ const buttons = computed<ToolButton[]>(() => [
     disabled: targetLayerId.value === null || fontAssets.value.length === 0,
     title:
       fontAssets.value.length === 0
-        ? 'Add a font asset to the composition before placing text'
+        ? 'Add a font asset to the composition before placing text — open the Library → Fonts tab and click "+ Add" on a font card'
         : 'Add text — type, then click on the stage',
     onClick: startText,
   },

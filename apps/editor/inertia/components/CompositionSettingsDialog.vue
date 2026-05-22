@@ -204,7 +204,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               v-model.number="fps"
               class="input"
               type="number"
-              min="0.0001"
+              min="1"
               step="1"
               data-testid="comp-settings-fps"
             />

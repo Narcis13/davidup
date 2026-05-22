@@ -12,7 +12,7 @@
 // IntersectionObserver gates the fetch so cards below the fold don't
 // trigger renders until they scroll into view.
 
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import type { LibraryItem } from '~/composables/useLibrary'
 import { useLibraryDrag } from '~/composables/useLibraryDrag'
 
@@ -39,6 +39,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'promote', item: LibraryItem): void
   (event: 'apply', item: LibraryItem): void
+  (event: 'add', item: LibraryItem): void
   (event: 'remove', item: LibraryItem): void
 }>()
 
@@ -125,11 +126,105 @@ onBeforeUnmount(() => {
   observer = null
 })
 
+const isFontKind = computed(() => props.item.kind === 'font')
+
 const thumbnailSrc = computed(() => {
+  // Fonts get a client-side preview rendered in the font itself (below),
+  // so we deliberately skip the server thumbnail PNG for them — the
+  // placeholder it returns when synth fails is the very thing UX_FINDINGS §7
+  // calls out.
+  if (isFontKind.value) return null
   if (!inView.value) return null
   const params = new URLSearchParams({ kind: props.item.kind, id: props.item.id })
   if (props.generation) params.set('v', String(props.generation))
   return `/api/library/thumbnail?${params.toString()}`
+})
+
+// ─── Client-side font preview (UX_FINDINGS §7) ───────────────────────────
+//
+// The server thumbnail endpoint falls back to a plain-text placeholder when
+// it can't resolve the font file (e.g. `global:fonts/...` srcs), so fonts
+// end up rendering as anonymous text rows with no glyph cue. We solve that
+// here by loading the actual TTF/WOFF via the FontFace API and showing the
+// family name + an "AaBbCc 123" sample rendered in that font.
+
+const loadedFontFamilies = (() => {
+  // Module-level cache so re-mounting a card (panel scroll / tab switch)
+  // doesn't re-fetch the same font, and so two cards for the same id share
+  // the same registered family alias.
+  const g = globalThis as typeof globalThis & { __dvpLibraryFontFamilies?: Set<string> }
+  if (!g.__dvpLibraryFontFamilies) g.__dvpLibraryFontFamilies = new Set()
+  return g.__dvpLibraryFontFamilies
+})()
+
+function libraryAssetUrl(item: LibraryItem): string | null {
+  const raw = (item.raw as { url?: string; src?: string } | null) ?? {}
+  const src = item.url ?? raw.url ?? raw.src
+  if (typeof src !== 'string' || src.length === 0) return null
+  if (src.startsWith('global:')) {
+    return `/library-files/${src.slice('global:'.length).replace(/^\/+/, '')}`
+  }
+  if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:')) return src
+  const trimmed = src.replace(/^(?:\.{1,2}\/)+/, '').replace(/^\/+/, '')
+  return item.scope === 'global'
+    ? `/library-files/${trimmed}`
+    : `/project-files/${trimmed}`
+}
+
+const fontAssetUrl = computed(() => (isFontKind.value ? libraryAssetUrl(props.item) : null))
+
+// Synthetic family alias keeps two fonts that share a `family` field (e.g.
+// "Inter Regular" + "Inter Bold" both calling themselves "Inter") rendering
+// in their own face on the card.
+const fontFamilyAlias = computed(() =>
+  isFontKind.value ? `dvp-libcard-${props.item.id}` : null
+)
+
+const fontLoaded = ref(false)
+const fontErrored = ref(false)
+
+async function loadFontPreview(): Promise<void> {
+  if (!isFontKind.value || fontLoaded.value || fontErrored.value) return
+  const alias = fontFamilyAlias.value
+  const url = fontAssetUrl.value
+  if (!alias || !url) {
+    fontErrored.value = true
+    return
+  }
+  if (loadedFontFamilies.has(alias)) {
+    fontLoaded.value = true
+    return
+  }
+  const FontFaceCtor = (globalThis as { FontFace?: typeof FontFace }).FontFace
+  const doc = (globalThis as { document?: Document }).document
+  if (!FontFaceCtor || !doc) {
+    fontErrored.value = true
+    return
+  }
+  try {
+    const face = new FontFaceCtor(alias, `url("${url}")`)
+    await face.load()
+    ;(doc.fonts as unknown as { add(f: FontFace): unknown }).add(face)
+    loadedFontFamilies.add(alias)
+    fontLoaded.value = true
+  } catch {
+    fontErrored.value = true
+  }
+}
+
+watch(inView, (v) => {
+  if (v) void loadFontPreview()
+})
+
+const fontPreviewStyle = computed(() => {
+  if (!isFontKind.value) return undefined
+  // Keep a sensible fallback while the file is still loading so the row
+  // never looks blank — once the FontFace resolves the browser swaps in
+  // the real face automatically.
+  const family = fontLoaded.value && fontFamilyAlias.value
+    ? `"${fontFamilyAlias.value}", system-ui, sans-serif`
+    : 'system-ui, sans-serif'
+  return { fontFamily: family }
 })
 
 const provenance = computed(() => {
@@ -144,6 +239,43 @@ const subtitle = computed(() => {
 })
 
 const kindLabel = computed(() => props.item.kind)
+
+// "Add" button: discoverable click-path for fonts / behaviors / scenes so the
+// library is usable without prior drag-and-drop knowledge (UX_FINDINGS §6).
+// Drag-drop remains the power-user path; the parent decides what to do per
+// kind (register the font asset, apply behavior to selection, drop a scene
+// instance on the first layer).
+const ADD_KINDS = new Set(['font', 'behavior', 'scene'])
+const canAdd = computed(() => {
+  if (!ADD_KINDS.has(props.item.kind)) return false
+  // For fonts, hide the Add button once the asset is already registered so it
+  // doesn't overlap (or duplicate) the Remove button at the same bottom-left.
+  if (props.item.kind === 'font' && props.assetUsage?.registered) return false
+  return true
+})
+const addLabel = computed(() => {
+  if (props.item.kind === 'behavior') return '+ Apply'
+  return '+ Add'
+})
+const addTitle = computed(() => {
+  if (props.item.kind === 'font') {
+    return `Register "${displayName.value}" in this composition so the Text tool can use it`
+  }
+  if (props.item.kind === 'behavior') {
+    return `Apply ${displayName.value} to the selected item at the playhead (select an item first)`
+  }
+  if (props.item.kind === 'scene') {
+    return `Insert ${displayName.value} on the first layer at the playhead`
+  }
+  return `Add ${displayName.value} to the composition`
+})
+
+function onAdd(event: Event): void {
+  event.stopPropagation()
+  event.preventDefault()
+  if (!canAdd.value) return
+  emit('add', props.item)
+}
 
 const scope = computed(() => props.item.scope ?? 'project')
 const scopeChip = computed(() => (scope.value === 'global' ? '🌐' : '📁'))
@@ -222,8 +354,17 @@ function onRemove(event: Event): void {
     @dragend="onDragEnd"
   >
     <div class="thumb-wrap">
+      <div
+        v-if="isFontKind"
+        class="thumb thumb-font"
+        :style="fontPreviewStyle"
+        data-testid="library-font-preview"
+      >
+        <span class="font-sample">AaBbCc 123</span>
+        <span class="font-name">{{ displayName }}</span>
+      </div>
       <img
-        v-if="thumbnailSrc && !errored"
+        v-else-if="thumbnailSrc && !errored"
         :src="thumbnailSrc"
         :alt="`${item.kind} preview · ${displayName}`"
         class="thumb"
@@ -237,7 +378,11 @@ function onRemove(event: Event): void {
         <span class="thumb-error-text">no preview</span>
       </div>
 
-      <div v-if="!loaded && !errored && inView" class="thumb-shimmer" aria-hidden="true" />
+      <div
+        v-if="!isFontKind && !loaded && !errored && inView"
+        class="thumb-shimmer"
+        aria-hidden="true"
+      />
 
       <span class="kind-badge" :data-kind="item.kind">{{ kindLabel }}</span>
       <span
@@ -282,6 +427,21 @@ function onRemove(event: Event): void {
         @keydown.space.stop="onApply"
       >
         {{ hasParams ? 'Apply…' : 'Apply' }}
+      </button>
+      <button
+        v-if="canAdd"
+        type="button"
+        class="add-btn"
+        :title="addTitle"
+        :aria-label="addTitle"
+        data-testid="library-add"
+        draggable="false"
+        @mousedown.stop
+        @click="onAdd"
+        @keydown.enter.stop="onAdd"
+        @keydown.space.stop="onAdd"
+      >
+        {{ addLabel }}
       </button>
       <button
         v-if="canRemove"
@@ -380,6 +540,42 @@ function onRemove(event: Event): void {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.thumb-font {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #0c0c10 0%, #0a0a14 100%);
+  color: #f5f5f5;
+  text-align: center;
+  overflow: hidden;
+}
+
+.font-sample {
+  font-size: 28px;
+  line-height: 1.05;
+  font-weight: inherit;
+  white-space: nowrap;
+  letter-spacing: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.font-name {
+  font-size: 14px;
+  color: rgba(229, 229, 229, 0.78);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .thumb-error-text {
@@ -495,6 +691,36 @@ function onRemove(event: Event): void {
 
 .apply-btn:hover {
   background: rgba(255, 184, 107, 0.32);
+  transform: translateY(-1px);
+}
+
+.add-btn {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 9px;
+  border-radius: 4px;
+  background: rgba(107, 208, 107, 0.18);
+  border: 1px solid rgba(107, 208, 107, 0.45);
+  color: #c9efc9;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+  z-index: 2;
+  font-family: inherit;
+}
+
+.library-card:hover .add-btn,
+.library-card:focus-within .add-btn {
+  opacity: 1;
+}
+
+.add-btn:hover {
+  background: rgba(107, 208, 107, 0.32);
+  border-color: rgba(107, 208, 107, 0.7);
   transform: translateY(-1px);
 }
 

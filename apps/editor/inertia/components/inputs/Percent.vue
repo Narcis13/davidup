@@ -23,6 +23,8 @@ const emit = defineEmits<{
 
 const step = computed(() => props.step ?? 1)
 const percent = computed(() => Math.round(((props.modelValue ?? 0) * 100) * 1000) / 1000)
+// Locale-independent display — see Number.vue for context.
+const percentDisplay = computed(() => String(percent.value))
 
 function emitFromPercent(rawPct: number): void {
   if (!Number.isFinite(rawPct)) return
@@ -40,7 +42,7 @@ function onSliderInput(event: Event): void {
 function onNumberInput(event: Event): void {
   const target = event.target as HTMLInputElement
   if (target.value === '') return
-  emitFromPercent(Number(target.value))
+  emitFromPercent(Number(target.value.replace(',', '.')))
 }
 </script>
 
@@ -63,12 +65,10 @@ function onNumberInput(event: Event): void {
       />
       <span class="spinner-wrap">
         <input
-          type="number"
+          type="text"
+          inputmode="decimal"
           class="spinner"
-          :value="percent"
-          min="0"
-          max="100"
-          :step="step"
+          :value="percentDisplay"
           :disabled="disabled"
           @input="onNumberInput"
         />

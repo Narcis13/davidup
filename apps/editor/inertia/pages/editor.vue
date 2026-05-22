@@ -471,6 +471,131 @@ function onApplyTemplateConfirm(payload: { params: Record<string, unknown> }): v
   applyTemplateState.value = null
 }
 
+// ─── UX_FINDINGS §6: explicit "Add" path for fonts / behaviors / scenes ──
+//
+// LibraryCard now emits `add` (forwarded as `add-item`) on font, behavior and
+// scene cards so users don't have to discover drag-and-drop. Each kind maps
+// to the same command the drag-drop path would dispatch:
+//
+//   font     → register_asset (so the Text tool unlocks)
+//   behavior → apply_behavior on the currently-selected item
+//   scene    → add_scene_instance on the first layer at the playhead
+function onLibraryAdd(item: LibraryItem): void {
+  switch (item.kind) {
+    case 'font':
+      addLibraryFont(item)
+      return
+    case 'behavior':
+      addLibraryBehavior(item)
+      return
+    case 'scene':
+      addLibraryScene(item)
+      return
+    default:
+      // template still goes through onLibraryApply; asset/font-asset have no
+      // standalone add path (assets land on the stage via drop).
+      return
+  }
+}
+
+function addLibraryFont(item: LibraryItem): void {
+  const raw = (item.raw as { url?: string; family?: string; src?: string } | null) ?? {}
+  const src = item.url ?? raw.url ?? raw.src
+  if (typeof src !== 'string' || src.length === 0) {
+    toasts.error(`Cannot register font "${item.id}" — no source file in library entry.`, {
+      dedupeKey: `library:add-font:${item.id}:nosrc`,
+    })
+    return
+  }
+  const family =
+    typeof raw.family === 'string' && raw.family.length > 0 ? raw.family : (item.name ?? item.id)
+  const comp = bus.composition.value
+  const already = Array.isArray(comp?.assets)
+    ? (comp!.assets as Array<{ id?: unknown }>).some((a) => a?.id === item.id)
+    : false
+  if (already) {
+    toasts.info(`Font "${item.id}" is already registered in this composition.`, {
+      dedupeKey: `library:add-font:${item.id}:dup`,
+    })
+    return
+  }
+  void bus.apply({
+    kind: 'register_asset',
+    payload: { id: item.id, type: 'font', src, family },
+    source: 'ui',
+  })
+  toasts.success(`Registered font "${family}". The Text tool is now available.`, {
+    dedupeKey: `library:add-font:${item.id}:ok`,
+  })
+}
+
+function addLibraryBehavior(item: LibraryItem): void {
+  const targetId = selection.selectedItemId.value
+  if (!targetId) {
+    toasts.warning(
+      'Select an item on the stage first, then click + Apply on the behavior card.',
+      { dedupeKey: 'library:add-behavior:no-selection' },
+    )
+    return
+  }
+  const start = Math.max(0, stage.playhead.value ?? 0)
+  const params = Array.isArray(item.params) ? item.params : []
+  const defaults: Record<string, unknown> = {}
+  for (const raw of params) {
+    const p = raw as { name?: string; default?: unknown }
+    if (!p || typeof p.name !== 'string') continue
+    if (Object.prototype.hasOwnProperty.call(p, 'default') && p.default !== undefined) {
+      defaults[p.name] = p.default
+    }
+  }
+  void bus.apply({
+    kind: 'apply_behavior',
+    payload: {
+      target: targetId,
+      behavior: item.id,
+      start,
+      duration: 0.5,
+      ...(Object.keys(defaults).length > 0 ? { params: defaults } : {}),
+    },
+    source: 'ui',
+  })
+}
+
+function addLibraryScene(item: LibraryItem): void {
+  const layerId = pickHostLayerId()
+  if (!layerId) {
+    toasts.error('No layers available to host the scene.', {
+      dedupeKey: 'library:add-scene:no-layer',
+    })
+    return
+  }
+  const start = Math.max(0, stage.playhead.value ?? 0)
+  const params = Array.isArray(item.params) ? item.params : []
+  const defaults: Record<string, unknown> = {}
+  for (const raw of params) {
+    const p = raw as { name?: string; default?: unknown }
+    if (!p || typeof p.name !== 'string') continue
+    if (Object.prototype.hasOwnProperty.call(p, 'default') && p.default !== undefined) {
+      defaults[p.name] = p.default
+    }
+  }
+  const millis = Math.round(start * 1000)
+  const suffix = Date.now().toString(36).slice(-4)
+  const sanitized = item.id.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const id = `${sanitized}_${millis}_${suffix}`
+  void bus.apply({
+    kind: 'add_scene_instance',
+    payload: {
+      sceneId: item.id,
+      layerId,
+      start,
+      ...(Object.keys(defaults).length > 0 ? { params: defaults } : {}),
+      id,
+    },
+    source: 'ui',
+  })
+}
+
 // ─── UX_GAPS §J: remove asset from composition.assets ────────────────────
 //
 // The Library panel has already run the usage check (and shown the confirm
@@ -672,6 +797,7 @@ onBeforeUnmount(() => {
       <Library
         :composition="bus.composition.value"
         @apply-template="onLibraryApply"
+        @add-item="onLibraryAdd"
         @remove-asset="onLibraryRemoveAsset"
       />
     </template>

@@ -238,6 +238,8 @@ const addShape = z.object({
     cornerRadius: NON_NEG.optional(),
     rotation: z.number().optional(),
     opacity: UNIT.optional(),
+    anchorX: z.number().optional(),
+    anchorY: z.number().optional(),
     id: ID.optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,

@@ -23,6 +23,7 @@ import { resolve, dirname, join, isAbsolute } from 'node:path'
 import { promises as fs } from 'node:fs'
 import logger from '@adonisjs/core/services/logger'
 import { renderPreviewFrame } from 'davidup/mcp'
+import globalLibraryRoot from '#services/global_library_root'
 import type { LibraryItem } from '#services/library_index'
 
 export interface ThumbnailResult {
@@ -79,9 +80,21 @@ function isAbsoluteUrl(s: string): boolean {
  * Resolve a library item's asset URL/path to an absolute on-disk path
  * (so skia-canvas's loadImage / FontLibrary.use can read it). Returns null
  * for absolute URLs / data URIs / missing files.
+ *
+ * `global:<rest>` srcs are resolved against the shared-pool root
+ * (`~/.davidup/library` by default) — they're the encoding the global
+ * library uses for its own entries so they stay portable across projects.
  */
 async function resolveSourceFile(libraryRoot: string, raw: string): Promise<string | null> {
   if (!raw) return null
+  if (raw.startsWith('global:')) {
+    const rest = raw.slice('global:'.length).replace(/^\/+/, '')
+    const root = await globalLibraryRoot.ensure().catch(() => null)
+    if (!root) return null
+    const candidate = join(root, rest)
+    const stat = await fs.stat(candidate).catch(() => null)
+    return stat?.isFile() ? candidate : null
+  }
   if (isAbsoluteUrl(raw)) return null
   const stripped = raw.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '')
   const candidates = [
@@ -235,9 +248,10 @@ function colorForId(id: string): string {
 function synthTemplateComposition(item: LibraryItem): SynthComposition | null {
   // Best-effort: take the first item from the template's `items` map and
   // render it standalone in a single-layer composition. Param placeholders
-  // (`${params.foo}`) survive without substitution — most of them are used
-  // in text/color positions where leaving the literal "${...}" string is
-  // harmless. Tweens are omitted so animations don't move it off-screen.
+  // (`${params.foo}`) are resolved against the template's declared
+  // `params[].default` so the preview shows realistic content (e.g. font
+  // size 72 instead of the literal "${params.quoteSize}" string).
+  // Tweens are omitted so animations don't move the preview off-screen.
   const raw = item.raw as { items?: Record<string, unknown> } | null
   const items = raw?.items
   if (!items || typeof items !== 'object') return null
@@ -246,8 +260,8 @@ function synthTemplateComposition(item: LibraryItem): SynthComposition | null {
   const [, first] = entries[0]
   const cloned = JSON.parse(JSON.stringify(first)) as Record<string, unknown>
   if (typeof cloned !== 'object' || cloned === null) return null
-  // Best-effort: replace template placeholders so the renderer doesn't choke.
-  scrubPlaceholders(cloned)
+  const defaults = paramDefaults(item)
+  substituteParams(cloned, defaults)
   // Center the item.
   cloned.transform = transformAt(THUMB_WIDTH / 2, THUMB_HEIGHT / 2)
   if (cloned.type === 'sprite') {
@@ -258,7 +272,9 @@ function synthTemplateComposition(item: LibraryItem): SynthComposition | null {
     if (!cloned.font) cloned.font = 'sans-serif'
     if (typeof cloned.fontSize !== 'number') cloned.fontSize = 80
     if (!cloned.color) cloned.color = '#ffffff'
-    if (typeof cloned.text !== 'string') cloned.text = item.name ?? item.id
+    if (typeof cloned.text !== 'string' || cloned.text.length === 0) {
+      cloned.text = item.name ?? item.id
+    }
   }
   if (cloned.type === 'shape') {
     if (!cloned.kind) cloned.kind = 'rect'
@@ -274,6 +290,87 @@ function synthTemplateComposition(item: LibraryItem): SynthComposition | null {
     items: { preview: cloned },
     tweens: [],
   }
+}
+
+interface ParamSpec {
+  name?: unknown
+  type?: unknown
+  default?: unknown
+}
+
+function paramDefaults(item: LibraryItem): Map<string, unknown> {
+  const map = new Map<string, unknown>()
+  const params = item.params as ParamSpec[] | undefined
+  if (!Array.isArray(params)) return map
+  for (const p of params) {
+    if (!p || typeof p !== 'object' || typeof p.name !== 'string') continue
+    if ('default' in p && p.default !== undefined) {
+      map.set(p.name, p.default)
+      continue
+    }
+    // Required-but-no-default params get a sensible stand-in so the preview
+    // still renders something instead of literal "${params.X}" leaks.
+    switch (p.type) {
+      case 'number':
+        map.set(p.name, 0)
+        break
+      case 'color':
+        map.set(p.name, '#ffffff')
+        break
+      case 'boolean':
+        map.set(p.name, false)
+        break
+      case 'string':
+      default:
+        map.set(p.name, p.name)
+    }
+  }
+  return map
+}
+
+function substituteParams(value: unknown, defaults: Map<string, unknown>): void {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (typeof value[i] === 'string') {
+        value[i] = interpolate(value[i] as string, defaults)
+      } else {
+        substituteParams(value[i], defaults)
+      }
+    }
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const o = value as Record<string, unknown>
+  for (const [k, v] of Object.entries(o)) {
+    if (typeof v === 'string') {
+      o[k] = interpolate(v, defaults)
+    } else {
+      substituteParams(v, defaults)
+    }
+  }
+}
+
+const FULL_PARAM_REF = /^\$\{params\.([^}]+)\}$/
+const PARAM_REF = /\$\{params\.([^}]+)\}/g
+const ANY_REF = /\$\{[^}]+\}/g
+
+function interpolate(input: string, defaults: Map<string, unknown>): unknown {
+  if (!input.includes('${')) return input
+  // Whole-string param ref: return the raw value (preserves number/boolean
+  // types so engine fields like `fontSize` stay numeric).
+  const full = FULL_PARAM_REF.exec(input)
+  if (full) {
+    const name = full[1]
+    if (defaults.has(name)) return defaults.get(name)
+    return '·'
+  }
+  const partial = input.replace(PARAM_REF, (_m, name: string) => {
+    const v = defaults.get(name)
+    if (v === undefined) return '·'
+    return String(v)
+  })
+  // Anything left (non-`params.` refs) becomes the placeholder dot.
+  return partial.replace(ANY_REF, '·')
 }
 
 function scrubPlaceholders(value: unknown): void {

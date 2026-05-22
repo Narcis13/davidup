@@ -32,11 +32,18 @@ const showSlider = computed(() =>
 
 const step = computed(() => props.step ?? 1)
 const value = computed(() => (props.modelValue ?? 0))
+// Render via String() so the spinner shows `0.5`, not `0,5`, regardless of
+// the user's OS locale. `<input type="number">` formats display per locale on
+// many browsers (Chrome on macOS, Firefox); we sidestep that by using
+// `type="text" inputmode="decimal"` and binding an explicit dot-decimal string.
+const displayValue = computed(() => String(value.value))
 
 function onInput(event: Event): void {
   const target = event.target as HTMLInputElement
   if (target.value === '') return
-  const next = Number(target.value)
+  // Accept either dot or comma as decimal separator on entry so a user on a
+  // comma-decimal keyboard layout can still type naturally.
+  const next = Number(target.value.replace(',', '.'))
   if (!Number.isFinite(next)) return
   emit('update:modelValue', next)
 }
@@ -61,12 +68,10 @@ function onInput(event: Event): void {
         @input="onInput"
       />
       <input
-        type="number"
+        type="text"
+        inputmode="decimal"
         class="spinner"
-        :value="value"
-        :min="min"
-        :max="max"
-        :step="step"
+        :value="displayValue"
         :disabled="disabled"
         @input="onInput"
       />

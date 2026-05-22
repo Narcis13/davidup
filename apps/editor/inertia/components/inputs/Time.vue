@@ -24,11 +24,13 @@ const emit = defineEmits<{
 
 const step = computed(() => props.step ?? 0.05)
 const value = computed(() => (props.modelValue ?? 0))
+// Locale-independent display — see Number.vue for context.
+const displayValue = computed(() => String(value.value))
 
 function onInput(event: Event): void {
   const target = event.target as HTMLInputElement
   if (target.value === '') return
-  const raw = Number(target.value)
+  const raw = Number(target.value.replace(',', '.'))
   if (!Number.isFinite(raw)) return
   const clamped = Math.max(0, props.max !== undefined ? Math.min(props.max, raw) : raw)
   emit('update:modelValue', clamped)
@@ -43,12 +45,10 @@ function onInput(event: Event): void {
     </span>
     <span class="controls">
       <input
-        type="number"
+        type="text"
+        inputmode="decimal"
         class="spinner"
-        :value="value"
-        :min="0"
-        :max="max"
-        :step="step"
+        :value="displayValue"
         :disabled="disabled"
         @input="onInput"
       />
