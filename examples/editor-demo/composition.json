@@ -3,9 +3,9 @@
   "composition": {
     "width": 1280,
     "height": 720,
-    "fps": 30,
+    "fps": 60,
     "duration": 6,
-    "background": "#0a0e27"
+    "background": "#5c6ddb"
   },
   "assets": [
     {
@@ -42,7 +42,8 @@
         "item-2",
         "item-3",
         "item-4",
-        "item-5"
+        "item-5",
+        "item-6"
       ],
       "visible": true
     }
@@ -52,8 +53,8 @@
       "type": "shape",
       "kind": "rect",
       "transform": {
-        "x": 700,
-        "y": 360,
+        "x": 551,
+        "y": 530,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
@@ -75,8 +76,8 @@
       "fontSize": 96,
       "color": "#ffffff",
       "transform": {
-        "x": 640,
-        "y": 360,
+        "x": 775,
+        "y": 264,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
@@ -93,8 +94,8 @@
       "width": 240,
       "height": 240,
       "transform": {
-        "x": 462,
-        "y": 5,
+        "x": 142,
+        "y": 12,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
@@ -107,26 +108,26 @@
       "type": "shape",
       "kind": "rect",
       "transform": {
-        "x": 1137,
-        "y": 585,
+        "x": 941,
+        "y": 587,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
         "anchorX": 0,
         "anchorY": 0,
-        "opacity": 0.5
+        "opacity": 0.82
       },
       "width": 240,
       "height": 120,
-      "fillColor": "#5b7cfa",
+      "fillColor": "#ab0738",
       "cornerRadius": 8
     },
     "item-3": {
       "type": "shape",
       "kind": "circle",
       "transform": {
-        "x": 137,
-        "y": 400,
+        "x": 679,
+        "y": 466,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
@@ -162,8 +163,8 @@
       "width": 240,
       "height": 240,
       "transform": {
-        "x": 16,
-        "y": 400,
+        "x": 1130,
+        "y": 418,
         "scaleX": 1,
         "scaleY": 1,
         "rotation": 0,
@@ -171,6 +172,24 @@
         "anchorY": 0.5,
         "opacity": 1
       }
+    },
+    "item-6": {
+      "type": "text",
+      "text": "Narcis",
+      "font": "font-display",
+      "fontSize": 48,
+      "color": "#ffffff",
+      "transform": {
+        "x": 996,
+        "y": 163,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      },
+      "align": "center"
     }
   },
   "tweens": [
