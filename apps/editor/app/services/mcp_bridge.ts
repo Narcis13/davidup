@@ -494,6 +494,9 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
       if (args.crf !== undefined) renderOptions.crf = args.crf
       if (args.preset !== undefined) renderOptions.preset = args.preset
       if (args.pixFmt !== undefined) renderOptions.pixFmt = args.pixFmt
+      if (args.movflagsFaststart !== undefined) {
+        renderOptions.movflagsFaststart = args.movflagsFaststart
+      }
 
       const jobId = randomUUID()
       const job = new RenderJob({

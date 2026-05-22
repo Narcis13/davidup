@@ -36,6 +36,16 @@ export const MCP_ERROR_CODES = [
   "E_TIME_MAPPING_INVALID",
   "E_TIME_MAPPING_TWEEN_SPLIT",
   "E_FEATURE_UNAVAILABLE",
+  // `$ref` resolution failures surfaced by the precompile pass (see
+  // `src/compose/imports.ts` — RefResolutionError). When a render call routes
+  // through precompile and a `$ref` can't be resolved, the MCP layer maps
+  // the structured error onto one of these codes so agents can branch on the
+  // failure mode instead of treating it as opaque E_RENDER_FAILED.
+  "E_REF_CYCLE",
+  "E_REF_MISSING",
+  "E_REF_PARSE",
+  "E_REF_POINTER",
+  "E_REF_INVALID",
   "E_UNKNOWN",
 ] as const;
 

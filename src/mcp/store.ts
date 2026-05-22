@@ -27,13 +27,13 @@ import type {
   Transform,
   Tween,
 } from "../schema/types.js";
-import { ItemSchema } from "../schema/zod.js";
+import { COMPOSITION_VERSION, ItemSchema } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
+import type { BehaviorDescriptor } from "../compose/behaviors.js";
 import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
 import type { TemplateDefinition } from "../compose/templates.js";
 import { MCPToolError } from "./errors.js";
 
-const COMPOSITION_VERSION = "0.1";
 const DEFAULT_BACKGROUND = "#000000";
 const DEFAULT_OPACITY = 1;
 const DEFAULT_BLEND_MODE: BlendMode = "normal";
@@ -188,6 +188,12 @@ export interface AddGroupInput {
   x: number;
   y: number;
   childItemIds?: ReadonlyArray<string>;
+  anchorX?: number;
+  anchorY?: number;
+  rotation?: number;
+  opacity?: number;
+  scaleX?: number;
+  scaleY?: number;
   id?: string;
   name?: string;
 }
@@ -268,6 +274,11 @@ export class CompositionStore {
   // expansion functions' existing `options.{templates,scenes}` precedence.
   private readonly userTemplates = new Map<string, TemplateDefinition>();
   private readonly userScenes = new Map<string, SceneDefinition>();
+  // Session-scoped behavior descriptors registered via `define_user_behavior`.
+  // Descriptor-only — `apply_behavior` will throw E_BEHAVIOR_UNKNOWN because
+  // user-defined expansion is not supported (mirrors `compose.registerBehavior`
+  // semantics). These appear alongside built-ins in `list_behaviors`.
+  private readonly userBehaviors = new Map<string, BehaviorDescriptor>();
 
   // ──────────────── Composition lifecycle ────────────────
 
@@ -672,7 +683,14 @@ export class CompositionStore {
       ...DEFAULT_TRANSFORM,
       x: input.x,
       y: input.y,
+      scaleX: input.scaleX ?? DEFAULT_TRANSFORM.scaleX,
+      scaleY: input.scaleY ?? DEFAULT_TRANSFORM.scaleY,
+      rotation: input.rotation ?? DEFAULT_TRANSFORM.rotation,
+      anchorX: input.anchorX ?? DEFAULT_TRANSFORM.anchorX,
+      anchorY: input.anchorY ?? DEFAULT_TRANSFORM.anchorY,
+      opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
     };
+    ensureUnitInterval("opacity", transform.opacity);
     const group: GroupItem = {
       type: "group",
       items: [...childIds],
@@ -1272,6 +1290,43 @@ export class CompositionStore {
     return Object.fromEntries(this.userScenes);
   }
 
+  setUserBehavior(descriptor: BehaviorDescriptor): void {
+    if (typeof descriptor.name !== "string" || descriptor.name.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Behavior descriptor must have a non-empty name.",
+      );
+    }
+    // Clone defensively so callers can't mutate the stored descriptor later.
+    const cloned: BehaviorDescriptor = {
+      name: descriptor.name,
+      description: descriptor.description ?? "",
+      params: descriptor.params.map((p) => ({ ...p })),
+      produces:
+        typeof descriptor.produces === "string"
+          ? descriptor.produces
+          : [...descriptor.produces],
+    };
+    this.userBehaviors.set(descriptor.name, cloned);
+  }
+
+  hasUserBehavior(name: string): boolean {
+    return this.userBehaviors.has(name);
+  }
+
+  removeUserBehavior(name: string): boolean {
+    return this.userBehaviors.delete(name);
+  }
+
+  listUserBehaviors(): BehaviorDescriptor[] {
+    return Array.from(this.userBehaviors.values()).map((d) => ({
+      name: d.name,
+      description: d.description,
+      params: d.params.map((p) => ({ ...p })),
+      produces: typeof d.produces === "string" ? d.produces : [...d.produces],
+    }));
+  }
+
   // ──────────────── Internals ────────────────
 
   private requireComposition(compositionId?: string): MutableComposition {
@@ -1456,6 +1511,7 @@ function cloneLayer(layer: Layer): Layer {
     items: [...layer.items],
     ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
     ...(layer.locked !== undefined ? { locked: layer.locked } : {}),
+    ...(layer.name !== undefined ? { name: layer.name } : {}),
   };
 }
 

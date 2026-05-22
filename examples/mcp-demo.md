@@ -28,7 +28,7 @@ with `bun run src/mcp/bin.ts` (or via the `davidup-mcp` bin shim defined
 in `package.json`), the process:
 
 - attaches to `stdin`/`stdout` as an MCP transport (JSON-RPC framed);
-- registers the 44 tools from the design doc §4.1–4.8 against an in-memory
+- registers the 52 tools from the design doc §4.1–4.9 against an in-memory
   `CompositionStore`;
 - never logs to `stdout` — diagnostic output goes to `stderr` so the protocol
   framing stays uncorrupted.
@@ -51,12 +51,13 @@ MCP registries.
 | 4.3 Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
 | 4.5 Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
-| 4.5b Behaviors | `apply_behavior`, `list_behaviors` |
-| 4.5c Templates | `apply_template`, `list_templates`, `define_user_template` |
+| 4.5b Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` |
+| 4.5c Templates | `apply_template`, `list_templates`, `define_user_template`, `remove_user_template` |
 | 4.5d Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
-| 4.6 Render | `render_preview_frame`, `render_thumbnail_strip`, `render_to_video`, `get_render`, `list_renders` |
+| 4.6 Render | `render_preview_frame`, `render_thumbnail_strip`, `render_to_video`, `get_render`, `list_renders`, `cancel_render` |
 | 4.7 Project lifecycle | `current_project`, `list_projects`, `open_project`, `create_project` |
-| 4.8 Library | `list_library` |
+| 4.8 Library | `list_library`, `get_library_thumbnail` |
+| 4.9 Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
 
 Every tool returns either:
 
@@ -112,7 +113,7 @@ Notes:
   `node --experimental-strip-types` and adjust the entry path. Bun is the
   primary supported runtime per the implementation plan.
 
-Reload Claude Code (`/mcp` to verify) and the 44 tools become callable.
+Reload Claude Code (`/mcp` to verify) and the 52 tools become callable.
 
 ### 2.2 Programmatic registration (`claude mcp add`)
 

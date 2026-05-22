@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { EASING_NAMES } from "../easings/index.js";
 
+/**
+ * Canonical composition schema version. Bumped when the validator's accepted
+ * shape changes incompatibly. Mirrored as the `version` string in every
+ * `Composition` produced by `CompositionStore.toJSON()` and surfaced via
+ * `list_engine_capabilities.schemaVersion`.
+ */
+export const COMPOSITION_VERSION = "0.1";
+
 // Canvas2D `globalCompositeOperation` values per HTML Living Standard. The
 // renderer passes `Layer.blendMode` straight to `ctx.globalCompositeOperation`
 // (see `src/engine/render.ts:150`), so anything outside this list produces

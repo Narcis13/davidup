@@ -121,6 +121,12 @@ export interface RenderJobRenderOptions {
   crf?: number
   preset?: string
   pixFmt?: string
+  /**
+   * Override the editor's default of `true`. MCP callers may pass `false`
+   * when targeting a non-MP4 container, where ffmpeg refuses `-movflags
+   * +faststart` and aborts the render.
+   */
+  movflagsFaststart?: boolean
 }
 
 export interface RenderJobOptions {
@@ -226,7 +232,7 @@ export class RenderJob extends EventEmitter {
       const result = await renderToFile(renderable, this.outputPath, {
         sourcePath: this.sourcePath,
         ffmpegPath,
-        movflagsFaststart: true,
+        movflagsFaststart: ro.movflagsFaststart ?? true,
         ...(ro.codec !== undefined ? { codec: ro.codec } : {}),
         ...(ro.crf !== undefined ? { crf: ro.crf } : {}),
         ...(ro.preset !== undefined ? { preset: ro.preset } : {}),

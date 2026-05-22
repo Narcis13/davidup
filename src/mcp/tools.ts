@@ -22,10 +22,13 @@ import {
   expandBehaviors,
   listBehaviors,
   type BehaviorBlock,
+  type BehaviorDescriptor,
+  type BehaviorParamDescriptor,
 } from "../compose/behaviors.js";
 // Side-effect import: registers v0.3 built-in templates with the global
 // registry so `apply_template` and `list_templates` see them out of the box.
 import "../compose/builtInTemplates.js";
+import { precompile } from "../compose/precompile.js";
 import {
   expandSceneInstance,
   getSceneDefinition,
@@ -45,11 +48,12 @@ import {
   type TemplateInstance,
   type TemplateParamDescriptor,
 } from "../compose/templates.js";
+import { RefResolutionError } from "../compose/imports.js";
 import { renderToFile } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
 import { listTweenable } from "../schema/tweenable.js";
 import type { FontAsset, Tween } from "../schema/types.js";
-import { BLEND_MODES, BlendModeSchema } from "../schema/zod.js";
+import { BLEND_MODES, BlendModeSchema, COMPOSITION_VERSION } from "../schema/zod.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -219,6 +223,7 @@ export interface MCPRenderStartArgs {
   crf?: number;
   preset?: string;
   pixFmt?: string;
+  movflagsFaststart?: boolean;
 }
 
 export interface RenderControls {
@@ -744,6 +749,7 @@ const addGroup = defineTool({
     x: z.number(),
     y: z.number(),
     childItemIds: z.array(z.string().min(1)).optional(),
+    ...TRANSFORM_INPUT,
     id: z.string().min(1).optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
@@ -755,6 +761,12 @@ const addGroup = defineTool({
         x: args.x,
         y: args.y,
         ...(args.childItemIds !== undefined ? { childItemIds: args.childItemIds } : {}),
+        ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
+        ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
+        ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
+        ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
+        ...(args.scaleX !== undefined ? { scaleX: args.scaleX } : {}),
+        ...(args.scaleY !== undefined ? { scaleY: args.scaleY } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
         ...(args.name !== undefined ? { name: args.name } : {}),
       },
@@ -1002,10 +1014,64 @@ const listBehaviorsTool = defineTool({
   name: "list_behaviors",
   title: "List behaviors",
   description:
-    "List the built-in behaviors available to apply_behavior, with their parameters and produced tween suffixes.",
+    "List the behaviors available for apply_behavior — built-ins from the process-global registry merged with any session-scoped descriptors added via define_user_behavior (session entries shadow globals on name collision). Each descriptor carries its parameters and produced tween suffixes; user-defined behaviors are descriptor-only and will throw E_BEHAVIOR_UNKNOWN if passed to apply_behavior.",
   inputSchema: {},
-  handler: () => {
-    return { behaviors: listBehaviors() };
+  handler: (_args, { store }) => {
+    const merged = new Map<string, BehaviorDescriptor>();
+    for (const d of listBehaviors()) merged.set(d.name, d);
+    for (const d of store.listUserBehaviors()) merged.set(d.name, d);
+    return { behaviors: Array.from(merged.values()) };
+  },
+});
+
+const BEHAVIOR_PARAM_TYPE = z.enum(["number", "string", "color", "colorArray", "axis"]);
+
+const BEHAVIOR_PARAM_DESCRIPTOR = z.object({
+  name: z.string().min(1),
+  type: BEHAVIOR_PARAM_TYPE,
+  required: z.boolean().optional(),
+  default: z.unknown().optional(),
+  description: z.string().optional(),
+});
+
+const defineUserBehavior = defineTool({
+  name: "define_user_behavior",
+  title: "Define user behavior",
+  description:
+    "Register a user-authored behavior descriptor scoped to this MCP session. Last write wins per name, and session descriptors take precedence over the built-in / library-loaded global registry on the same name. Definitions do not leak to other MCP sessions sharing the same backend. " +
+    "NOTE: this is descriptor-only — the behavior shows up in `list_behaviors` but `apply_behavior` will throw `E_BEHAVIOR_UNKNOWN` because user-defined expansion is not yet supported. Use it as catalog metadata; expand behaviors yourself by emitting the literal tweens.",
+  inputSchema: {
+    name: z.string().min(1),
+    description: z.string().optional(),
+    params: z.array(BEHAVIOR_PARAM_DESCRIPTOR).optional(),
+    produces: z
+      .union([z.literal("dynamic"), z.array(z.string().min(1))])
+      .optional()
+      .describe(
+        "Either the suffix list each call appends to the parent block id, or the string \"dynamic\" when the suffix count varies with parameters. Defaults to [].",
+      ),
+  },
+  handler: (args, { store }) => {
+    const params: BehaviorParamDescriptor[] = (args.params ?? []).map((p) => {
+      const desc: BehaviorParamDescriptor = {
+        name: p.name,
+        type: p.type,
+        required: p.required ?? false,
+        description: p.description ?? "",
+      };
+      if (Object.prototype.hasOwnProperty.call(p, "default")) {
+        desc.default = p.default;
+      }
+      return desc;
+    });
+    const descriptor: BehaviorDescriptor = {
+      name: args.name,
+      description: args.description ?? "",
+      params,
+      produces: args.produces ?? [],
+    };
+    store.setUserBehavior(descriptor);
+    return { name: args.name };
   },
 });
 
@@ -1160,6 +1226,26 @@ const defineUserTemplate = defineTool({
     if (args.description !== undefined) def.description = args.description;
     store.setUserTemplate(def);
     return { id: args.id };
+  },
+});
+
+const removeUserTemplate = defineTool({
+  name: "remove_user_template",
+  title: "Remove user template",
+  description:
+    "Drop a template previously registered in this MCP session by define_user_template. Process-global entries (built-ins, editor library) are not removable from a session and removing them is rejected. Existing template-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
+  inputSchema: {
+    templateId: z.string().min(1),
+  },
+  handler: (args, { store }) => {
+    if (!store.removeUserTemplate(args.templateId)) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No template "${args.templateId}" in this session's registry.`,
+        "Session-scoped removal only affects templates defined via define_user_template in this MCP session.",
+      );
+    }
+    return { ok: true as const };
   },
 });
 
@@ -1745,9 +1831,18 @@ const renderToVideo = defineTool({
   inputSchema: {
     outputPath: z.string().min(1),
     codec: z.enum(["libx264", "libx265"]).optional(),
-    crf: z.number().int().min(0).max(63).optional(),
+    // libx264 / libx265 both top out at 51; values above silently bork the
+    // encoder. Clamp at the codec ceiling so a stray crf:60 surfaces as a
+    // clean E_INVALID_VALUE up front instead of an opaque E_RENDER_FAILED.
+    crf: z.number().int().min(0).max(51).optional(),
     preset: z.string().optional(),
     pixFmt: z.string().optional(),
+    movflagsFaststart: z
+      .boolean()
+      .optional()
+      .describe(
+        "Append `-movflags +faststart` so MP4 metadata is moved to the front of the file (lets browsers begin playback before the whole file downloads). Defaults to true for the standalone engine and editor render queue.",
+      ),
     wait: z
       .boolean()
       .optional()
@@ -1769,6 +1864,9 @@ const renderToVideo = defineTool({
       if (args.crf !== undefined) startArgs.crf = args.crf;
       if (args.preset !== undefined) startArgs.preset = args.preset;
       if (args.pixFmt !== undefined) startArgs.pixFmt = args.pixFmt;
+      if (args.movflagsFaststart !== undefined) {
+        startArgs.movflagsFaststart = args.movflagsFaststart;
+      }
 
       const snapshot = await renderControls.start(startArgs);
 
@@ -1809,6 +1907,10 @@ const renderToVideo = defineTool({
     const startedAt = Date.now();
     try {
       const result = await renderToFile(comp, args.outputPath, {
+        // Default to faststart on MP4 outputs so browsers can begin playback
+        // before the whole file downloads. Callers can opt out by passing
+        // `movflagsFaststart: false` (e.g. when targeting a non-MP4 container).
+        movflagsFaststart: args.movflagsFaststart ?? true,
         ...(args.codec !== undefined ? { codec: args.codec } : {}),
         ...(args.crf !== undefined ? { crf: args.crf } : {}),
         ...(args.preset !== undefined ? { preset: args.preset } : {}),
@@ -1829,6 +1931,19 @@ const renderToVideo = defineTool({
         },
       };
     } catch (err) {
+      if (err instanceof RefResolutionError) {
+        throw new MCPToolError(
+          err.code,
+          err.message,
+          "Resolve the broken `$ref` (check the path, JSON pointer, or cycle) and try again.",
+          {
+            details: {
+              ...(err.ref !== undefined ? { ref: err.ref } : {}),
+              ...(err.chain !== undefined ? { chain: [...err.chain] } : {}),
+            },
+          },
+        );
+      }
       throw new MCPToolError(
         "E_RENDER_FAILED",
         err instanceof Error ? err.message : String(err),
@@ -2076,7 +2191,7 @@ const listEngineCapabilitiesTool = defineTool({
   inputSchema: {},
   handler: () => {
     return {
-      schemaVersion: "0.1",
+      schemaVersion: COMPOSITION_VERSION,
       easings: [...EASING_NAMES],
       blendModes: [...BLEND_MODES],
       itemTypes: ["sprite", "text", "shape", "group"] as const,
@@ -2087,7 +2202,50 @@ const listEngineCapabilitiesTool = defineTool({
         shape: listTweenable("shape"),
         group: listTweenable("group"),
       },
+      // Param-type vocabularies accepted by each descriptor surface. Use these
+      // when constructing `params` for define_user_behavior / define_user_template /
+      // define_scene without hitting E_INVALID_VALUE.
+      paramTypes: {
+        behavior: ["number", "string", "color", "colorArray", "axis"] as const,
+        template: ["number", "string", "color", "boolean"] as const,
+        scene: ["number", "string", "color", "boolean"] as const,
+      },
     };
+  },
+});
+
+const getSourceMap = defineTool({
+  name: "get_source_map",
+  title: "Get composition source map",
+  description:
+    "Return the precompiled composition plus its source map: an authorship trail keyed by resolved item / tween id. " +
+    "For each id, the map carries `{ file, jsonPointer, originKind }` where `originKind` ∈ \"literal\" | \"ref\" | \"template\" | \"behavior\" | \"scene\" | \"background\". " +
+    "Compositions built imperatively through the MCP tools have no `$ref` / `$template` / `$behavior` markers, so every entry's `originKind` is `literal` and `file` is the literal string `\"<root>\"`. " +
+    "Errors with `E_REF_*` if the comp ever does carry $refs that can't be resolved.",
+  inputSchema: {
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, { store }) => {
+    const comp = store.toJSON(args.compositionId);
+    try {
+      const result = await precompile(comp, { emitSourceMap: true });
+      return { sourceMap: result.sourceMap };
+    } catch (err) {
+      if (err instanceof RefResolutionError) {
+        throw new MCPToolError(
+          err.code,
+          err.message,
+          "Resolve the broken `$ref` (check the path, JSON pointer, or cycle) and try again.",
+          {
+            details: {
+              ...(err.ref !== undefined ? { ref: err.ref } : {}),
+              ...(err.chain !== undefined ? { chain: [...err.chain] } : {}),
+            },
+          },
+        );
+      }
+      throw err;
+    }
   },
 });
 
@@ -2134,10 +2292,12 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   // 4.5b — behaviors
   applyBehavior,
   listBehaviorsTool,
+  defineUserBehavior,
   // 4.5c — templates
   applyTemplate,
   listTemplatesTool,
   defineUserTemplate,
+  removeUserTemplate,
   // 4.5d — scenes
   defineScene,
   importScene,
@@ -2165,6 +2325,7 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   listEasingsTool,
   listFontsTool,
   listEngineCapabilitiesTool,
+  getSourceMap,
 ];
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);
