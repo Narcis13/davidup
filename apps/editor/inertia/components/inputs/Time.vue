@@ -14,6 +14,8 @@ const props = defineProps<{
   step?: number
   /** Upper bound (e.g. composition duration). Optional. */
   max?: number
+  /** Hint shown when modelValue is undefined (e.g. for optional lifespan fields). */
+  placeholder?: string
   overridden?: boolean
   disabled?: boolean
 }>()
@@ -23,9 +25,12 @@ const emit = defineEmits<{
 }>()
 
 const step = computed(() => props.step ?? 0.05)
-const value = computed(() => (props.modelValue ?? 0))
-// Locale-independent display — see Number.vue for context.
-const displayValue = computed(() => String(value.value))
+// Locale-independent display — see Number.vue for context. When modelValue
+// is undefined (optional field that hasn't been set), render empty so the
+// placeholder shows instead of a misleading "0".
+const displayValue = computed(() =>
+  props.modelValue === undefined ? '' : String(props.modelValue),
+)
 
 function onInput(event: Event): void {
   const target = event.target as HTMLInputElement
@@ -49,6 +54,7 @@ function onInput(event: Event): void {
         inputmode="decimal"
         class="spinner"
         :value="displayValue"
+        :placeholder="placeholder"
         :disabled="disabled"
         @input="onInput"
       />

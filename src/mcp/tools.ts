@@ -555,6 +555,8 @@ const updateLayer = defineTool({
       visible: z.boolean().optional(),
       locked: z.boolean().optional(),
       name: z.string().max(80).optional(),
+      enter: z.number().nonnegative().optional(),
+      exit: z.number().positive().optional(),
     }),
     compositionId: COMPOSITION_ID,
   },
@@ -566,6 +568,8 @@ const updateLayer = defineTool({
     if (args.props.visible !== undefined) props.visible = args.props.visible;
     if (args.props.locked !== undefined) props.locked = args.props.locked;
     if (args.props.name !== undefined) props.name = args.props.name;
+    if (args.props.enter !== undefined) props.enter = args.props.enter;
+    if (args.props.exit !== undefined) props.exit = args.props.exit;
     store.updateLayer(args.id, props, args.compositionId);
     return { ok: true as const };
   },
@@ -807,6 +811,10 @@ const ITEM_PROP_SHAPE = z
     locked: z.boolean(),
     // §P friendly label — display-only; never replaces the id.
     name: z.string().max(80),
+    // Lifespan: half-open [enter, exit) seconds on the composition timeline.
+    // Out-of-window items are skipped by the renderer.
+    enter: z.number().nonnegative(),
+    exit: z.number().positive(),
   })
   .partial();
 

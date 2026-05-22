@@ -50,7 +50,26 @@ export function computeStateAt(
 
   const items: Record<string, Item> = {};
   for (const [id, item] of Object.entries(comp.items)) {
-    items[id] = cloneItem(item);
+    const cloned = cloneItem(item);
+    if (!isWithinLifespan(cloned, t)) {
+      (cloned as { visible?: boolean }).visible = false;
+    }
+    items[id] = cloned;
+  }
+
+  // Layers carry the same optional lifespan window. We only need to clone a
+  // layer if its lifespan flips it off at `t` — otherwise pass the original
+  // reference through (cheaper, matches prior behavior).
+  let layers: ReadonlyArray<Layer> = comp.layers;
+  const layerOverrides = new Map<number, Layer>();
+  for (let i = 0; i < comp.layers.length; i++) {
+    const layer = comp.layers[i]!;
+    if (!isWithinLifespan(layer, t)) {
+      layerOverrides.set(i, { ...layer, visible: false });
+    }
+  }
+  if (layerOverrides.size > 0) {
+    layers = comp.layers.map((l, i) => layerOverrides.get(i) ?? l);
   }
 
   for (const [key, bucket] of idx.buckets) {
@@ -68,9 +87,21 @@ export function computeStateAt(
 
   return {
     composition: comp.composition,
-    layers: comp.layers,
+    layers,
     items,
   };
+}
+
+// Half-open `[enter, exit)` window — matches the scene-clip `[fromTime,
+// toTime)` precedent so an item that exits at t=2.5 has rendered its last
+// frame at t < 2.5. Either bound omitted disables that side of the window.
+function isWithinLifespan(
+  it: { enter?: number | undefined; exit?: number | undefined },
+  t: number,
+): boolean {
+  if (it.enter !== undefined && t < it.enter) return false;
+  if (it.exit !== undefined && t >= it.exit) return false;
+  return true;
 }
 
 // Polymorphic lerp dispatching on value kind. Exposed because some callers

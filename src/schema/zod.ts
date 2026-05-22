@@ -94,10 +94,19 @@ export const TransformSchema = z.object({
 // the id (existing references still resolve by id); the engine ignores it.
 // Capped at 80 chars so an oversize label can't blow up the source map
 // reveal or status-bar paths.
+//
+// Lifespan: optional `enter` / `exit` seconds on the composition timeline.
+// Half-open `[enter, exit)` window — outside it, the resolver flips
+// `visible = false` so the existing render gate at engine/render.ts skips
+// the item (or layer). Either bound omitted means "from the start" /
+// "until the end" respectively, keeping legacy projects with no lifespan
+// fields fully valid.
 export const ItemFlagsSchema = {
   visible: z.boolean().optional(),
   locked: z.boolean().optional(),
   name: z.string().max(80).optional(),
+  enter: z.number().nonnegative().optional(),
+  exit: z.number().positive().optional(),
 } as const;
 
 export const SpriteItemSchema = z.object({

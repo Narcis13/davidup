@@ -126,6 +126,9 @@ export interface UpdateLayerProps {
   visible?: boolean;
   locked?: boolean;
   name?: string;
+  // Lifespan — same semantics as on items (see UpdateItemProps).
+  enter?: number;
+  exit?: number;
 }
 
 export interface AddSpriteInput {
@@ -233,6 +236,11 @@ export interface UpdateItemProps {
   locked?: boolean;
   // §P friendly label — display-only; never replaces the id.
   name?: string;
+  // Lifespan: half-open [enter, exit) window in composition seconds. Either
+  // bound omitted means open on that side. Out-of-window items render as if
+  // `visible = false` (see engine/resolver.ts).
+  enter?: number;
+  exit?: number;
 }
 
 export interface AddTweenInput {
@@ -522,6 +530,14 @@ export class CompositionStore {
     if (props.visible !== undefined) next.visible = props.visible;
     if (props.locked !== undefined) next.locked = props.locked;
     if (props.name !== undefined) next.name = props.name;
+    if (props.enter !== undefined) {
+      ensureNonNegative("enter", props.enter);
+      next.enter = props.enter;
+    }
+    if (props.exit !== undefined) {
+      ensurePositive("exit", props.exit);
+      next.exit = props.exit;
+    }
     comp.layers.set(id, next);
   }
 
@@ -1512,14 +1528,19 @@ function cloneLayer(layer: Layer): Layer {
     ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
     ...(layer.locked !== undefined ? { locked: layer.locked } : {}),
     ...(layer.name !== undefined ? { name: layer.name } : {}),
+    ...(layer.enter !== undefined ? { enter: layer.enter } : {}),
+    ...(layer.exit !== undefined ? { exit: layer.exit } : {}),
   };
 }
 
 function cloneItem(item: Item): Item {
-  // §M flags propagate through every clone path so toJSON round-trips them.
+  // §M flags + lifespan propagate through every clone path so toJSON
+  // round-trips them.
   const flags = {
     ...(item.visible !== undefined ? { visible: item.visible } : {}),
     ...(item.locked !== undefined ? { locked: item.locked } : {}),
+    ...(item.enter !== undefined ? { enter: item.enter } : {}),
+    ...(item.exit !== undefined ? { exit: item.exit } : {}),
   };
   switch (item.type) {
     case "sprite":
@@ -1596,13 +1617,27 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
     transform.opacity = props.opacity;
   }
 
-  // §M visibility/lock flags + §P name apply to every item type. They all
-  // appear in every variant's allowlist below.
-  const flagPatch: { visible?: boolean; locked?: boolean; name?: string } = {};
+  // §M visibility/lock flags + §P name + lifespan apply to every item type.
+  // They all appear in every variant's allowlist below.
+  const flagPatch: {
+    visible?: boolean;
+    locked?: boolean;
+    name?: string;
+    enter?: number;
+    exit?: number;
+  } = {};
   if (props.visible !== undefined) flagPatch.visible = props.visible;
   if (props.locked !== undefined) flagPatch.locked = props.locked;
   if (props.name !== undefined) flagPatch.name = props.name;
-  const COMMON_ALLOWED = ["visible", "locked", "name"] as const;
+  if (props.enter !== undefined) {
+    ensureNonNegative("enter", props.enter);
+    flagPatch.enter = props.enter;
+  }
+  if (props.exit !== undefined) {
+    ensurePositive("exit", props.exit);
+    flagPatch.exit = props.exit;
+  }
+  const COMMON_ALLOWED = ["visible", "locked", "name", "enter", "exit"] as const;
 
   switch (item.type) {
     case "sprite": {

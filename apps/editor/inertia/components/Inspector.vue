@@ -349,6 +349,14 @@ const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
   },
 ]
 
+// Lifespan window on the composition timeline. Half-open [enter, exit):
+// outside it, the resolver flips `visible = false` so the renderer skips
+// the item. Either bound left blank means "open" on that side.
+const LIFESPAN_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'enter', label: 'enter', kind: 'time', path: 'enter', min: 0, step: 0.05 },
+  { key: 'exit', label: 'exit', kind: 'time', path: 'exit', min: 0, step: 0.05 },
+]
+
 const SPRITE_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'asset', label: 'asset', kind: 'asset', path: 'asset', assetType: 'image' },
   { key: 'width', label: 'width', kind: 'number', path: 'width', min: 0, step: 1 },
@@ -1154,6 +1162,44 @@ function onSelectionChange(event: Event): void {
                     @click="confirmAddTween"
                   >Add tween</button>
                 </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <section class="section" data-testid="inspector-lifespan-section">
+        <header class="section-header">
+          <span class="section-title">Lifespan</span>
+          <span class="section-meta">[enter, exit)</span>
+        </header>
+        <div class="fields">
+          <template v-for="field in LIFESPAN_FIELDS" :key="`ls-${field.key}`">
+            <div
+              class="field-row"
+              :class="{ mixed: isMixed(field) }"
+              :data-field="field.key"
+              :data-mixed="isMixed(field) ? 'true' : 'false'"
+            >
+              <div class="field-row-input">
+                <component
+                  :is="inputFor(field)"
+                  :model-value="valueFor(field)"
+                  :label="field.label"
+                  :min="field.min"
+                  :max="compositionDuration"
+                  :step="field.step"
+                  :placeholder="field.key === 'enter' ? '0' : `${compositionDuration}`"
+                  :overridden="isOverridden(field)"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => dispatchEdit(field, v)"
+                />
+                <span
+                  v-if="isMixed(field)"
+                  class="mixed-badge"
+                  :data-testid="`inspector-mixed-${field.key}`"
+                  title="Selected items have different values."
+                >Mixed</span>
               </div>
             </div>
           </template>
