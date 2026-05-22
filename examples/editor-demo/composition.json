@@ -67,7 +67,9 @@
       "fillColor": "#1b2451",
       "cornerRadius": 24,
       "visible": true,
-      "locked": false
+      "locked": false,
+      "enter": 0.5,
+      "exit": 2
     },
     "title": {
       "type": "text",

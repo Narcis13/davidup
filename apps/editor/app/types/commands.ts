@@ -100,6 +100,9 @@ const ITEM_PROPS = z
     locked: z.boolean(),
     // §P friendly label — display-only; ids stay load-bearing.
     name: z.string().max(80),
+    // Lifespan: half-open [enter, exit) seconds on the composition timeline.
+    enter: NON_NEG,
+    exit: POSITIVE,
   })
   .partial()
 
@@ -166,6 +169,9 @@ const updateLayer = z.object({
       locked: z.boolean().optional(),
       // §P friendly layer name (display-only).
       name: z.string().max(80).optional(),
+      // Lifespan: half-open [enter, exit) seconds on the composition timeline.
+      enter: NON_NEG.optional(),
+      exit: POSITIVE.optional(),
     }),
     compositionId: COMPOSITION_ID,
   }),
