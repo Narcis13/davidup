@@ -35,10 +35,8 @@
 // `getSourceMap()` plus a `source` field on the pick result so callers (the
 // editor's Stage component) can light up the inspector + reveal-in-source.
 
-import {
-  BrowserAssetLoader,
-  type AssetLoader,
-} from "../../assets/index.js";
+import { BrowserAssetLoader } from "../../assets/browser.js";
+import type { AssetLoader } from "../../assets/loader.js";
 import { precompile } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
 import {

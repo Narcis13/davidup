@@ -4,8 +4,8 @@
 // where the native binary is not installed (the engine itself never imports
 // from here — only the node driver does). Tests inject a fake module.
 
-import { homedir } from "node:os";
-import { join } from "node:path";
+import * as nodeOs from "node:os";
+import * as nodePath from "node:path";
 import type { FontAsset, ImageAsset } from "../schema/types.js";
 import { BaseAssetLoader, type LoadedImage } from "./loader.js";
 
@@ -54,7 +54,7 @@ export class NodeAssetLoader extends BaseAssetLoader {
     // ~/.davidup/library). skia-canvas accepts plain filesystem paths.
     if (src.startsWith("global:")) {
       const rest = src.slice("global:".length).replace(/^\/+/, "");
-      return join(this.globalLibraryRoot(), rest);
+      return nodePath.join(this.globalLibraryRoot(), rest);
     }
     return src;
   }
@@ -63,7 +63,7 @@ export class NodeAssetLoader extends BaseAssetLoader {
     if (this.globalLibraryRootOverride) return this.globalLibraryRootOverride;
     const override = process.env.DAVIDUP_LIBRARY;
     if (override && override.length > 0) return override;
-    return join(homedir(), ".davidup", "library");
+    return nodePath.join(nodeOs.homedir(), ".davidup", "library");
   }
 
   private getSkia(): Promise<SkiaCanvasModule> {
