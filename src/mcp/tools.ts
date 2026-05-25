@@ -13,6 +13,8 @@
 //     dispatcher wraps it in `{ error: { code, message, hint? } }` AND sets
 //     `isError: true` so MCP clients see it as an error too.
 
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 
 import {
@@ -20,19 +22,19 @@ import {
   expandBehaviors,
   listBehaviors,
   type BehaviorBlock,
+  type BehaviorDescriptor,
+  type BehaviorParamDescriptor,
 } from "../compose/behaviors.js";
 // Side-effect import: registers v0.3 built-in templates with the global
 // registry so `apply_template` and `list_templates` see them out of the box.
 import "../compose/builtInTemplates.js";
+import { precompile } from "../compose/precompile.js";
 import {
   expandSceneInstance,
   getSceneDefinition,
-  hasScene,
   listScenes,
   readSceneDefinition,
-  registerScene,
-  unregisterScene,
-  type SceneDefinition,
+  sceneDescriptor,
   type SceneInstance,
   type SceneParamDescriptor,
   type TimeMapping,
@@ -40,14 +42,18 @@ import {
 import {
   expandTemplate,
   listTemplates,
-  registerTemplate,
+  templateDescriptor,
   type TemplateDefinition,
+  type TemplateDescriptor,
   type TemplateInstance,
   type TemplateParamDescriptor,
 } from "../compose/templates.js";
+import { RefResolutionError } from "../compose/imports.js";
 import { renderToFile } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
-import type { Tween } from "../schema/types.js";
+import { listTweenable } from "../schema/tweenable.js";
+import type { FontAsset, Tween } from "../schema/types.js";
+import { BLEND_MODES, BlendModeSchema, COMPOSITION_VERSION } from "../schema/zod.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -57,15 +63,273 @@ import {
 import {
   CompositionStore,
   type SetMetaPropertyName,
+  type UpdateLayerProps,
 } from "./store.js";
 
 // ──────────────── Shared dependency container ────────────────
+
+// Project-lifecycle hooks injected by an editor that hosts the MCP server.
+// The base engine (running standalone via `davidup mcp`) has no concept of a
+// "project" — it just owns a CompositionStore — so `projectControls` is
+// optional. When absent the project_* tools surface a structured error
+// telling the agent to connect via the editor instead.
+
+export interface ProjectInfo {
+  root: string;
+  compositionPath: string;
+  libraryIndexPath: string | null;
+  assetsDir: string | null;
+  loadedAt: number;
+}
+
+export interface RecentProjectInfo {
+  path: string;
+  name: string;
+  lastOpenedAt: number;
+  lastModifiedAt: number;
+}
+
+export interface ProjectControls {
+  current(): Promise<ProjectInfo | null> | ProjectInfo | null;
+  list(): Promise<RecentProjectInfo[]> | RecentProjectInfo[];
+  open(args: { path: string }): Promise<ProjectInfo>;
+  create(args: {
+    name: string;
+    location: string;
+    template?: string;
+  }): Promise<ProjectInfo>;
+}
+
+// Polish §20.30 — `list_library` MCP tool. The merged catalog the editor
+// returns from `GET /api/library`. Mirroring the HTTP response shape means
+// agents see exactly what humans see in the Library panel. Thumbnails are
+// fetched on demand via the `get_library_thumbnail` tool (returns base64
+// inline) — relative HTTP URLs are useless to MCP clients with no base.
+
+export type MCPLibraryItemKind =
+  | "template"
+  | "behavior"
+  | "scene"
+  | "asset"
+  | "font";
+
+export type MCPLibraryScope = "project" | "global";
+
+export interface MCPLibraryItem {
+  kind: MCPLibraryItemKind;
+  id: string;
+  name?: string;
+  description?: string;
+  source: string;
+  scope: MCPLibraryScope;
+  overridden?: boolean;
+  params?: unknown[];
+  emits?: string[];
+  duration?: number;
+  url?: string;
+  thumbnail?: string;
+}
+
+export interface MCPLibraryRootInfo {
+  scope: MCPLibraryScope;
+  path: string;
+}
+
+export interface MCPLibraryCatalog {
+  root: string | null;
+  roots: MCPLibraryRootInfo[];
+  loadedAt: number;
+  attached: boolean;
+  globalAttached: boolean;
+  projectRoot: string | null;
+  count: number;
+  total: number;
+  query: {
+    q: string | null;
+    kind: MCPLibraryItemKind | null;
+    scope: MCPLibraryScope | null;
+  };
+  items: MCPLibraryItem[];
+  errors: { file: string; message: string; scope: MCPLibraryScope }[];
+}
+
+export interface LibraryListArgs {
+  q?: string;
+  kind?: MCPLibraryItemKind;
+  scope?: MCPLibraryScope;
+}
+
+export interface LibraryThumbnailArgs {
+  kind: MCPLibraryItemKind;
+  id: string;
+}
+
+export interface MCPLibraryThumbnail {
+  /** Base64-encoded PNG. */
+  image: string;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+  /** True when the renderer fell back to a synthesized placeholder. */
+  placeholder: boolean;
+}
+
+export interface LibraryControls {
+  list(args: LibraryListArgs): Promise<MCPLibraryCatalog> | MCPLibraryCatalog;
+  thumbnail(
+    args: LibraryThumbnailArgs,
+  ): Promise<MCPLibraryThumbnail> | MCPLibraryThumbnail;
+}
+
+// Polish §20.31 — async render via MCP. The editor injects `RenderControls`
+// so `render_to_video` can enqueue a job in the editor's render queue (the
+// "Transmit job queue") and return a `jobId` immediately. The standalone
+// engine has no queue; render_to_video stays blocking there.
+
+export type MCPRenderJobStatus = "pending" | "running" | "done" | "error";
+
+export interface MCPRenderJobProgress {
+  frame: number;
+  total: number;
+  /** Milliseconds since the job started. */
+  elapsedMs: number;
+}
+
+export interface MCPRenderJobResult {
+  outputPath: string;
+  relativeOutputPath: string;
+  frameCount: number;
+  durationMs: number;
+}
+
+export interface MCPRenderJobSnapshot {
+  jobId: string;
+  status: MCPRenderJobStatus;
+  outputPath: string;
+  relativeOutputPath: string;
+  totalFrames: number;
+  /** Epoch ms when the job was enqueued. */
+  startedAt: number;
+  progress: MCPRenderJobProgress | null;
+  result: MCPRenderJobResult | null;
+  error: { message: string } | null;
+  /** SSE endpoint the editor exposes for live progress events. */
+  eventsUrl?: string;
+}
+
+export interface MCPRenderStartArgs {
+  outputPath: string;
+  codec?: "libx264" | "libx265";
+  crf?: number;
+  preset?: string;
+  pixFmt?: string;
+  movflagsFaststart?: boolean;
+}
+
+export interface RenderControls {
+  start(args: MCPRenderStartArgs): Promise<MCPRenderJobSnapshot> | MCPRenderJobSnapshot;
+  get(jobId: string): Promise<MCPRenderJobSnapshot | null> | MCPRenderJobSnapshot | null;
+  list(): Promise<MCPRenderJobSnapshot[]> | MCPRenderJobSnapshot[];
+  /** Resolves once the job is terminal (done or error). Never rejects. */
+  waitFor(jobId: string): Promise<MCPRenderJobSnapshot>;
+  /**
+   * Cancel a non-terminal job. Returns the post-cancel snapshot (terminal
+   * status). Resolves to `null` if the jobId is unknown so handlers can
+   * surface E_NOT_FOUND uniformly.
+   *
+   * The underlying ffmpeg subprocess may continue running until it exits on
+   * its own — the editor's worker marks the job terminal immediately and
+   * leaves the orphan output behind, matching the project-switch abort path.
+   */
+  cancel(
+    jobId: string,
+    reason?: string,
+  ): Promise<MCPRenderJobSnapshot | null> | MCPRenderJobSnapshot | null;
+}
 
 export interface ToolDeps {
   store: CompositionStore;
   // Injected for tests; production server passes nothing and the renderers
   // dynamic-import skia-canvas.
   skiaCanvas?: PreviewSkiaModule;
+  // Injected by the editor's mcp_bridge; missing in the standalone engine.
+  projectControls?: ProjectControls;
+  libraryControls?: LibraryControls;
+  renderControls?: RenderControls;
+}
+
+function requireProjectControls(deps: ToolDeps): ProjectControls {
+  if (!deps.projectControls) {
+    throw new MCPToolError(
+      "E_FEATURE_UNAVAILABLE",
+      "Project lifecycle tools are not available on this MCP server.",
+      "Connect through the editor (`davidup edit`) — the standalone engine server has no project concept.",
+    );
+  }
+  return deps.projectControls;
+}
+
+function requireLibraryControls(deps: ToolDeps): LibraryControls {
+  if (!deps.libraryControls) {
+    throw new MCPToolError(
+      "E_FEATURE_UNAVAILABLE",
+      "Library tools are not available on this MCP server.",
+      "Connect through the editor (`davidup edit`) — the standalone engine server has no library service.",
+    );
+  }
+  return deps.libraryControls;
+}
+
+function requireRenderControls(deps: ToolDeps): RenderControls {
+  if (!deps.renderControls) {
+    throw new MCPToolError(
+      "E_FEATURE_UNAVAILABLE",
+      "Render queue tools are not available on this MCP server.",
+      "Connect through the editor (`davidup edit`) — the standalone engine server has no render queue.",
+    );
+  }
+  return deps.renderControls;
+}
+
+// Sandbox `import_scene`. In editor mode resolve relative to
+// `<project-root>/scenes/` and refuse paths that escape it; in standalone mode
+// refuse all filesystem reads unless the operator has opted in by setting
+// `DAVIDUP_ALLOW_FS=1`. Keeps an MCP client from coaxing the server into
+// reading arbitrary files (~/.ssh/id_rsa, /etc/passwd, …).
+async function resolveImportScenePath(
+  requested: string,
+  deps: ToolDeps,
+  path: typeof import("node:path"),
+): Promise<string> {
+  if (deps.projectControls) {
+    const project = await deps.projectControls.current();
+    if (!project) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        "import_scene needs an open project to sandbox filesystem reads.",
+        "Call `open_project` or `create_project` first; scene files are resolved under `<project>/scenes/`.",
+      );
+    }
+    const scenesDir = path.resolve(project.root, "scenes");
+    const resolved = path.resolve(scenesDir, requested);
+    const rel = path.relative(scenesDir, resolved);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene path "${requested}" resolves outside the project's scenes/ directory.`,
+        "Pass a path relative to `<project>/scenes/` (no `..` segments, no absolute paths).",
+      );
+    }
+    return resolved;
+  }
+  if (process.env.DAVIDUP_ALLOW_FS !== "1") {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "import_scene is disabled on this standalone MCP server.",
+      "Set `DAVIDUP_ALLOW_FS=1` in the server's environment to allow filesystem reads, or run the editor server which sandboxes reads to `<project>/scenes/`.",
+    );
+  }
+  return path.resolve(requested);
 }
 
 // ──────────────── Tool definition shape ────────────────
@@ -246,12 +510,15 @@ const addLayer = defineTool({
   name: "add_layer",
   title: "Add layer",
   description:
-    "Add a layer with z-index. Optional opacity, blendMode, explicit id.",
+    "Add a layer with z-index. Optional opacity, blendMode, visible/locked flags, explicit id.",
   inputSchema: {
     id: z.string().min(1).optional(),
     z: z.number(),
     opacity: z.number().min(0).max(1).optional(),
-    blendMode: z.string().optional(),
+    blendMode: BlendModeSchema.optional(),
+    visible: z.boolean().optional(),
+    locked: z.boolean().optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -261,6 +528,9 @@ const addLayer = defineTool({
         ...(args.id !== undefined ? { id: args.id } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
         ...(args.blendMode !== undefined ? { blendMode: args.blendMode } : {}),
+        ...(args.visible !== undefined ? { visible: args.visible } : {}),
+        ...(args.locked !== undefined ? { locked: args.locked } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -271,21 +541,35 @@ const addLayer = defineTool({
 const updateLayer = defineTool({
   name: "update_layer",
   title: "Update layer",
-  description: "Patch a layer's z, opacity, or blendMode.",
+  description:
+    "Patch a layer's z, opacity, blendMode, visibility, or lock state. " +
+    "`visible: false` hides the layer (and everything in it) from the renderer; " +
+    "`locked: true` is a hint to the editor that the layer's contents should not " +
+    "be edited (the engine ignores it).",
   inputSchema: {
     id: z.string().min(1),
     props: z.object({
       z: z.number().optional(),
       opacity: z.number().min(0).max(1).optional(),
-      blendMode: z.string().optional(),
+      blendMode: BlendModeSchema.optional(),
+      visible: z.boolean().optional(),
+      locked: z.boolean().optional(),
+      name: z.string().max(80).optional(),
+      enter: z.number().nonnegative().optional(),
+      exit: z.number().positive().optional(),
     }),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
-    const props: { z?: number; opacity?: number; blendMode?: string } = {};
+    const props: UpdateLayerProps = {};
     if (args.props.z !== undefined) props.z = args.props.z;
     if (args.props.opacity !== undefined) props.opacity = args.props.opacity;
     if (args.props.blendMode !== undefined) props.blendMode = args.props.blendMode;
+    if (args.props.visible !== undefined) props.visible = args.props.visible;
+    if (args.props.locked !== undefined) props.locked = args.props.locked;
+    if (args.props.name !== undefined) props.name = args.props.name;
+    if (args.props.enter !== undefined) props.enter = args.props.enter;
+    if (args.props.exit !== undefined) props.exit = args.props.exit;
     store.updateLayer(args.id, props, args.compositionId);
     return { ok: true as const };
   },
@@ -321,7 +605,8 @@ const TRANSFORM_INPUT = {
 const addSprite = defineTool({
   name: "add_sprite",
   title: "Add sprite item",
-  description: "Add a sprite item to a layer.",
+  description:
+    "Add a sprite item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the item's width/height (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     asset: z.string().min(1),
@@ -332,6 +617,7 @@ const addSprite = defineTool({
     ...TRANSFORM_INPUT,
     tint: z.string().optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -351,6 +637,7 @@ const addSprite = defineTool({
         ...(args.scaleY !== undefined ? { scaleY: args.scaleY } : {}),
         ...(args.tint !== undefined ? { tint: args.tint } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -361,7 +648,8 @@ const addSprite = defineTool({
 const addText = defineTool({
   name: "add_text",
   title: "Add text item",
-  description: "Add a text item to a layer.",
+  description:
+    "Add a text item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the text's measured box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     text: z.string(),
@@ -376,6 +664,7 @@ const addText = defineTool({
     rotation: z.number().optional(),
     opacity: z.number().min(0).max(1).optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -394,6 +683,7 @@ const addText = defineTool({
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -404,7 +694,8 @@ const addText = defineTool({
 const addShape = defineTool({
   name: "add_shape",
   title: "Add shape item",
-  description: "Add a rect / circle / polygon shape item.",
+  description:
+    "Add a rect / circle / polygon shape item. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the shape's bounding box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     kind: z.enum(["rect", "circle", "polygon"]),
@@ -419,7 +710,10 @@ const addShape = defineTool({
     cornerRadius: z.number().nonnegative().optional(),
     rotation: z.number().optional(),
     opacity: z.number().min(0).max(1).optional(),
+    anchorX: z.number().optional(),
+    anchorY: z.number().optional(),
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -438,7 +732,10 @@ const addShape = defineTool({
         ...(args.cornerRadius !== undefined ? { cornerRadius: args.cornerRadius } : {}),
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
+        ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
+        ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -449,13 +746,16 @@ const addShape = defineTool({
 const addGroup = defineTool({
   name: "add_group",
   title: "Add group item",
-  description: "Add a group item with optional initial child items list.",
+  description:
+    "Add a group item with optional initial child items list. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; children are drawn relative to this group origin. The group's `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the group's rotation/scale. `rotation` (set via `update_item`) is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     x: z.number(),
     y: z.number(),
     childItemIds: z.array(z.string().min(1)).optional(),
+    ...TRANSFORM_INPUT,
     id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -465,7 +765,14 @@ const addGroup = defineTool({
         x: args.x,
         y: args.y,
         ...(args.childItemIds !== undefined ? { childItemIds: args.childItemIds } : {}),
+        ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
+        ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
+        ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
+        ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
+        ...(args.scaleX !== undefined ? { scaleX: args.scaleX } : {}),
+        ...(args.scaleY !== undefined ? { scaleY: args.scaleY } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
       },
       args.compositionId,
     );
@@ -498,6 +805,16 @@ const ITEM_PROP_SHAPE = z
     cornerRadius: z.number().nonnegative(),
     points: POINTS,
     items: z.array(z.string().min(1)),
+    // §M flags. Setting `visible: false` keeps the renderer from drawing the
+    // item; `locked: true` is purely a hint to the editor.
+    visible: z.boolean(),
+    locked: z.boolean(),
+    // §P friendly label — display-only; never replaces the id.
+    name: z.string().max(80),
+    // Lifespan: half-open [enter, exit) seconds on the composition timeline.
+    // Out-of-window items are skipped by the renderer.
+    enter: z.number().nonnegative(),
+    exit: z.number().positive(),
   })
   .partial();
 
@@ -705,10 +1022,64 @@ const listBehaviorsTool = defineTool({
   name: "list_behaviors",
   title: "List behaviors",
   description:
-    "List the built-in behaviors available to apply_behavior, with their parameters and produced tween suffixes.",
+    "List the behaviors available for apply_behavior — built-ins from the process-global registry merged with any session-scoped descriptors added via define_user_behavior (session entries shadow globals on name collision). Each descriptor carries its parameters and produced tween suffixes; user-defined behaviors are descriptor-only and will throw E_BEHAVIOR_UNKNOWN if passed to apply_behavior.",
   inputSchema: {},
-  handler: () => {
-    return { behaviors: listBehaviors() };
+  handler: (_args, { store }) => {
+    const merged = new Map<string, BehaviorDescriptor>();
+    for (const d of listBehaviors()) merged.set(d.name, d);
+    for (const d of store.listUserBehaviors()) merged.set(d.name, d);
+    return { behaviors: Array.from(merged.values()) };
+  },
+});
+
+const BEHAVIOR_PARAM_TYPE = z.enum(["number", "string", "color", "colorArray", "axis"]);
+
+const BEHAVIOR_PARAM_DESCRIPTOR = z.object({
+  name: z.string().min(1),
+  type: BEHAVIOR_PARAM_TYPE,
+  required: z.boolean().optional(),
+  default: z.unknown().optional(),
+  description: z.string().optional(),
+});
+
+const defineUserBehavior = defineTool({
+  name: "define_user_behavior",
+  title: "Define user behavior",
+  description:
+    "Register a user-authored behavior descriptor scoped to this MCP session. Last write wins per name, and session descriptors take precedence over the built-in / library-loaded global registry on the same name. Definitions do not leak to other MCP sessions sharing the same backend. " +
+    "NOTE: this is descriptor-only — the behavior shows up in `list_behaviors` but `apply_behavior` will throw `E_BEHAVIOR_UNKNOWN` because user-defined expansion is not yet supported. Use it as catalog metadata; expand behaviors yourself by emitting the literal tweens.",
+  inputSchema: {
+    name: z.string().min(1),
+    description: z.string().optional(),
+    params: z.array(BEHAVIOR_PARAM_DESCRIPTOR).optional(),
+    produces: z
+      .union([z.literal("dynamic"), z.array(z.string().min(1))])
+      .optional()
+      .describe(
+        "Either the suffix list each call appends to the parent block id, or the string \"dynamic\" when the suffix count varies with parameters. Defaults to [].",
+      ),
+  },
+  handler: (args, { store }) => {
+    const params: BehaviorParamDescriptor[] = (args.params ?? []).map((p) => {
+      const desc: BehaviorParamDescriptor = {
+        name: p.name,
+        type: p.type,
+        required: p.required ?? false,
+        description: p.description ?? "",
+      };
+      if (Object.prototype.hasOwnProperty.call(p, "default")) {
+        desc.default = p.default;
+      }
+      return desc;
+    });
+    const descriptor: BehaviorDescriptor = {
+      name: args.name,
+      description: args.description ?? "",
+      params,
+      produces: args.produces ?? [],
+    };
+    store.setUserBehavior(descriptor);
+    return { name: args.name };
   },
 });
 
@@ -747,7 +1118,13 @@ const applyTemplate = defineTool({
       ...(args.params !== undefined ? { params: args.params } : {}),
       ...(args.start !== undefined ? { start: args.start } : {}),
     };
-    const expanded = expandTemplate(instanceId, instance);
+    // Session-scoped user templates win over the process-global REGISTRY so
+    // two MCP sessions on the same backend never share `define_user_template`
+    // mutations. The expander falls back to the global REGISTRY when an id
+    // isn't present in the session record.
+    const expanded = expandTemplate(instanceId, instance, {
+      templates: store.userTemplateRecord(),
+    });
     // Run the §10.4 behavior pass on the template's tween array so any
     // `$behavior` blocks the template emitted resolve to literal tweens.
     const literalTweens = (
@@ -813,8 +1190,16 @@ const listTemplatesTool = defineTool({
   description:
     "List the registered templates (built-ins plus any user templates registered via define_user_template), with their parameters and the local item ids each one emits.",
   inputSchema: {},
-  handler: () => {
-    return { templates: listTemplates() };
+  handler: (_args, { store }) => {
+    // Merge process-global registry (built-ins / library_index) with this
+    // session's user templates; session entries override globals on id
+    // collision, mirroring the precedence used at expansion time.
+    const merged = new Map<string, TemplateDescriptor>();
+    for (const d of listTemplates()) merged.set(d.id, d);
+    for (const def of store.listUserTemplates()) {
+      merged.set(def.id, templateDescriptor(def));
+    }
+    return { templates: Array.from(merged.values()) };
   },
 });
 
@@ -822,7 +1207,7 @@ const defineUserTemplate = defineTool({
   name: "define_user_template",
   title: "Define user template",
   description:
-    "Register a user-defined template on the global registry. Last write wins per id, so a built-in can be shadowed by re-registering under the same id.",
+    "Register a user-defined template scoped to this MCP session. Last write wins per id, and session templates take precedence over the built-in / library-loaded global registry on the same id (so a built-in can be shadowed by re-registering under the same id). Definitions do not leak to other MCP sessions sharing the same backend.",
   inputSchema: {
     id: z.string().min(1),
     description: z.string().optional(),
@@ -830,7 +1215,7 @@ const defineUserTemplate = defineTool({
     items: z.record(z.string().min(1), z.unknown()),
     tweens: z.array(z.unknown()).optional(),
   },
-  handler: (args) => {
+  handler: (args, { store }) => {
     const params: TemplateParamDescriptor[] = (args.params ?? []).map((p) => {
       const desc: TemplateParamDescriptor = { name: p.name, type: p.type };
       if (p.required === true) desc.required = true;
@@ -847,8 +1232,28 @@ const defineUserTemplate = defineTool({
       tweens: args.tweens ?? [],
     };
     if (args.description !== undefined) def.description = args.description;
-    registerTemplate(def);
+    store.setUserTemplate(def);
     return { id: args.id };
+  },
+});
+
+const removeUserTemplate = defineTool({
+  name: "remove_user_template",
+  title: "Remove user template",
+  description:
+    "Drop a template previously registered in this MCP session by define_user_template. Process-global entries (built-ins, editor library) are not removable from a session and removing them is rejected. Existing template-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
+  inputSchema: {
+    templateId: z.string().min(1),
+  },
+  handler: (args, { store }) => {
+    if (!store.removeUserTemplate(args.templateId)) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No template "${args.templateId}" in this session's registry.`,
+        "Session-scoped removal only affects templates defined via define_user_template in this MCP session.",
+      );
+    }
+    return { ok: true as const };
   },
 });
 
@@ -915,7 +1320,7 @@ const defineScene = defineTool({
   name: "define_scene",
   title: "Define scene",
   description:
-    "Register a scene definition on the global registry. A scene is a self-contained mini-composition with its own duration, items, tweens, params, and assets. Last write wins per id, so the same id can be re-registered to update a scene.",
+    "Register a scene definition scoped to this MCP session. A scene is a self-contained mini-composition with its own duration, items, tweens, params, and assets. Last write wins per id, and session scenes take precedence over the built-in / library-loaded global registry on the same id. Definitions do not leak to other MCP sessions sharing the same backend.",
   inputSchema: {
     id: z.string().min(1),
     description: z.string().optional(),
@@ -927,7 +1332,7 @@ const defineScene = defineTool({
     items: z.record(z.string().min(1), z.unknown()),
     tweens: z.array(z.unknown()).optional(),
   },
-  handler: (args) => {
+  handler: (args, { store }) => {
     const def = readSceneDefinition(args.id, {
       ...(args.description !== undefined ? { description: args.description } : {}),
       duration: args.duration,
@@ -948,7 +1353,7 @@ const defineScene = defineTool({
       return desc;
     });
     def.params = params;
-    registerScene(def);
+    store.setUserScene(def);
     return { sceneId: args.id };
   },
 });
@@ -957,16 +1362,18 @@ const importScene = defineTool({
   name: "import_scene",
   title: "Import scene from file",
   description:
-    "Load a scene definition from a JSON file on disk and register it. The file's top-level shape mirrors `define_scene` (id, duration, items, tweens, params, assets, size, background).",
+    "Load a scene definition from a JSON file on disk and register it for this MCP session. The file's top-level shape mirrors `define_scene` (id, duration, items, tweens, params, assets, size, background). Filesystem reads are sandboxed: in the editor server `path` is resolved within `<project-root>/scenes/`; in the standalone engine server reads are refused unless the operator has set `DAVIDUP_ALLOW_FS=1`. Imports are session-scoped and do not leak to other MCP sessions sharing the same backend.",
   inputSchema: {
     path: z.string().min(1),
     id: z.string().min(1).optional(),
   },
-  handler: async (args) => {
+  handler: async (args, deps) => {
     const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const resolvedPath = await resolveImportScenePath(args.path, deps, path);
     let raw: string;
     try {
-      raw = await fs.readFile(args.path, "utf8");
+      raw = await fs.readFile(resolvedPath, "utf8");
     } catch (err) {
       throw new MCPToolError(
         "E_NOT_FOUND",
@@ -1001,7 +1408,7 @@ const importScene = defineTool({
       );
     }
     const def = readSceneDefinition(id, sceneObj);
-    registerScene(def);
+    deps.store.setUserScene(def);
     return { sceneId: id };
   },
 });
@@ -1012,8 +1419,16 @@ const listScenesTool = defineTool({
   description:
     "List the registered scenes (defined via define_scene or import_scene), with their params, duration, size, background, emitted item ids, and asset ids.",
   inputSchema: {},
-  handler: () => {
-    return { scenes: listScenes() };
+  handler: (_args, { store }) => {
+    // Merge the process-global scene registry (built-ins / library_index)
+    // with this session's user scenes; session entries override globals on
+    // id collision, mirroring the precedence used at expansion time.
+    const merged = new Map<string, ReturnType<typeof sceneDescriptor>>();
+    for (const d of listScenes()) merged.set(d.id, d);
+    for (const def of store.listUserScenes()) {
+      merged.set(def.id, sceneDescriptor(def));
+    }
+    return { scenes: Array.from(merged.values()) };
   },
 });
 
@@ -1021,18 +1436,18 @@ const removeScene = defineTool({
   name: "remove_scene",
   title: "Remove scene",
   description:
-    "Drop a scene from the registry. Note: existing scene-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
+    "Drop a scene previously registered in this MCP session by define_scene / import_scene. Process-global entries (built-ins, editor library) are not removable from a session and removing them is rejected. Existing scene-instance expansions in compositions are unaffected — already-expanded items live on as canonical items.",
   inputSchema: {
     sceneId: z.string().min(1),
   },
-  handler: (args) => {
-    if (!hasScene(args.sceneId)) {
+  handler: (args, { store }) => {
+    if (!store.removeUserScene(args.sceneId)) {
       throw new MCPToolError(
         "E_NOT_FOUND",
-        `No scene "${args.sceneId}" in the registry.`,
+        `No scene "${args.sceneId}" in this session's registry.`,
+        "Session-scoped removal only affects scenes defined via define_scene or import_scene in this MCP session.",
       );
     }
-    unregisterScene(args.sceneId);
     return { ok: true as const };
   },
 });
@@ -1050,7 +1465,12 @@ function applySceneInstanceToStore(
     compositionId?: string;
   },
 ): { itemIds: string[]; tweenIds: string[]; assetIds: string[] } {
-  const def = getSceneDefinition(args.sceneId);
+  // Look up the scene in this session's registry first (the only place
+  // define_scene / import_scene write to). Fall back to the process-global
+  // registry for built-ins / editor library entries so a multi-tenant
+  // backend never lets a user-defined scene from session A appear in
+  // session B (M4 — SaaS blocker fix).
+  const def = store.getUserScene(args.sceneId) ?? getSceneDefinition(args.sceneId);
   if (!def) {
     throw new MCPToolError(
       "E_SCENE_UNKNOWN",
@@ -1066,7 +1486,11 @@ function applySceneInstanceToStore(
     ...(args.transform !== undefined ? { transform: args.transform } : {}),
     ...(args.time !== undefined ? { time: args.time } : {}),
   };
-  const expanded = expandSceneInstance(args.instanceId, sceneInstance);
+  // Pass the session's scene record into the expander so any nested scene
+  // references inside this scene also resolve session-first.
+  const expanded = expandSceneInstance(args.instanceId, sceneInstance, {
+    scenes: store.userSceneRecord(),
+  });
 
   // Run the §10.4 behavior pass on the scene's tween array so any
   // `$behavior` blocks the scene emitted resolve to literal tweens.
@@ -1172,7 +1596,7 @@ const addSceneInstance = defineTool({
   name: "add_scene_instance",
   title: "Add scene instance",
   description:
-    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
+    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. In `transform`, `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; `anchorX`/`anchorY` are fractional in 0..1 of the synthetic group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the scene's rotation/scale; `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
   inputSchema: {
     sceneId: z.string().min(1),
     layerId: z.string().min(1),
@@ -1389,41 +1813,446 @@ const renderThumbnailStripTool = defineTool({
   },
 });
 
+interface RenderToVideoResult {
+  jobId: string;
+  status: MCPRenderJobStatus;
+  outputPath: string;
+  relativeOutputPath: string;
+  totalFrames: number;
+  startedAt: number;
+  eventsUrl?: string;
+  result: MCPRenderJobResult | null;
+}
+
 const renderToVideo = defineTool({
   name: "render_to_video",
   title: "Render to video file",
   description:
-    "Render the composition to an MP4 (or other ffmpeg-supported container). Validates first.",
+    "Render the composition to an MP4 (or other ffmpeg-supported container). " +
+    "Always returns the same shape: " +
+    "`{ jobId, status, outputPath, relativeOutputPath, totalFrames, startedAt, eventsUrl?, result }`. " +
+    "`result` is `null` until the job completes; on success it carries `{ outputPath, relativeOutputPath, durationMs, frameCount }`. " +
+    "Default is async — the editor enqueues a job and returns immediately with `result: null`; " +
+    "poll `get_render` or pass `wait: true` to block until the render completes (then `result` is populated). " +
+    "The standalone engine has no queue; calls always block and the response carries `status: \"done\"` with `result` populated. " +
+    "On render failure the handler throws `E_RENDER_FAILED` rather than resolving with `status: \"error\"`.",
   inputSchema: {
     outputPath: z.string().min(1),
     codec: z.enum(["libx264", "libx265"]).optional(),
-    crf: z.number().int().min(0).max(63).optional(),
+    // libx264 / libx265 both top out at 51; values above silently bork the
+    // encoder. Clamp at the codec ceiling so a stray crf:60 surfaces as a
+    // clean E_INVALID_VALUE up front instead of an opaque E_RENDER_FAILED.
+    crf: z.number().int().min(0).max(51).optional(),
     preset: z.string().optional(),
     pixFmt: z.string().optional(),
+    movflagsFaststart: z
+      .boolean()
+      .optional()
+      .describe(
+        "Append `-movflags +faststart` so MP4 metadata is moved to the front of the file (lets browsers begin playback before the whole file downloads). Defaults to true for the standalone engine and editor render queue.",
+      ),
+    wait: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, block until the render finishes so `result` is populated in the response. Default is async (returns a jobId immediately with `result: null`) when a render queue is available. Ignored on the standalone engine, which is always blocking.",
+      ),
     compositionId: COMPOSITION_ID,
   },
-  handler: async (args, { store }) => {
+  handler: async (args, deps): Promise<RenderToVideoResult> => {
+    const { store, renderControls } = deps;
     ensureValidForRender(store, args.compositionId);
+
+    // Editor-hosted: route through the render queue. Default is async — return
+    // a snapshot with `result: null`. With `wait: true`, await completion and
+    // return the same shape with `result` populated.
+    if (renderControls) {
+      const startArgs: MCPRenderStartArgs = { outputPath: args.outputPath };
+      if (args.codec !== undefined) startArgs.codec = args.codec;
+      if (args.crf !== undefined) startArgs.crf = args.crf;
+      if (args.preset !== undefined) startArgs.preset = args.preset;
+      if (args.pixFmt !== undefined) startArgs.pixFmt = args.pixFmt;
+      if (args.movflagsFaststart !== undefined) {
+        startArgs.movflagsFaststart = args.movflagsFaststart;
+      }
+
+      const snapshot = await renderControls.start(startArgs);
+
+      const finalSnap =
+        args.wait === true ? await renderControls.waitFor(snapshot.jobId) : snapshot;
+
+      if (args.wait === true && finalSnap.status === "error") {
+        throw new MCPToolError(
+          "E_RENDER_FAILED",
+          finalSnap.error?.message ?? "Render job failed.",
+          "Inspect `get_render` for the terminal state.",
+        );
+      }
+      if (args.wait === true && !finalSnap.result) {
+        throw new MCPToolError(
+          "E_RENDER_FAILED",
+          "Render job finished without a result payload.",
+        );
+      }
+
+      const out: RenderToVideoResult = {
+        jobId: finalSnap.jobId,
+        status: finalSnap.status,
+        outputPath: finalSnap.outputPath,
+        relativeOutputPath: finalSnap.relativeOutputPath,
+        totalFrames: finalSnap.totalFrames,
+        startedAt: finalSnap.startedAt,
+        result: finalSnap.result,
+      };
+      if (finalSnap.eventsUrl !== undefined) out.eventsUrl = finalSnap.eventsUrl;
+      return out;
+    }
+
+    // Standalone engine: no queue. Always blocking — synthesize a one-shot
+    // snapshot so the return shape matches the editor-hosted path.
     const comp = store.toJSON(args.compositionId);
+    const jobId = `local-${randomUUID()}`;
+    const startedAt = Date.now();
     try {
       const result = await renderToFile(comp, args.outputPath, {
+        // Default to faststart on MP4 outputs so browsers can begin playback
+        // before the whole file downloads. Callers can opt out by passing
+        // `movflagsFaststart: false` (e.g. when targeting a non-MP4 container).
+        movflagsFaststart: args.movflagsFaststart ?? true,
         ...(args.codec !== undefined ? { codec: args.codec } : {}),
         ...(args.crf !== undefined ? { crf: args.crf } : {}),
         ...(args.preset !== undefined ? { preset: args.preset } : {}),
         ...(args.pixFmt !== undefined ? { pixFmt: args.pixFmt } : {}),
       });
       return {
-        ok: true as const,
+        jobId,
+        status: "done",
         outputPath: result.outputPath,
-        durationMs: result.durationMs,
-        frameCount: result.frameCount,
+        relativeOutputPath: result.outputPath,
+        totalFrames: result.frameCount,
+        startedAt,
+        result: {
+          outputPath: result.outputPath,
+          relativeOutputPath: result.outputPath,
+          durationMs: result.durationMs,
+          frameCount: result.frameCount,
+        },
       };
     } catch (err) {
+      if (err instanceof RefResolutionError) {
+        throw new MCPToolError(
+          err.code,
+          err.message,
+          "Resolve the broken `$ref` (check the path, JSON pointer, or cycle) and try again.",
+          {
+            details: {
+              ...(err.ref !== undefined ? { ref: err.ref } : {}),
+              ...(err.chain !== undefined ? { chain: [...err.chain] } : {}),
+            },
+          },
+        );
+      }
       throw new MCPToolError(
         "E_RENDER_FAILED",
         err instanceof Error ? err.message : String(err),
         "Check that ffmpeg is on $PATH and assets resolve from the working directory.",
       );
+    }
+  },
+});
+
+const getRender = defineTool({
+  name: "get_render",
+  title: "Get render job",
+  description:
+    "Return a snapshot of a render job started by `render_to_video`: status, progress (latest frame/total/elapsedMs), terminal result on success, or error message on failure. " +
+    "Errors E_NOT_FOUND if the jobId is unknown, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    jobId: z.string().min(1),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireRenderControls(deps);
+    const snap = await ctrl.get(args.jobId);
+    if (!snap) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No render job with id "${args.jobId}".`,
+        "Call `list_renders` to see jobs that are still tracked in memory.",
+      );
+    }
+    return snap;
+  },
+});
+
+const listRenders = defineTool({
+  name: "list_renders",
+  title: "List render jobs",
+  description:
+    "List render jobs the editor's queue is currently tracking, newest first. Each entry has the same shape as `get_render`. " +
+    "The queue retains a bounded number of completed jobs; older ones are evicted lazily. " +
+    "Errors E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {},
+  handler: async (_args, deps) => {
+    const ctrl = requireRenderControls(deps);
+    const jobs = await ctrl.list();
+    return { jobs };
+  },
+});
+
+const cancelRender = defineTool({
+  name: "cancel_render",
+  title: "Cancel render job",
+  description:
+    "Cancel a non-terminal render job started by `render_to_video`. The job is marked terminal (`status: \"error\"`) immediately and any SSE subscribers receive a clean shutdown event. The underlying ffmpeg subprocess may continue running until it exits on its own — the orphan output is left in the project's `renders/` directory. " +
+    "Calling cancel on an already-terminal job (`done` or `error`) is a no-op and returns the existing snapshot. " +
+    "Errors E_NOT_FOUND if the jobId is unknown, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    jobId: z.string().min(1),
+    reason: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Human-readable reason recorded on the job's terminal error event. Defaults to a generic 'cancelled by MCP client' message.",
+      ),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireRenderControls(deps);
+    const reason = args.reason ?? "Render cancelled by MCP client.";
+    const snap = await ctrl.cancel(args.jobId, reason);
+    if (!snap) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No render job with id "${args.jobId}".`,
+        "Call `list_renders` to see jobs that are still tracked in memory.",
+      );
+    }
+    return snap;
+  },
+});
+
+// ──────────────── 4.7 Project lifecycle (polish §20.29) ────────────────
+
+const currentProject = defineTool({
+  name: "current_project",
+  title: "Current project",
+  description:
+    "Return information about the project currently loaded by the editor (root, paths, loadedAt). Returns `{ project: null }` when no project is loaded. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {},
+  handler: async (_args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const project = await ctrl.current();
+    return { project };
+  },
+});
+
+const listProjects = defineTool({
+  name: "list_projects",
+  title: "List recent projects",
+  description:
+    "Return the editor's list of recently-opened projects, sorted newest first. Entries whose directory no longer exists are pruned. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {},
+  handler: async (_args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const projects = await ctrl.list();
+    return { projects };
+  },
+});
+
+const openProject = defineTool({
+  name: "open_project",
+  title: "Open project",
+  description:
+    "Load a project from a directory on disk and make it the editor's active composition. Routes through the same controller path as POST /api/project in the UI (same validation, same path guard, same project-switch reset). Errors with E_NOT_FOUND if no composition.json exists at `path`, E_INVALID_VALUE if `path` is malformed or in a protected system location, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    path: z.string().min(1),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const project = await ctrl.open({ path: args.path });
+    return { project };
+  },
+});
+
+const LIBRARY_ITEM_KIND = z.enum(["template", "behavior", "scene", "asset", "font"]);
+const LIBRARY_SCOPE = z.enum(["project", "global"]);
+
+const listLibrary = defineTool({
+  name: "list_library",
+  title: "List library",
+  description:
+    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`) and an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global). Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Call `get_library_thumbnail` with the item's `kind` + `id` to fetch a base64 PNG preview. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    q: z.string().min(1).optional(),
+    kind: LIBRARY_ITEM_KIND.optional(),
+    scope: LIBRARY_SCOPE.optional(),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireLibraryControls(deps);
+    const listArgs: LibraryListArgs = {};
+    if (args.q !== undefined) listArgs.q = args.q;
+    if (args.kind !== undefined) listArgs.kind = args.kind;
+    if (args.scope !== undefined) listArgs.scope = args.scope;
+    return ctrl.list(listArgs);
+  },
+});
+
+const getLibraryThumbnail = defineTool({
+  name: "get_library_thumbnail",
+  title: "Get library thumbnail",
+  description:
+    "Return a base64-encoded PNG preview for a single Library item identified by `kind` + `id` (as returned by `list_library`). The first call synthesizes a tiny composition exercising the item and renders frame 0.5 via the same path the Library panel uses; subsequent calls hit an in-memory cache. When synthesis isn't viable the renderer falls back to a deterministic placeholder PNG and sets `placeholder: true`. Errors with E_NOT_FOUND if no item with that (kind, id) is in the current catalog, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+  inputSchema: {
+    kind: LIBRARY_ITEM_KIND,
+    id: z.string().min(1),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireLibraryControls(deps);
+    return ctrl.thumbnail({ kind: args.kind, id: args.id });
+  },
+});
+
+const createProject = defineTool({
+  name: "create_project",
+  title: "Create project",
+  description:
+    "Scaffold a fresh project at `<location>/<name>` (using the optional `template`, default 'basic') and load it. Routes through the same controller path as POST /api/projects in the UI: same path guard, same scaffold error codes (E_TARGET_NOT_EMPTY → E_INVALID_VALUE, E_TEMPLATE_NOT_FOUND → E_NOT_FOUND), and the same recents bump on success. `name` doubles as the recents-list label.",
+  inputSchema: {
+    name: z.string().min(1),
+    location: z.string().min(1),
+    template: z.string().min(1).optional(),
+  },
+  handler: async (args, deps) => {
+    const ctrl = requireProjectControls(deps);
+    const project = await ctrl.create({
+      name: args.name,
+      location: args.location,
+      ...(args.template !== undefined ? { template: args.template } : {}),
+    });
+    return { project };
+  },
+});
+
+// ──────────────── 4.9 Engine discovery (M5) ────────────────
+
+// Cheap, side-effect-free discovery tools so agents don't have to round-trip
+// through `E_INVALID_VALUE` (or the design doc) to learn the engine's
+// vocabulary. Mirrors the existing list_behaviors / list_templates pattern.
+
+const listEasingsTool = defineTool({
+  name: "list_easings",
+  title: "List easings",
+  description:
+    "List every easing name accepted by `add_tween` / `update_tween`. Pass one verbatim as the `easing` field. Identical across compositions and across standalone vs. editor servers.",
+  inputSchema: {},
+  handler: () => {
+    return { easings: [...EASING_NAMES] };
+  },
+});
+
+const listFontsTool = defineTool({
+  name: "list_fonts",
+  title: "List fonts",
+  description:
+    "List fonts available to `add_text`. `composition` lists font assets currently registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`.",
+  inputSchema: {
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, deps) => {
+    const composition = deps.store
+      .listAssets(args.compositionId)
+      .filter((a): a is FontAsset => a.type === "font")
+      .map((a) => ({ id: a.id, family: a.family, src: a.src }));
+    const library: {
+      id: string;
+      name?: string;
+      scope: "project" | "global";
+      source: string;
+      overridden?: boolean;
+    }[] = [];
+    if (deps.libraryControls) {
+      try {
+        const catalog = await deps.libraryControls.list({ kind: "font" });
+        for (const item of catalog.items) {
+          library.push({
+            id: item.id,
+            ...(item.name !== undefined ? { name: item.name } : {}),
+            scope: item.scope,
+            source: item.source,
+            ...(item.overridden !== undefined ? { overridden: item.overridden } : {}),
+          });
+        }
+      } catch {
+        // Library lookup is best-effort; an unavailable editor service must
+        // not block composition-scoped discovery.
+      }
+    }
+    return { composition, library };
+  },
+});
+
+const listEngineCapabilitiesTool = defineTool({
+  name: "list_engine_capabilities",
+  title: "List engine capabilities",
+  description:
+    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
+  inputSchema: {},
+  handler: () => {
+    return {
+      schemaVersion: COMPOSITION_VERSION,
+      easings: [...EASING_NAMES],
+      blendModes: [...BLEND_MODES],
+      itemTypes: ["sprite", "text", "shape", "group"] as const,
+      shapeKinds: ["rect", "circle", "polygon"] as const,
+      tweenable: {
+        sprite: listTweenable("sprite"),
+        text: listTweenable("text"),
+        shape: listTweenable("shape"),
+        group: listTweenable("group"),
+      },
+      // Param-type vocabularies accepted by each descriptor surface. Use these
+      // when constructing `params` for define_user_behavior / define_user_template /
+      // define_scene without hitting E_INVALID_VALUE.
+      paramTypes: {
+        behavior: ["number", "string", "color", "colorArray", "axis"] as const,
+        template: ["number", "string", "color", "boolean"] as const,
+        scene: ["number", "string", "color", "boolean"] as const,
+      },
+    };
+  },
+});
+
+const getSourceMap = defineTool({
+  name: "get_source_map",
+  title: "Get composition source map",
+  description:
+    "Return the precompiled composition plus its source map: an authorship trail keyed by resolved item / tween id. " +
+    "For each id, the map carries `{ file, jsonPointer, originKind }` where `originKind` ∈ \"literal\" | \"ref\" | \"template\" | \"behavior\" | \"scene\" | \"background\". " +
+    "Compositions built imperatively through the MCP tools have no `$ref` / `$template` / `$behavior` markers, so every entry's `originKind` is `literal` and `file` is the literal string `\"<root>\"`. " +
+    "Errors with `E_REF_*` if the comp ever does carry $refs that can't be resolved.",
+  inputSchema: {
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, { store }) => {
+    const comp = store.toJSON(args.compositionId);
+    try {
+      const result = await precompile(comp, { emitSourceMap: true });
+      return { sourceMap: result.sourceMap };
+    } catch (err) {
+      if (err instanceof RefResolutionError) {
+        throw new MCPToolError(
+          err.code,
+          err.message,
+          "Resolve the broken `$ref` (check the path, JSON pointer, or cycle) and try again.",
+          {
+            details: {
+              ...(err.ref !== undefined ? { ref: err.ref } : {}),
+              ...(err.chain !== undefined ? { chain: [...err.chain] } : {}),
+            },
+          },
+        );
+      }
+      throw err;
     }
   },
 });
@@ -1471,10 +2300,12 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   // 4.5b — behaviors
   applyBehavior,
   listBehaviorsTool,
+  defineUserBehavior,
   // 4.5c — templates
   applyTemplate,
   listTemplatesTool,
   defineUserTemplate,
+  removeUserTemplate,
   // 4.5d — scenes
   defineScene,
   importScene,
@@ -1487,6 +2318,22 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   renderPreviewFrameTool,
   renderThumbnailStripTool,
   renderToVideo,
+  getRender,
+  listRenders,
+  cancelRender,
+  // 4.7 — project lifecycle (polish §20.29)
+  currentProject,
+  listProjects,
+  openProject,
+  createProject,
+  // 4.8 — library (polish §20.30)
+  listLibrary,
+  getLibraryThumbnail,
+  // 4.9 — engine discovery (M5)
+  listEasingsTool,
+  listFontsTool,
+  listEngineCapabilitiesTool,
+  getSourceMap,
 ];
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);

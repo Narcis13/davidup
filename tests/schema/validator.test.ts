@@ -35,6 +35,33 @@ describe("validate — schema errors (E_SCHEMA)", () => {
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
   });
+
+  it("rejects an unknown blendMode", () => {
+    const comp = baseComposition() as unknown as {
+      layers: Array<Record<string, unknown>>;
+    };
+    comp.layers[0]!.blendMode = "not-a-real-blend";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("accepts every Canvas2D composite op and the 'normal' alias", () => {
+    const validModes = [
+      "normal",
+      "source-over",
+      "destination-in",
+      "multiply",
+      "screen",
+      "luminosity",
+    ];
+    for (const mode of validModes) {
+      const comp = baseComposition();
+      comp.layers[0]!.blendMode = mode;
+      const result = validate(comp);
+      expect(result.valid, `mode "${mode}" should validate`).toBe(true);
+    }
+  });
 });
 
 describe("validate — reference errors (E_ITEM_MISSING / E_ASSET_MISSING)", () => {

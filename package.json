@@ -4,6 +4,9 @@
   "description": "Deterministic 2D programmatic video engine with MCP tools for AI agents",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -19,10 +22,13 @@
     "build:two-templates": "vite build --config examples/two-templates-browser/vite.config.ts",
     "dev:four-scenes": "vite --config examples/four-scenes-browser/vite.config.ts",
     "build:four-scenes": "vite build --config examples/four-scenes-browser/vite.config.ts",
-    "mcp": "bun run src/mcp/bin.ts"
+    "mcp": "bun run src/mcp/bin.ts",
+    "cli": "bun run src/cli/bin.ts",
+    "seed:library": "bun run scripts/seed-global-library.ts"
   },
   "bin": {
-    "davidup-mcp": "./src/mcp/bin.ts"
+    "davidup-mcp": "./src/mcp/bin.ts",
+    "davidup": "./src/cli/bin.ts"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -32,7 +38,9 @@
     "./assets": "./src/assets/index.ts",
     "./node": "./src/drivers/node/index.ts",
     "./browser": "./src/drivers/browser/index.ts",
-    "./mcp": "./src/mcp/index.ts"
+    "./mcp": "./src/mcp/index.ts",
+    "./compose": "./src/compose/index.ts",
+    "./cli/scaffold": "./src/cli/scaffold.ts"
   },
   "engines": {
     "bun": ">=1.1.0"

@@ -71,3 +71,59 @@ export interface RenderOptions {
   // drawing the untinted image (texture preserved, no colorization).
   createOffscreen?: (width: number, height: number) => OffscreenSurface;
 }
+
+// ──────────────── Source-map authoring trail (editor v1.0) ────────────────
+//
+// The compose pre-compile pipeline can emit an authorship trail alongside the
+// resolved (canonical v0.1) composition so a visual editor can "reveal in
+// source" the authored JSON that produced a given resolved item / tween.
+//
+// COMPOSITION_PRIMITIVES.md §10.1 documents the broader ItemSource union; the
+// editor PRD step 15 narrows that to a single uniform shape with an
+// `originKind` discriminator. That shape lives here so engine-side consumers
+// (e.g. the browser pickItemAt API in step 16) can import it without a
+// circular dependency through `src/compose`.
+
+/**
+ * Why a resolved item / tween exists in the canonical output:
+ *
+ *   - `literal`    — authored directly in the source composition.
+ *   - `ref`        — inlined from a `$ref` import.
+ *   - `template`   — emitted by a `$template` instance expansion.
+ *   - `behavior`   — emitted by a `$behavior` tween block expansion.
+ *   - `scene`      — emitted by a `type: "scene"` instance expansion (wrapper
+ *                    group AND its prefixed inner items).
+ *   - `background` — the synthetic background rect that scene expansion
+ *                    inserts when the scene declares a non-transparent
+ *                    `background` color.
+ */
+export type OriginKind =
+  | "literal"
+  | "ref"
+  | "template"
+  | "behavior"
+  | "scene"
+  | "background";
+
+/**
+ * Single source-map entry: where in the *authored* JSON this resolved entry
+ * came from. `file` is the absolute path of the file that holds the authored
+ * declaration (or `"<root>"` when the caller did not pass `sourcePath`).
+ * `jsonPointer` is an RFC 6901 pointer into that file's parsed JSON.
+ */
+export interface SourceLocation {
+  file: string;
+  jsonPointer: string;
+  originKind: OriginKind;
+}
+
+/**
+ * The full source map for a precompiled composition. Keyed by the resolved
+ * item / tween id (i.e. the id the validator and engine see). Items with no
+ * source attribution (e.g. anonymous nested sub-entries the editor doesn't
+ * surface) are simply absent from the map.
+ */
+export interface SourceMap {
+  items: Record<string, SourceLocation>;
+  tweens: Record<string, SourceLocation>;
+}

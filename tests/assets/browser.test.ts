@@ -130,4 +130,38 @@ describe("BrowserAssetLoader", () => {
       ]),
     ).rejects.toThrow(/FontFace API is not available/);
   });
+
+  it("rewrites `global:` srcs to /library-files/* URLs (no baseUrl)", async () => {
+    const images = installImageCtor("load");
+    const loader = new BrowserAssetLoader();
+
+    await loader.preloadAll([
+      { id: "g", type: "image", src: "global:assets/abc.png" },
+    ]);
+
+    expect(images[0]!.src).toBe("/library-files/assets/abc.png");
+  });
+
+  it("rewrites `global:` srcs to /library-files/* ignoring baseUrl", async () => {
+    // global: is a logical scheme — baseUrl should not be prepended to it.
+    const images = installImageCtor("load");
+    const loader = new BrowserAssetLoader({ baseUrl: "https://cdn.example.com/v1" });
+
+    await loader.preloadAll([
+      { id: "g", type: "image", src: "global:templates/foo.png" },
+    ]);
+
+    expect(images[0]!.src).toBe("/library-files/templates/foo.png");
+  });
+
+  it("rewrites `global:` font srcs to /library-files/* URLs", async () => {
+    const { added } = installFontEnv();
+    const loader = new BrowserAssetLoader();
+
+    await loader.preloadAll([
+      { id: "g", type: "font", src: "global:fonts/Inter.ttf", family: "Inter" },
+    ]);
+
+    expect(added[0]!.source).toBe('url("/library-files/fonts/Inter.ttf")');
+  });
 });

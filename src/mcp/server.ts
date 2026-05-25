@@ -15,7 +15,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-import { dispatchTool, type DispatchResult } from "./dispatch.js";
+import {
+  dispatchTool,
+  type DispatchResult,
+  type DispatchRouter,
+} from "./dispatch.js";
 import { CompositionStore } from "./store.js";
 import { TOOLS, type ToolDef, type ToolDeps } from "./tools.js";
 
@@ -24,6 +28,14 @@ export interface CreateServerOptions {
   // Server identity surfaced via the `initialize` handshake.
   name?: string;
   version?: string;
+  // Optional per-call deps factory — lets embedders (the editor) re-hydrate
+  // a fresh store from the canonical document for each call so read-only
+  // tools (validate / get_composition / list_* / render_*) always see the
+  // latest state. When omitted, every call uses the same `{ store }`.
+  depsFactory?: (toolName: string) => ToolDeps | Promise<ToolDeps>;
+  // Optional router — intercepts a tool call after input validation. The
+  // editor uses this to redirect mutating tools through its CommandBus.
+  router?: DispatchRouter;
 }
 
 export interface DavidupServer {
@@ -38,7 +50,10 @@ const DEFAULT_VERSION = "0.1.0";
 
 export function createServer(options: CreateServerOptions = {}): DavidupServer {
   const store = options.store ?? new CompositionStore();
-  const deps: ToolDeps = { store };
+  const defaultDeps: ToolDeps = { store };
+  const depsFactory =
+    options.depsFactory ?? ((_toolName: string) => defaultDeps);
+  const router = options.router;
 
   const mcp = new McpServer(
     {
@@ -51,7 +66,7 @@ export function createServer(options: CreateServerOptions = {}): DavidupServer {
   );
 
   for (const tool of TOOLS) {
-    registerTool(mcp, tool, deps);
+    registerTool(mcp, tool, depsFactory, router);
   }
 
   const transport = new StdioServerTransport();
@@ -71,7 +86,8 @@ export function createServer(options: CreateServerOptions = {}): DavidupServer {
 function registerTool(
   mcp: McpServer,
   tool: ToolDef,
-  deps: ToolDeps,
+  depsFactory: (toolName: string) => ToolDeps | Promise<ToolDeps>,
+  router: DispatchRouter | undefined,
 ): void {
   mcp.registerTool(
     tool.name,
@@ -81,7 +97,8 @@ function registerTool(
       inputSchema: tool.inputSchema,
     },
     async (args: unknown) => {
-      const outcome = await dispatchTool(tool, args, deps);
+      const deps = await depsFactory(tool.name);
+      const outcome = await dispatchTool(tool, args, deps, router);
       return toCallToolResult(outcome);
     },
   );

@@ -28,11 +28,11 @@ const OUTPUT_DIR = resolve(HERE, "output");
 const PREVIEW_PNG = join(OUTPUT_DIR, "four-scenes-60s.frame-30s.png");
 const VIDEO_MP4 = join(OUTPUT_DIR, "four-scenes-60s.mp4");
 
-// Font assets in the JSON are authored with portable relative paths
-// (`../fonts/…`); skia-canvas resolves them against process.cwd, which is
+// Font assets in the JSON are authored with project-relative paths
+// (`./fonts/…`); skia-canvas resolves them against process.cwd, which is
 // fragile, so we rewrite each asset src to an absolute path keyed by id.
 const ASSET_PATHS: Record<string, string> = {
-  "font-display": resolve(HERE, "..", "fonts", "BebasNeue-Regular.ttf"),
+  "font-display": resolve(HERE, "fonts", "BebasNeue-Regular.ttf"),
 };
 
 async function main(): Promise<void> {

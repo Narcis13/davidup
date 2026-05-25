@@ -12,6 +12,7 @@
 // stack handles transform matrix composition for free (per §5.4).
 
 import type {
+  BlendMode,
   GroupItem,
   Item,
   Layer,
@@ -69,12 +70,16 @@ export function drawScene(
 
   const sorted = sortLayersByZ(scene.layers);
   for (const layer of sorted) {
+    // §M visibility: absent ≡ visible. Skipping early avoids the save/restore
+    // pair and any descendant draws — a hidden layer is truly free at render.
+    if (layer.visible === false) continue;
     ctx.save();
     ctx.globalAlpha = ctx.globalAlpha * layer.opacity;
     applyBlendMode(ctx, layer.blendMode);
     for (const itemId of layer.items) {
       const item = scene.items[itemId];
       if (!item) continue;
+      if (item.visible === false) continue;
       drawItem(ctx, item, scene, assets, dc);
     }
     ctx.restore();
@@ -144,9 +149,9 @@ function drawBackground(
   ctx.restore();
 }
 
-function applyBlendMode(ctx: Canvas2DContext, mode: string): void {
+function applyBlendMode(ctx: Canvas2DContext, mode: BlendMode): void {
   // CSS-style "normal" maps to Canvas2D's default "source-over"; everything
-  // else passes through (Canvas2D accepts most CSS blend mode names directly).
+  // else is a validated Canvas2D composite op (see CANVAS2D_COMPOSITE_OPS).
   ctx.globalCompositeOperation = mode === "normal" ? COMPOSITE_NORMAL : mode;
 }
 
@@ -184,19 +189,19 @@ function drawSprite(
     return;
   }
 
-  // Tint via "multiply" on a scratch surface, then mask back to the image's
-  // alpha with "destination-in". A flat fillRect with source-atop on the main
-  // ctx would *replace* the texture with a solid colour (pre-fix bug); multiply
-  // preserves luminance so highlights/shadows survive while pixels take the
-  // tint's hue.
+  // Paint a `source-atop` opaque tint fill onto the image (whose alpha channel
+  // we keep verbatim by drawing it first). Earlier code used `multiply` then
+  // `destination-in` to mask back, which double-counted the source alpha on
+  // semi-transparent PNGs (E2): the multiply blend tints through partially-
+  // transparent pixels, and the destination-in mask re-applies image alpha on
+  // top of the outer `globalAlpha × tr.opacity`. Trade-off: flat tint over the
+  // silhouette rather than a luminance-preserving multiply.
   const off = dc.createOffscreen(item.width, item.height);
   const oc = off.context;
   oc.drawImage(image, 0, 0, item.width, item.height);
-  oc.globalCompositeOperation = "multiply";
+  oc.globalCompositeOperation = "source-atop";
   oc.fillStyle = tint;
   oc.fillRect(0, 0, item.width, item.height);
-  oc.globalCompositeOperation = "destination-in";
-  oc.drawImage(image, 0, 0, item.width, item.height);
   // Restore default for any reuse of the offscreen by other code paths.
   oc.globalCompositeOperation = "source-over";
   ctx.drawImage(off.source, 0, 0, item.width, item.height);
@@ -292,6 +297,7 @@ function drawGroupChildren(
   for (const childId of item.items) {
     const child = scene.items[childId];
     if (!child) continue;
+    if (child.visible === false) continue;
     drawItem(ctx, child, scene, dc.assets, dc);
   }
 }

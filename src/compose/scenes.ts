@@ -59,7 +59,7 @@
 // expansion time. Same id + same src = dedupe. Same id + different src =
 // `E_ASSET_CONFLICT`.
 
-import { MCPToolError } from "../mcp/errors.js";
+import { MCPToolError } from "../engine/errors.js";
 import type { Asset } from "../schema/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
@@ -176,6 +176,15 @@ export function unregisterScene(id: string): boolean {
 
 export function listScenes(): SceneDescriptor[] {
   return Array.from(REGISTRY.values()).map(toDescriptor);
+}
+
+/**
+ * Public projection of a {@link SceneDefinition} into its lightweight
+ * descriptor. Used by callers that maintain their own (e.g. session-scoped)
+ * registry and need to merge it with `listScenes()` for surfacing.
+ */
+export function sceneDescriptor(def: SceneDefinition): SceneDescriptor {
+  return toDescriptor(def);
 }
 
 // ──────────────── Single-instance expansion ────────────────
@@ -1173,10 +1182,18 @@ function cloneRawAsset(a: Record<string, unknown>): Asset {
   const type = a.type;
   const src = a.src;
   if (typeof id !== "string" || id.length === 0) {
-    throw new MCPToolError("E_INVALID_VALUE", "Asset missing non-empty id.");
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Asset missing non-empty id.",
+      "Every entry in a scene's `assets` array must carry a string `id`.",
+    );
   }
   if (typeof src !== "string" || src.length === 0) {
-    throw new MCPToolError("E_INVALID_VALUE", `Asset "${id}" missing non-empty src.`);
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Asset "${id}" missing non-empty src.`,
+      "Every scene asset needs a `src` path (relative to the scene file or absolute).",
+    );
   }
   if (type === "image") {
     return { id, type: "image", src };

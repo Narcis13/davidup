@@ -1,0 +1,209 @@
+{
+  "version": "0.1",
+  "composition": {
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "duration": 6,
+    "background": "#5c6ddb"
+  },
+  "assets": [
+    {
+      "id": "ball",
+      "type": "image",
+      "src": "./assets/ball.png"
+    },
+    {
+      "id": "font-display",
+      "type": "font",
+      "src": "./fonts/BebasNeue-Regular.ttf",
+      "family": "DavidupDisplay"
+    }
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "z": 0,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "card"
+      ],
+      "visible": true
+    },
+    {
+      "id": "fg",
+      "z": 10,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": [
+        "title",
+        "item-1",
+        "item-2",
+        "item-3",
+        "item-4",
+        "item-5",
+        "item-6"
+      ],
+      "visible": true
+    }
+  ],
+  "items": {
+    "card": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 551,
+        "y": 530,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0.9
+      },
+      "width": 720,
+      "height": 200,
+      "fillColor": "#1b2451",
+      "cornerRadius": 24,
+      "visible": true,
+      "locked": false,
+      "enter": 0.5,
+      "exit": 2
+    },
+    "title": {
+      "type": "text",
+      "text": "Library demo",
+      "font": "font-display",
+      "fontSize": 96,
+      "color": "#ffffff",
+      "transform": {
+        "x": 775,
+        "y": 264,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 0
+      },
+      "align": "center",
+      "visible": true
+    },
+    "item-1": {
+      "type": "sprite",
+      "asset": "ball",
+      "width": 240,
+      "height": 240,
+      "transform": {
+        "x": 142,
+        "y": 12,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0.82
+      }
+    },
+    "item-2": {
+      "type": "shape",
+      "kind": "rect",
+      "transform": {
+        "x": 941,
+        "y": 587,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0.82
+      },
+      "width": 240,
+      "height": 120,
+      "fillColor": "#ab0738",
+      "cornerRadius": 8
+    },
+    "item-3": {
+      "type": "shape",
+      "kind": "circle",
+      "transform": {
+        "x": 679,
+        "y": 466,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 0.5
+      },
+      "width": 160,
+      "height": 160,
+      "fillColor": "#5b7cfa"
+    },
+    "item-4": {
+      "type": "text",
+      "text": "Hello UX_GAPS",
+      "font": "font-display",
+      "fontSize": 48,
+      "color": "#ffffff",
+      "transform": {
+        "x": 851,
+        "y": 400,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      },
+      "align": "center"
+    },
+    "item-5": {
+      "type": "sprite",
+      "asset": "ball",
+      "width": 240,
+      "height": 240,
+      "transform": {
+        "x": 1130,
+        "y": 418,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    },
+    "item-6": {
+      "type": "text",
+      "text": "Narcis",
+      "font": "font-display",
+      "fontSize": 48,
+      "color": "#ffffff",
+      "transform": {
+        "x": 996,
+        "y": 163,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      },
+      "align": "center"
+    }
+  },
+  "tweens": [
+    {
+      "id": "title-fade",
+      "target": "title",
+      "property": "transform.opacity",
+      "from": 0,
+      "to": 1,
+      "start": 0.4,
+      "duration": 0.8,
+      "easing": "easeOutQuad"
+    }
+  ]
+}

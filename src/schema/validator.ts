@@ -9,6 +9,7 @@
 //   3. sprite.asset / text.font → existing asset of correct type → E_ASSET_MISSING
 //   4. tween.property tweenable for item type → E_PROPERTY_INVALID
 //      tween.from / .to value-kind matches   → E_VALUE_KIND
+//      color-kind tween.from / .to parseable → E_COLOR_INVALID
 //   5. Two tweens on same (target, property) overlap temporally → E_TWEEN_OVERLAP
 //   6. tween.start + duration > comp.duration → W_TWEEN_TRUNCATED (warning)
 //   7. Layers sorted by z — handled by the renderer, not by validation.
@@ -17,6 +18,7 @@
 import type { Composition } from "./types.js";
 import { getTweenable } from "./tweenable.js";
 import { CompositionSchema } from "./zod.js";
+import { parseColor } from "../color/index.js";
 
 export type ValidationErrorCode =
   | "E_SCHEMA"
@@ -24,6 +26,7 @@ export type ValidationErrorCode =
   | "E_ITEM_MISSING"
   | "E_PROPERTY_INVALID"
   | "E_VALUE_KIND"
+  | "E_COLOR_INVALID"
   | "E_TWEEN_OVERLAP"
   | "E_GROUP_CYCLE";
 
@@ -214,6 +217,36 @@ function validateTweens(
         path: `tweens.${tween.id}`,
       });
       continue;
+    }
+
+    // Color-kind values pass the typeof check above, but the renderer later
+    // calls parseColor() which throws on unrecognized inputs like "magenta".
+    // Surface that here so authoring tools fail validation, not render.
+    if (expected === "color") {
+      let badEnd: "from" | "to" | null = null;
+      let reason = "";
+      try {
+        parseColor(tween.from as string);
+      } catch (e) {
+        badEnd = "from";
+        reason = e instanceof Error ? e.message : String(e);
+      }
+      if (badEnd === null) {
+        try {
+          parseColor(tween.to as string);
+        } catch (e) {
+          badEnd = "to";
+          reason = e instanceof Error ? e.message : String(e);
+        }
+      }
+      if (badEnd !== null) {
+        errors.push({
+          code: "E_COLOR_INVALID",
+          message: `Tween "${tween.id}" ${badEnd} is not a parseable color: ${reason}`,
+          path: `tweens.${tween.id}.${badEnd}`,
+        });
+        continue;
+      }
     }
 
     const key = `${tween.target}::${tween.property}`;

@@ -66,6 +66,13 @@ export interface RenderToFileOptions {
   skiaCanvas?: SkiaDriverModule;
   loader?: AssetLoader;
   spawn?: FfmpegSpawn;
+
+  /**
+   * Optional progress callback invoked after each frame is encoded. `frame`
+   * is the 1-based count of frames written so far; `total` is `frameCount(comp)`.
+   * Editor / SaaS callers wire this into an SSE channel; CLI callers ignore it.
+   */
+  onProgress?: (info: { frame: number; total: number }) => void;
 }
 
 export interface RenderToFileResult {
@@ -144,6 +151,19 @@ export async function renderToFile(
       const buf = toNodeBuffer(raw);
       const ok = stdin.write(buf);
       if (!ok) await waitForDrain(stdin);
+      if (opts.onProgress) {
+        try {
+          opts.onProgress({ frame: i + 1, total: totalFrames });
+        } catch {
+          // A throwing progress callback must not kill the render.
+        }
+        // Yield to the libuv loop so SSE / IPC writes posted by the
+        // progress callback actually flush before we start painting the
+        // next frame. Without this, on small/fast renders the entire loop
+        // serialises in one microtask burst and observers only see the
+        // terminal state. Cost: one macrotask per frame.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   } catch (err) {
     safeKill(ffmpeg);
@@ -151,11 +171,15 @@ export async function renderToFile(
   }
 
   stdin.end();
-  const code = await closePromise;
+  const { code, signal } = await closePromise;
   if (code !== 0) {
     const tail = stderrTail.trim();
+    // `code === null` happens when ffmpeg is killed by a signal (e.g. SIGABRT
+    // from a missing dynamic library) — we must surface that as a failure
+    // rather than silently treat it as success.
+    const reason = code === null ? `signal ${signal ?? "unknown"}` : `code ${code}`;
     throw new Error(
-      `ffmpeg exited with code ${code}${tail ? `:\n${tail}` : ""}`,
+      `ffmpeg exited with ${reason}${tail ? `:\n${tail}` : ""}`,
     );
   }
 
@@ -230,9 +254,14 @@ function waitForDrain(stream: Writable): Promise<void> {
   });
 }
 
-async function waitForClose(child: ChildProcess): Promise<number> {
-  const [code] = (await once(child, "close")) as [number | null, NodeJS.Signals | null];
-  return code ?? 0;
+async function waitForClose(
+  child: ChildProcess,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  const [code, signal] = (await once(child, "close")) as [
+    number | null,
+    NodeJS.Signals | null,
+  ];
+  return { code, signal };
 }
 
 function toNodeBuffer(raw: Uint8Array): Buffer {

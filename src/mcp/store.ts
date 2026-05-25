@@ -15,6 +15,7 @@ import type { EasingName } from "../easings/index.js";
 import { validate, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
+  BlendMode,
   Composition,
   CompositionMeta,
   GroupItem,
@@ -26,15 +27,16 @@ import type {
   Transform,
   Tween,
 } from "../schema/types.js";
-import { ItemSchema } from "../schema/zod.js";
+import { COMPOSITION_VERSION, ItemSchema } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
-import type { TimeMapping } from "../compose/scenes.js";
+import type { BehaviorDescriptor } from "../compose/behaviors.js";
+import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
+import type { TemplateDefinition } from "../compose/templates.js";
 import { MCPToolError } from "./errors.js";
 
-const COMPOSITION_VERSION = "0.1";
 const DEFAULT_BACKGROUND = "#000000";
 const DEFAULT_OPACITY = 1;
-const DEFAULT_BLEND_MODE = "normal";
+const DEFAULT_BLEND_MODE: BlendMode = "normal";
 
 const DEFAULT_TRANSFORM: Transform = {
   x: 0,
@@ -111,13 +113,22 @@ export interface AddLayerInput {
   id?: string;
   z: number;
   opacity?: number;
-  blendMode?: string;
+  blendMode?: BlendMode;
+  visible?: boolean;
+  locked?: boolean;
+  name?: string;
 }
 
 export interface UpdateLayerProps {
   z?: number;
   opacity?: number;
-  blendMode?: string;
+  blendMode?: BlendMode;
+  visible?: boolean;
+  locked?: boolean;
+  name?: string;
+  // Lifespan — same semantics as on items (see UpdateItemProps).
+  enter?: number;
+  exit?: number;
 }
 
 export interface AddSpriteInput {
@@ -135,6 +146,7 @@ export interface AddSpriteInput {
   scaleY?: number;
   tint?: string;
   id?: string;
+  name?: string;
 }
 
 export interface AddTextInput {
@@ -151,6 +163,7 @@ export interface AddTextInput {
   rotation?: number;
   opacity?: number;
   id?: string;
+  name?: string;
 }
 
 export interface AddShapeInput {
@@ -167,7 +180,10 @@ export interface AddShapeInput {
   cornerRadius?: number;
   rotation?: number;
   opacity?: number;
+  anchorX?: number;
+  anchorY?: number;
   id?: string;
+  name?: string;
 }
 
 export interface AddGroupInput {
@@ -175,7 +191,14 @@ export interface AddGroupInput {
   x: number;
   y: number;
   childItemIds?: ReadonlyArray<string>;
+  anchorX?: number;
+  anchorY?: number;
+  rotation?: number;
+  opacity?: number;
+  scaleX?: number;
+  scaleY?: number;
   id?: string;
+  name?: string;
 }
 
 export interface UpdateItemProps {
@@ -208,6 +231,16 @@ export interface UpdateItemProps {
   points?: ReadonlyArray<readonly [number, number]>;
   // Group-specific.
   items?: ReadonlyArray<string>;
+  // §M flags (all item types).
+  visible?: boolean;
+  locked?: boolean;
+  // §P friendly label — display-only; never replaces the id.
+  name?: string;
+  // Lifespan: half-open [enter, exit) window in composition seconds. Either
+  // bound omitted means open on that side. Out-of-window items render as if
+  // `visible = false` (see engine/resolver.ts).
+  enter?: number;
+  exit?: number;
 }
 
 export interface AddTweenInput {
@@ -240,6 +273,20 @@ export class CompositionStore {
   private readonly compositions = new Map<string, MutableComposition>();
   private defaultId: string | null = null;
   private autoSeq = 0;
+  // Session-scoped user registries. Templates/scenes defined via the MCP
+  // `define_user_template`, `define_scene`, and `import_scene` tools live
+  // here instead of the process-global compose REGISTRY so two MCP sessions
+  // on the same backend never see each other's mutations (M4 — SaaS blocker).
+  // Built-ins and editor library_index entries continue to live on the
+  // process-global registry and are visible as a read-only fallback via the
+  // expansion functions' existing `options.{templates,scenes}` precedence.
+  private readonly userTemplates = new Map<string, TemplateDefinition>();
+  private readonly userScenes = new Map<string, SceneDefinition>();
+  // Session-scoped behavior descriptors registered via `define_user_behavior`.
+  // Descriptor-only — `apply_behavior` will throw E_BEHAVIOR_UNKNOWN because
+  // user-defined expansion is not supported (mirrors `compose.registerBehavior`
+  // semantics). These appear alongside built-ins in `list_behaviors`.
+  private readonly userBehaviors = new Map<string, BehaviorDescriptor>();
 
   // ──────────────── Composition lifecycle ────────────────
 
@@ -362,7 +409,11 @@ export class CompositionStore {
   registerAsset(input: RegisterAssetInput, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!input.id || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Asset id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Asset id must be a non-empty string.",
+        "Pass a stable string id (used later by add_sprite/add_text and remove_asset).",
+      );
     }
     if (comp.assets.has(input.id)) {
       throw new MCPToolError(
@@ -403,7 +454,11 @@ export class CompositionStore {
   removeAsset(assetId: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.assets.has(assetId)) {
-      throw new MCPToolError("E_NOT_FOUND", `No asset "${assetId}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No asset "${assetId}".`,
+        "Call list_assets to see registered asset ids.",
+      );
     }
     for (const [itemId, item] of comp.items) {
       if (item.type === "sprite" && item.asset === assetId) {
@@ -433,6 +488,7 @@ export class CompositionStore {
       throw new MCPToolError(
         "E_DUPLICATE_ID",
         `Layer id "${id}" already exists.`,
+        "Pick a different id, or omit `id` to let the store auto-assign.",
       );
     }
     const opacity = input.opacity ?? DEFAULT_OPACITY;
@@ -443,6 +499,9 @@ export class CompositionStore {
       opacity,
       blendMode: input.blendMode ?? DEFAULT_BLEND_MODE,
       items: [],
+      ...(input.visible !== undefined ? { visible: input.visible } : {}),
+      ...(input.locked !== undefined ? { locked: input.locked } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     });
     return id;
   }
@@ -455,7 +514,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = comp.layers.get(id);
     if (!layer) {
-      throw new MCPToolError("E_NOT_FOUND", `No layer "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No layer "${id}".`,
+        "Inspect get_composition().layers to see existing layer ids, or call add_layer first.",
+      );
     }
     const next: Layer = { ...layer };
     if (props.z !== undefined) next.z = props.z;
@@ -464,6 +527,17 @@ export class CompositionStore {
       next.opacity = props.opacity;
     }
     if (props.blendMode !== undefined) next.blendMode = props.blendMode;
+    if (props.visible !== undefined) next.visible = props.visible;
+    if (props.locked !== undefined) next.locked = props.locked;
+    if (props.name !== undefined) next.name = props.name;
+    if (props.enter !== undefined) {
+      ensureNonNegative("enter", props.enter);
+      next.enter = props.enter;
+    }
+    if (props.exit !== undefined) {
+      ensurePositive("exit", props.exit);
+      next.exit = props.exit;
+    }
     comp.layers.set(id, next);
   }
 
@@ -475,7 +549,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = comp.layers.get(id);
     if (!layer) {
-      throw new MCPToolError("E_NOT_FOUND", `No layer "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No layer "${id}".`,
+        "Inspect get_composition().layers to see existing layer ids.",
+      );
     }
     if (layer.items.length > 0 && !cascade) {
       throw new MCPToolError(
@@ -518,6 +596,7 @@ export class CompositionStore {
       height: input.height,
       transform,
       ...(input.tint !== undefined ? { tint: input.tint } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, sprite);
     comp.itemLayer.set(id, layer.id);
@@ -548,6 +627,7 @@ export class CompositionStore {
       color: input.color,
       transform,
       ...(input.align !== undefined ? { align: input.align } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, text);
     comp.itemLayer.set(id, layer.id);
@@ -565,6 +645,8 @@ export class CompositionStore {
       x: input.x,
       y: input.y,
       rotation: input.rotation ?? DEFAULT_TRANSFORM.rotation,
+      anchorX: input.anchorX ?? DEFAULT_TRANSFORM.anchorX,
+      anchorY: input.anchorY ?? DEFAULT_TRANSFORM.anchorY,
       opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
     };
     ensureUnitInterval("opacity", transform.opacity);
@@ -581,6 +663,7 @@ export class CompositionStore {
       ...(input.strokeColor !== undefined ? { strokeColor: input.strokeColor } : {}),
       ...(input.strokeWidth !== undefined ? { strokeWidth: input.strokeWidth } : {}),
       ...(input.cornerRadius !== undefined ? { cornerRadius: input.cornerRadius } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, shape);
     comp.itemLayer.set(id, layer.id);
@@ -593,19 +676,69 @@ export class CompositionStore {
     const layer = this.requireLayer(comp, input.layerId);
     const id = input.id ?? this.nextItemId(comp);
     this.ensureNoItem(comp, id);
+    const childIds = input.childItemIds ?? [];
+    // Validate every child up front so we never half-build a group that
+    // references a phantom id (which would otherwise only surface later via
+    // validate() as E_ITEM_MISSING).
+    for (const cid of childIds) {
+      if (cid === id) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Group "${id}" cannot list itself as a child.`,
+        );
+      }
+      if (!comp.items.has(cid)) {
+        throw new MCPToolError(
+          "E_NOT_FOUND",
+          `add_group child item "${cid}" not found.`,
+          "Inspect get_composition().items for existing item ids.",
+        );
+      }
+    }
     const transform: Transform = {
       ...DEFAULT_TRANSFORM,
       x: input.x,
       y: input.y,
+      scaleX: input.scaleX ?? DEFAULT_TRANSFORM.scaleX,
+      scaleY: input.scaleY ?? DEFAULT_TRANSFORM.scaleY,
+      rotation: input.rotation ?? DEFAULT_TRANSFORM.rotation,
+      anchorX: input.anchorX ?? DEFAULT_TRANSFORM.anchorX,
+      anchorY: input.anchorY ?? DEFAULT_TRANSFORM.anchorY,
+      opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
     };
+    ensureUnitInterval("opacity", transform.opacity);
     const group: GroupItem = {
       type: "group",
-      items: input.childItemIds ? [...input.childItemIds] : [],
+      items: [...childIds],
       transform,
+      ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, group);
     comp.itemLayer.set(id, layer.id);
     pushUnique(layer.items, id);
+    // Detach each child from anywhere else that references it: layer.items
+    // (so the renderer doesn't draw it twice — once at the layer root and
+    // once through the new group's children) and any other group.items (so
+    // re-grouping moves it cleanly between groups instead of duplicating).
+    // `itemLayer` is updated to point at the new group's layer so future
+    // remove/move operations have an authoritative source-layer to peel off.
+    for (const cid of childIds) {
+      for (const otherLayer of comp.layers.values()) {
+        if (otherLayer.items.includes(cid)) {
+          otherLayer.items = otherLayer.items.filter((x) => x !== cid);
+        }
+      }
+      for (const [otherId, other] of comp.items) {
+        if (otherId === id || otherId === cid) continue;
+        if (other.type === "group" && other.items.includes(cid)) {
+          comp.items.set(otherId, {
+            ...other,
+            items: other.items.filter((x) => x !== cid),
+          });
+        }
+      }
+      comp.itemLayer.set(cid, layer.id);
+    }
     return id;
   }
 
@@ -624,7 +757,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = this.requireLayer(comp, input.layerId);
     if (typeof input.id !== "string" || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Item id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Item id must be a non-empty string.",
+        "Pass a stable string id; tweens and updates will reference it later.",
+      );
     }
     this.ensureNoItem(comp, input.id);
     const parsed = ItemSchema.safeParse(input.item);
@@ -644,7 +781,12 @@ export class CompositionStore {
   updateItem(id: string, props: UpdateItemProps, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     const item = comp.items.get(id);
-    if (!item) throw new MCPToolError("E_NOT_FOUND", `No item "${id}".`);
+    if (!item)
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${id}".`,
+        "Inspect get_composition().items for existing item ids, or add_sprite/add_text/add_shape/add_group first.",
+      );
     const next = applyItemUpdate(item, props);
     comp.items.set(id, next);
   }
@@ -656,7 +798,11 @@ export class CompositionStore {
   ): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.items.has(itemId)) {
-      throw new MCPToolError("E_NOT_FOUND", `No item "${itemId}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${itemId}".`,
+        "Inspect get_composition().items for existing item ids.",
+      );
     }
     const target = this.requireLayer(comp, targetLayerId);
     const sourceId = comp.itemLayer.get(itemId);
@@ -673,7 +819,11 @@ export class CompositionStore {
   removeItem(id: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.items.has(id)) {
-      throw new MCPToolError("E_NOT_FOUND", `No item "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${id}".`,
+        "Inspect get_composition().items for existing item ids.",
+      );
     }
     this.removeItemImpl(comp, id);
   }
@@ -726,7 +876,11 @@ export class CompositionStore {
 
     const id = input.id ?? this.nextTweenId(comp);
     if (comp.tweens.has(id)) {
-      throw new MCPToolError("E_DUPLICATE_ID", `Tween id "${id}" already exists.`);
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Tween id "${id}" already exists.`,
+        "Omit `id` to let the store auto-assign, or call remove_tween first to replace.",
+      );
     }
 
     this.ensureNoOverlap(comp, input.target, input.property, input.start, input.duration, null);
@@ -748,7 +902,12 @@ export class CompositionStore {
   updateTween(id: string, props: UpdateTweenProps, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     const tween = comp.tweens.get(id);
-    if (!tween) throw new MCPToolError("E_NOT_FOUND", `No tween "${id}".`);
+    if (!tween)
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No tween "${id}".`,
+        "Call list_tweens to see existing tween ids, or add_tween first.",
+      );
 
     const target = props.target ?? tween.target;
     const property = props.property ?? tween.property;
@@ -785,10 +944,18 @@ export class CompositionStore {
       );
     }
     if (duration <= 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween duration must be > 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween duration must be > 0.",
+        "Pass a positive number of seconds (e.g. duration: 0.5).",
+      );
     }
     if (start < 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween start must be ≥ 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween start must be ≥ 0.",
+        "Pass a non-negative seconds offset from the composition start.",
+      );
     }
 
     this.ensureNoOverlap(comp, target, property, start, duration, id);
@@ -809,7 +976,11 @@ export class CompositionStore {
   removeTween(id: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (!comp.tweens.delete(id)) {
-      throw new MCPToolError("E_NOT_FOUND", `No tween "${id}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No tween "${id}".`,
+        "Call list_tweens to see existing tween ids.",
+      );
     }
   }
 
@@ -957,7 +1128,11 @@ export class CompositionStore {
   ): void {
     const comp = this.requireComposition(compositionId);
     if (typeof input.id !== "string" || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Item id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Item id must be a non-empty string.",
+        "Pass a stable string id; tweens and updates will reference it later.",
+      );
     }
     this.ensureNoItem(comp, input.id);
     const parsed = ItemSchema.safeParse(input.item);
@@ -980,7 +1155,11 @@ export class CompositionStore {
     const comp = this.requireComposition(compositionId);
     const layer = this.requireLayer(comp, input.layerId);
     if (typeof input.id !== "string" || input.id.length === 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Group id must be a non-empty string.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Group id must be a non-empty string.",
+        "Pass a stable string id (used later by add_tween targets and update_item).",
+      );
     }
     this.ensureNoItem(comp, input.id);
     const group: GroupItem = {
@@ -997,7 +1176,11 @@ export class CompositionStore {
   addRawTween(tween: Tween, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
     if (comp.tweens.has(tween.id)) {
-      throw new MCPToolError("E_DUPLICATE_ID", `Tween id "${tween.id}" already exists.`);
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Tween id "${tween.id}" already exists.`,
+        "Pick a different id, or remove_tween the existing one first.",
+      );
     }
     const item = comp.items.get(tween.target);
     if (!item) {
@@ -1026,10 +1209,18 @@ export class CompositionStore {
       );
     }
     if (tween.duration <= 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween duration must be > 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween duration must be > 0.",
+        "Pass a positive number of seconds (e.g. duration: 0.5).",
+      );
     }
     if (tween.start < 0) {
-      throw new MCPToolError("E_INVALID_VALUE", "Tween start must be ≥ 0.");
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Tween start must be ≥ 0.",
+        "Pass a non-negative seconds offset from the composition start.",
+      );
     }
     this.ensureNoOverlap(
       comp,
@@ -1049,6 +1240,107 @@ export class CompositionStore {
       duration: tween.duration,
       ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
     });
+  }
+
+  // ──────────────── Session-scoped template / scene registries ────────────────
+
+  setUserTemplate(def: TemplateDefinition): void {
+    if (typeof def.id !== "string" || def.id.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Template definition must have a non-empty id.",
+      );
+    }
+    this.userTemplates.set(def.id, def);
+  }
+
+  getUserTemplate(id: string): TemplateDefinition | undefined {
+    return this.userTemplates.get(id);
+  }
+
+  hasUserTemplate(id: string): boolean {
+    return this.userTemplates.has(id);
+  }
+
+  removeUserTemplate(id: string): boolean {
+    return this.userTemplates.delete(id);
+  }
+
+  listUserTemplates(): TemplateDefinition[] {
+    return Array.from(this.userTemplates.values());
+  }
+
+  /** Snapshot for `expandTemplate(options.templates)`. */
+  userTemplateRecord(): Record<string, TemplateDefinition> {
+    return Object.fromEntries(this.userTemplates);
+  }
+
+  setUserScene(def: SceneDefinition): void {
+    if (typeof def.id !== "string" || def.id.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Scene definition must have a non-empty id.",
+      );
+    }
+    this.userScenes.set(def.id, def);
+  }
+
+  getUserScene(id: string): SceneDefinition | undefined {
+    return this.userScenes.get(id);
+  }
+
+  hasUserScene(id: string): boolean {
+    return this.userScenes.has(id);
+  }
+
+  removeUserScene(id: string): boolean {
+    return this.userScenes.delete(id);
+  }
+
+  listUserScenes(): SceneDefinition[] {
+    return Array.from(this.userScenes.values());
+  }
+
+  /** Snapshot for `expandSceneInstance(options.scenes)`. */
+  userSceneRecord(): Record<string, SceneDefinition> {
+    return Object.fromEntries(this.userScenes);
+  }
+
+  setUserBehavior(descriptor: BehaviorDescriptor): void {
+    if (typeof descriptor.name !== "string" || descriptor.name.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "Behavior descriptor must have a non-empty name.",
+      );
+    }
+    // Clone defensively so callers can't mutate the stored descriptor later.
+    const cloned: BehaviorDescriptor = {
+      name: descriptor.name,
+      description: descriptor.description ?? "",
+      params: descriptor.params.map((p) => ({ ...p })),
+      produces:
+        typeof descriptor.produces === "string"
+          ? descriptor.produces
+          : [...descriptor.produces],
+    };
+    this.userBehaviors.set(descriptor.name, cloned);
+  }
+
+  hasUserBehavior(name: string): boolean {
+    return this.userBehaviors.has(name);
+  }
+
+  removeUserBehavior(name: string): boolean {
+    return this.userBehaviors.delete(name);
+  }
+
+  listUserBehaviors(): BehaviorDescriptor[] {
+    return Array.from(this.userBehaviors.values()).map((d) => ({
+      name: d.name,
+      description: d.description,
+      params: d.params.map((p) => ({ ...p })),
+      produces: typeof d.produces === "string" ? d.produces : [...d.produces],
+    }));
   }
 
   // ──────────────── Internals ────────────────
@@ -1076,14 +1368,22 @@ export class CompositionStore {
   private requireLayer(comp: MutableComposition, layerId: string): Layer {
     const layer = comp.layers.get(layerId);
     if (!layer) {
-      throw new MCPToolError("E_NOT_FOUND", `No layer "${layerId}".`);
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No layer "${layerId}".`,
+        "Call add_layer to create it, or inspect get_composition().layers for existing layer ids.",
+      );
     }
     return layer;
   }
 
   private ensureNoItem(comp: MutableComposition, id: string): void {
     if (comp.items.has(id)) {
-      throw new MCPToolError("E_DUPLICATE_ID", `Item id "${id}" already exists.`);
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Item id "${id}" already exists.`,
+        "Pick a different id, omit `id` to let the store auto-assign, or remove_item first.",
+      );
     }
   }
 
@@ -1225,10 +1525,23 @@ function cloneLayer(layer: Layer): Layer {
     opacity: layer.opacity,
     blendMode: layer.blendMode,
     items: [...layer.items],
+    ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+    ...(layer.locked !== undefined ? { locked: layer.locked } : {}),
+    ...(layer.name !== undefined ? { name: layer.name } : {}),
+    ...(layer.enter !== undefined ? { enter: layer.enter } : {}),
+    ...(layer.exit !== undefined ? { exit: layer.exit } : {}),
   };
 }
 
 function cloneItem(item: Item): Item {
+  // §M flags + lifespan propagate through every clone path so toJSON
+  // round-trips them.
+  const flags = {
+    ...(item.visible !== undefined ? { visible: item.visible } : {}),
+    ...(item.locked !== undefined ? { locked: item.locked } : {}),
+    ...(item.enter !== undefined ? { enter: item.enter } : {}),
+    ...(item.exit !== undefined ? { exit: item.exit } : {}),
+  };
   switch (item.type) {
     case "sprite":
       return {
@@ -1238,6 +1551,7 @@ function cloneItem(item: Item): Item {
         height: item.height,
         transform: { ...item.transform },
         ...(item.tint !== undefined ? { tint: item.tint } : {}),
+        ...flags,
       };
     case "text":
       return {
@@ -1248,6 +1562,7 @@ function cloneItem(item: Item): Item {
         color: item.color,
         transform: { ...item.transform },
         ...(item.align !== undefined ? { align: item.align } : {}),
+        ...flags,
       };
     case "shape":
       return {
@@ -1263,12 +1578,14 @@ function cloneItem(item: Item): Item {
         ...(item.strokeColor !== undefined ? { strokeColor: item.strokeColor } : {}),
         ...(item.strokeWidth !== undefined ? { strokeWidth: item.strokeWidth } : {}),
         ...(item.cornerRadius !== undefined ? { cornerRadius: item.cornerRadius } : {}),
+        ...flags,
       };
     case "group":
       return {
         type: "group",
         items: [...item.items],
         transform: { ...item.transform },
+        ...flags,
       };
   }
 }
@@ -1300,6 +1617,28 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
     transform.opacity = props.opacity;
   }
 
+  // §M visibility/lock flags + §P name + lifespan apply to every item type.
+  // They all appear in every variant's allowlist below.
+  const flagPatch: {
+    visible?: boolean;
+    locked?: boolean;
+    name?: string;
+    enter?: number;
+    exit?: number;
+  } = {};
+  if (props.visible !== undefined) flagPatch.visible = props.visible;
+  if (props.locked !== undefined) flagPatch.locked = props.locked;
+  if (props.name !== undefined) flagPatch.name = props.name;
+  if (props.enter !== undefined) {
+    ensureNonNegative("enter", props.enter);
+    flagPatch.enter = props.enter;
+  }
+  if (props.exit !== undefined) {
+    ensurePositive("exit", props.exit);
+    flagPatch.exit = props.exit;
+  }
+  const COMMON_ALLOWED = ["visible", "locked", "name", "enter", "exit"] as const;
+
   switch (item.type) {
     case "sprite": {
       const next: SpriteItem = {
@@ -1308,6 +1647,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.asset !== undefined ? { asset: props.asset } : {}),
         ...(props.width !== undefined ? { width: props.width } : {}),
         ...(props.height !== undefined ? { height: props.height } : {}),
+        ...flagPatch,
       };
       if (props.tint !== undefined) next.tint = props.tint;
       rejectKeys(props, item.type, [
@@ -1323,6 +1663,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }
@@ -1334,6 +1675,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.font !== undefined ? { font: props.font } : {}),
         ...(props.fontSize !== undefined ? { fontSize: props.fontSize } : {}),
         ...(props.color !== undefined ? { color: props.color } : {}),
+        ...flagPatch,
       };
       if (props.align !== undefined) next.align = props.align;
       rejectKeys(props, item.type, [
@@ -1350,6 +1692,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }
@@ -1368,6 +1711,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.strokeColor !== undefined ? { strokeColor: props.strokeColor } : {}),
         ...(props.strokeWidth !== undefined ? { strokeWidth: props.strokeWidth } : {}),
         ...(props.cornerRadius !== undefined ? { cornerRadius: props.cornerRadius } : {}),
+        ...flagPatch,
       };
       rejectKeys(props, item.type, [
         "width",
@@ -1385,6 +1729,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }
@@ -1393,6 +1738,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...item,
         transform,
         ...(props.items !== undefined ? { items: [...props.items] } : {}),
+        ...flagPatch,
       };
       rejectKeys(props, item.type, [
         "items",
@@ -1404,6 +1750,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         "anchorX",
         "anchorY",
         "opacity",
+        ...COMMON_ALLOWED,
       ]);
       return next;
     }

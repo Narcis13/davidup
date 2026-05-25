@@ -1,0 +1,191 @@
+<script setup lang="ts">
+// Step 09 input · numeric param editor.
+//
+// One row in the Inspector. Renders a label, an optional override dot
+// (rendered by the parent), and a paired range + number input so the
+// user can either scrub or type. The slider emits on every `input`
+// (continuous scrubbing); the spinner is buffered locally and only
+// emits on `change` (Enter / blur), so multi-digit typing isn't
+// clobbered by the modelValue prop flowing back per keystroke.
+
+import { computed, ref } from 'vue'
+
+const props = defineProps<{
+  modelValue: number | undefined
+  label: string
+  min?: number
+  max?: number
+  step?: number
+  /** Show a slider next to the spinner. Default: only when min & max are defined. */
+  slider?: boolean
+  overridden?: boolean
+  disabled?: boolean
+}>()
+
+const emit = defineEmits<{
+  (event: 'update:modelValue', value: number): void
+}>()
+
+const showSlider = computed(() =>
+  props.slider !== undefined
+    ? props.slider
+    : props.min !== undefined && props.max !== undefined,
+)
+
+const step = computed(() => props.step ?? 1)
+const value = computed(() => (props.modelValue ?? 0))
+// Render via String() so the spinner shows `0.5`, not `0,5`, regardless of
+// the user's OS locale. `<input type="number">` formats display per locale on
+// many browsers (Chrome on macOS, Firefox); we sidestep that by using
+// `type="text" inputmode="decimal"` and binding an explicit dot-decimal string.
+const displayValue = computed(() => String(value.value))
+
+// While focused, the spinner is driven by `buffer` (uncontrolled w.r.t. the
+// prop). When not focused, it mirrors `displayValue`. This is what prevents
+// a per-keystroke updateItem from echoing back and overwriting characters
+// the user hasn't finished typing yet.
+const buffer = ref(displayValue.value)
+const focused = ref(false)
+const spinnerDisplay = computed(() => (focused.value ? buffer.value : displayValue.value))
+
+function parseAndEmit(raw: string): void {
+  if (raw === '') return
+  // Accept either dot or comma as decimal separator on entry so a user on a
+  // comma-decimal keyboard layout can still type naturally.
+  const next = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(next)) return
+  if (next !== value.value) emit('update:modelValue', next)
+}
+
+function onSpinnerInput(event: Event): void {
+  const target = event.target as HTMLInputElement
+  buffer.value = target.value
+}
+
+function onSpinnerChange(event: Event): void {
+  const target = event.target as HTMLInputElement
+  parseAndEmit(target.value)
+}
+
+function onSpinnerFocus(event: FocusEvent): void {
+  buffer.value = displayValue.value
+  focused.value = true
+  // Make triple-click-to-replace work reliably across browsers.
+  ;(event.target as HTMLInputElement).select()
+}
+
+function onSpinnerBlur(): void {
+  focused.value = false
+  // Reconcile buffer with the current prop value. Covers invalid input
+  // (revert) and the post-change case (buffer already matches).
+  buffer.value = displayValue.value
+}
+
+function onSliderInput(event: Event): void {
+  const target = event.target as HTMLInputElement
+  if (target.value === '') return
+  const next = Number(target.value)
+  if (!Number.isFinite(next)) return
+  emit('update:modelValue', next)
+}
+</script>
+
+<template>
+  <label class="number-input" :class="{ overridden, disabled }">
+    <span class="label">
+      <span v-if="overridden" class="override-dot" aria-hidden="true" />
+      <span class="label-text">{{ label }}</span>
+    </span>
+    <span class="controls">
+      <input
+        v-if="showSlider"
+        type="range"
+        class="slider"
+        :value="value"
+        :min="min"
+        :max="max"
+        :step="step"
+        :disabled="disabled"
+        @input="onSliderInput"
+      />
+      <input
+        type="text"
+        inputmode="decimal"
+        class="spinner"
+        :value="spinnerDisplay"
+        :disabled="disabled"
+        @input="onSpinnerInput"
+        @change="onSpinnerChange"
+        @focus="onSpinnerFocus"
+        @blur="onSpinnerBlur"
+      />
+    </span>
+  </label>
+</template>
+
+<style scoped>
+.number-input {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d4d4d4;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #a3a3a3;
+}
+
+.override-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff8a3d;
+  flex: 0 0 auto;
+}
+
+.number-input.overridden .label-text {
+  color: #f5f5f5;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #5b7cfa;
+}
+
+.spinner {
+  flex: 0 0 72px;
+  width: 72px;
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e5e5e5;
+  font: inherit;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-feature-settings: 'tnum';
+}
+
+.spinner:focus,
+.slider:focus {
+  outline: 1px solid #5b7cfa;
+  outline-offset: 1px;
+}
+
+.number-input.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+</style>

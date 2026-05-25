@@ -1,0 +1,1548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>davidup v1.0 — manual & evaluation</title>
+<meta name="description" content="The davidup v1.0 manual: every workflow, every surface, every bug worth knowing, and an honest SaaS-readiness audit." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+:root {
+  --bg:         #0A0E14;
+  --bg-2:       #11161F;
+  --bg-3:       #161D29;
+  --ink:        #E8ECF1;
+  --ink-2:      #C5CCD7;
+  --mute:       #7A8497;
+  --mute-2:     #4A5363;
+  --line:       rgba(255,255,255,0.06);
+  --line-2:     rgba(255,255,255,0.10);
+  --accent:     #5B9BFF;
+  --accent-2:   #7AAEFF;
+  --accent-dim: rgba(91,155,255,0.14);
+  --accent-line:rgba(91,155,255,0.30);
+  --good:       #5BD0A0;
+  --warn:       #E8B66E;
+  --bad:        #F08A8A;
+  --code-bg:    #06090F;
+  --code-ink:   #D7DEEA;
+  --string:     #A8D9B5;
+
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--ink-2); margin: 0; padding: 0; }
+body { font-family: var(--body); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+img, svg { max-width: 100%; display: block; }
+
+a { color: var(--accent); text-decoration: none; transition: color 160ms var(--ease); }
+a:hover { color: var(--accent-2); }
+
+h1, h2, h3, h4 { font-family: var(--display); color: var(--ink); margin: 0; font-weight: 400; }
+h1 { font-size: clamp(48px, 6.4vw, 88px); line-height: 0.96; letter-spacing: -0.02em; }
+h2 { font-size: clamp(30px, 4vw, 52px); line-height: 1.04; letter-spacing: -0.02em; }
+h3 { font-size: 22px; line-height: 1.2; letter-spacing: -0.01em; font-weight: 500; margin-bottom: 8px; }
+h4 { font-size: 18px; line-height: 1.25; letter-spacing: -0.01em; font-weight: 500; margin-bottom: 6px; }
+
+p { margin: 0 0 16px 0; }
+p.lead { font-family: var(--display); font-weight: 300; font-size: clamp(19px, 1.8vw, 23px); line-height: 1.4; color: var(--ink); }
+
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent);
+  margin: 0 0 14px 0; display: inline-block;
+}
+
+ul, ol { margin: 0 0 16px 22px; padding: 0; }
+li { margin-bottom: 6px; }
+
+.wrap        { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+.wrap-narrow { max-width:  860px; margin: 0 auto; padding: 0 28px; }
+
+.s { padding: 96px 0; border-top: 1px solid var(--line); }
+.s:first-of-type { border-top: 0; }
+
+.twoup {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 56px;
+}
+@media (max-width: 800px) {
+  .twoup { grid-template-columns: 1fr; gap: 24px; }
+}
+.side h3 { color: var(--mute); font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; }
+.side p { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+
+/* Topbar */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+.brand { font-family: var(--display); font-size: 22px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); display: inline-block; }
+.nav { display: flex; gap: 22px; }
+.nav a { font-family: var(--mono); font-size: 13px; color: var(--mute); }
+.nav a:hover { color: var(--ink); }
+.stamp {
+  font-family: var(--mono); font-size: 11px;
+  padding: 3px 10px; border: 1px solid var(--line-2); border-radius: 999px;
+  color: var(--mute); background: var(--bg-2);
+}
+@media (max-width: 760px) { .nav { display: none; } }
+
+/* Hero */
+.hero { position: relative; padding: 120px 0 88px 0; overflow: hidden; }
+.hero h1 small {
+  display: block; margin-top: 20px;
+  font-family: var(--display); font-size: clamp(22px, 2.2vw, 32px);
+  font-weight: 300; color: var(--mute); letter-spacing: -0.005em;
+  font-style: italic;
+}
+.hero .grid-bg {
+  position: absolute; inset: -10% -5% -10% -5%;
+  opacity: 0.16; pointer-events: none;
+  mask-image: radial-gradient(ellipse at 60% 35%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at 60% 35%, #000 30%, transparent 75%);
+}
+.hero .meta {
+  margin-top: 36px; display: flex; gap: 18px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 12px; color: var(--mute);
+}
+.hero .meta span { display: inline-flex; align-items: center; gap: 8px; }
+.hero .meta .k { color: var(--accent); }
+
+/* Cards */
+.card {
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 24px;
+}
+.card.accent { border-left: 3px solid var(--accent); }
+.card h3 { color: var(--ink); }
+.card p:last-child { margin-bottom: 0; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+@media (max-width: 800px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+/* Callout */
+.callout {
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 22px 26px;
+  margin: 32px 0;
+}
+.callout .label {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+  margin-bottom: 8px;
+}
+.callout .headline {
+  font-family: var(--display); font-size: 22px; color: var(--ink);
+  line-height: 1.25; margin-bottom: 8px;
+}
+.callout p { color: var(--ink-2); margin-bottom: 0; }
+
+/* Tables */
+table {
+  width: 100%; border-collapse: collapse;
+  margin: 24px 0; font-size: 14px;
+}
+thead th {
+  background: var(--bg-2);
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--mute);
+  text-align: left; padding: 12px 16px;
+  border-top: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
+}
+tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  vertical-align: top;
+}
+tbody td.mono { font-family: var(--mono); font-size: 13px; }
+.state-win  { color: var(--good); font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.state-meh  { color: var(--mute); font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.state-lose { color: var(--bad);  font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.state-warn { color: var(--warn); font-family: var(--mono); font-size: 12px; font-weight: 500; }
+
+@media (max-width: 760px) {
+  table, thead, tbody, tr, td, th { display: block; }
+  thead { display: none; }
+  tbody tr { border-top: 1px dashed var(--line); padding: 12px 0; }
+  tbody td { padding: 4px 0; border-bottom: 0; }
+}
+
+/* Code blocks */
+pre {
+  background: var(--code-bg); color: var(--code-ink);
+  padding: 18px 22px; border-radius: 6px; border: 1px solid var(--line-2);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+code {
+  font-family: var(--mono); font-size: 0.92em;
+  background: var(--bg-2); color: var(--accent-2);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 1px 6px;
+}
+pre code { background: transparent; border: 0; padding: 0; color: inherit; font-size: inherit; }
+.tok-k { color: var(--accent-2); }
+.tok-c { color: var(--mute); font-style: italic; }
+.tok-s { color: var(--string); }
+.tok-a { color: var(--accent); }
+
+/* Pills */
+.pill {
+  display: inline-block; font-family: var(--mono); font-size: 11px;
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--bg-2); border: 1px solid var(--line-2); color: var(--mute);
+  margin-right: 6px;
+}
+.pill.accent { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent); }
+.pill.good { color: var(--good); border-color: rgba(91,208,160,0.30); background: rgba(91,208,160,0.10); }
+.pill.warn { color: var(--warn); border-color: rgba(232,182,110,0.30); background: rgba(232,182,110,0.10); }
+.pill.bad  { color: var(--bad);  border-color: rgba(240,138,138,0.30); background: rgba(240,138,138,0.10); }
+
+/* Defn list */
+.def {
+  border-left: 2px solid var(--accent-line);
+  padding-left: 14px;
+  font-family: var(--mono); font-size: 12px; color: var(--mute);
+  margin: 12px 0;
+}
+.def .lbl {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+  display: block; margin-bottom: 4px;
+}
+
+/* Stats row */
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin: 32px 0; }
+.stats .stat { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 20px 18px; }
+.stats .num { font-family: var(--display); font-size: 38px; line-height: 1; color: var(--ink); font-weight: 400; letter-spacing: -0.02em; }
+.stats .lbl { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute); }
+@media (max-width: 1000px) { .stats { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 560px)  { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* Phase strip */
+.phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin: 32px 0; }
+.phase { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 18px; }
+.phase .ix { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 6px; }
+.phase h4 { font-family: var(--display); font-size: 17px; color: var(--ink); margin-bottom: 8px; }
+.phase p { font-size: 13px; color: var(--mute); margin: 0; line-height: 1.5; }
+@media (max-width: 880px) { .phases { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .phases { grid-template-columns: 1fr; } }
+
+/* Footer */
+.footer { border-top: 1px solid var(--line); padding: 72px 0 96px 0; text-align: center; }
+.footer .sig { font-family: var(--display); font-style: italic; color: var(--ink-2); font-size: 16px; }
+.footer .meta { font-family: var(--mono); font-size: 11px; color: var(--mute); margin-top: 8px; }
+
+/* Bug ID inline */
+.bid {
+  font-family: var(--mono); font-size: 11px; color: var(--accent);
+  background: var(--accent-dim); border: 1px solid var(--accent-line);
+  padding: 1px 6px; border-radius: 3px; margin-right: 6px;
+}
+
+/* Severity */
+.sev { display: inline-block; font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase; }
+.sev.crit { color: var(--bad);  background: rgba(240,138,138,0.10); border: 1px solid rgba(240,138,138,0.30); }
+.sev.high { color: var(--warn); background: rgba(232,182,110,0.10); border: 1px solid rgba(232,182,110,0.30); }
+.sev.med  { color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-line); }
+.sev.low  { color: var(--mute); background: var(--bg-3); border: 1px solid var(--line-2); }
+
+/* Anchor scroll offset under sticky topbar */
+section[id] { scroll-margin-top: 72px; }
+
+/* Diagram */
+svg .box-fill { fill: var(--bg-2); }
+svg .box-stroke { stroke: var(--accent-line); }
+svg .arrow { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+svg .lbl-ink { fill: var(--ink); font-family: var(--display); font-size: 16px; }
+svg .lbl-mono { fill: var(--mute); font-family: var(--mono); font-size: 11px; }
+svg .grid-line { stroke: var(--accent); stroke-width: 0.5; opacity: 0.6; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!--
+  AI frontmatter contract:
+  This <script type="text/markdown" id="ai-frontmatter"> block contains a faithful
+  markdown extraction of every meaningful piece of the visible doc, in section
+  order, plus a YAML header. It is the canonical text source for any future AI
+  agent reading this file. Keep it in sync with the visible content.
+-->
+<script type="text/markdown" id="ai-frontmatter">
+---
+doc_type: analysis
+doc_title: davidup v1.0 — Manual & Evaluation
+version: 1.0
+date: 2026-05-19
+author_email: narcis75@gmail.com
+companion_to: davidup-v1.0-editor-prd.md
+sections:
+  - tldr — single-paragraph TL;DR and verdict
+  - stats — headline numbers (LOC, tools, behaviors, templates, easings, tests)
+  - architecture — three-layer diagram and what each layer is responsible for
+  - getting-started — install, three hello-world flavors
+  - editor — UI layout, daily workflows, keyboard shortcuts
+  - authoring — items, layers, tweens, behaviors, templates, scenes, time-mapping
+  - assets — upload pipeline, library scopes, thumbnails, MCP equivalents
+  - rendering — UI flow, MCP flow, options, history, queue
+  - mcp — 40+ tool surface, client wiring, worked Acme Coffee example
+  - determinism — what is guaranteed and what is not
+  - bugs — every notable finding with severity, location, fix
+  - high-leverage — ordered improvements with the best impact-per-day
+  - saas — readiness scorecard and security findings
+  - roadmap — alpha and public-launch phase strips
+  - verdict — final assessment
+---
+
+# davidup v1.0 — Manual & Evaluation
+
+A deterministic 2-D programmatic video engine, an AdonisJS + Inertia + Vue editor that wraps it, and a 40+ tool MCP server that lets AI agents drive both — assessed end to end against its v1.0 scope and SaaS aspirations.
+
+## TL;DR
+
+**davidup is one engine, three surfaces.** The engine is a ~7.2k LOC TypeScript core: a Zod-validated composition schema, a pure resolver + Canvas2D renderer, a precompile pass that lowers authoring sugar (`$ref` / `$template` / `$behavior` / scene instances) to canonical JSON, and two drivers — a browser RAF previewer and a Node skia-canvas + ffmpeg recorder. The editor wraps that engine in a single-tenant local web app that funnels every mutation (Inspector, timeline, library drop, AI agent) through one command bus. The MCP server is the agent-facing surface: 40+ atomic tools, structured-error envelopes, validate-before-render enforcement, and an editor bridge that lets a human and an agent share the exact same composition byte-for-byte.
+
+**v1.0 verdict.** Engine, editor, and MCP are production-quality for the documented v1.0 scope — a local-first, single-user, single-project desktop-style web app driven by either a human or an attached AI agent. The architecture is genuinely impressive: command bus + Zod-validated discriminated union shared by UI and MCP, debounced atomic persistence, in-memory canonical state, precompile source-map plumbed end-to-end through the inspector. SaaS-readiness, by deliberate scope choice, is essentially unstarted. Roughly 3 weeks of focused work would close the gap to a private alpha; 3–5 months to a public launch.
+
+## Stats — by the numbers
+
+- ~7,200 LOC engine core, 4 layers (schema / engine / compose / drivers)
+- 40+ MCP tools (count is drifting: README says 25, server.json says 24, test asserts 44, workflows agent counted 41)
+- 11 built-in behaviors: fadeIn, fadeOut, popIn, popOut, slideIn, slideOut, rotateSpin, kenburns, shake, colorCycle, pulse
+- 5 built-in templates: titleCard, lowerThird, captionBurst, bulletList, kenburnsImage
+- 19 named easings
+- 4 scene time-mapping modes: identity, clip, loop, timeScale
+- 26 stable MCP error codes
+- 187+ engine tests including a real ffmpeg integration test; ~10 editor functional spec files pinning byte-equal UI ⇄ MCP invariants
+
+## Architecture at a glance
+
+davidup is a single repo with three deployable surfaces:
+
+1. The engine (`src/`) — pure functions and drivers. `(composition, t, ctx) → pixels`. No global state in the resolver or renderer.
+2. The MCP server (`src/mcp/`) — stdio JSON-RPC, registers a flat catalog of tools that mutate an in-memory `CompositionStore`. Standalone via `davidup-mcp`, or hosted inside the editor via `DAVIDUP_MCP_STDIO=1`.
+3. The editor (`apps/editor/`) — AdonisJS 6 + Inertia 2 + Vue 3, one canonical in-memory composition per process, every mutation routed through `CommandBus.apply()` and persisted via a 500ms debounced atomic disk write.
+
+Critical seam: the editor's MCP bridge (`apps/editor/app/services/mcp_bridge.ts`) intercepts every mutating MCP tool name and re-routes it through the same CommandBus the UI uses. This is what makes human ⇄ agent edits byte-equal — a property pinned by `tests/functional/command.spec.ts`.
+
+## Getting started
+
+### Install
+
+- Bun ≥ 1.1 (Node ≥ 20 also works for most paths).
+- `bun install` — pulls dev-deps including `ffmpeg-static` / `ffprobe-static` so the integration test renders without a system ffmpeg.
+- `bun run typecheck` — `tsc --noEmit`, strict.
+- `bun run test` — vitest; the suite includes `tests/drivers/node.integration.test.ts` which renders the §3.1 hello-world to MP4 and verifies it with ffprobe.
+
+### Hello-world A — browser preview
+
+```
+bun run dev:browser
+```
+
+Opens `examples/browser-demo` on Vite. The page calls `attach(comp, canvas)` from `davidup/browser`. Variants: `dev:comprehensive`, `dev:comprehensive-split`, `dev:two-templates`, `dev:four-scenes`.
+
+```ts
+import { attach } from "davidup/browser";
+const handle = await attach(comp, canvas);
+// handle.stop(), handle.seek(seconds)
+```
+
+### Hello-world B — render to MP4
+
+```
+bun run examples/render.ts
+```
+
+```ts
+import { renderToFile } from "davidup/node";
+import { validate } from "davidup/schema";
+if (!validate(comp).valid) throw new Error("invalid");
+await renderToFile(comp, "out.mp4", { codec: "libx264", crf: 18 });
+```
+
+One `Canvas` reused across every frame, RGBA bytes piped to ffmpeg stdin with backpressure. ffmpeg stderr tail surfaces in any thrown `Error.message`.
+
+### Hello-world C — drive it with an AI agent (MCP)
+
+Wire the standalone MCP server into your client (`~/.claude.json` for Claude Code):
+
+```jsonc
+{ "mcpServers": { "davidup": { "command": "bun", "args": ["run", "/abs/path/to/davidup/src/mcp/bin.ts"] } } }
+```
+
+Then prompt: "Build a 3-second clip with a logo that fades in and pops in scale." The agent calls `create_composition` → `add_layer` → `add_shape` / `add_sprite` → `add_tween` / `apply_behavior` → `validate` → `render_preview_frame` → `render_to_video`. Full transcript: `examples/mcp-demo.md`.
+
+## The editor — daily workflows
+
+### Boot
+
+`davidup edit <project-dir>` (or `npx davidup edit ./my-clip`). Flags: `--port=<n>` (default 3333), `--host=<h>`, `--no-open`. The CLI spawns the AdonisJS server with `DAVIDUP_PROJECT=<absolute dir>`, polls until reachable, opens the browser.
+
+### Layout
+
+Five-region CSS grid (top bar / library / stage / inspector / timeline / status bar):
+
+- App bar — brand mark, project switcher dropdown, save-status pill (`Saved` / `Saving…` / `Error`), `RenderStrip`, help button.
+- Library panel — Templates / Behaviors / Scenes / Assets / Fonts, plus Project / Global / All scope filter.
+- Stage panel — engine canvas + selection-ring overlay + drop overlays.
+- Inspector panel — typed property editor for the selected item or tween.
+- Timeline panel — ruler + per-item tracks with colored tween bars + playhead.
+- Status bar — error/warning pills, selection, playhead, stage status, render status.
+
+### Keyboard shortcuts (`useShortcuts`)
+
+| Keys | Action |
+|---|---|
+| Space | Toggle stage play/pause (restarts when ended) |
+| Backspace | Delete selected item |
+| ⌘0 / Ctrl+0 | Seek to t=0 |
+| ⌘J / Ctrl+J | Toggle reveal-in-source drawer |
+| ⌘R / Ctrl+R | Start a render |
+| ⌘S / Ctrl+S | Force flush + `Saved` toast (autosave already runs) |
+| ? | Toggle the Help overlay |
+| Esc | Dismiss overlays, menus, the project switcher |
+
+**Notable gap:** no `⌘Z` for undo. `CommandBus.undo()` exists server-side but no keyboard binding is wired. Single-line fix in `useShortcuts`.
+
+### Project lifecycle
+
+- Picker: GET `/` → `home.vue`. CTAs to open existing or create new; recents list.
+- Open: POST `/api/project { directory }` → `ProjectStore#load(dir)` → `precompile` → `validate` → broadcast `changed` SSE on `/api/projects/events`.
+- Create: POST `/api/projects { directory, name?, template? }` → `scaffoldProject` from the engine CLI → `ProjectStore#load`. Returns 201.
+- Save: there is no manual save. Every command round-trips through `POST /api/command` → `CommandBus.apply` → `applyCommand` → engine MCP handler → validate → 500ms debounced atomic write to `composition.json`. `⌘S` is a UX affordance.
+- External edits: the CLI installs a watcher that re-POSTs `/api/project` on disk changes; SSE drives cross-tab `router.reload()`.
+
+## Authoring compositions
+
+### Items, layers, tweens
+
+Items: `sprite`, `text`, `shape` (rect / circle / polygon), `group`. Every item has a `transform` ({ x, y, scaleX, scaleY, rotation, anchorX, anchorY, opacity }) plus type-specific properties.
+
+Layers: positive `z` (higher = on top). Stable-sorted with declaration order as tiebreaker. Engine support for layer `opacity` and `blendMode`.
+
+Tweens: a single property animated from `from` to `to` over `[start, start+duration]` with an easing. Bucket-indexed by `(target, property)` and binary-walked at sample time — no per-frame sort. Overlap on the same `(target, property)` is rejected by `validate` with `E_TWEEN_OVERLAP`.
+
+UI: drag a library card onto a Timeline track row to attach a behavior; drag onto the Stage to create an item with an `add_sprite` / `add_text` / `add_shape`. Drag a Timeline bar's body to move `start`, drag the left/right edges to resize. One `update_tween` per gesture, fired on pointerup.
+
+### Behaviors (11 built-ins)
+
+`apply_behavior { target, behavior, start, duration, params?, easing?, id? }`. Atomic — if any emitted tween conflicts, every tween from the call is rolled back.
+
+| Behavior | Notes |
+|---|---|
+| fadeIn / fadeOut | opacity |
+| popIn / popOut | scale ramp |
+| slideIn / slideOut | parameterized by axis |
+| rotateSpin | rotation |
+| kenburns | combined position + scale |
+| shake | bounded jitter (deterministic, no PRNG) |
+| colorCycle | hue cycling |
+| pulse | scale oscillation |
+
+Discovery: `list_behaviors` returns descriptors with params + produced tween suffixes.
+
+### Templates (5 built-ins)
+
+`apply_template { templateId, layerId, start?, params?, id?, compositionId? }`. The five built-ins: `titleCard`, `lowerThird`, `captionBurst`, `bulletList`, `kenburnsImage`. Any `$behavior` block inside a template's `tweens` is expanded before being committed.
+
+User templates: `define_user_template { id, description?, params?, items, tweens? }` registers a template on the global registry.
+
+### Scenes + time-mapping
+
+Scenes are sealed mini-compositions with their own `duration`, `items`, `tweens`, `params`, `assets`. The instance is expanded to a synthetic group + namespaced inner items + time-shifted tweens.
+
+Time mapping on `add_scene_instance` / `update_scene_instance`:
+
+- `{ mode: "identity" }` — baseline, default.
+- `{ mode: "clip", fromTime, toTime }` — trim a sub-range.
+- `{ mode: "loop", count }` — repeat back-to-back, count ≥ 1.
+- `{ mode: "timeScale", scale }` — divide every tween's start / duration by `scale`.
+
+End-to-end demo: `examples/time-mapping-mcp/` exercises all four modes via in-process MCP dispatch.
+
+## Asset management
+
+### Upload pipeline
+
+Drop one or more files onto the Library panel or anywhere on the editor (page-level drag overlay). `POST /api/assets` multipart. Pipeline:
+
+1. Reject non-supported extensions (png / jpg / jpeg / webp / gif / svg / mp4 / mov / webm / mkv / mp3 / wav / ogg / m4a / aac / flac); size cap 50 MB.
+2. SHA-256 the bytes → name file `<hash><ext>`.
+3. `ffprobe` / `loadImage` for metadata; generate thumbnail when applicable.
+4. Register in destination library's `library/index.json` (project or global).
+
+Hash dedup: re-uploading the same bytes is a no-op.
+
+### Two-root library
+
+- `<project>/library/` — per-project pool.
+- `~/.davidup/library/` — global pool (override via `$DAVIDUP_LIBRARY`).
+- Project wins over global on `(kind, id)` collisions; loser carries `overridden: true`.
+- Watcher: `fs.watch` on `library/index.json` + `*.{behavior,template,scene}.json`; UI polls every 2s for cross-tab changes.
+
+### MCP equivalents
+
+- `register_asset { id, type, src, family? }` — fonts require `family`.
+- `list_assets { compositionId? }` — declaration order.
+- `remove_asset { id }` — errors `E_ASSET_IN_USE` if referenced.
+- `list_library { q?, kind?, scope? }` — editor-only; returns merged project + global catalog with `thumbnailUrl` per item.
+
+### Thumbnails
+
+GET `/api/library/thumbnail?kind=<kind>&id=<id>` synthesizes a 0.5s preview frame; falls back to a deterministic placeholder PNG (`X-Thumbnail-Placeholder: 1`). Cards lazy-load via `IntersectionObserver` (80px rootMargin) and cache-bust by `lib.generation`.
+
+## Rendering to MP4
+
+### From the editor
+
+`POST /api/renders { filename? }` → `RenderJob` constructed with the current snapshot of `projectStore.composition` → fire-and-forget `job.run()` → response with `{ jobId, totalFrames, outputPath, relativeOutputPath, eventsUrl }`. Output lands in `<project>/renders/`.
+
+Browser subscribes to `GET /api/renders/:id/events` (SSE):
+
+- `progress { jobId, frame, total, elapsedMs }`
+- `done { jobId, outputPath, relativeOutputPath, frameCount, durationMs }`
+- `error { jobId, message }`
+
+One render at a time per UI (single-slot). The server registry can hold 32 jobs and replays the terminal state on late SSE subscribers.
+
+### Render history
+
+`RenderHistory.vue` collapses inside the `RenderStrip`. Lists `.mp4`s under `<project>/renders/`, newest first. macOS-only row actions: `Reveal` (`open -R <file>`) and `Play` (`open -a "QuickTime Player" <file>`). Direct video link opens `/project-renders/<filename>` in a new tab. Non-macOS gets 501 on the shell endpoint.
+
+### From MCP
+
+- `render_preview_frame { time, format? }` → `{ image (base64), mimeType, width, height }`. Validates first.
+- `render_thumbnail_strip { count, format? }` → N uniformly-sampled frames + sample times. `count: 1` returns midpoint.
+- `render_to_video { outputPath, codec?, crf?, preset?, pixFmt?, wait? }` — standalone is blocking; editor-hosted is async by default. `wait: true` blocks until completion.
+- `get_render { jobId }` — editor-only; current snapshot.
+- `list_renders {}` — editor-only; newest first; bounded retention.
+
+ffmpeg options: codec `libx264` (default) or `libx265`; `crf` integer 0–63 (default 18); `preset`; `pixFmt`.
+
+## AI agents via MCP
+
+### Wiring clients
+
+- **Claude Code:** edit `~/.claude.json`, add an entry under `mcpServers`. Use absolute paths.
+- **Claude Desktop:** `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
+- **MCP Inspector:** `npx @modelcontextprotocol/inspector bun run src/mcp/bin.ts`.
+- **Custom SDK client:** `@modelcontextprotocol/sdk` + `StdioClientTransport`.
+
+**Editor-hosted (recommended for project work):** launch `davidup edit <dir>` with `DAVIDUP_MCP_STDIO=1`. Mutations route through the editor's CommandBus (`source: 'mcp'`); UI and agent see byte-identical state. The Inspector renders an "AI edit" pill on the most-recently-MCP-edited item.
+
+### Tool catalog (grouped)
+
+| Group | Tools |
+|---|---|
+| Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset` |
+| Assets | `register_asset`, `list_assets`, `remove_asset` |
+| Layers | `add_layer`, `update_layer`, `remove_layer` |
+| Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
+| Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
+| Behaviors | `apply_behavior`, `list_behaviors` |
+| Templates | `apply_template`, `list_templates`, `define_user_template` |
+| Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
+| Render | `render_preview_frame`, `render_thumbnail_strip`, `render_to_video`, `get_render`, `list_renders` |
+| Project lifecycle (editor-only) | `current_project`, `list_projects`, `open_project`, `create_project` |
+| Library (editor-only) | `list_library` |
+
+### Error envelope
+
+`MCPErrorBody` carries `code`, `message`, optional `hint`, plus `issues` / `warnings` arrays and a `details` bag. 26 stable codes including `E_NO_COMPOSITION`, `E_DUPLICATE_ID`, `E_NOT_FOUND`, `E_VALIDATION_FAILED`, `E_TWEEN_OVERLAP`, `E_ASSET_IN_USE`, `E_ASSET_TYPE_MISMATCH`, `E_ASSET_CONFLICT`, `E_LAYER_NOT_EMPTY`, `E_INVALID_PROPERTY`, `E_INVALID_VALUE`, `E_RENDER_FAILED`, `E_SCENE_UNKNOWN`, `E_UNKNOWN`. Editor adds `E_TIME_MAPPING_TWEEN_SPLIT`, `E_TARGET_NOT_EMPTY`, `E_TEMPLATE_NOT_FOUND`, `E_TEMPLATE_INVALID`, `E_PROJECT_NOT_FOUND`, `E_COMPOSITION_MISSING`, `E_FORBIDDEN_PATH`.
+
+### Idempotency
+
+Every `add_*` / `register_asset` accepts an optional `id`. Always supply one — retried calls return `E_DUPLICATE_ID` instead of silently duplicating, and transcripts replay deterministically.
+
+### Worked example — 10-second Acme Coffee ad
+
+```
+create_composition { width: 1280, height: 720, fps: 60, duration: 10, background: "#0a0e27" }
+add_layer { id: "bg", z: 0 }
+add_layer { id: "fg", z: 10 }
+register_asset { id: "logo", type: "image", src: "./assets/logo.png" }
+apply_template { templateId: "titleCard", layerId: "fg",
+                 params: { title: "Acme Coffee", subtitle: "Wake up." } }
+add_sprite { layerId: "bg", asset: "logo", x: 640, y: 360,
+             width: 400, height: 400, opacity: 0 }
+apply_behavior { target: "<sprite-id>", behavior: "fadeIn",
+                 start: 0, duration: 1.5 }
+apply_behavior { target: "<sprite-id>", behavior: "kenburns",
+                 start: 1.5, duration: 7 }
+validate {}
+render_preview_frame { time: 5 }
+render_thumbnail_strip { count: 6 }
+render_to_video { outputPath: "/abs/path/acme.mp4",
+                  codec: "libx264", crf: 18 }
+```
+
+The agent gets six base64 PNGs, inspects them inline, patches anything wrong (cropped text, wrong color, mistimed pop), re-previews, then commits.
+
+## Determinism — what is and isn't guaranteed
+
+**Guaranteed within a single host.** `(composition, t) → ResolvedScene` is a pure function. No PRNG, no `Date.now()` in the engine itself (driver wall-clock helpers exist for RAF / progress, not for resolved state — render time on the node side is `i / fps`, not the clock). Stable-sorted iteration in every compose pass. `OVERLAP_EPS = 1e-6` documented inline in `src/schema/validator.ts:35` with a regression test.
+
+**Bounded across hosts.** Pixels differ between browser Canvas2D and Node skia-canvas — they must: font hinting, sub-pixel AA, image decoders, and bezier rasterizers are all implementation-defined. README is upfront about this. The product positioning ("MP4 is ground truth, browser is preview") makes the trade acceptable. For byte-exact MP4 reproducibility you'd want a frame-hash assertion (the integration test only checks ffprobe metadata today) and a node ↔ browser pixel-parity SVG-only snapshot test — neither exists yet.
+
+**Validation gaps that allow validate-then-crash at render time.** Three small fixes close the class:
+
+- `LayerSchema.blendMode` is `z.string()` with no validation — host-divergent on invalid input.
+- Color-tween endpoints aren't validated for parseability; `lerpColorString` will throw at render time if the user supplies `"magenta"`.
+- `clampForProperty` only clamps `transform.opacity` — overshoot easings (`easeOutBack`) can drive `width` / `height` / `fontSize` negative, crashing some hosts on `arc(r, r, -5, ...)`.
+
+## Bugs found
+
+Compiled from the engine, MCP, editor, and SaaS audits. Severity reflects single-user local impact (SaaS-only criticality is called out under SaaS findings).
+
+### Engine
+
+- **HIGH** **E1** Layer `blendMode` is `z.string()` with zero validation. `src/schema/zod.ts:90`, applied at `src/engine/render.ts:150`. Invalid strings produce host-divergent behavior. Fix: `z.enum([...Canvas2DCompositeOps, "normal"])`.
+- **HIGH** **E2** Sprite tint with semi-transparent PNGs double-multiplies alpha. `src/engine/render.ts:188-202`. The `destination-in` mask step applies the source image's alpha a second time after `globalAlpha * tr.opacity` already did. Fix: paint a `source-over` opaque fill onto a copy of the alpha channel rather than masking via `destination-in`.
+- **MEDIUM** **E3** `seek()` past `duration` shows the last canvas state instead of holding the final frame. `src/drivers/browser/index.ts:288-300`. Fix: clamp `t` to `[0, duration]` inside `tick()` before the early-return.
+- **MEDIUM** **E4** Color-tween endpoints not validated for parseability. `src/schema/validator.ts:209-217`. Composition validates, then `parseColor("magenta")` throws at render. Fix: run `parseColor` on color-kind tween `from`/`to`.
+- **MEDIUM** **E5** `BaseAssetLoader.images`/`.fonts` Maps are unbounded. `src/assets/loader.ts:24-30`. Long-running editor sessions that switch projects retain previous assets until process exit. Fix: project-switch should call `loader.clear()`.
+- **LOW-MED** **E6** Validator does not clamp negative width/height/fontSize/strokeWidth/cornerRadius from overshoot easings. `easeOutBack` past `to: 0` can crash some hosts on `arc(r, r, -5, ...)`. Fix: extend `clampForProperty`.
+- **LOW** **E7** `MCPToolError` imported from `src/mcp/errors.js` inside `src/compose/scenes.ts:62` — a compose→mcp layer violation. Fix: extract to `engine/errors.ts` and re-export from `mcp/errors.ts`.
+- **LOW** **E8** `setByPath` defensive fallback (`src/engine/resolver.ts:150-171`) is dead code given the current tweenable surface; either delete or guard against non-object intermediates.
+
+### MCP
+
+- **HIGH** **M1** Tool-count drift. README and `examples/mcp-demo.md` claim 25 tools; `server.json` claims 24; `tests/mcp/server.integration.test.ts:87` asserts 44. Trivially fixable; add CI to keep them in sync.
+- **HIGH** **M2** `render_to_video` returns three different shapes — standalone-blocking, editor-async, editor-with-`wait:true`. The single least LLM-friendly surface. Fix: always return the async shape with `result: null | { ... }` populated by `wait:true`, or split into two tools.
+- **HIGH** **M3** `import_scene` reads arbitrary filesystem paths with no sandboxing in either standalone or editor server. `src/mcp/tools.ts:1141-1192`. Fix: sandbox to `<project>/scenes/` (editor) or refuse unless `DAVIDUP_ALLOW_FS=1` (standalone).
+- **HIGH** **M4** Template/scene/behavior registries are process-global module state (`src/compose/templates.ts`, `src/compose/scenes.ts`). Two MCP sessions on the same backend see each other's `define_user_template` mutations. Critical SaaS blocker.
+- **MEDIUM** **M5** No `list_easings` / `list_fonts` / `list_engine_capabilities`. Agent must hit `E_INVALID_VALUE` to discover valid easing names.
+- **MEDIUM** **M6** `render_preview_frame` and `render_thumbnail_strip` re-preload every asset on every call. `src/mcp/render.ts:80-87, 112-113`. For a comp with 20 PNGs + a font, this is the biggest agent-iteration latency cost. Fix: cache the `NodeAssetLoader` keyed by `comp.assets` content hash.
+- **MEDIUM** **M7** Tool descriptions do not document coordinate convention (origin top-left), anchor (fractional 0..1), or rotation (radians vs degrees). Agents must read the design doc. Three sentences in each `add_*` description fixes it.
+- **MEDIUM** **M8** `MCPLibraryItem.thumbnailUrl` returns `/api/library/thumbnail?...` — a relative URL agents have no base for. Fix: expose thumbnails as base64 inline or via MCP resources.
+- **LOW** **M9** Tool description prose includes internal "polish §20.31" references. Wastes tokens in the schema.
+- **LOW** **M10** `tools.ts:228, 240, 252` use `E_UNKNOWN` for "feature not available on this server". A dedicated `E_FEATURE_UNAVAILABLE` would let agents branch cleanly.
+- **LOW** **M11** No `cancel_render` MCP tool. Worker supports `abort()`; surface it.
+- **LOW** **M12** `MCPToolError.hint` is inconsistently populated. Hints are the single most valuable field for agent self-correction. Audit + populate.
+
+### Editor
+
+- **HIGH** **D1** `useStage` watcher snaps playhead to a stale wall-clock baseline after a paused-then-seek. `apps/editor/inertia/composables/useStage.ts:268-277`. Repro: pause, wait 5s, edit the inspector → playhead jumps forward 5s. Fix: when status is paused/stopped/ended, call `start({ resumeAt: playhead.value })` instead of `start({ resume: true })`.
+- **HIGH** **D2** `/api/projects/events` SSE listener leak when the socket errors before `close` fires. `projects_controller.ts:199-247`. Over hours of dev reloads this trips `setMaxListeners(64)`. Fix: also bind `'error'` and `'finish'`.
+- **MEDIUM** **D3** `useTimelineDrag.suppressNextClick` can swallow an unrelated click. `useTimelineDrag.ts:195-209`. Fix: scope to the bar element.
+- **MEDIUM** **D4** Asset pipeline silently persists images when skia `loadImage` dim-probing fails. `asset_pipeline.ts:310-323`. The file is already moved by the time the probe runs; the index entry lacks `width`/`height`. Fix: roll back the move, or mark the entry with a warning.
+- **MEDIUM** **D5** `renders_controller.shell` does case-sensitive prefix check on macOS HFS+ default case-insensitive filesystems. `renders_controller.ts:344-350`. Fix: normalize case before comparing, or use `path.relative` everywhere.
+- **MEDIUM** **D6** Font upload is rejected by the assets controller ext list even though the pipeline supports it. Adding a font today requires hand-editing `library/index.json`.
+- **LOW** **D7** `Timeline.vue` playhead line hard-codes the 160px ruler-gutter width. Should be a CSS variable.
+- **LOW** **D8** `useLibraryDrag` doesn't re-validate `duration > 0` / `Number.isFinite` when reconstructing the payload from `dataTransfer` JSON.
+- **LOW** **D9** `silent_auth_middleware.ts` is dead AdonisJS-starter code.
+
+### SaaS-only (critical when hosted, irrelevant locally)
+
+- **CRITICAL** **S1** No auth on any HTTP route. `auth` middleware is defined but applied to zero routes.
+- **CRITICAL** **S2** SSRF via `asset.src`. `src/assets/node.ts:41-50` passes URLs straight to `skia.loadImage()`. Cloud metadata endpoints (`http://169.254.169.254/...`), internal services, file:// URIs — all reachable from a malicious composition. Fix: reject non-relative, non-`global:`, non-`data:` srcs in the validator and the MCP `register_asset` tool.
+- **HIGH** **S3** `APP_KEY` literal `zKXHe-Ahdb7aPK1ylAJlRgTefktEaACi` is committed in `.env.example` and `.env`. Rotate, scrub history, add pre-commit secrets hook.
+- **HIGH** **S4** CSRF disabled for all `/api/*` routes (`config/shield.ts:22`). Every mutating action bypasses CSRF.
+- **HIGH** **S5** Path-guard at `project_paths.ts:33` blocks `/etc`/`/proc`/`/Library/Keychains` but not `~/.ssh` or `~/.aws`. Combined with unauthenticated `/project-files/*` you can exfiltrate from any project the service user can read.
+- **HIGH** **S6** Render worker unbounded — no semaphore, no per-tenant queue, no timeout, no real cancel after start (`AbortSignal` not plumbed into `renderToFile`).
+- **HIGH** **S7** Asset upload — no MIME magic-byte verification, no decompression-bomb cap, no AV. `skia.loadImage` happily decodes a 60000×60000 PNG and OOMs the process. Bodyparser cap (20MB) and controller cap (50MB) disagree.
+- **HIGH** **S8** No rate limiting anywhere. `grep -r "rate\|throttle\|quota" apps/editor/` returns zero hits.
+- **MEDIUM** **S9** `/project-files/*` and `/library-files/*` serve arbitrary files unauthenticated; SVGs served as `image/svg+xml` with no sanitization (stored-XSS surface).
+- **MEDIUM** **S10** CSP disabled.
+
+## High-leverage improvements
+
+Ordered by impact per day. The top five are < 1 day each.
+
+1. **Fix the tool-count drift.** Regenerate `server.json` from `TOOL_NAMES`, update README and `examples/mcp-demo.md`, add a CI assertion. Stops every new agent from being told the wrong capability set. **M1**
+2. **Validate `blendMode` against a Canvas2D enum.** 5 lines in `zod.ts` + a unit test. Closes a real cross-host determinism vector. **E1**
+3. **Clamp negative numeric tween outputs.** Extend `clampForProperty` to clamp `width` / `height` / `fontSize` / `strokeWidth` / `cornerRadius` to ≥ 0. 6 lines. Closes the overshoot-easing crash class. **E6**
+4. **Validate color-tween endpoint parseability.** 10 lines in `validator.ts` to run `parseColor` over each color-kind tween's `from`/`to`. Closes the "validate-then-crash" gap. **E4**
+5. **Wire ⌘Z to `commandBus.undo()`.** One-line shortcut. Full backend exists. **(undo-shortcut gap)**
+6. **Document coordinate / anchor / rotation / easing conventions inline in tool descriptions.** Three sentences in each `add_*` tool description saves the agent from needing the design doc. **M7**
+7. **Add `list_easings` (or attach `EASING_NAMES` to the `easing` field's `.describe()`).** 10-line discovery tool. **M5**
+8. **Normalize `render_to_video` to one return shape.** Single biggest LLM-visible surface inconsistency. **M2**
+9. **Sandbox `import_scene`** to `<project>/scenes/` in the editor; refuse in standalone unless `DAVIDUP_ALLOW_FS=1`. **M3**
+10. **Cache `NodeAssetLoader` per composition** keyed by `comp.assets` content. Agent iterations compound — every preview is 5–10 image preloads today. **M6**
+11. **Fix `useStage` watcher resume bug.** One conditional. **D1**
+12. **Add Stage drag-to-move/resize for the selected item.** The picker + bounds-at-time machinery is already in place; `update_item` is already a supported command. Unlocks the "feels like a real editor" experience. **(polish gap)**
+13. **Plumb codec/CRF/preset to `POST /api/renders`.** MCP can already pass them; the UI just needs the form. **(polish gap)**
+14. **Add a `revision` field to the in-memory composition.** Reject commands whose base revision doesn't match. Keystone for any future multi-user. **(SaaS prep)**
+15. **Add a `BlobStore` interface seam.** Local FS today, S3/R2 tomorrow. **(SaaS prep)**
+16. **Fix sprite-tint-over-alpha.** Medium effort; needs a different approach to the multiply step. **E2**
+17. **Make `BaseAssetLoader` LRU-capable.** 30 lines. Required for any long-running editor server hosting multiple projects. **E5**
+18. **Scope template/scene/behavior registries to the store.** Multi-tenant SaaS blocker. **M4**
+
+## SaaS-readiness scorecard
+
+| Dimension | Stars | Verdict |
+|---|---|---|
+| Tenancy model | LOSE 0/5 | No tenant concept exists in code. Single-process, single-project, OS-user level. |
+| Authentication | LOSE 1/5 | Adonis auth scaffolded (users table, scrypt, session guard). Zero login/register/logout routes; zero auth middleware on any HTTP route. |
+| Authorization | LOSE 0/5 | No ownership check anywhere. |
+| Asset storage | MEH 2/5 | Hash-named, idempotent, ext+size validated. No MIME magic-byte, no decompression-bomb cap, no AV, no S3, no per-tenant prefix. |
+| Render pipeline | LOSE 1/5 | In-process, no queue, no concurrency limit, no per-tenant fairness, no meter, no timeout, no cancel after start. |
+| MCP exposure | LOSE 1/5 | Stdio only, runs as the OS user. No auth, no rate limit, no scope. |
+| Observability | LOSE 1/5 | Pino logs to stdout. No metrics, traces, Sentry, audit table, or request-id correlation. |
+| Security headers | MEH 2.5/5 | XFO=DENY, HSTS, CSRF on session routes — but CSP disabled and `/api/*` exempt from CSRF. CORS origin = [] (deny). |
+| Compliance / legal | LOSE 1/5 | No ToS, no privacy policy, no DPA, no data export, no delete-me, font-licensing unstated. |
+| Deployment | LOSE 1/5 | `node ace serve` works locally. No Dockerfile, no CI workflow, no skia-canvas container build, APP_KEY committed. |
+
+**Aggregate readiness for a hosted multi-tenant product: ~10%.** Engine and authoring surface are largely production-quality for a *local* tool; the SaaS-shell layer below is deliberately deferred to v2.0.
+
+## Roadmap
+
+### Private alpha (5–10 tenants, ~3 focused weeks)
+
+| Phase | Items |
+|---|---|
+| Auth (1.5d) | Add `/login`, `/register`, `/logout` (magic-link is fine). Apply `auth` middleware to every `/api/*` route. |
+| Tenancy (4d) | Add `Project` model + migration with `owner_user_id`. Refactor `projectStore` to a per-(user+project) cache. Tenant-scope `~/.davidup/`. |
+| Hard fixes (2d) | Rotate `APP_KEY`, scrub history. SSRF fix on `asset.src`. Re-enable CSRF on `/api/*` or switch to bearer-token auth. |
+| Render safety (1d) | `pLimit(2)` per process. `RENDER_TIMEOUT_MS` default 10min. Reject with 503 when full. |
+| Quota + uploads (1.5d) | Per-tenant disk quota. `file-type` magic-byte sniff. Reject `loadImage` results > 64MP. |
+| Metering (3d) | `usage_events` table. Writers in render worker + asset pipeline + MCP router. Stripe Meter wiring. |
+| Ops (2d) | Sentry hook + request-id middleware. Privacy / ToS pages. Dockerfile. Hetzner CX32 + Coolify. Healthchecks.io alert. |
+
+### Public launch (1000+ tenants, ~3–5 months)
+
+| Phase | Items |
+|---|---|
+| Web ↔ render split | BullMQ + Redis. Separate `editor-web` and `render-worker` deploys. SSE proxied from worker via Redis pub/sub. |
+| Object storage | Abstract asset pipeline + composition writer + render writer over a `BlobStore`. R2 / S3 in prod. Presigned download URLs. |
+| Postgres migration | Lucid supports both; exercise the upgrade on a snapshot. Per-tenant connection pooling. |
+| Library in DB | Replace per-project `library/index.json` + fs.watch with DB rows; cluster can't share a filesystem. |
+| Sessions in Redis | Switch session driver from `cookie` to `redis`. |
+| Hosted MCP | MCP-over-HTTP-SSE per tenant with bearer-token auth. The keystone differentiator. |
+| Rate + WAF | `@adonisjs/limiter` on every mutating endpoint + per-tenant render-minutes guardrails. Cloudflare WAF. |
+| Compliance | GDPR data-export and delete-me flows. DMCA takedown form. C2PA provenance baked into rendered MP4s. AV scan on uploads. |
+| Observability | Pino → Loki, OpenTelemetry traces → Tempo, Prometheus → Grafana. Per-tenant dashboards. |
+| Hardening | CSP enforced. HSTS preload. HTTP/3 termination at edge. SOC2-readiness primitives (change log, access log, secrets rotation). |
+
+### High-leverage single move
+
+If only one thing can be done first, refactor `apps/editor/app/services/project_store.ts` and every importer of it into a tenant-aware façade. Don't add auth yet, don't add billing yet, don't add the Dockerfile yet. The store refactor is the keystone — every other SaaS-ification item is a brick that needs it to be in place. Once the store knows about tenants, the rest is straightforward.
+
+## Verdict for v1.0
+
+**The engine is one notch above "ships."** Schema, resolver, renderer, and asset loader are tight, well-tested, and unambiguously deterministic at the `(comp, t) → ResolvedScene` boundary. Three one-day fixes (blend-mode enum, color-tween parseability, numeric-property clamping) would close the validate-then-crash failure class.
+
+**The MCP layer is the strongest part of the project.** Atomic, orthogonal, structured-error tools backed by a deterministic engine, with an editor bridge that proves human + agent edits can share one canonical state. What gates v1.0 quality here is consistency (the 25 → 44 count drift), discoverability (`list_easings`, `list_fonts`), and SaaS-readiness (registry isolation, fs sandboxing).
+
+**The editor is shippable as a v1.0 local-first single-user app** and meaningfully impressive at that scale. The architectural skeleton is the right shape. Visible bugs are minor; none are corruption-class under the documented single-user workflow. Top polish items: undo shortcut, Stage drag, render presets UI, Linux/Windows reveal-in-finder parity.
+
+**It is not a SaaS** — and trying to make it one without breaking it apart at the seams above (per-tenant state, real storage abstraction, signed asset URLs, render-as-queue, auth on every route, project access model in DB) would be a rewrite, not a port. The good news is the seams are already clean. A SaaS conversion is bounded engineering, not architectural surgery.
+
+This is not "vibe-coded for a demo." The author knew they were building a single-user local tool and did so cleanly. The cost to close the SaaS gap is real but bounded — 3 weeks to alpha, 3–5 months to public launch, for one engineer. The dominant risk right now is premature platformification: build the alpha shell, ship to ten paying users, let their behavior pick the next ten items.
+</script>
+
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand"><span class="dot"></span> davidup</div>
+    <nav class="nav">
+      <a href="#tldr">TL;DR</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#editor">Editor</a>
+      <a href="#mcp">MCP</a>
+      <a href="#bugs">Bugs</a>
+      <a href="#saas">SaaS</a>
+      <a href="#verdict">Verdict</a>
+    </nav>
+    <span class="stamp">v1.0 · manual + audit</span>
+  </div>
+</header>
+
+<section class="hero">
+  <svg class="grid-bg" viewBox="0 0 1200 600" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <pattern id="g" width="48" height="48" patternUnits="userSpaceOnUse">
+        <path d="M48 0 L0 0 0 48" class="grid-line" fill="none"/>
+      </pattern>
+    </defs>
+    <rect width="1200" height="600" fill="url(#g)"/>
+  </svg>
+  <div class="wrap">
+    <p class="eyebrow">v1.0 · manual + multi-angle evaluation</p>
+    <h1>One engine, three surfaces, <em>and an honest audit</em>.
+      <small>A deterministic 2-D programmatic video engine, an editor that wraps it, and a 40+ tool MCP server so AI agents can drive both — assessed end to end against its v1.0 scope and SaaS aspirations.</small>
+    </h1>
+    <div class="meta">
+      <span><span class="k">●</span> deterministic engine</span>
+      <span><span class="k">●</span> editor with command bus</span>
+      <span><span class="k">●</span> MCP for AI agents</span>
+      <span><span class="k">●</span> 2026-05-19</span>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="tldr">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>01 — TL;DR</h3>
+        <p>What davidup is, who it's for, and where v1.0 lands.</p>
+      </div>
+      <div>
+        <p class="eyebrow">single paragraph, no euphemisms</p>
+        <h2>One engine. Three surfaces. Sharp v1.0 scope.</h2>
+        <p class="lead">davidup is a ~7.2k LOC TypeScript core (schema, resolver, renderer, drivers), an AdonisJS + Inertia + Vue editor that funnels every mutation through a single command bus, and a stdio MCP server that lets AI agents drive both. v1.0 is a local-first, single-user product — production-quality at that scope, deliberately not SaaS-ready yet.</p>
+        <div class="callout">
+          <div class="label">Verdict — v1.0</div>
+          <div class="headline">Ship the local-first app today. The SaaS shell is real but bounded engineering — 3 weeks to alpha, 3–5 months to public.</div>
+          <p>Engine, editor, and MCP are tight, tested, and consistent inside a single process. The validate-then-crash gaps are 3 × one-day fixes. The path from "local tool" to "hosted SaaS" is mostly the <code>projectStore</code>-to-per-tenant refactor and a few hours of auth wiring. Don't platformify ahead of the user signal.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="stats">
+  <div class="wrap">
+    <p class="eyebrow">02 — by the numbers</p>
+    <h2>The shape of v1.0.</h2>
+    <div class="stats">
+      <div class="stat"><div class="num">7.2k</div><span class="lbl">engine LOC</span></div>
+      <div class="stat"><div class="num">40<sup style="font-size:0.5em;color:var(--mute)">+</sup></div><span class="lbl">MCP tools</span></div>
+      <div class="stat"><div class="num">11</div><span class="lbl">behaviors</span></div>
+      <div class="stat"><div class="num">5</div><span class="lbl">templates</span></div>
+      <div class="stat"><div class="num">19</div><span class="lbl">easings</span></div>
+      <div class="stat"><div class="num">26</div><span class="lbl">error codes</span></div>
+    </div>
+    <p style="color:var(--mute); font-family: var(--mono); font-size: 12.5px; margin-top: 8px;">
+      Tool count is drifting across the repo: README says 25, <code>server.json</code> says 24, <code>tests/mcp/server.integration.test.ts</code> asserts 44, the workflows audit counted 41. Single source of truth is <code>TOOL_NAMES</code> in <code>src/mcp/tools.ts</code>. Bug <span class="bid">M1</span> in the table below.
+    </p>
+  </div>
+</section>
+
+<section class="s" id="architecture">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>03 — architecture</h3>
+        <p>Three deployable surfaces, one canonical state.</p>
+      </div>
+      <div>
+        <p class="eyebrow">layers</p>
+        <h2>Engine, editor, MCP — pure ↑ at every layer.</h2>
+        <p>The engine never imports from compose, compose never imports from drivers, drivers import from both. The editor's MCP bridge intercepts every mutating MCP tool and routes it through the same <code>CommandBus</code> the UI uses — that's what makes human ⇄ agent edits byte-equal.</p>
+
+        <svg viewBox="0 0 800 420" role="img" aria-label="davidup architecture diagram" style="margin: 24px 0;">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <!-- Schema -->
+          <g>
+            <rect x="40" y="40" width="180" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="130" y="68" text-anchor="middle" class="lbl-ink">schema</text>
+            <text x="130" y="90" text-anchor="middle" class="lbl-mono">src/schema/ — zod + validator</text>
+          </g>
+
+          <!-- Easings / Color -->
+          <g>
+            <rect x="240" y="40" width="180" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="330" y="68" text-anchor="middle" class="lbl-ink">easings / color</text>
+            <text x="330" y="90" text-anchor="middle" class="lbl-mono">19 named · lerp · parse</text>
+          </g>
+
+          <!-- Engine -->
+          <g>
+            <rect x="40" y="140" width="380" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="230" y="168" text-anchor="middle" class="lbl-ink">engine — pure (comp, t, ctx) → pixels</text>
+            <text x="230" y="190" text-anchor="middle" class="lbl-mono">resolver · renderer · indexTweens</text>
+          </g>
+
+          <!-- Compose -->
+          <g>
+            <rect x="440" y="140" width="160" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="520" y="168" text-anchor="middle" class="lbl-ink">compose</text>
+            <text x="520" y="190" text-anchor="middle" class="lbl-mono">precompile · $template · scene</text>
+          </g>
+
+          <!-- Assets -->
+          <g>
+            <rect x="620" y="140" width="140" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="690" y="168" text-anchor="middle" class="lbl-ink">assets</text>
+            <text x="690" y="190" text-anchor="middle" class="lbl-mono">node + browser loaders</text>
+          </g>
+
+          <!-- Drivers -->
+          <g>
+            <rect x="40" y="240" width="180" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="130" y="268" text-anchor="middle" class="lbl-ink">browser driver</text>
+            <text x="130" y="290" text-anchor="middle" class="lbl-mono">canvas2d + RAF + picker</text>
+
+            <rect x="240" y="240" width="180" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="330" y="268" text-anchor="middle" class="lbl-ink">node driver</text>
+            <text x="330" y="290" text-anchor="middle" class="lbl-mono">skia-canvas + ffmpeg</text>
+          </g>
+
+          <!-- MCP -->
+          <g>
+            <rect x="440" y="240" width="320" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="600" y="268" text-anchor="middle" class="lbl-ink">mcp server — 40+ tools, structured errors</text>
+            <text x="600" y="290" text-anchor="middle" class="lbl-mono">standalone bin · or hosted in the editor</text>
+          </g>
+
+          <!-- Editor -->
+          <g>
+            <rect x="40" y="340" width="720" height="64" rx="6" class="box-fill box-stroke" stroke-width="1"/>
+            <text x="400" y="368" text-anchor="middle" class="lbl-ink">editor — adonisjs · inertia · vue · CommandBus.apply()</text>
+            <text x="400" y="390" text-anchor="middle" class="lbl-mono">browser preview · timeline · inspector · render queue · MCP bridge</text>
+          </g>
+
+          <!-- Arrows -->
+          <path d="M130 104 V 140" class="arrow" marker-end="url(#ah)"/>
+          <path d="M330 104 V 140" class="arrow" marker-end="url(#ah)"/>
+          <path d="M230 204 V 240" class="arrow" marker-end="url(#ah)"/>
+          <path d="M330 204 V 240" class="arrow" marker-end="url(#ah)"/>
+          <path d="M520 204 V 240" class="arrow" marker-end="url(#ah)"/>
+          <path d="M690 204 V 240" class="arrow" marker-end="url(#ah)"/>
+          <path d="M400 304 V 340" class="arrow" marker-end="url(#ah)"/>
+        </svg>
+
+        <p style="color:var(--mute); font-family: var(--mono); font-size: 12.5px;">
+          Critical seam: <code>apps/editor/app/services/mcp_bridge.ts</code> routes every mutating MCP call through the same <code>commandBus.apply()</code> the HTTP UI uses. Read-only tools run against per-call hydrated stores.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="getting-started">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>04 — getting started</h3>
+        <p>Install once; three "hello worlds".</p>
+      </div>
+      <div>
+        <p class="eyebrow">install</p>
+        <h2>One <code>bun install</code>, three entry points.</h2>
+
+        <div class="grid-3" style="margin-top: 24px;">
+          <div class="card">
+            <h4>A · browser preview</h4>
+            <p style="font-size:13.5px;"><code>bun run dev:browser</code> opens <code>examples/browser-demo</code> on Vite. The page imports <code>attach</code> from <code>davidup/browser</code>, calls <code>attach(comp, canvas)</code>, and the RAF loop starts.</p>
+          </div>
+          <div class="card">
+            <h4>B · render to MP4</h4>
+            <p style="font-size:13.5px;"><code>bun run examples/render.ts</code>. One <code>Canvas</code> reused across every frame, RGBA piped into ffmpeg's stdin with backpressure. ffmpeg stderr tail surfaces in any thrown <code>Error.message</code>.</p>
+          </div>
+          <div class="card">
+            <h4>C · drive it with an agent</h4>
+            <p style="font-size:13.5px;">Wire <code>davidup-mcp</code> into your client. Standalone: <code>bun run src/mcp/bin.ts</code>. Editor-hosted: launch <code>davidup edit</code> with <code>DAVIDUP_MCP_STDIO=1</code>.</p>
+          </div>
+        </div>
+
+<pre><span class="tok-c">// minimal MP4 render</span>
+<span class="tok-k">import</span> { renderToFile } <span class="tok-k">from</span> <span class="tok-s">"davidup/node"</span>;
+<span class="tok-k">import</span> { validate } <span class="tok-k">from</span> <span class="tok-s">"davidup/schema"</span>;
+<span class="tok-k">if</span> (!validate(comp).valid) <span class="tok-k">throw new</span> Error(<span class="tok-s">"invalid"</span>);
+<span class="tok-k">await</span> renderToFile(comp, <span class="tok-s">"out.mp4"</span>, { codec: <span class="tok-s">"libx264"</span>, crf: <span class="tok-a">18</span> });</pre>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="editor">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>05 — the editor</h3>
+        <p>Five regions, one canonical composition.</p>
+      </div>
+      <div>
+        <p class="eyebrow">daily workflows</p>
+        <h2>Edit anywhere, save nowhere.</h2>
+        <p>Boot with <code>davidup edit &lt;project-dir&gt;</code>. The CLI spawns AdonisJS with <code>DAVIDUP_PROJECT</code> set, polls until reachable, and opens the browser. Every mutation — Inspector input, Timeline drag, Library drop, MCP agent — routes through <code>POST /api/command</code> and lands as one Zod-validated <code>Command</code> on the <code>CommandBus</code>, which serializes via a microtask queue, applies to a freshly-hydrated engine store, validates, and persists via a 500ms debounced atomic disk write.</p>
+
+        <svg viewBox="0 0 800 320" role="img" aria-label="editor layout" style="margin: 24px 0;">
+          <rect x="20" y="20" width="760" height="32" rx="4" class="box-fill box-stroke" stroke-width="1"/>
+          <text x="40" y="40" class="lbl-mono" style="fill:var(--ink)">davidup · my-clip ▾   ●Saved   Render ▸   ?</text>
+
+          <rect x="20" y="62" width="160" height="180" rx="4" class="box-fill box-stroke" stroke-width="1"/>
+          <text x="100" y="90" text-anchor="middle" class="lbl-ink">Library</text>
+          <text x="100" y="112" text-anchor="middle" class="lbl-mono">templates · behaviors</text>
+          <text x="100" y="128" text-anchor="middle" class="lbl-mono">scenes · assets · fonts</text>
+
+          <rect x="190" y="62" width="400" height="180" rx="4" class="box-fill box-stroke" stroke-width="1"/>
+          <text x="390" y="100" text-anchor="middle" class="lbl-ink">Stage</text>
+          <text x="390" y="124" text-anchor="middle" class="lbl-mono">engine canvas · selection ring · drop overlays</text>
+
+          <rect x="600" y="62" width="180" height="180" rx="4" class="box-fill box-stroke" stroke-width="1"/>
+          <text x="690" y="90" text-anchor="middle" class="lbl-ink">Inspector</text>
+          <text x="690" y="112" text-anchor="middle" class="lbl-mono">typed property editor</text>
+          <text x="690" y="128" text-anchor="middle" class="lbl-mono">tween editor · source</text>
+
+          <rect x="20" y="252" width="760" height="40" rx="4" class="box-fill box-stroke" stroke-width="1"/>
+          <text x="400" y="276" text-anchor="middle" class="lbl-ink">Timeline · ruler · per-item tracks · playhead</text>
+
+          <rect x="20" y="300" width="760" height="14" rx="2" class="box-fill box-stroke" stroke-width="1"/>
+          <text x="40" y="312" class="lbl-mono">errors · warnings · selection · playhead · render</text>
+        </svg>
+
+        <h3 style="margin-top: 32px;">Keyboard shortcuts</h3>
+        <table>
+          <thead><tr><th>Keys</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">Space</td><td>Toggle play / pause (restarts when ended)</td></tr>
+            <tr><td class="mono">Backspace</td><td>Delete selected item</td></tr>
+            <tr><td class="mono">⌘0</td><td>Seek to t = 0</td></tr>
+            <tr><td class="mono">⌘J</td><td>Toggle reveal-in-source drawer</td></tr>
+            <tr><td class="mono">⌘R</td><td>Start a render</td></tr>
+            <tr><td class="mono">⌘S</td><td>Force flush + <code>Saved</code> toast (autosave already runs)</td></tr>
+            <tr><td class="mono">?</td><td>Toggle the Help overlay</td></tr>
+            <tr><td class="mono">Esc</td><td>Dismiss overlays, menus, project switcher</td></tr>
+            <tr><td class="mono">⌘Z</td><td><span class="pill bad">missing</span> Backend exists; no keybinding wired. <span class="bid">polish</span></td></tr>
+          </tbody>
+        </table>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="authoring">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>06 — authoring</h3>
+        <p>Items, layers, tweens, behaviors, templates, scenes.</p>
+      </div>
+      <div>
+        <p class="eyebrow">composition</p>
+        <h2>Atomic primitives → composable units.</h2>
+        <p>Items are <code>sprite</code>, <code>text</code>, <code>shape</code> (rect / circle / polygon), <code>group</code>. Every item has a transform: <code>x, y, scaleX, scaleY, rotation, anchorX, anchorY, opacity</code>. Layers carry positive <code>z</code> with stable-sort by declaration order as the tiebreaker. Tweens animate a single property from <code>from</code> to <code>to</code> over <code>[start, start+duration]</code>; the engine bucket-indexes them by <code>(target, property)</code> and binary-walks at sample time — no per-frame sort.</p>
+
+        <h3>The 11 built-in behaviors</h3>
+        <p><code>apply_behavior</code> is atomic: if any emitted tween conflicts with an existing one, the entire expansion is rolled back.</p>
+        <p>
+          <span class="pill accent">fadeIn</span>
+          <span class="pill accent">fadeOut</span>
+          <span class="pill accent">popIn</span>
+          <span class="pill accent">popOut</span>
+          <span class="pill accent">slideIn</span>
+          <span class="pill accent">slideOut</span>
+          <span class="pill accent">rotateSpin</span>
+          <span class="pill accent">kenburns</span>
+          <span class="pill accent">shake</span>
+          <span class="pill accent">colorCycle</span>
+          <span class="pill accent">pulse</span>
+        </p>
+
+        <h3 style="margin-top: 24px;">The 5 built-in templates</h3>
+        <p>
+          <span class="pill accent">titleCard</span>
+          <span class="pill accent">lowerThird</span>
+          <span class="pill accent">captionBurst</span>
+          <span class="pill accent">bulletList</span>
+          <span class="pill accent">kenburnsImage</span>
+        </p>
+        <p style="font-size: 14px; color: var(--mute);">User templates: <code>define_user_template { id, description?, params?, items, tweens? }</code>. Any <code>$behavior</code> block inside a template's <code>tweens</code> is expanded before being committed.</p>
+
+        <h3 style="margin-top: 24px;">Scenes and time-mapping</h3>
+        <p>Scenes are sealed mini-compositions with their own duration, items, tweens, params, and assets. The instance is expanded to a synthetic group + namespaced inner items + time-shifted tweens. Four time-mapping modes on <code>add_scene_instance</code> / <code>update_scene_instance</code>:</p>
+        <table>
+          <thead><tr><th>Mode</th><th>Shape</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">identity</td><td class="mono">{ }</td><td>Baseline, the default.</td></tr>
+            <tr><td class="mono">clip</td><td class="mono">{ fromTime, toTime }</td><td>Trim a sub-range of the scene's timeline.</td></tr>
+            <tr><td class="mono">loop</td><td class="mono">{ count ≥ 1 }</td><td>Repeat back-to-back. Iteration math uses <code>parentStart + i * sceneDuration</code> — non-cumulative rounding.</td></tr>
+            <tr><td class="mono">timeScale</td><td class="mono">{ scale }</td><td>Divide every tween's start / duration by <code>scale</code>.</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size: 14px; color: var(--mute);">End-to-end demo: <code>examples/time-mapping-mcp/</code> exercises all four modes via in-process MCP dispatch.</p>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="assets">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>07 — assets</h3>
+        <p>Hash-deduped, two-root, watched.</p>
+      </div>
+      <div>
+        <p class="eyebrow">library</p>
+        <h2>Upload, dedupe, register, drag.</h2>
+        <p>Drop one or more files onto the Library panel or anywhere on the editor; the page shows a drop veil while a drag is active. <code>POST /api/assets</code> multipart triggers the pipeline:</p>
+        <ol>
+          <li>Reject non-supported extensions (<code>png/jpg/jpeg/webp/gif/svg/mp4/mov/webm/mkv/mp3/wav/ogg/m4a/aac/flac</code>); size cap 50 MB. <span class="pill bad">D6</span> font extensions are missing from the controller list even though the pipeline supports them.</li>
+          <li>SHA-256 hash the bytes → name file <code>&lt;hash&gt;&lt;ext&gt;</code>.</li>
+          <li><code>ffprobe</code> / <code>loadImage</code> for metadata; generate a thumbnail when applicable.</li>
+          <li>Register in the destination library's <code>index.json</code> (project or global). Atomic <code>tmp + rename</code>.</li>
+        </ol>
+        <p>Hash dedup means re-uploading the same bytes is a no-op.</p>
+
+        <h3>Two roots</h3>
+        <div class="def">
+          <span class="lbl">project pool</span>
+          <code>&lt;project&gt;/library/</code> — per-project, swapped on project load.
+        </div>
+        <div class="def">
+          <span class="lbl">global pool</span>
+          <code>~/.davidup/library/</code> — per OS user, attached once at boot. Override via <code>$DAVIDUP_LIBRARY</code>.
+        </div>
+        <p>Project wins over global on <code>(kind, id)</code> collisions; the loser carries <code>overridden: true</code>. Watcher coalesces events with a 100ms debounce; UI polls every 2s for cross-tab changes.</p>
+
+        <h3 style="margin-top: 24px;">MCP equivalents</h3>
+        <ul>
+          <li><code>register_asset { id, type, src, family? }</code> — fonts require <code>family</code>.</li>
+          <li><code>list_assets { compositionId? }</code> — declaration order.</li>
+          <li><code>remove_asset { id }</code> — errors <code>E_ASSET_IN_USE</code> if referenced. Idiomatic swap: <code>register_asset</code> with the same id over a new src.</li>
+          <li><code>list_library { q?, kind?, scope? }</code> — editor-only.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="rendering">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>08 — rendering</h3>
+        <p>UI flow, MCP flow, history.</p>
+      </div>
+      <div>
+        <p class="eyebrow">render</p>
+        <h2>Same input, same pixels, every host.</h2>
+
+        <h3>From the editor</h3>
+        <p><code>POST /api/renders { filename? }</code> → <code>RenderJob</code> constructed with the current snapshot of <code>projectStore.composition</code> → fire-and-forget <code>job.run()</code> → response with <code>{ jobId, totalFrames, outputPath, relativeOutputPath, eventsUrl }</code>. Output lands in <code>&lt;project&gt;/renders/</code>.</p>
+
+        <p>Browser subscribes to <code>GET /api/renders/:id/events</code> (SSE). Late subscribers replay the terminal state.</p>
+
+        <table>
+          <thead><tr><th>Event</th><th>Payload</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">progress</td><td class="mono">{ jobId, frame, total, elapsedMs }</td></tr>
+            <tr><td class="mono">done</td><td class="mono">{ jobId, outputPath, relativeOutputPath, frameCount, durationMs }</td></tr>
+            <tr><td class="mono">error</td><td class="mono">{ jobId, message }</td></tr>
+          </tbody>
+        </table>
+
+        <p>One render at a time per UI (single-slot). The server registry can hold 32 jobs. <code>RenderHistory.vue</code> lists past renders; macOS-only row actions: <code>Reveal</code> (Finder), <code>Play</code> (QuickTime). <span class="pill warn">D5</span> the prefix-check is case-sensitive on HFS+. Non-macOS gets 501 on the shell endpoint. <span class="pill warn">polish</span> no Linux/Windows reveal parity.</p>
+
+        <h3 style="margin-top: 24px;">From MCP</h3>
+        <ul>
+          <li><code>render_preview_frame { time, format? }</code> → <code>{ image (base64), mimeType, width, height }</code>. Validates first.</li>
+          <li><code>render_thumbnail_strip { count, format? }</code> → N uniformly-sampled frames + sample times.</li>
+          <li><code>render_to_video { outputPath, codec?, crf?, preset?, pixFmt?, wait? }</code> — standalone blocks; editor-hosted is async by default. <span class="pill bad">M2</span> returns three different shapes across hosts.</li>
+          <li><code>get_render { jobId }</code> — editor-only snapshot.</li>
+          <li><code>list_renders {}</code> — editor-only; newest first.</li>
+        </ul>
+
+        <p>ffmpeg options: codec <code>libx264</code> (default) or <code>libx265</code>; <code>crf</code> integer 0–63 (default 18); <code>preset</code>; <code>pixFmt</code>. <span class="pill warn">polish</span> the editor UI exposes only <code>filename</code>; codec/CRF/preset are MCP-only.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="mcp">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>09 — AI agents via MCP</h3>
+        <p>40+ atomic tools, one canonical state.</p>
+      </div>
+      <div>
+        <p class="eyebrow">agent surface</p>
+        <h2>Atomic. Orthogonal. Structured errors.</h2>
+
+        <h3>Wiring</h3>
+        <p>Two server entrypoints. The standalone bin <code>src/mcp/bin.ts</code> ships with no project / library / render queue — useful for one-off agent flows. The <strong>editor-hosted</strong> bridge mounts the same tool registry on the editor process's stdio when <code>DAVIDUP_MCP_STDIO=1</code>; mutations route through the editor's CommandBus with <code>source: 'mcp'</code>, so UI and agent share byte-identical state.</p>
+
+<pre><span class="tok-c">// Claude Code — ~/.claude.json</span>
+{ <span class="tok-a">"mcpServers"</span>: {
+  <span class="tok-a">"davidup"</span>: {
+    <span class="tok-a">"command"</span>: <span class="tok-s">"bun"</span>,
+    <span class="tok-a">"args"</span>: [<span class="tok-s">"run"</span>, <span class="tok-s">"/abs/path/to/davidup/src/mcp/bin.ts"</span>]
+  }
+} }</pre>
+
+        <h3 style="margin-top: 24px;">Tool catalog (grouped)</h3>
+        <table>
+          <thead><tr><th>Group</th><th>Tools</th></tr></thead>
+          <tbody>
+            <tr><td>Composition lifecycle</td><td class="mono">create_composition · get_composition · set_composition_property · validate · reset</td></tr>
+            <tr><td>Assets</td><td class="mono">register_asset · list_assets · remove_asset</td></tr>
+            <tr><td>Layers</td><td class="mono">add_layer · update_layer · remove_layer</td></tr>
+            <tr><td>Items</td><td class="mono">add_sprite · add_text · add_shape · add_group · update_item · move_item_to_layer · remove_item</td></tr>
+            <tr><td>Tweens</td><td class="mono">add_tween · update_tween · remove_tween · list_tweens</td></tr>
+            <tr><td>Behaviors</td><td class="mono">apply_behavior · list_behaviors</td></tr>
+            <tr><td>Templates</td><td class="mono">apply_template · list_templates · define_user_template</td></tr>
+            <tr><td>Scenes</td><td class="mono">define_scene · import_scene · list_scenes · remove_scene · add_scene_instance · update_scene_instance · remove_scene_instance</td></tr>
+            <tr><td>Render</td><td class="mono">render_preview_frame · render_thumbnail_strip · render_to_video · get_render · list_renders</td></tr>
+            <tr><td>Project lifecycle <span class="pill">editor-only</span></td><td class="mono">current_project · list_projects · open_project · create_project</td></tr>
+            <tr><td>Library <span class="pill">editor-only</span></td><td class="mono">list_library</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 24px;">Error envelope</h3>
+        <p><code>MCPErrorBody</code> carries <code>code</code>, <code>message</code>, optional <code>hint</code>, plus <code>issues</code> / <code>warnings</code> arrays and a <code>details</code> bag. 26 stable codes. Agents branch on <code>code</code>, not on substring matching.</p>
+
+        <h3 style="margin-top: 24px;">Idempotency</h3>
+        <p>Every <code>add_*</code> / <code>register_asset</code> accepts an optional <code>id</code>. Always supply one — retried calls return <code>E_DUPLICATE_ID</code> instead of silently duplicating, and transcripts replay deterministically.</p>
+
+        <h3 style="margin-top: 24px;">Worked example — 10-second Acme Coffee ad</h3>
+<pre><span class="tok-k">create_composition</span> { width: <span class="tok-a">1280</span>, height: <span class="tok-a">720</span>, fps: <span class="tok-a">60</span>,
+                    duration: <span class="tok-a">10</span>, background: <span class="tok-s">"#0a0e27"</span> }
+<span class="tok-k">add_layer</span> { id: <span class="tok-s">"bg"</span>, z: <span class="tok-a">0</span> }
+<span class="tok-k">add_layer</span> { id: <span class="tok-s">"fg"</span>, z: <span class="tok-a">10</span> }
+<span class="tok-k">register_asset</span> { id: <span class="tok-s">"logo"</span>, type: <span class="tok-s">"image"</span>, src: <span class="tok-s">"./assets/logo.png"</span> }
+<span class="tok-k">apply_template</span> { templateId: <span class="tok-s">"titleCard"</span>, layerId: <span class="tok-s">"fg"</span>,
+                 params: { title: <span class="tok-s">"Acme Coffee"</span>, subtitle: <span class="tok-s">"Wake up."</span> } }
+<span class="tok-k">add_sprite</span> { layerId: <span class="tok-s">"bg"</span>, asset: <span class="tok-s">"logo"</span>, x: <span class="tok-a">640</span>, y: <span class="tok-a">360</span>,
+             width: <span class="tok-a">400</span>, height: <span class="tok-a">400</span>, opacity: <span class="tok-a">0</span> }
+<span class="tok-k">apply_behavior</span> { target: <span class="tok-s">"&lt;sprite-id&gt;"</span>, behavior: <span class="tok-s">"fadeIn"</span>,
+                 start: <span class="tok-a">0</span>, duration: <span class="tok-a">1.5</span> }
+<span class="tok-k">apply_behavior</span> { target: <span class="tok-s">"&lt;sprite-id&gt;"</span>, behavior: <span class="tok-s">"kenburns"</span>,
+                 start: <span class="tok-a">1.5</span>, duration: <span class="tok-a">7</span> }
+<span class="tok-k">validate</span> {}
+<span class="tok-k">render_preview_frame</span> { time: <span class="tok-a">5</span> }
+<span class="tok-k">render_thumbnail_strip</span> { count: <span class="tok-a">6</span> }
+<span class="tok-k">render_to_video</span> { outputPath: <span class="tok-s">"/abs/path/acme.mp4"</span>,
+                  codec: <span class="tok-s">"libx264"</span>, crf: <span class="tok-a">18</span> }</pre>
+
+        <p style="font-size: 14px; color: var(--mute);">The agent gets six base64 PNGs back, looks at them, decides what's wrong (cropped text, mistimed pop, wrong color), patches, re-previews, then commits. This iteration loop — preview-frame-as-base64 + deterministic engine — is what makes davidup work for agents.</p>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="determinism">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>10 — determinism</h3>
+        <p>What's guaranteed, what isn't.</p>
+      </div>
+      <div>
+        <p class="eyebrow">honest contract</p>
+        <h2>Bit-exact resolved state. Host-bounded pixels.</h2>
+
+        <div class="grid-2" style="margin-top: 24px;">
+          <div class="card accent">
+            <h4>Guaranteed within a single host</h4>
+            <p style="font-size: 14px;">No PRNG anywhere in <code>src/</code>. No <code>Date.now()</code> in the resolver or renderer. Node render time is <code>i / fps</code>, not the wall clock. Stable-sorted iteration in every compose pass. <code>OVERLAP_EPS = 1e-6</code> documented inline with a regression test.</p>
+          </div>
+          <div class="card">
+            <h4>Bounded across hosts</h4>
+            <p style="font-size: 14px;">Pixels differ between browser Canvas2D and Node skia-canvas — they must: font hinting, sub-pixel AA, image decoders, and bezier rasterizers are all implementation-defined. The product positioning ("MP4 is ground truth, browser is preview") makes the trade acceptable.</p>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 24px;">Three validation gaps that allow "validate-then-crash"</h3>
+        <ul>
+          <li><span class="bid">E1</span> <code>LayerSchema.blendMode</code> is <code>z.string()</code> — any value validates, then different hosts handle the invalid string differently.</li>
+          <li><span class="bid">E4</span> Color-tween endpoints aren't validated for parseability; <code>lerpColorString</code> throws at render time on <code>"magenta"</code>.</li>
+          <li><span class="bid">E6</span> <code>clampForProperty</code> only clamps <code>transform.opacity</code> — overshoot easings can drive <code>width</code> / <code>height</code> / <code>fontSize</code> negative, crashing some hosts on <code>arc(r, r, -5, ...)</code>.</li>
+        </ul>
+        <p style="color:var(--mute); font-family: var(--mono); font-size: 12.5px;">Three one-day fixes close the entire failure class.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="bugs">
+  <div class="wrap">
+    <p class="eyebrow">11 — bugs found</p>
+    <h2>What's broken, where, and how to fix it.</h2>
+    <p style="max-width: 720px;">Severity reflects single-user local impact. SaaS-only severity is listed separately in <a href="#saas">§ SaaS</a>. Bug IDs are referenced from <a href="#high-leverage">§ high-leverage improvements</a> and the SaaS roadmap.</p>
+
+    <h3 style="margin-top: 36px;">Engine — <code>src/</code></h3>
+    <table>
+      <thead><tr><th>ID</th><th>Sev.</th><th>What</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">E1</td><td><span class="sev high">HIGH</span></td><td>Layer <code>blendMode</code> is <code>z.string()</code> — invalid strings produce host-divergent behavior.</td><td class="mono">src/schema/zod.ts:90<br/>src/engine/render.ts:150</td></tr>
+        <tr><td class="mono">E2</td><td><span class="sev high">HIGH</span></td><td>Sprite tint with semi-transparent PNGs double-multiplies alpha through the <code>destination-in</code> mask step.</td><td class="mono">src/engine/render.ts:188-202</td></tr>
+        <tr><td class="mono">E3</td><td><span class="sev med">MEDIUM</span></td><td><code>seek()</code> past <code>duration</code> shows the last canvas state instead of holding the final frame.</td><td class="mono">src/drivers/browser/index.ts:288-300</td></tr>
+        <tr><td class="mono">E4</td><td><span class="sev med">MEDIUM</span></td><td>Color-tween endpoints not validated for parseability. <code>parseColor("magenta")</code> throws at render time.</td><td class="mono">src/schema/validator.ts:209-217</td></tr>
+        <tr><td class="mono">E5</td><td><span class="sev med">MEDIUM</span></td><td><code>BaseAssetLoader</code> images / fonts Maps are unbounded across project switches.</td><td class="mono">src/assets/loader.ts:24-30</td></tr>
+        <tr><td class="mono">E6</td><td><span class="sev med">MED</span></td><td>Negative <code>width</code> / <code>height</code> / <code>fontSize</code> from overshoot easings crash some hosts.</td><td class="mono">src/engine/resolver.ts:123</td></tr>
+        <tr><td class="mono">E7</td><td><span class="sev low">LOW</span></td><td><code>MCPToolError</code> imported into <code>src/compose/scenes.ts:62</code> — a compose→mcp layer violation.</td><td class="mono">src/compose/scenes.ts:62</td></tr>
+        <tr><td class="mono">E8</td><td><span class="sev low">LOW</span></td><td><code>setByPath</code> defensive fallback is dead code given the current tweenable surface.</td><td class="mono">src/engine/resolver.ts:150-171</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top: 36px;">MCP — <code>src/mcp/</code></h3>
+    <table>
+      <thead><tr><th>ID</th><th>Sev.</th><th>What</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">M1</td><td><span class="sev high">HIGH</span></td><td>Tool-count drift. README/<code>server.json</code>/<code>mcp-demo.md</code> say 25; the canonical test asserts 44; workflows audit counted 41.</td><td class="mono">server.json · README.md · examples/mcp-demo.md</td></tr>
+        <tr><td class="mono">M2</td><td><span class="sev high">HIGH</span></td><td><code>render_to_video</code> returns three different shapes across host/wait combinations — single least LLM-friendly surface.</td><td class="mono">src/mcp/tools.ts:1577-1685</td></tr>
+        <tr><td class="mono">M3</td><td><span class="sev high">HIGH</span></td><td><code>import_scene</code> reads arbitrary filesystem paths with no sandboxing in either standalone or editor server.</td><td class="mono">src/mcp/tools.ts:1141-1192</td></tr>
+        <tr><td class="mono">M4</td><td><span class="sev high">HIGH</span></td><td>Template / scene / behavior registries are process-global module state — critical multi-tenant SaaS blocker.</td><td class="mono">src/compose/templates.ts · scenes.ts</td></tr>
+        <tr><td class="mono">M5</td><td><span class="sev med">MED</span></td><td>No <code>list_easings</code> / <code>list_fonts</code> / engine-capabilities discovery — agents must hit <code>E_INVALID_VALUE</code> to learn easing names.</td><td class="mono">src/mcp/tools.ts</td></tr>
+        <tr><td class="mono">M6</td><td><span class="sev med">MED</span></td><td>Preview re-preloads every asset on every call — biggest agent-iteration latency cost.</td><td class="mono">src/mcp/render.ts:80-87,112-113</td></tr>
+        <tr><td class="mono">M7</td><td><span class="sev med">MED</span></td><td>Tool descriptions omit coordinate / anchor / rotation / easing conventions.</td><td class="mono">src/mcp/tools.ts</td></tr>
+        <tr><td class="mono">M8</td><td><span class="sev med">MED</span></td><td><code>MCPLibraryItem.thumbnailUrl</code> is a relative URL with no MCP base — agent can't resolve it.</td><td class="mono">src/mcp/tools.ts:124 · mcp_bridge.ts:523</td></tr>
+        <tr><td class="mono">M9</td><td><span class="sev low">LOW</span></td><td>Tool descriptions embed internal "polish §20.31" references — wastes tokens.</td><td class="mono">src/mcp/tools.ts</td></tr>
+        <tr><td class="mono">M10</td><td><span class="sev low">LOW</span></td><td><code>E_UNKNOWN</code> used for "feature not available on this server" — a dedicated <code>E_FEATURE_UNAVAILABLE</code> would let agents branch cleanly.</td><td class="mono">src/mcp/tools.ts:228,240,252</td></tr>
+        <tr><td class="mono">M11</td><td><span class="sev low">LOW</span></td><td>No <code>cancel_render</code> MCP tool, despite worker support.</td><td>—</td></tr>
+        <tr><td class="mono">M12</td><td><span class="sev low">LOW</span></td><td><code>MCPToolError.hint</code> inconsistently populated — single highest-leverage agent-self-correction field.</td><td class="mono">src/mcp/tools.ts</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top: 36px;">Editor — <code>apps/editor/</code></h3>
+    <table>
+      <thead><tr><th>ID</th><th>Sev.</th><th>What</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">D1</td><td><span class="sev high">HIGH</span></td><td><code>useStage</code> watcher snaps the playhead to a stale wall-clock baseline after a paused-then-seek. Edit while paused → playhead jumps forward.</td><td class="mono">apps/editor/inertia/composables/useStage.ts:268-277</td></tr>
+        <tr><td class="mono">D2</td><td><span class="sev high">HIGH</span></td><td><code>/api/projects/events</code> SSE listener leaks when the socket errors before <code>close</code> fires — trips <code>setMaxListeners(64)</code> in long sessions.</td><td class="mono">apps/editor/app/controllers/projects_controller.ts:199-247</td></tr>
+        <tr><td class="mono">D3</td><td><span class="sev med">MED</span></td><td><code>useTimelineDrag.suppressNextClick</code> can swallow an unrelated click.</td><td class="mono">apps/editor/inertia/composables/useTimelineDrag.ts:195-209</td></tr>
+        <tr><td class="mono">D4</td><td><span class="sev med">MED</span></td><td>Asset pipeline persists images when skia <code>loadImage</code> dim-probing fails; index entry lacks <code>width</code> / <code>height</code>.</td><td class="mono">apps/editor/app/services/asset_pipeline.ts:310-323</td></tr>
+        <tr><td class="mono">D5</td><td><span class="sev med">MED</span></td><td>Renders shell action does case-sensitive prefix check on case-insensitive HFS+.</td><td class="mono">apps/editor/app/controllers/renders_controller.ts:344-350</td></tr>
+        <tr><td class="mono">D6</td><td><span class="sev med">MED</span></td><td>Font upload rejected by the controller ext list even though the pipeline supports fonts.</td><td class="mono">apps/editor/app/controllers/assets_controller.ts</td></tr>
+        <tr><td class="mono">D7</td><td><span class="sev low">LOW</span></td><td>Timeline playhead hard-codes the 160px ruler-gutter width.</td><td class="mono">apps/editor/inertia/components/Timeline.vue:504</td></tr>
+        <tr><td class="mono">D8</td><td><span class="sev low">LOW</span></td><td><code>useLibraryDrag</code> doesn't re-validate <code>duration &gt; 0</code> / <code>Number.isFinite</code> on reconstruction.</td><td class="mono">apps/editor/inertia/composables/useLibraryDrag.ts:140-149</td></tr>
+        <tr><td class="mono">D9</td><td><span class="sev low">LOW</span></td><td><code>silent_auth_middleware.ts</code> is dead AdonisJS-starter code.</td><td class="mono">apps/editor/app/middleware/silent_auth_middleware.ts</td></tr>
+      </tbody>
+    </table>
+
+  </div>
+</section>
+
+<section class="s" id="high-leverage">
+  <div class="wrap">
+    <p class="eyebrow">12 — high-leverage improvements</p>
+    <h2>Ordered by impact-per-day.</h2>
+    <p style="max-width: 720px;">The first five are &lt; 1 day of work each. The next five are 1–3 days. The remaining items are SaaS-shell prep — bigger investments, deferrable until tenants exist.</p>
+
+    <table>
+      <thead><tr><th>#</th><th>Move</th><th>Closes</th><th>Effort</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">1</td><td>Fix tool-count drift; CI assertion against <code>TOOL_NAMES</code>.</td><td class="mono">M1</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">2</td><td>Validate <code>blendMode</code> against a Canvas2D enum.</td><td class="mono">E1</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">3</td><td>Clamp negative numeric tween outputs (<code>width</code>, <code>height</code>, <code>fontSize</code>, <code>strokeWidth</code>, <code>cornerRadius</code>).</td><td class="mono">E6</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">4</td><td>Validate color-tween endpoint parseability — surface <code>E_VALUE_KIND</code> instead of a render-time throw.</td><td class="mono">E4</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">5</td><td>Wire <code>⌘Z</code> to <code>commandBus.undo()</code>. Backend exists.</td><td>polish</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">6</td><td>Inline-document coordinate / anchor / rotation / easing conventions in tool descriptions.</td><td class="mono">M7</td><td><span class="state-warn">1–2d</span></td></tr>
+        <tr><td class="mono">7</td><td>Add <code>list_easings</code> or attach <code>EASING_NAMES</code> to the <code>easing</code> field's <code>.describe()</code>.</td><td class="mono">M5</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">8</td><td>Normalize <code>render_to_video</code> to one return shape across both servers.</td><td class="mono">M2</td><td><span class="state-warn">1–2d</span></td></tr>
+        <tr><td class="mono">9</td><td>Sandbox <code>import_scene</code> — project-scoped names instead of raw filesystem paths.</td><td class="mono">M3</td><td><span class="state-warn">1d</span></td></tr>
+        <tr><td class="mono">10</td><td>Cache <code>NodeAssetLoader</code> per composition content hash — compounds across every preview call.</td><td class="mono">M6</td><td><span class="state-warn">1–2d</span></td></tr>
+        <tr><td class="mono">11</td><td>Fix <code>useStage</code> watcher resume bug (one conditional).</td><td class="mono">D1</td><td><span class="state-win">&lt; 1d</span></td></tr>
+        <tr><td class="mono">12</td><td>Add Stage drag-to-move / drag-resize for the selected item. Unlocks the "feels like a real editor" experience.</td><td>polish</td><td><span class="state-warn">3–5d</span></td></tr>
+        <tr><td class="mono">13</td><td>Plumb codec / CRF / preset / pixFmt to the editor's render form.</td><td>polish</td><td><span class="state-warn">1–2d</span></td></tr>
+        <tr><td class="mono">14</td><td>Add a <code>revision</code> field to the in-memory composition. Keystone for any future multi-user.</td><td>SaaS prep</td><td><span class="state-warn">2–3d</span></td></tr>
+        <tr><td class="mono">15</td><td>Introduce a <code>BlobStore</code> interface seam. Local FS today, R2 / S3 tomorrow.</td><td>SaaS prep</td><td><span class="state-warn">3–5d</span></td></tr>
+        <tr><td class="mono">16</td><td>Fix sprite-tint-over-alpha — paint a <code>source-over</code> opaque fill onto a copy of the alpha channel.</td><td class="mono">E2</td><td><span class="state-warn">2d</span></td></tr>
+        <tr><td class="mono">17</td><td>Make <code>BaseAssetLoader</code> LRU-capable. Required for long-running editor servers.</td><td class="mono">E5</td><td><span class="state-warn">1d</span></td></tr>
+        <tr><td class="mono">18</td><td>Scope template / scene / behavior registries to the store — required for any multi-tenant hosting.</td><td class="mono">M4</td><td><span class="state-lose">~1w</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="s" id="saas">
+  <div class="wrap">
+    <div class="twoup">
+      <div class="side">
+        <h3>13 — SaaS readiness</h3>
+        <p>The honest scorecard, the security findings, the keystone move.</p>
+      </div>
+      <div>
+        <p class="eyebrow">scorecard</p>
+        <h2>Local-first, by design. SaaS-shell is unstarted.</h2>
+        <p>The vision doc and PRD both explicitly defer multi-tenant SaaS to v2.0. The code honors that scope honestly — it does not pretend to be SaaS-ready, and it does not hide its single-user assumptions.</p>
+
+        <table>
+          <thead><tr><th>Dimension</th><th>Stars</th><th>One-line verdict</th></tr></thead>
+          <tbody>
+            <tr><td>Tenancy model</td><td><span class="state-lose">0/5</span></td><td>No tenant concept exists in code. Single-process, single-project, OS-user level.</td></tr>
+            <tr><td>Authentication</td><td><span class="state-lose">1/5</span></td><td>Adonis auth scaffolded. Zero login/register/logout routes; zero auth middleware on any route.</td></tr>
+            <tr><td>Authorization</td><td><span class="state-lose">0/5</span></td><td>No ownership check anywhere.</td></tr>
+            <tr><td>Asset storage</td><td><span class="state-meh">2/5</span></td><td>Hash-named, idempotent, ext + size validated. No MIME magic, no decompression-bomb cap, no AV, no S3, no per-tenant prefix.</td></tr>
+            <tr><td>Render pipeline</td><td><span class="state-lose">1/5</span></td><td>In-process, no queue, no concurrency limit, no per-tenant fairness, no meter, no timeout, no cancel after start.</td></tr>
+            <tr><td>MCP exposure</td><td><span class="state-lose">1/5</span></td><td>Stdio only, runs as the OS user. No auth, no rate limit, no scope.</td></tr>
+            <tr><td>Observability</td><td><span class="state-lose">1/5</span></td><td>Pino logs to stdout. No metrics, traces, Sentry, audit table, or request-id correlation.</td></tr>
+            <tr><td>Security headers</td><td><span class="state-meh">2.5/5</span></td><td>XFO=DENY, HSTS, CSRF on session routes — but CSP disabled and <code>/api/*</code> exempt from CSRF.</td></tr>
+            <tr><td>Compliance / legal</td><td><span class="state-lose">1/5</span></td><td>No ToS, privacy policy, DPA, data-export, delete-me, or font-licensing story.</td></tr>
+            <tr><td>Deployment</td><td><span class="state-lose">1/5</span></td><td>No Dockerfile, no CI workflow, APP_KEY committed, skia-canvas container build untested.</td></tr>
+          </tbody>
+        </table>
+
+        <p style="color: var(--mute); font-size: 14px;">Aggregate readiness for hosted multi-tenant: <strong>~10%</strong>.</p>
+
+        <h3 style="margin-top: 36px;">Critical security findings (hosted-only)</h3>
+        <table>
+          <thead><tr><th>ID</th><th>Sev.</th><th>What</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">S1</td><td><span class="sev crit">CRIT</span></td><td>No authentication on any HTTP route. <code>auth</code> middleware defined but applied to zero routes.</td></tr>
+            <tr><td class="mono">S2</td><td><span class="sev crit">CRIT</span></td><td>SSRF via <code>asset.src</code>. <code>NodeAssetLoader</code> passes URLs straight to skia. Cloud-metadata / internal-network exposure.</td></tr>
+            <tr><td class="mono">S3</td><td><span class="sev high">HIGH</span></td><td><code>APP_KEY</code> literal committed in <code>.env.example</code> and <code>.env</code>.</td></tr>
+            <tr><td class="mono">S4</td><td><span class="sev high">HIGH</span></td><td>CSRF disabled for all <code>/api/*</code> routes — every mutation bypasses CSRF.</td></tr>
+            <tr><td class="mono">S5</td><td><span class="sev high">HIGH</span></td><td>Path-guard blocks <code>/etc</code> etc. but not <code>~/.ssh</code> / <code>~/.aws</code>; <code>/project-files/*</code> can exfiltrate.</td></tr>
+            <tr><td class="mono">S6</td><td><span class="sev high">HIGH</span></td><td>Render worker unbounded, in-process, no timeout, no real cancel after start.</td></tr>
+            <tr><td class="mono">S7</td><td><span class="sev high">HIGH</span></td><td>Asset upload — no MIME magic-byte, no decompression-bomb cap, no AV. Bodyparser (20MB) and controller (50MB) caps disagree.</td></tr>
+            <tr><td class="mono">S8</td><td><span class="sev high">HIGH</span></td><td>No rate limiting anywhere.</td></tr>
+            <tr><td class="mono">S9</td><td><span class="sev med">MED</span></td><td><code>/project-files/*</code> + <code>/library-files/*</code> unauthenticated; SVGs served raw — stored-XSS surface.</td></tr>
+            <tr><td class="mono">S10</td><td><span class="sev med">MED</span></td><td>CSP disabled.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout" style="margin-top: 36px;">
+          <div class="label">keystone move</div>
+          <div class="headline">Refactor <code>project_store.ts</code> and every importer of it into a tenant-aware façade — before adding auth, billing, or Dockerfile.</div>
+          <p>Every other SaaS-ification item is a brick that needs this in place. Once the store knows about tenants, auth becomes trivial and quotas become "one row in <code>tenant_usage_daily</code>". The risk inside the refactor is the singleton coupling that has metastasized across the command bus, MCP bridge, render worker, and library index — each coupling is a place a tenant could leak into another's state if the refactor is incomplete.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="roadmap">
+  <div class="wrap">
+    <p class="eyebrow">14 — roadmap</p>
+    <h2>From "ships locally" to "bills 1000 tenants".</h2>
+
+    <h3 style="margin-top: 36px;">Private alpha — 5 to 10 tenants, ~3 weeks one engineer</h3>
+    <div class="phases">
+      <div class="phase">
+        <span class="ix">01 · auth</span>
+        <h4>Login + apply</h4>
+        <p>Magic-link <code>/login</code>, <code>/register</code>, <code>/logout</code>. Apply <code>auth</code> middleware to every <code>/api/*</code> route. 1.5d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">02 · tenancy</span>
+        <h4>Project model</h4>
+        <p><code>Project</code> table with <code>owner_user_id</code>. Refactor <code>projectStore</code> to per-(user+project) cache. Tenant-scope <code>~/.davidup/</code>. 4d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">03 · hard fixes</span>
+        <h4>Auth keys + SSRF</h4>
+        <p>Rotate <code>APP_KEY</code>. SSRF fix on <code>asset.src</code>. Re-enable CSRF on <code>/api/*</code> or switch to bearer tokens. 2d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">04 · render safety</span>
+        <h4>Cap + timeout</h4>
+        <p><code>pLimit(2)</code> per process. <code>RENDER_TIMEOUT_MS</code> default 10min. 503 when full. <code>AbortSignal</code> plumbed into <code>renderToFile</code>. 1d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">05 · uploads</span>
+        <h4>Magic + quota</h4>
+        <p><code>file-type</code> magic-byte sniff. Reject decoded images &gt; 64 megapixels. Per-tenant disk quota. 1.5d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">06 · metering</span>
+        <h4>Stripe</h4>
+        <p><code>usage_events</code> table. Writers in render worker + asset pipeline + MCP router. Stripe Meter wiring. 3d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">07 · ops</span>
+        <h4>Sentry + Docker</h4>
+        <p>Sentry hook. Request-id middleware. Privacy / ToS pages. Dockerfile. Hetzner CX32 + Coolify. Health alert. 2d.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">08 · ship</span>
+        <h4>Friends-and-family</h4>
+        <p>Smoke-test runbook. Invite 5 — 10 trusted users. Watch metrics. Iterate on their behavior, not on this audit.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top: 56px;">Public launch — 1000+ tenants, ~3–5 months</h3>
+    <div class="phases">
+      <div class="phase">
+        <span class="ix">P1 · split</span>
+        <h4>Web ↔ worker</h4>
+        <p>BullMQ + Redis. <code>editor-web</code> publishes jobs, <code>render-worker</code> pops them. SSE proxied via Redis pub/sub.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P2 · storage</span>
+        <h4>R2 / S3</h4>
+        <p><code>BlobStore</code> interface across asset pipeline, composition writer, render writer. Presigned download URLs.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P3 · DB</span>
+        <h4>Postgres</h4>
+        <p>SQLite → Postgres. Per-tenant connection pooling. Library index migrates from per-project <code>library/index.json</code> + fs.watch to DB rows.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P4 · hosted MCP</span>
+        <h4>HTTP+SSE per tenant</h4>
+        <p>Move MCP from stdio to HTTP-SSE transport with bearer-token auth. The keystone differentiator for the agent-native platform pitch.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P5 · abuse</span>
+        <h4>Limiter + WAF</h4>
+        <p><code>@adonisjs/limiter</code> on every mutating endpoint. Per-tenant render-minutes guardrails. Cloudflare WAF.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P6 · compliance</span>
+        <h4>GDPR + C2PA</h4>
+        <p>Data-export, delete-me, DMCA takedown form. C2PA provenance baked into rendered MP4s. AV scan on uploads.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P7 · observability</span>
+        <h4>Loki + Tempo</h4>
+        <p>Pino → Loki, OpenTelemetry → Tempo, Prometheus → Grafana. Per-tenant dashboards. Render-queue depth, p95 latency, MCP error rate, per-tenant storage.</p>
+      </div>
+      <div class="phase">
+        <span class="ix">P8 · hardening</span>
+        <h4>CSP, HSTS, SOC2 primitives</h4>
+        <p>CSP enforced. HSTS preload. HTTP/3 termination. Change log, access log, secrets rotation. Not SOC2-certified, but SOC2-ready.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="s" id="verdict">
+  <div class="wrap-narrow">
+    <p class="eyebrow">15 — verdict for v1.0</p>
+    <h2>One notch above "ships."</h2>
+    <p class="lead">The engine, the editor server, the MCP bridge, and the precompile pipeline are deliberate, tested, internally consistent code. The author knew they were building a single-user local tool and did so cleanly. Three one-day fixes (blend-mode enum, color-tween parseability, numeric-property clamping) close the "validate-then-crash" failure class and meaningfully sharpen the determinism story.</p>
+    <p class="lead">The MCP layer is the strongest part of the project. Atomic, orthogonal, structured-error tools backed by a deterministic engine, with an editor bridge that proves human + agent edits can share one canonical state. What gates v1.0 quality here is consistency, discoverability, and SaaS-readiness — all bounded, all mechanical.</p>
+    <p class="lead">The editor is shippable as a v1.0 local-first single-user app and meaningfully impressive at that scale. Visible bugs are minor; none are corruption-class under the documented single-user workflow. Top polish items: undo shortcut, Stage drag, render presets UI, Linux/Windows reveal parity.</p>
+    <div class="callout">
+      <div class="label">final word</div>
+      <div class="headline">Ship v1.0 as a local-first tool. Refactor the project store next. Don't platformify ahead of the user signal.</div>
+      <p>The dominant risk for this project right now is premature platformification. The engine is good. The editor is good. The hard part is converting that quality into per-user value at a price someone will pay — and the SaaS shell needed to do that is much smaller than the vision document hints at. Build the alpha shell. Ship to ten paying users. Let their behavior pick the next ten items, not this audit.</p>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="wrap-narrow">
+    <p class="sig">Same input, same pixels, every host.</p>
+    <p class="meta">davidup v1.0 · manual + audit · 2026-05-19 · narcis75@gmail.com</p>
+  </div>
+</footer>
+
+</body>
+</html>

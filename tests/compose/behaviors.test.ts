@@ -10,6 +10,8 @@ import {
   getBehaviorDescriptor,
   hasBehavior,
   listBehaviors,
+  registerBehavior,
+  unregisterBehavior,
 } from "../../src/compose/behaviors.js";
 import { MCPToolError } from "../../src/mcp/errors.js";
 
@@ -435,5 +437,112 @@ describe("expandBehaviors — compile-time pass over composition.tweens", () => 
     expect(expandBehaviors(42)).toBe(42);
     expect(expandBehaviors(null)).toBe(null);
     expect(expandBehaviors({ items: {} })).toEqual({ items: {} });
+  });
+});
+
+// ──────────────── registerBehavior / unregisterBehavior (step 20.3, F3) ────────────────
+
+describe("registerBehavior / unregisterBehavior — library hydration path", () => {
+  it("registers a descriptor-only entry visible to hasBehavior + listBehaviors", () => {
+    expect(hasBehavior("user_bounce")).toBe(false);
+    registerBehavior({
+      name: "user_bounce",
+      description: "Vertical bounce.",
+      params: [
+        {
+          name: "height",
+          type: "number",
+          required: false,
+          description: "Peak Y.",
+          default: 80,
+        },
+      ],
+      produces: "dynamic",
+    });
+    try {
+      expect(hasBehavior("user_bounce")).toBe(true);
+      const desc = getBehaviorDescriptor("user_bounce");
+      expect(desc?.description).toBe("Vertical bounce.");
+      expect(desc?.params[0]?.name).toBe("height");
+      const names = listBehaviors().map((b) => b.name);
+      expect(names).toContain("user_bounce");
+    } finally {
+      unregisterBehavior("user_bounce");
+    }
+    expect(hasBehavior("user_bounce")).toBe(false);
+  });
+
+  it("expandBehavior on a metadata-only behavior throws E_BEHAVIOR_UNKNOWN with a hint", () => {
+    registerBehavior({
+      name: "user_metaonly",
+      description: "",
+      params: [],
+      produces: "dynamic",
+    });
+    try {
+      let caught: MCPToolError | null = null;
+      try {
+        expandBehavior({
+          behavior: "user_metaonly",
+          target: "logo",
+          start: 0,
+          duration: 1,
+        });
+      } catch (err) {
+        caught = err as MCPToolError;
+      }
+      expect(caught).toBeInstanceOf(MCPToolError);
+      expect(caught?.code).toBe("E_BEHAVIOR_UNKNOWN");
+      expect(caught?.hint).toMatch(/metadata only/i);
+    } finally {
+      unregisterBehavior("user_metaonly");
+    }
+  });
+
+  it("re-registering a built-in name preserves its expand function (metadata-only override)", () => {
+    const beforeDescriptor = getBehaviorDescriptor("fadeIn");
+    expect(beforeDescriptor).toBeDefined();
+
+    registerBehavior({
+      name: "fadeIn",
+      description: "Custom library description for fadeIn.",
+      params: [
+        {
+          name: "fromOpacity",
+          type: "number",
+          required: false,
+          description: "Overridden in library JSON.",
+          default: 0,
+        },
+      ],
+      produces: "dynamic",
+    });
+    try {
+      const desc = getBehaviorDescriptor("fadeIn");
+      expect(desc?.description).toBe("Custom library description for fadeIn.");
+
+      // The built-in `expand` still works — fadeIn produces one opacity tween.
+      const tweens = expandBehavior({
+        behavior: "fadeIn",
+        target: "logo",
+        start: 0,
+        duration: 1,
+      });
+      expect(tweens).toHaveLength(1);
+      expect(tweens[0]?.property).toBe("transform.opacity");
+    } finally {
+      // Restore the built-in descriptor metadata so other tests see canonical state.
+      if (beforeDescriptor) registerBehavior(beforeDescriptor);
+    }
+  });
+
+  it("registerBehavior rejects an empty name", () => {
+    expect(() =>
+      registerBehavior({ name: "", description: "", params: [], produces: "dynamic" }),
+    ).toThrow();
+  });
+
+  it("unregisterBehavior returns false for unknown names", () => {
+    expect(unregisterBehavior("nope-not-here")).toBe(false);
   });
 });

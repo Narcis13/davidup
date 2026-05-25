@@ -362,7 +362,16 @@ async function main(): Promise<void> {
   if (render.ok) {
     const wallMs = performance.now() - startedAt;
     const size = await stat(VIDEO_MP4).then((s) => s.size).catch(() => 0);
-    const r = render.result as { frameCount: number; durationMs: number };
+    // Unified async shape: payload carries job metadata plus `result: null |
+    // { frameCount, durationMs, ... }`. Standalone is always blocking, so
+    // `result` is populated; we still guard for safety.
+    const payload = render.result as {
+      result: { frameCount: number; durationMs: number } | null;
+    };
+    const r = payload.result;
+    if (!r) {
+      throw new Error(`[davidup] render_to_video returned no result payload`);
+    }
     log(
       `done via MCP. ${r.frameCount} frames in ${wallMs.toFixed(0)}ms wall ` +
         `(${(size / 1_048_576).toFixed(2)}MB)`,

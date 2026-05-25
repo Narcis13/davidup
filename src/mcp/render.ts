@@ -13,7 +13,7 @@
 import { NodeAssetLoader, type SkiaCanvasModule } from "../assets/index.js";
 import { indexTweens, renderFrame } from "../engine/index.js";
 import type { Canvas2DContext } from "../engine/types.js";
-import type { Composition } from "../schema/types.js";
+import type { Asset, Composition } from "../schema/types.js";
 import { MCPToolError } from "./errors.js";
 
 export type PreviewFormat = "png" | "jpeg";
@@ -75,7 +75,7 @@ export async function renderPreviewFrame(
   ensureFiniteTime(time);
   const format: PreviewFormat = options.format ?? "png";
   const skia = options.skiaCanvas ?? (await loadSkia());
-  const loader = options.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
+  const loader = options.loader ?? getCachedLoader(skia, comp.assets);
 
   await loader.preloadAll(comp.assets);
 
@@ -107,8 +107,10 @@ export async function renderThumbnailStrip(
   const format: PreviewFormat = options.format ?? "png";
   const skia = options.skiaCanvas ?? (await loadSkia());
   // Single loader, single canvas, single asset preload — important for clips
-  // with many assets where reloading per frame would be wasteful.
-  const loader = options.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
+  // with many assets where reloading per frame would be wasteful. The loader
+  // is also cached across MCP calls (see getCachedLoader) so agents iterating
+  // on a 20-PNG comp don't re-decode every asset on each preview.
+  const loader = options.loader ?? getCachedLoader(skia, comp.assets);
   await loader.preloadAll(comp.assets);
 
   const meta = comp.composition;
@@ -148,7 +150,11 @@ export function sampleTimes(duration: number, count: number): number[] {
 
 function ensureFiniteTime(t: number): void {
   if (!Number.isFinite(t) || t < 0) {
-    throw new MCPToolError("E_INVALID_VALUE", "time must be a non-negative finite number.");
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "time must be a non-negative finite number.",
+      "Pass seconds since composition start; must be ≥ 0 and finite (e.g. 0.5).",
+    );
   }
 }
 
@@ -165,4 +171,60 @@ async function loadSkia(): Promise<PreviewSkiaModule> {
     Function("s", "return import(s)") as (s: string) => Promise<PreviewSkiaModule>
   )(specifier);
   return mod;
+}
+
+// Cross-call asset-loader cache. Without this, every render_preview_frame /
+// render_thumbnail_strip call spun up a fresh NodeAssetLoader and re-decoded
+// every image (and re-registered every font) — the dominant per-iteration
+// latency cost when an agent renders the same comp repeatedly.
+//
+// Key strategy: WeakMap keyed by the skia module identity (so a different
+// skia — e.g. a test fake — never reuses production loaders, and unused
+// skias GC naturally), then by a content-hash of comp.assets so any change
+// to the asset list (added/removed/re-pointed src) lands on a fresh loader.
+//
+// LRU-capped per skia to keep memory bounded when an agent iterates through
+// many distinct asset configurations.
+interface CachedLoader {
+  loader: NodeAssetLoader;
+}
+
+const LOADER_CACHE_MAX = 8;
+const loaderCache: WeakMap<SkiaCanvasModule, Map<string, CachedLoader>> =
+  new WeakMap();
+
+function getCachedLoader(
+  skia: SkiaCanvasModule,
+  assets: ReadonlyArray<Asset>,
+): NodeAssetLoader {
+  let inner = loaderCache.get(skia);
+  if (!inner) {
+    inner = new Map();
+    loaderCache.set(skia, inner);
+  }
+  const key = assetsKey(assets);
+  const hit = inner.get(key);
+  if (hit) {
+    // Touch for LRU ordering — Map preserves insertion order.
+    inner.delete(key);
+    inner.set(key, hit);
+    return hit.loader;
+  }
+  const loader = new NodeAssetLoader({ skiaCanvas: skia });
+  const entry: CachedLoader = { loader };
+  inner.set(key, entry);
+  while (inner.size > LOADER_CACHE_MAX) {
+    const oldest = inner.keys().next().value;
+    if (oldest === undefined) break;
+    inner.delete(oldest);
+  }
+  return loader;
+}
+
+function assetsKey(assets: ReadonlyArray<Asset>): string {
+  // Sort by id so callers that pass the same logical asset set in different
+  // orders still hit the same cache entry. JSON.stringify is canonical for
+  // these flat shapes (image: {id,type,src}; font: {id,type,src,family}).
+  const sorted = [...assets].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return JSON.stringify(sorted);
 }

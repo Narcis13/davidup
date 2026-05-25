@@ -1,0 +1,9 @@
+{
+  "id": "bounce",
+  "name": "Bounce",
+  "description": "Vertical bounce: transform.y eased with easeOutBounce.",
+  "params": [
+    { "name": "height", "type": "number", "default": 80 },
+    { "name": "duration", "type": "number", "default": 0.8 }
+  ]
+}

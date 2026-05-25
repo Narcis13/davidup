@@ -1,0 +1,408 @@
+import { test } from '@japa/runner'
+import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { stat as fsStat } from 'node:fs/promises'
+import projectStore from '#services/project_store'
+import globalLibraryRoot from '#services/global_library_root'
+import { rewriteAssetsForBrowser } from '#controllers/editor_controller'
+
+const VALID_COMP = {
+  version: '0.1',
+  composition: {
+    width: 1280,
+    height: 720,
+    fps: 60,
+    duration: 3,
+    background: '#0a0e27',
+  },
+  assets: [
+    { id: 'ball', type: 'image', src: './ball.png' },
+    { id: 'badge', type: 'image', src: 'logos/badge.png' },
+    { id: 'font-display', type: 'font', src: './fonts/Display.ttf', family: 'Display' },
+  ],
+  layers: [{ id: 'fg', z: 10, opacity: 1, blendMode: 'normal', items: ['logo'] }],
+  items: {
+    logo: {
+      type: 'shape',
+      kind: 'rect',
+      width: 320,
+      height: 320,
+      fillColor: '#ff6b35',
+      transform: {
+        x: 640,
+        y: 360,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        opacity: 1,
+      },
+    },
+  },
+  tweens: [],
+}
+
+async function makeProject(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'davidup-editor-'))
+  await writeFile(join(dir, 'composition.json'), JSON.stringify(VALID_COMP, null, 2), 'utf8')
+  // Asset files used by /project-files/* tests.
+  await writeFile(join(dir, 'ball.png'), Buffer.from([1, 2, 3, 4]))
+  await mkdir(join(dir, 'logos'), { recursive: true })
+  await writeFile(join(dir, 'logos', 'badge.png'), Buffer.from([5, 6, 7, 8, 9]))
+  await mkdir(join(dir, 'fonts'), { recursive: true })
+  await writeFile(join(dir, 'fonts', 'Display.ttf'), Buffer.from('FAKE-FONT-DATA'))
+  return dir
+}
+
+test.group('rewriteAssetsForBrowser', () => {
+  test('rewrites relative srcs to /project-files/* URLs', ({ assert }) => {
+    const out = rewriteAssetsForBrowser(VALID_COMP) as typeof VALID_COMP
+    assert.equal(out.assets[0].src, '/project-files/ball.png')
+    assert.equal(out.assets[1].src, '/project-files/logos/badge.png')
+    assert.equal(out.assets[2].src, '/project-files/fonts/Display.ttf')
+  })
+
+  test('does not mutate input', ({ assert }) => {
+    const before = JSON.stringify(VALID_COMP)
+    rewriteAssetsForBrowser(VALID_COMP)
+    assert.equal(JSON.stringify(VALID_COMP), before)
+  })
+
+  test('leaves absolute URLs and data URIs untouched', ({ assert }) => {
+    const comp = {
+      assets: [
+        { id: 'a', type: 'image', src: 'https://cdn.example.com/foo.png' },
+        { id: 'b', type: 'image', src: 'data:image/png;base64,AAA' },
+      ],
+    }
+    const out = rewriteAssetsForBrowser(comp) as typeof comp
+    assert.equal(out.assets[0].src, 'https://cdn.example.com/foo.png')
+    assert.equal(out.assets[1].src, 'data:image/png;base64,AAA')
+  })
+
+  test('rewrites `global:` srcs to /library-files/* URLs', ({ assert }) => {
+    const comp = {
+      assets: [
+        { id: 'g1', type: 'image', src: 'global:assets/abc.png' },
+        { id: 'g2', type: 'font', src: 'global:fonts/Inter.ttf', family: 'Inter' },
+      ],
+    }
+    const out = rewriteAssetsForBrowser(comp) as typeof comp
+    assert.equal(out.assets[0].src, '/library-files/assets/abc.png')
+    assert.equal(out.assets[1].src, '/library-files/fonts/Inter.ttf')
+  })
+
+  test('returns input unchanged when not an object', ({ assert }) => {
+    assert.equal(rewriteAssetsForBrowser(null), null)
+    assert.equal(rewriteAssetsForBrowser('nope'), 'nope')
+  })
+})
+
+/**
+ * Pull the JSON payload Adonis/Inertia embeds in the rendered HTML.
+ * The edge layout (`@inertia()`) emits `<div id="app" data-page='{...}'></div>`
+ * — that JSON is the source of truth for what props the Vue page receives.
+ */
+function extractInertiaPage(html: string): {
+  component: string
+  props: Record<string, unknown>
+} {
+  // Two possible shapes:
+  //   - SSR enabled: `<script data-page="app" type="application/json">{json}</script>`
+  //     (inertia core SSR body — see @inertiajs/core/dist/index.js).
+  //   - SSR disabled: `<div id="app" data-page="<html-encoded-json>"></div>`
+  //     (adonis inertia edge plugin).
+  const ssrScript = html.match(
+    /<script[^>]*data-page="[^"]*"[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/,
+  )
+  if (ssrScript) return JSON.parse(ssrScript[1])
+
+  const attr = html.match(/<div[^>]*id="app"[^>]*data-page="([^"]*)"/)
+  if (!attr) throw new Error('Could not find inertia page payload in HTML')
+  const decoded = attr[1]
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    // &amp; last so we don't double-decode entities like &amp;lt;.
+    .replace(/&amp;/g, '&')
+  return JSON.parse(decoded)
+}
+
+test.group('Editor page', (group) => {
+  group.each.setup(async () => {
+    await projectStore.unload()
+  })
+
+  test('GET /editor renders the inertia editor page with composition + rewritten assets', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/editor')
+      res.assertStatus(200)
+      const page = extractInertiaPage(res.text())
+      assert.equal(page.component, 'editor')
+      const composition = page.props.composition as typeof VALID_COMP
+      const project = page.props.project as { root: string }
+      assert.equal(project.root, dir)
+      assert.equal(composition.assets[0].src, '/project-files/ball.png')
+      assert.equal(composition.assets[1].src, '/project-files/logos/badge.png')
+      assert.equal(composition.assets[2].src, '/project-files/fonts/Display.ttf')
+      assert.isNull(page.props.error)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('GET /editor renders the empty state when no project is loaded', async ({
+    client,
+    assert,
+  }) => {
+    const res = await client.get('/editor')
+    res.assertStatus(200)
+    const page = extractInertiaPage(res.text())
+    assert.equal(page.component, 'editor')
+    assert.isNull(page.props.composition)
+    assert.isNull(page.props.defaults)
+    assert.isNull(page.props.project)
+    assert.isNull(page.props.compositionSource)
+    const error = page.props.error as { code: string }
+    assert.equal(error.code, 'E_NO_PROJECT')
+  })
+
+  test('GET /editor ships a stable defaults payload for override detection', async ({
+    client,
+    assert,
+  }) => {
+    // Polish_plan 20.25: the Inertia payload now carries `defaults` — the
+    // precompile-time snapshot the Inspector compares against to draw its
+    // overridden-prop dot.
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/editor')
+      res.assertStatus(200)
+      const page = extractInertiaPage(res.text())
+      const defaults = page.props.defaults as typeof VALID_COMP
+      assert.isObject(defaults)
+      // Asset rewrite is applied to defaults the same way as to composition,
+      // so the Inspector's value comparison never has to think about URL
+      // shape — both sides speak `/project-files/...`.
+      assert.equal(defaults.assets[0].src, '/project-files/ball.png')
+      assert.equal(defaults.assets[1].src, '/project-files/logos/badge.png')
+      // The defaults snapshot equals the freshly-loaded composition on first
+      // render — divergence only appears once the user edits.
+      const composition = page.props.composition as typeof VALID_COMP
+      assert.deepEqual(defaults, composition)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('GET /editor embeds the authored composition.json text in compositionSource', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/editor')
+      res.assertStatus(200)
+      const page = extractInertiaPage(res.text())
+      const source = page.props.compositionSource as {
+        text: string
+        file: string
+        mtimeMs: number
+      } | null
+      assert.isNotNull(source)
+      assert.match(source!.text, /"version":\s*"0\.1"/)
+      // The drawer always renders the authored (on-disk) JSON — not the
+      // asset-rewritten browser-friendly version — so the relative `./ball.png`
+      // src is what we expect to see here.
+      assert.match(source!.text, /"src":\s*"\.\/ball\.png"/)
+      assert.isAtLeast(source!.mtimeMs, 1)
+      assert.match(source!.file, /composition\.json$/)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('GET /editor emits the inertia data-page payload', async ({ client }) => {
+    const res = await client.get('/editor')
+    res.assertStatus(200)
+    res.assertTextIncludes('data-page')
+  })
+})
+
+test.group('GET /api/composition-source', (group) => {
+  group.each.setup(async () => {
+    await projectStore.unload()
+  })
+
+  test('returns the authored composition.json text when a project is loaded', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/api/composition-source')
+      res.assertStatus(200)
+      const body = res.body() as { text: string; file: string; mtimeMs: number }
+      assert.match(body.text, /"version":\s*"0\.1"/)
+      assert.match(body.file, /composition\.json$/)
+      assert.isAtLeast(body.mtimeMs, 1)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('returns 404 when no project is loaded', async ({ client }) => {
+    const res = await client.get('/api/composition-source')
+    res.assertStatus(404)
+    res.assertBodyContains({ error: { code: 'E_NO_PROJECT' } })
+  })
+})
+
+test.group('Editor file streaming', (group) => {
+  group.each.setup(async () => {
+    await projectStore.unload()
+  })
+
+  test('GET /project-files/ball.png streams the file from the project root', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/project-files/ball.png')
+      res.assertStatus(200)
+      assert.equal(res.header('content-type'), 'image/png')
+      assert.equal(res.header('content-length'), '4')
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('serves nested paths', async ({ client }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/project-files/logos/badge.png')
+      res.assertStatus(200)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('returns 404 when no project is loaded', async ({ client }) => {
+    const res = await client.get('/project-files/anything.png')
+    res.assertStatus(404)
+    res.assertBodyContains({ error: { code: 'E_NO_PROJECT' } })
+  })
+
+  test('returns 404 for missing files', async ({ client }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/project-files/missing.png')
+      res.assertStatus(404)
+      res.assertBodyContains({ error: { code: 'E_FILE_NOT_FOUND' } })
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('blocks path traversal with ../', async ({ client }) => {
+    const dir = await makeProject()
+    try {
+      await projectStore.load(dir)
+      const res = await client.get('/project-files/..%2F..%2Fetc%2Fpasswd')
+      // Either 403 (traversal blocked) or 404 (not found) is acceptable.
+      assert(res.status() === 403 || res.status() === 404)
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+test.group('Library file streaming (/library-files/*)', (group) => {
+  let prevEnv: string | undefined
+  let libDir: string
+
+  group.each.setup(async () => {
+    libDir = await mkdtemp(join(tmpdir(), 'davidup-libfiles-'))
+    prevEnv = process.env.DAVIDUP_LIBRARY
+    process.env.DAVIDUP_LIBRARY = libDir
+    globalLibraryRoot.setPath(libDir)
+  })
+
+  group.each.teardown(async () => {
+    if (prevEnv === undefined) delete process.env.DAVIDUP_LIBRARY
+    else process.env.DAVIDUP_LIBRARY = prevEnv
+    globalLibraryRoot.setPath(null)
+    await rm(libDir, { recursive: true, force: true })
+  })
+
+  test('creates the standard subdir layout on first ensure()', async ({ assert }) => {
+    await globalLibraryRoot.ensure()
+    for (const sub of ['templates', 'behaviors', 'scenes', 'assets', 'fonts']) {
+      const s = await fsStat(join(libDir, sub))
+      assert.isTrue(s.isDirectory(), `expected ${sub} to be a directory`)
+    }
+  })
+
+  test('streams a file from the global library root', async ({ client, assert }) => {
+    await mkdir(join(libDir, 'assets'), { recursive: true })
+    await writeFile(join(libDir, 'assets', 'logo.png'), Buffer.from([9, 9, 9, 9, 9]))
+    const res = await client.get('/library-files/assets/logo.png')
+    res.assertStatus(200)
+    assert.equal(res.header('content-type'), 'image/png')
+    assert.equal(res.header('content-length'), '5')
+  })
+
+  test('serves nested paths under the library root', async ({ client }) => {
+    await mkdir(join(libDir, 'fonts'), { recursive: true })
+    await writeFile(join(libDir, 'fonts', 'Inter.ttf'), Buffer.from('FONT'))
+    const res = await client.get('/library-files/fonts/Inter.ttf')
+    res.assertStatus(200)
+  })
+
+  test('does not require a project to be loaded', async ({ client }) => {
+    await projectStore.unload()
+    await mkdir(join(libDir, 'templates'), { recursive: true })
+    await writeFile(join(libDir, 'templates', 'card.template.json'), '{}')
+    const res = await client.get('/library-files/templates/card.template.json')
+    res.assertStatus(200)
+  })
+
+  test('returns 404 for missing files', async ({ client }) => {
+    const res = await client.get('/library-files/templates/missing.json')
+    res.assertStatus(404)
+    res.assertBodyContains({ error: { code: 'E_FILE_NOT_FOUND' } })
+  })
+
+  test('blocks path traversal with ../', async ({ client }) => {
+    const res = await client.get('/library-files/..%2F..%2Fetc%2Fpasswd')
+    assert(res.status() === 403 || res.status() === 404)
+  })
+})
+
+function assert(cond: unknown): asserts cond {
+  if (!cond) throw new Error('expected condition to be truthy')
+}

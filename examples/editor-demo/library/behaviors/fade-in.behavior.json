@@ -1,0 +1,9 @@
+{
+  "id": "fadeIn",
+  "name": "Fade in",
+  "description": "Linear fade of transform.opacity from 0 → 1 over the configured duration.",
+  "params": [
+    { "name": "duration", "type": "number", "default": 0.5 },
+    { "name": "easing", "type": "string", "default": "easeOutQuad" }
+  ]
+}

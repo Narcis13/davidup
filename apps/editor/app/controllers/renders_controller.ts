@@ -1,0 +1,583 @@
+/**
+ * Renders controller — step 19 of the editor build plan.
+ *
+ *   POST /api/renders          → enqueue a new render of the currently-loaded
+ *                                composition. Returns the jobId immediately so
+ *                                the editor strip can subscribe before the
+ *                                first frame lands.
+ *   GET  /api/renders          → list known jobs (in-memory only, capped).
+ *   GET  /api/renders/:id      → snapshot the current state of a job.
+ *   GET  /api/renders/:id/events → SSE channel: `progress` / `done` / `error`.
+ *
+ * The PRD names this an "AdonisJS Transmit SSE channel". Transmit 3 requires
+ * Adonis 7 (we're on 6) and Transmit 2 fails to install against our lock; so
+ * for v1.0 the controller ships its own native SSE writer. The wire format
+ * (server-sent `event:` + `data:` frames) is the same shape Transmit emits,
+ * which keeps a future swap cheap. See `render_worker.ts` for the lifecycle.
+ */
+
+import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir, readdir, rename as renameFile, stat, unlink } from 'node:fs/promises'
+import { extname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+
+import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
+
+import projectStore from '#services/project_store'
+import renderJobs, { RenderJob, type RenderEvent } from '../workers/render_worker.js'
+
+function timestampStamp(now = new Date()): string {
+  // Compact, sortable, filesystem-safe: 20260517-141512-123
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  return (
+    now.getUTCFullYear().toString() +
+    pad(now.getUTCMonth() + 1) +
+    pad(now.getUTCDate()) +
+    '-' +
+    pad(now.getUTCHours()) +
+    pad(now.getUTCMinutes()) +
+    pad(now.getUTCSeconds()) +
+    '-' +
+    pad(now.getUTCMilliseconds(), 3)
+  )
+}
+
+interface CreateRenderBody {
+  /** Optional output filename, relative to `renders/` or absolute under the project. */
+  filename?: unknown
+  /** Optional ffmpeg knobs — codec / crf / preset / pixFmt. Forwarded to the worker. */
+  renderOptions?: unknown
+}
+
+const ALLOWED_CODECS = new Set(['libx264', 'libx265'])
+const ALLOWED_PRESETS = new Set([
+  'ultrafast',
+  'superfast',
+  'veryfast',
+  'faster',
+  'fast',
+  'medium',
+  'slow',
+  'slower',
+  'veryslow',
+])
+const ALLOWED_PIX_FMTS = new Set(['yuv420p', 'yuv422p', 'yuv444p', 'yuv420p10le'])
+
+function parseRenderOptions(raw: unknown): {
+  codec?: 'libx264' | 'libx265'
+  crf?: number
+  preset?: string
+  pixFmt?: string
+} | null {
+  if (!raw || typeof raw !== 'object') return null
+  const src = raw as Record<string, unknown>
+  const out: {
+    codec?: 'libx264' | 'libx265'
+    crf?: number
+    preset?: string
+    pixFmt?: string
+  } = {}
+  if (typeof src.codec === 'string' && ALLOWED_CODECS.has(src.codec)) {
+    out.codec = src.codec as 'libx264' | 'libx265'
+  }
+  if (typeof src.crf === 'number' && Number.isFinite(src.crf) && src.crf >= 0 && src.crf <= 51) {
+    out.crf = Math.round(src.crf)
+  }
+  if (typeof src.preset === 'string' && ALLOWED_PRESETS.has(src.preset)) {
+    out.preset = src.preset
+  }
+  if (typeof src.pixFmt === 'string' && ALLOWED_PIX_FMTS.has(src.pixFmt)) {
+    out.pixFmt = src.pixFmt
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/**
+ * Checks that `target` is strictly inside `dir`. Uses `path.relative` for
+ * canonical containment (a path that escapes `dir` produces a result that
+ * starts with `..` or is absolute). On macOS HFS+ / APFS (default
+ * case-insensitive), a byte-for-byte `startsWith` check is case-sensitive
+ * even though the filesystem isn't — two strings that refer to the same
+ * directory can disagree, so we lower-case both sides on darwin as well.
+ */
+function isPathInside(dir: string, target: string): boolean {
+  const norm = (p: string) => (process.platform === 'darwin' ? p.toLowerCase() : p)
+  const rel = relative(norm(dir), norm(target))
+  if (rel === '') return false
+  if (rel.startsWith('..')) return false
+  if (isAbsolute(rel)) return false
+  return true
+}
+
+export default class RendersController {
+  /**
+   * POST /api/renders — start a render of the currently-loaded composition.
+   *
+   * Returns immediately (200) with the jobId + total frame count so the UI
+   * can subscribe to the SSE channel before the first progress event lands.
+   * If no project is loaded → 404. If the composition is mid-mutation, the
+   * snapshot taken at request-time is what gets rendered (intentional — the
+   * disk file may be debounced behind it).
+   */
+  async store({ request, response }: HttpContext) {
+    const project = projectStore.project
+    const composition = projectStore.composition as
+      | { composition: { duration: number; fps: number; width: number; height: number } }
+      | null
+    if (!project || !composition) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+
+    const body = (request.body() ?? {}) as CreateRenderBody
+    const userFilename =
+      typeof body.filename === 'string' && body.filename.trim().length > 0
+        ? body.filename.trim()
+        : null
+
+    const stamp = timestampStamp()
+    const baseName = userFilename ?? `${stamp}.mp4`
+    if (baseName.includes('..') || baseName.startsWith('/')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'filename must be a simple basename' },
+      })
+    }
+    const safeName = extname(baseName) ? baseName : `${baseName}.mp4`
+
+    const rendersDir = join(project.root, 'renders')
+    await mkdir(rendersDir, { recursive: true })
+    const outputPath = join(rendersDir, safeName)
+    const relativeOutputPath = relative(project.root, outputPath)
+
+    const renderOptions = parseRenderOptions(body.renderOptions)
+
+    const jobId = randomUUID()
+    const job = new RenderJob({
+      jobId,
+      composition: composition as never,
+      outputPath,
+      relativeOutputPath,
+      sourcePath: project.compositionPath,
+      ...(renderOptions ? { renderOptions } : {}),
+    })
+    renderJobs.add(job)
+
+    // Fire-and-forget; clients subscribe via SSE for progress.
+    // We don't `await` because the response must return before the worker
+    // starts emitting frames — otherwise the SSE subscriber misses the
+    // early frames.
+    void job.run().catch((err) => {
+      logger.error({ err, jobId }, 'renders_controller: job.run threw unexpectedly')
+    })
+
+    return response.created({
+      jobId,
+      totalFrames: job.totalFrames,
+      outputPath,
+      relativeOutputPath,
+      eventsUrl: `/api/renders/${jobId}/events`,
+    })
+  }
+
+  /** GET /api/renders — list known jobs (newest first). */
+  async index({ response }: HttpContext) {
+    const list = renderJobs.list().map((j) => ({
+      jobId: j.jobId,
+      status: j.status,
+      outputPath: j.outputPath,
+      relativeOutputPath: j.relativeOutputPath,
+      totalFrames: j.totalFrames,
+      lastProgress: j.lastProgress,
+      final: j.final,
+      startedAt: j.startedAt,
+    }))
+    list.reverse()
+    return response.ok({ jobs: list })
+  }
+
+  /** GET /api/renders/:id — snapshot a single job's state. */
+  async show({ params, response }: HttpContext) {
+    const job = renderJobs.get(params.id)
+    if (!job) {
+      return response.notFound({
+        error: { code: 'E_JOB_NOT_FOUND', message: `No job with id ${params.id}` },
+      })
+    }
+    return response.ok({
+      jobId: job.jobId,
+      status: job.status,
+      outputPath: job.outputPath,
+      relativeOutputPath: job.relativeOutputPath,
+      totalFrames: job.totalFrames,
+      lastProgress: job.lastProgress,
+      final: job.final,
+      startedAt: job.startedAt,
+    })
+  }
+
+  /**
+   * GET /api/renders/:id/events — SSE subscription.
+   *
+   * Wire format (one frame per event):
+   *
+   *     event: progress
+   *     data: {"jobId":"…","frame":42,"total":360,"elapsedMs":1234}
+   *
+   *     event: done
+   *     data: {"jobId":"…","outputPath":"…","frameCount":360,"durationMs":4321}
+   *
+   *     event: error
+   *     data: {"jobId":"…","message":"ffmpeg exited with code 1: …"}
+   *
+   * On connect we always replay the latest known state (last progress event
+   * if running, or the terminal event if finished) so the UI doesn't have to
+   * race the network. Then we relay live events until either the job ends
+   * or the client disconnects.
+   */
+  async events({ params, request, response }: HttpContext) {
+    const job = renderJobs.get(params.id)
+    if (!job) {
+      return response.notFound({
+        error: { code: 'E_JOB_NOT_FOUND', message: `No job with id ${params.id}` },
+      })
+    }
+
+    const raw = response.response
+    // Write headers directly on the underlying Node response — going through
+    // `response.header(...)` here is a no-op because we then bypass Adonis's
+    // own serialisation by calling `raw.writeHead`. The two layers don't
+    // share state, so the SSE-specific headers must travel with `writeHead`.
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      // Hint to reverse proxies (nginx, Cloudflare) not to buffer the stream.
+      'X-Accel-Buffering': 'no',
+    })
+    if (typeof raw.flushHeaders === 'function') raw.flushHeaders()
+
+    // Disable AdonisJS's lazy-body inference — we own the response now.
+    // Calling `response.stream` semantics manually: we write bytes directly
+    // and resolve a promise when the client disconnects or job finishes.
+
+    function write(event: RenderEvent): void {
+      try {
+        raw.write(`event: ${event.type}\n`)
+        raw.write(`data: ${JSON.stringify(event)}\n\n`)
+      } catch (err) {
+        logger.warn({ err, jobId: params.id }, 'renders_controller: SSE write failed')
+      }
+    }
+
+    // Initial hello so clients can detect connection without waiting for the
+    // first frame (helps EventSource clients flip to OPEN immediately).
+    raw.write(`: connected\n\n`)
+
+    // Catch-up: replay last known state.
+    if (job.final) {
+      write(job.final)
+      // Job already finished; end the stream after a short tick so the
+      // browser can process the final event before EOF.
+      setImmediate(() => raw.end())
+    } else if (job.lastProgress) {
+      write(job.lastProgress)
+    }
+
+    // Heartbeat: SSE comment frame every 15s so intermediaries don't reap
+    // the connection during long renders.
+    const heartbeat = setInterval(() => {
+      try {
+        raw.write(`: ping ${Date.now()}\n\n`)
+      } catch {
+        clearInterval(heartbeat)
+      }
+    }, 15_000)
+
+    const onEvent = (event: RenderEvent): void => {
+      write(event)
+      if (event.type === 'done' || event.type === 'error') {
+        cleanup()
+        setImmediate(() => raw.end())
+      }
+    }
+
+    const cleanup = (): void => {
+      clearInterval(heartbeat)
+      job.off('event', onEvent)
+    }
+
+    job.on('event', onEvent)
+
+    // End the response when the client disconnects.
+    return new Promise<void>((resolveStream) => {
+      const onClose = () => {
+        cleanup()
+        resolveStream()
+      }
+      request.request.on('close', onClose)
+      raw.on('close', onClose)
+    })
+  }
+
+  /**
+   * GET /api/renders/files — list .mp4 files in the loaded project's
+   * `renders/` directory. Newest first by mtime. Used by the editor's
+   * RenderHistory panel (polish_plan §20.28) — entries persist across
+   * sessions, unlike the in-memory `useRender.history`.
+   */
+  async files({ response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const rendersDir = resolvePath(project.root, 'renders')
+    let entries: string[]
+    try {
+      entries = await readdir(rendersDir)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return response.ok({ files: [] })
+      throw err
+    }
+    const out: Array<{
+      filename: string
+      relativePath: string
+      sizeBytes: number
+      modifiedAt: number
+    }> = []
+    for (const name of entries) {
+      if (!name.toLowerCase().endsWith('.mp4')) continue
+      const full = join(rendersDir, name)
+      try {
+        const s = await stat(full)
+        if (!s.isFile()) continue
+        out.push({
+          filename: name,
+          relativePath: relative(project.root, full),
+          sizeBytes: s.size,
+          modifiedAt: s.mtimeMs,
+        })
+      } catch {
+        // Skip files that disappeared between readdir + stat.
+      }
+    }
+    out.sort((a, b) => b.modifiedAt - a.modifiedAt)
+    return response.ok({ files: out })
+  }
+
+  /**
+   * POST /api/renders/shell — open a render file in Finder ("reveal") or
+   * QuickTime Player ("play"). Filename is constrained to the project's
+   * `renders/` directory; no arbitrary paths.
+   *
+   * Only available on macOS (uses the `open` shell). Other platforms get a
+   * 501.
+   */
+  async shell({ request, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    if (process.platform !== 'darwin') {
+      return response.status(501).json({
+        error: {
+          code: 'E_UNSUPPORTED_PLATFORM',
+          message: 'Reveal-in-Finder / Play-in-QuickTime are macOS-only',
+        },
+      })
+    }
+    const body = (request.body() ?? {}) as { filename?: unknown; action?: unknown }
+    const filename = typeof body.filename === 'string' ? body.filename : ''
+    const action = body.action === 'reveal' || body.action === 'play' ? body.action : null
+    if (!filename || filename.includes('..') || isAbsolute(filename) || filename.includes('/')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid filename' },
+      })
+    }
+    if (!action) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: "action must be 'reveal' or 'play'" },
+      })
+    }
+    const target = resolvePath(project.root, 'renders', filename)
+    const inside = resolvePath(project.root, 'renders')
+    if (!isPathInside(inside, target)) {
+      return response.forbidden({
+        error: { code: 'E_FORBIDDEN', message: 'File outside renders/ directory' },
+      })
+    }
+    if (!existsSync(target)) {
+      return response.notFound({
+        error: { code: 'E_NOT_FOUND', message: 'Render file not found' },
+      })
+    }
+
+    const args = action === 'reveal' ? ['-R', target] : ['-a', 'QuickTime Player', target]
+    try {
+      const proc = spawn('open', args, { stdio: 'ignore', detached: true })
+      proc.on('error', (err) => {
+        logger.warn({ err, action, target }, 'renders_controller: open shell failed')
+      })
+      proc.unref()
+    } catch (err) {
+      logger.warn({ err, action, target }, 'renders_controller: failed to spawn open')
+      return response.internalServerError({
+        error: { code: 'E_SPAWN_FAILED', message: (err as Error).message },
+      })
+    }
+    return response.ok({ ok: true, action, filename })
+  }
+
+  /**
+   * POST /api/renders/delete — UX_GAPS §O. Delete one-or-more renders by
+   * basename. The basenames must be plain filenames inside the project's
+   * `renders/` directory; otherwise the deletion is refused. Returns the
+   * list of files actually removed (so the client can prune its UI even if
+   * some entries were already gone).
+   */
+  async destroy({ request, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const body = (request.body() ?? {}) as { filenames?: unknown }
+    const names = Array.isArray(body.filenames) ? body.filenames : null
+    if (!names || names.length === 0) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: '`filenames` must be a non-empty array' },
+      })
+    }
+    const rendersDir = resolvePath(project.root, 'renders')
+    const deleted: string[] = []
+    const skipped: Array<{ filename: string; reason: string }> = []
+    for (const raw of names) {
+      const name = typeof raw === 'string' ? raw : ''
+      if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) {
+        skipped.push({ filename: String(raw), reason: 'invalid filename' })
+        continue
+      }
+      const target = resolvePath(rendersDir, name)
+      if (!isPathInside(rendersDir, target)) {
+        skipped.push({ filename: name, reason: 'outside renders directory' })
+        continue
+      }
+      try {
+        await unlink(target)
+        deleted.push(name)
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') {
+          deleted.push(name)
+        } else {
+          skipped.push({ filename: name, reason: code ?? 'delete failed' })
+        }
+      }
+    }
+    return response.ok({ deleted, skipped })
+  }
+
+  /**
+   * POST /api/renders/rename — UX_GAPS §O. Rename a render file in-place
+   * within the project's `renders/` directory. New name must be a basename
+   * (no path separators or `..`). If the existing file is missing or the
+   * destination already exists, returns a 409 so the UI can refresh.
+   */
+  async rename({ request, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const body = (request.body() ?? {}) as { filename?: unknown; newFilename?: unknown }
+    const from = typeof body.filename === 'string' ? body.filename : ''
+    const to = typeof body.newFilename === 'string' ? body.newFilename.trim() : ''
+    if (!from || from.includes('..') || from.includes('/') || from.includes('\\')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid source filename' },
+      })
+    }
+    if (!to || to.includes('..') || to.includes('/') || to.includes('\\')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid destination filename' },
+      })
+    }
+    // Preserve `.mp4` if the user dropped it.
+    const dest = extname(to) ? to : `${to}.mp4`
+    if (dest === from) {
+      return response.ok({ ok: true, filename: from, renamed: false })
+    }
+    const rendersDir = resolvePath(project.root, 'renders')
+    const srcPath = resolvePath(rendersDir, from)
+    const dstPath = resolvePath(rendersDir, dest)
+    if (!isPathInside(rendersDir, srcPath) || !isPathInside(rendersDir, dstPath)) {
+      return response.forbidden({
+        error: { code: 'E_FORBIDDEN', message: 'Path outside renders/ directory' },
+      })
+    }
+    if (!existsSync(srcPath)) {
+      return response.notFound({
+        error: { code: 'E_NOT_FOUND', message: 'Render file not found' },
+      })
+    }
+    if (existsSync(dstPath)) {
+      return response.status(409).send({
+        error: { code: 'E_DEST_EXISTS', message: `A file named "${dest}" already exists.` },
+      })
+    }
+    try {
+      await renameFile(srcPath, dstPath)
+    } catch (err) {
+      logger.warn({ err, from, to: dest }, 'renders_controller: rename failed')
+      return response.internalServerError({
+        error: { code: 'E_RENAME_FAILED', message: (err as Error).message },
+      })
+    }
+    return response.ok({ ok: true, filename: dest, renamed: true })
+  }
+
+  /**
+   * GET /project-renders/:filename — serve a finished render file by basename.
+   *
+   * The editor's "RenderStrip" links to this URL once `done` fires. We
+   * resolve the basename against the loaded project's `renders/` directory
+   * (never outside it) so the editor can preview the file without exposing
+   * the rest of the filesystem.
+   */
+  async file({ params, response }: HttpContext) {
+    const project = projectStore.project
+    if (!project) {
+      return response.notFound({
+        error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
+      })
+    }
+    const filename = String(params.filename ?? '')
+    if (!filename || filename.includes('..') || isAbsolute(filename) || filename.includes('/')) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Invalid filename' },
+      })
+    }
+    const target = resolvePath(project.root, 'renders', filename)
+    const inside = resolvePath(project.root, 'renders')
+    if (!isPathInside(inside, target)) {
+      return response.forbidden({
+        error: { code: 'E_FORBIDDEN', message: 'File outside renders/ directory' },
+      })
+    }
+    if (!existsSync(target)) {
+      return response.notFound({
+        error: { code: 'E_NOT_FOUND', message: 'Render file not found' },
+      })
+    }
+    return response.download(target)
+  }
+}

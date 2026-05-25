@@ -14,7 +14,7 @@
 // arithmetic, no defaults-in-string. Authors compute offsets in their app
 // before passing params (§7.4).
 
-import { MCPToolError } from "../mcp/errors.js";
+import { MCPToolError } from "../engine/errors.js";
 
 export interface SubstitutionContext {
   /** Resolved params keyed by descriptor name. Looked up via `${params.X}`. */

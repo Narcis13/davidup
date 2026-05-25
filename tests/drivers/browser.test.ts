@@ -458,4 +458,222 @@ describe("attach", () => {
       attach(authored, canvas, { loader: noopLoader() }),
     ).rejects.toThrow(/\$ref.*sourcePath/);
   });
+
+  // ──────────────── Paused-seek determinism (UX_FINDINGS §3) ────────────────
+  //
+  // Regression coverage for the editor's "scrub while paused" workflow.
+  // Before the fix, `pause()` tore the engine handle down and a subsequent
+  // `seek(t)` was a no-op against the canvas — the playhead readout moved
+  // but the canvas stayed on the pre-pause frame (or, worse, drifted to
+  // arbitrary in-flight frames over a few RAF ticks).
+  //
+  // The contract now: while paused, `seek(t)` paints exactly one
+  // deterministic frame at `t` in the same call, and two seeks to the same
+  // `t` are pixel-identical regardless of intervening seeks.
+
+  // Composition with one opacity tween so different `t` values produce
+  // visibly different draw outputs (the shape's fillRect alpha varies
+  // linearly with t). Opacity is a cleaner signal than transform.x — the
+  // anchor-adjust translate the renderer emits for shapes can mask
+  // position changes with a trailing translate(-0, -0).
+  function compWithTween(): Composition {
+    const base = tinyComp({ duration: 10 });
+    return {
+      ...base,
+      tweens: [
+        {
+          id: "fade",
+          target: "s",
+          property: "transform.opacity",
+          from: 0,
+          to: 1,
+          start: 0,
+          duration: 10,
+          easing: "linear",
+        },
+      ],
+    } as unknown as Composition;
+  }
+
+  // The shape's fillStyle is "#ff0000" (tinyComp); the background uses
+  // "#101010". Grabs the alpha the engine ended up applying to the shape's
+  // draw — the resolved t * 0.1 of the linear opacity tween.
+  function lastShapeAlpha(ctx: FakeContext): number | null {
+    for (let i = ctx.calls.length - 1; i >= 0; i--) {
+      const c = ctx.calls[i]!;
+      if (
+        (c.op === "fillRect" || c.op === "fill") &&
+        c.fillStyle === "#ff0000"
+      ) {
+        return c.alpha;
+      }
+    }
+    return null;
+  }
+
+  it("seek(t) paints a frame synchronously, even while paused", async () => {
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(compWithTween(), canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    handle.pause();
+    expect(raf.pending()).toBe(0); // pause() cancels the queued RAF.
+
+    canvas.ctx.calls.length = 0;
+    handle.seek(5); // t=5 of 10 → opacity = 0.5
+    // The seek itself must have repainted; no RAF flush, no clock advance.
+    expect(fillRectCount(canvas.ctx)).toBeGreaterThanOrEqual(1);
+    expect(lastShapeAlpha(canvas.ctx)).toBeCloseTo(0.5, 5);
+    // And it must not have re-primed the loop — the engine stays frozen.
+    expect(raf.pending()).toBe(0);
+
+    handle.stop();
+  });
+
+  it("two paused seeks to the same t produce identical draw output", async () => {
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(compWithTween(), canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+    handle.pause();
+
+    // First seek to t=4 (opacity=0.4) — capture the draw stream this produces.
+    canvas.ctx.calls.length = 0;
+    handle.seek(4);
+    const first = JSON.stringify(canvas.ctx.calls);
+    expect(lastShapeAlpha(canvas.ctx)).toBeCloseTo(0.4, 5);
+
+    // Seek away to a different time so the engine has to actually re-resolve
+    // when we come back. Also advance the wall clock — the bug from the
+    // report was that the canvas would resolve against (now - startTime)
+    // instead of the addressed time, so this exposes that path.
+    canvas.ctx.calls.length = 0;
+    handle.seek(2);
+    expect(lastShapeAlpha(canvas.ctx)).toBeCloseTo(0.2, 5);
+    clock.advance(2500);
+
+    // Seek back to t=4. Draw stream must be byte-identical to `first` —
+    // same translates, same fills, same order.
+    canvas.ctx.calls.length = 0;
+    handle.seek(4);
+    const second = JSON.stringify(canvas.ctx.calls);
+    expect(second).toBe(first);
+
+    // And a *third* seek to t=4 (no scrub between) is also identical.
+    canvas.ctx.calls.length = 0;
+    handle.seek(4);
+    const third = JSON.stringify(canvas.ctx.calls);
+    expect(third).toBe(first);
+
+    // Engine must not have ticked on its own — wall-clock advanced but the
+    // canvas hasn't moved past the addressed frame.
+    expect(raf.pending()).toBe(0);
+
+    handle.stop();
+  });
+
+  it("pause() cancels the RAF loop without destroying the handle", async () => {
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(compWithTween(), canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    expect(raf.pending()).toBe(1);
+    handle.pause();
+    expect(raf.pending()).toBe(0);
+
+    // Wall clock advances while paused; no tick fires.
+    const fillsAtPause = fillRectCount(canvas.ctx);
+    clock.advance(5000);
+    expect(fillRectCount(canvas.ctx)).toBe(fillsAtPause);
+
+    // pause() is idempotent.
+    handle.pause();
+    expect(raf.pending()).toBe(0);
+
+    // The handle is still alive — getItemBoundsAt resolves, getSourceMap
+    // doesn't throw, seek paints.
+    expect(handle.getSourceMap()).toBeNull(); // no emitSourceMap option.
+    canvas.ctx.calls.length = 0;
+    handle.seek(7);
+    expect(lastShapeAlpha(canvas.ctx)).toBeCloseTo(0.7, 5);
+
+    handle.stop();
+  });
+
+  it("resume() re-primes the RAF loop from the last rendered frame", async () => {
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(compWithTween(), canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+
+    handle.pause();
+    handle.seek(3);
+    expect(lastShapeAlpha(canvas.ctx)).toBeCloseTo(0.3, 5);
+
+    // Long real-time pause; resume must NOT skip forward by that amount.
+    clock.advance(8000);
+    handle.resume();
+    expect(raf.pending()).toBe(1);
+
+    // The next tick should land just after t=3 (opacity ~0.3), not at t=11
+    // (which would be past duration and end the comp with opacity=1).
+    raf.flushOne();
+    const a = lastShapeAlpha(canvas.ctx);
+    expect(a).not.toBeNull();
+    // Allow a couple frames of slack; the point is we did NOT jump by 8s.
+    expect(a!).toBeGreaterThanOrEqual(0.3);
+    expect(a!).toBeLessThan(0.35);
+
+    handle.stop();
+  });
+
+  it("pause() / resume() / seek() are inert after stop()", async () => {
+    const canvas = new FakeCanvas();
+    const clock = new FakeClock(0);
+    const raf = makeFakeRaf();
+
+    const handle = await attach(compWithTween(), canvas, {
+      loader: noopLoader(),
+      now: clock.now,
+      requestAnimationFrame: raf.schedule,
+      cancelAnimationFrame: raf.cancel,
+    });
+    handle.stop();
+
+    const fillsAfterStop = fillRectCount(canvas.ctx);
+    canvas.ctx.calls.length = 0;
+    handle.pause();
+    handle.resume();
+    handle.seek(5);
+    expect(fillRectCount(canvas.ctx)).toBe(0);
+    expect(raf.pending()).toBe(0);
+    // Sanity: the canvas didn't accumulate draws past stop either.
+    void fillsAfterStop;
+  });
 });

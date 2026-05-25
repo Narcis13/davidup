@@ -18,6 +18,10 @@ export interface BrowserAssetLoaderOptions {
 
 export class BrowserAssetLoader extends BaseAssetLoader {
   private readonly options: BrowserAssetLoaderOptions;
+  // Tracked so `clear()` can remove them from `document.fonts` — that registry
+  // is process-global and would otherwise accumulate one entry per loaded font
+  // across the lifetime of the page (project switches, hot reloads, etc).
+  private readonly registeredFonts: Array<{ doc: Document; face: FontFace }> = [];
 
   constructor(options: BrowserAssetLoaderOptions = {}) {
     super();
@@ -50,10 +54,31 @@ export class BrowserAssetLoader extends BaseAssetLoader {
     const face = new FontFaceCtor(asset.family, `url("${url}")`);
     await face.load();
     (doc.fonts as unknown as { add(f: FontFace): unknown }).add(face);
+    this.registeredFonts.push({ doc, face });
     return asset.family;
   }
 
+  override clear(): void {
+    super.clear();
+    for (const { doc, face } of this.registeredFonts) {
+      try {
+        (doc.fonts as unknown as { delete(f: FontFace): unknown }).delete(face);
+      } catch {
+        // document.fonts.delete may throw if the document has been torn down;
+        // either way the registration goes away with the document.
+      }
+    }
+    this.registeredFonts.length = 0;
+  }
+
   private resolveUrl(src: string): string {
+    // `global:<rest>` → the shared-pool route the editor server exposes.
+    // The composition keeps the symbolic prefix so the file stays portable;
+    // the loader resolves it to a fetchable URL just before paint.
+    if (src.startsWith("global:")) {
+      const rest = src.slice("global:".length).replace(/^\/+/, "");
+      return `/library-files/${rest}`;
+    }
     if (!this.options.baseUrl) return src;
     if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith("data:") || src.startsWith("/")) {
       return src;

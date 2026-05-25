@@ -1,6 +1,51 @@
 import { z } from "zod";
 import { EASING_NAMES } from "../easings/index.js";
 
+/**
+ * Canonical composition schema version. Bumped when the validator's accepted
+ * shape changes incompatibly. Mirrored as the `version` string in every
+ * `Composition` produced by `CompositionStore.toJSON()` and surfaced via
+ * `list_engine_capabilities.schemaVersion`.
+ */
+export const COMPOSITION_VERSION = "0.1";
+
+// Canvas2D `globalCompositeOperation` values per HTML Living Standard. The
+// renderer passes `Layer.blendMode` straight to `ctx.globalCompositeOperation`
+// (see `src/engine/render.ts:150`), so anything outside this list produces
+// host-divergent behavior — browsers silently ignore unknowns, skia-canvas
+// throws. We also accept the CSS alias "normal" and map it to "source-over".
+export const CANVAS2D_COMPOSITE_OPS = [
+  "source-over",
+  "source-in",
+  "source-out",
+  "source-atop",
+  "destination-over",
+  "destination-in",
+  "destination-out",
+  "destination-atop",
+  "lighter",
+  "copy",
+  "xor",
+  "multiply",
+  "screen",
+  "overlay",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+] as const;
+
+export const BLEND_MODES = [...CANVAS2D_COMPOSITE_OPS, "normal"] as const;
+export const BlendModeSchema = z.enum(BLEND_MODES);
+
 export const CompositionMetaSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -38,6 +83,32 @@ export const TransformSchema = z.object({
   opacity: z.number().min(0).max(1),
 });
 
+// Per UX_GAPS §M: `visible` and `locked` are optional booleans on every item
+// (and layer). Absent ≡ visible & unlocked, keeping older project JSON valid
+// without a migration. The engine skips drawing when `visible === false`;
+// `locked` is purely a hint to the editor (Inspector + Stage drag refuse
+// edits) and is ignored by the renderer.
+//
+// Per UX_GAPS §P: `name` is an optional human-friendly label rendered next
+// to the id in the Inspector / LayersPanel / Outliner. It never replaces
+// the id (existing references still resolve by id); the engine ignores it.
+// Capped at 80 chars so an oversize label can't blow up the source map
+// reveal or status-bar paths.
+//
+// Lifespan: optional `enter` / `exit` seconds on the composition timeline.
+// Half-open `[enter, exit)` window — outside it, the resolver flips
+// `visible = false` so the existing render gate at engine/render.ts skips
+// the item (or layer). Either bound omitted means "from the start" /
+// "until the end" respectively, keeping legacy projects with no lifespan
+// fields fully valid.
+export const ItemFlagsSchema = {
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  name: z.string().max(80).optional(),
+  enter: z.number().nonnegative().optional(),
+  exit: z.number().positive().optional(),
+} as const;
+
 export const SpriteItemSchema = z.object({
   type: z.literal("sprite"),
   asset: z.string().min(1),
@@ -45,6 +116,7 @@ export const SpriteItemSchema = z.object({
   height: z.number().nonnegative(),
   tint: z.string().optional(),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const TextItemSchema = z.object({
@@ -55,6 +127,7 @@ export const TextItemSchema = z.object({
   color: z.string(),
   align: z.enum(["left", "center", "right"]).optional(),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const ShapeItemSchema = z.object({
@@ -68,12 +141,14 @@ export const ShapeItemSchema = z.object({
   strokeWidth: z.number().nonnegative().optional(),
   cornerRadius: z.number().nonnegative().optional(),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const GroupItemSchema = z.object({
   type: z.literal("group"),
   items: z.array(z.string().min(1)),
   transform: TransformSchema,
+  ...ItemFlagsSchema,
 });
 
 export const ItemSchema = z.discriminatedUnion("type", [
@@ -87,8 +162,9 @@ export const LayerSchema = z.object({
   id: z.string().min(1),
   z: z.number(),
   opacity: z.number().min(0).max(1),
-  blendMode: z.string(),
+  blendMode: BlendModeSchema,
   items: z.array(z.string().min(1)),
+  ...ItemFlagsSchema,
 });
 
 export const TweenSchema = z.object({

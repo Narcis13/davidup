@@ -30,6 +30,8 @@ export {
   MCP_ERROR_CODES,
   type MCPErrorBody,
   type MCPErrorCode,
+  type MCPIssue,
+  type MCPToolErrorExtras,
 } from "./errors.js";
 
 export {
@@ -37,11 +39,30 @@ export {
   TOOL_NAMES,
   type ToolDef,
   type ToolDeps,
+  type ProjectControls,
+  type ProjectInfo,
+  type RecentProjectInfo,
+  type LibraryControls,
+  type LibraryListArgs,
+  type LibraryThumbnailArgs,
+  type MCPLibraryCatalog,
+  type MCPLibraryItem,
+  type MCPLibraryItemKind,
+  type MCPLibraryRootInfo,
+  type MCPLibraryScope,
+  type MCPLibraryThumbnail,
+  type RenderControls,
+  type MCPRenderJobSnapshot,
+  type MCPRenderJobStatus,
+  type MCPRenderJobProgress,
+  type MCPRenderJobResult,
+  type MCPRenderStartArgs,
 } from "./tools.js";
 
 export {
   dispatchTool,
   type DispatchResult,
+  type DispatchRouter,
 } from "./dispatch.js";
 
 export {
