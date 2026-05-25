@@ -72,6 +72,15 @@ const props = defineProps<{
    * matches `useStage().onTick`'s contract.
    */
   onTick?: (cb: () => void) => () => void
+  /**
+   * Current stage status. UX_FINDINGS §2 — when the comp is playing, a
+   * pointerdown on the canvas calls `pause()` first so the click lands on
+   * a stationary frame instead of selecting whatever happened to be under
+   * the cursor at the random instant the event fired.
+   */
+  status?: string | null
+  /** Pause the stage. Called on canvas pointerdown while status==='playing'. */
+  pause?: () => void
 }>()
 
 const emit = defineEmits<{
@@ -622,6 +631,14 @@ function onCanvasPointerDown(event: PointerEvent): void {
   if (libraryDrag.isActive.value) return
   if (itemToolbar.activeTool.value) return
   if (!props.pickItemAt) return
+  // UX_FINDINGS §2: while the comp is playing the scene under the cursor
+  // changes every frame. Park the playhead on the just-rendered frame
+  // before hit-testing so the click selects what the user actually sees.
+  // The driver's pause() leaves `lastRenderedT` intact, and pickItemAt
+  // defaults to that t — so the very next pick lines up with painted pixels.
+  if (props.status === 'playing' && props.pause) {
+    props.pause()
+  }
   const coords = clickCoordsToCanvas(event)
   if (!coords) return
   const hit = props.pickItemAt(coords.x, coords.y)
@@ -804,6 +821,13 @@ function findItemsInRect(
 
 function onCanvasClick(event: MouseEvent): void {
   if (libraryDrag.isActive.value) return
+
+  // UX_FINDINGS §2 belt-and-suspenders: pointerdown normally pauses first,
+  // but synthetic clicks (without a paired pointerdown) can still arrive
+  // while playing. Pause is idempotent.
+  if (props.status === 'playing' && props.pause) {
+    props.pause()
+  }
 
   // Toolbar place mode takes precedence over hit-testing: a click on the
   // canvas while a primitive tool is active drops the primitive at the

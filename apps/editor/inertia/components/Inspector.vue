@@ -88,6 +88,14 @@ const props = defineProps<{
   // selection changes to another id). Optional so existing callers keep
   // working — the provenance line just doesn't render when missing.
   lastPickSource?: PickSourceInfo | null
+  /**
+   * UX_FINDINGS §7 — resolver that returns an item's fully-resolved state
+   * at a given time. The Inspector calls this to show the value that
+   * matches the painted frame for any tweened property, rather than the
+   * authored base value. Optional so the panel still mounts when the
+   * stage isn't attached.
+   */
+  getResolvedItemAt?: (itemId: string, t?: number) => Record<string, unknown> | null
 }>()
 
 const emit = defineEmits<{
@@ -133,6 +141,46 @@ const selectedItem = computed<ItemLike | null>(() => {
   const item = (comp.items as Record<string, ItemLike>)[id]
   return item ?? null
 })
+
+// UX_FINDINGS §7 — fully-resolved state of the selected item at the
+// current playhead. Re-runs whenever the playhead, the selected item id,
+// or the composition reference changes so values track the painted frame.
+// Falls back to the base item when no resolver is wired (e.g. SSR, or
+// before the driver attaches).
+const resolvedSelectedItem = computed<ItemLike | null>(() => {
+  const id = selection.selectedItemId.value
+  if (!id) return null
+  const resolver = props.getResolvedItemAt
+  // Touch playhead + composition so this computed invalidates with them.
+  const t = props.playhead ?? 0
+  const compRef = props.composition
+  if (!resolver || !compRef) return selectedItem.value
+  const resolved = resolver(id, t)
+  if (!resolved) return selectedItem.value
+  return resolved as ItemLike
+})
+
+// Set of `${target}::${property}` keys that have at least one tween in the
+// composition. Used to flag fields as "animated" in the Inspector without
+// scanning the tween list per-field on every render.
+const tweenedKeys = computed<ReadonlySet<string>>(() => {
+  const tweens = props.composition?.tweens as
+    | ReadonlyArray<{ target?: unknown; property?: unknown }>
+    | undefined
+  const out = new Set<string>()
+  if (!Array.isArray(tweens)) return out
+  for (const tw of tweens) {
+    if (typeof tw?.target !== 'string' || typeof tw?.property !== 'string') continue
+    out.add(`${tw.target}::${tw.property}`)
+  }
+  return out
+})
+
+function isFieldAnimated(field: FieldDef): boolean {
+  const id = selection.selectedItemId.value
+  if (!id) return false
+  return tweenedKeys.value.has(`${id}::${field.path}`)
+}
 
 // UX_GAPS §Q multi-select — resolve every selected id to its item. Used by the
 // Mixed-badge logic + bulk dispatchEdit. Missing ids (deleted between marquee
@@ -421,7 +469,33 @@ const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
 })
 
 function valueFor(field: FieldDef): unknown {
+  // UX_FINDINGS §7 — for an animated property, return the value that the
+  // engine resolves at the current playhead (matches the painted frame),
+  // not the authored base value. Single-select only: multi-select still
+  // uses the per-item base via readPath(selectedItem.value, ...) so the
+  // Mixed badge logic stays consistent (resolving N items × tweens × N
+  // playheads is well beyond what the bulk-edit row needs).
+  if (!isMultiSelect.value && isFieldAnimated(field) && resolvedSelectedItem.value) {
+    return readPath(resolvedSelectedItem.value, field.path)
+  }
   return readPath(selectedItem.value, field.path)
+}
+
+// Authored base value for an animated field — shown as a tiny "base: X"
+// hint next to the input so the user knows what the keyframe-free value
+// is. Returns null when the field isn't animated.
+function baseValueFor(field: FieldDef): unknown {
+  if (!isFieldAnimated(field)) return null
+  return readPath(selectedItem.value, field.path)
+}
+
+function formatBaseValue(v: unknown): string {
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? String(v) : v.toFixed(3)
+  }
+  if (typeof v === 'string') return v
+  if (v === undefined || v === null) return '—'
+  return JSON.stringify(v)
 }
 
 // UX_GAPS §Q — true when multi-select and at least two selected items
@@ -1068,9 +1142,10 @@ function onSelectionChange(event: Event): void {
           <template v-for="field in TRANSFORM_FIELDS" :key="`tx-${field.key}`">
             <div
               class="field-row"
-              :class="{ mixed: isMixed(field) }"
+              :class="{ mixed: isMixed(field), animated: isFieldAnimated(field) && !isMultiSelect }"
               :data-field="field.key"
               :data-mixed="isMixed(field) ? 'true' : 'false'"
+              :data-animated="isFieldAnimated(field) ? 'true' : 'false'"
             >
               <div class="field-row-input">
                 <component
@@ -1094,6 +1169,12 @@ function onSelectionChange(event: Event): void {
                   :data-testid="`inspector-mixed-${field.key}`"
                   title="Selected items have different values. Editing will set them all to the same value."
                 >Mixed</span>
+                <span
+                  v-else-if="isFieldAnimated(field) && !isMultiSelect"
+                  class="animated-badge"
+                  :data-testid="`inspector-animated-${field.key}`"
+                  :title="`Animated · ${field.label} resolves to ${formatBaseValue(valueFor(field))} at this playhead. Editing changes the base (authored) value — base is ${formatBaseValue(baseValueFor(field))} — which a tween will override at this time.`"
+                >Animated</span>
               </div>
               <button
                 v-if="isFieldTweenable(field)"
@@ -1177,9 +1258,10 @@ function onSelectionChange(event: Event): void {
           <template v-for="field in LIFESPAN_FIELDS" :key="`ls-${field.key}`">
             <div
               class="field-row"
-              :class="{ mixed: isMixed(field) }"
+              :class="{ mixed: isMixed(field), animated: isFieldAnimated(field) && !isMultiSelect }"
               :data-field="field.key"
               :data-mixed="isMixed(field) ? 'true' : 'false'"
+              :data-animated="isFieldAnimated(field) ? 'true' : 'false'"
             >
               <div class="field-row-input">
                 <component
@@ -1200,6 +1282,12 @@ function onSelectionChange(event: Event): void {
                   :data-testid="`inspector-mixed-${field.key}`"
                   title="Selected items have different values."
                 >Mixed</span>
+                <span
+                  v-else-if="isFieldAnimated(field) && !isMultiSelect"
+                  class="animated-badge"
+                  :data-testid="`inspector-animated-${field.key}`"
+                  :title="`Animated · ${field.label} resolves to ${formatBaseValue(valueFor(field))} at this playhead.`"
+                >Animated</span>
               </div>
             </div>
           </template>
@@ -1246,9 +1334,10 @@ function onSelectionChange(event: Event): void {
           <template v-for="field in itemSpecificFields" :key="`item-${field.key}`">
             <div
               class="field-row"
-              :class="{ mixed: isMixed(field) }"
+              :class="{ mixed: isMixed(field), animated: isFieldAnimated(field) && !isMultiSelect }"
               :data-field="field.key"
               :data-mixed="isMixed(field) ? 'true' : 'false'"
+              :data-animated="isFieldAnimated(field) ? 'true' : 'false'"
             >
               <div class="field-row-input">
                 <component
@@ -1272,6 +1361,12 @@ function onSelectionChange(event: Event): void {
                   :data-testid="`inspector-mixed-${field.key}`"
                   title="Selected items have different values. Editing will set them all to the same value."
                 >Mixed</span>
+                <span
+                  v-else-if="isFieldAnimated(field) && !isMultiSelect"
+                  class="animated-badge"
+                  :data-testid="`inspector-animated-${field.key}`"
+                  :title="`Animated · ${field.label} resolves to ${formatBaseValue(valueFor(field))} at this playhead. Editing changes the base — a tween will override at this time.`"
+                >Animated</span>
               </div>
               <button
                 v-if="isFieldTweenable(field)"
@@ -1602,6 +1697,41 @@ function onSelectionChange(event: Event): void {
   pointer-events: none;
   z-index: 1;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* UX_FINDINGS §7 — Animated indicator. Tinted brand-blue (matches the
+ * Timeline's tween colour) so it reads distinctly from the orange Mixed /
+ * override badges. `pointer-events: auto` lets the title attribute fire
+ * on hover so the user can read the longer explanation. */
+.animated-badge {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e7ecff;
+  background: rgba(91, 124, 250, 0.28);
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: auto;
+  cursor: help;
+  z-index: 1;
+  border: 1px solid rgba(91, 124, 250, 0.55);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* Subtly tint the input border when animated so the field reads as
+ * driven-by-tween even when the badge text is partially covered by the
+ * value. Soft enough not to fight the orange overridden state. */
+.field-row.animated .field-row-input :deep(input),
+.field-row.animated .field-row-input :deep(select),
+.field-row.animated .field-row-input :deep(textarea) {
+  border-color: rgba(91, 124, 250, 0.45);
 }
 
 .multi-chip {

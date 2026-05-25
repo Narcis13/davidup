@@ -74,6 +74,9 @@ const emit = defineEmits<{
   // §20.27 — bubbles up the scene-instance id that owns a sealed bar so the
   // page can route the SourceDrawer to the scene declaration line.
   (event: 'openSceneSource', sceneInstanceId: string): void
+  // Mouse-reachable transport: the page wires this to `stage.togglePlay()`
+  // so first-time users without the Space-key shortcut can pause.
+  (event: 'togglePlay'): void
 }>()
 
 const selection = useSelection()
@@ -291,6 +294,50 @@ function pct(t: number): string {
 const playheadLeft = computed(() => pct(props.playhead))
 const playheadLabel = computed(() => `${props.playhead.toFixed(2)}s`)
 
+// Transport state — derived from the stage status string passed down from the
+// page. `isPlaying` chooses between the pause-bars and play-triangle glyph;
+// `playLabel` is the short human readout that replaces the old `meta-status`
+// readout (so the button visibly shows what the stage is currently doing).
+const isPlaying = computed<boolean>(() => props.status === 'playing')
+const transportDisabled = computed<boolean>(() => {
+  const s = props.status
+  // No stage attached yet (no project), still loading, or in error → nothing
+  // useful to toggle. Treat 'idle' as disabled because togglePlay is a no-op.
+  return !s || s === 'idle' || s === 'loading' || s === 'error'
+})
+const playLabel = computed<string>(() => {
+  switch (props.status) {
+    case 'playing':
+      return 'Pause'
+    case 'paused':
+      return 'Play'
+    case 'stopped':
+      return 'Play'
+    case 'ended':
+      return 'Replay'
+    case 'loading':
+      return 'Loading…'
+    case 'error':
+      return 'Error'
+    default:
+      return 'Play'
+  }
+})
+const playTitle = computed<string>(() => {
+  if (transportDisabled.value) return playLabel.value
+  return isPlaying.value ? 'Pause (Space)' : 'Play (Space)'
+})
+
+function onToggleTransport(): void {
+  if (transportDisabled.value) return
+  emit('togglePlay')
+}
+
+function onSeekStart(): void {
+  if (duration.value <= 0) return
+  emit('seek', 0)
+}
+
 // §20.27 — strip the scene-internal suffix so we land on the wrapper-group
 // instance id. Tweens authored directly against the wrapper (target == scene
 // instance id) have no `__`, in which case the target IS the instance id.
@@ -439,10 +486,66 @@ watch(
 <template>
   <div class="timeline" :data-tween-count="tweenCount">
     <header class="timeline-meta">
+      <div class="transport" role="group" aria-label="Playback transport">
+        <button
+          type="button"
+          class="transport-btn transport-to-start"
+          data-testid="transport-to-start"
+          title="Jump to start"
+          aria-label="Jump to start"
+          :disabled="duration <= 0"
+          @click="onSeekStart"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <rect x="4" y="5" width="2.5" height="14" rx="0.6" />
+            <path d="M21 5.6v12.8c0 .9-1 1.5-1.8 1.0L8.6 12.9a1.1 1.1 0 0 1 0-1.8L19.2 4.6c.8-.5 1.8.1 1.8 1z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="transport-btn transport-play"
+          data-testid="transport-toggle-play"
+          :data-status="status ?? 'idle'"
+          :data-playing="isPlaying ? 'true' : 'false'"
+          :title="playTitle"
+          :aria-label="playTitle"
+          :aria-pressed="isPlaying ? 'true' : 'false'"
+          :disabled="transportDisabled"
+          @click="onToggleTransport"
+        >
+          <svg
+            v-if="isPlaying"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <rect x="6" y="5" width="4" height="14" rx="0.8" />
+            <rect x="14" y="5" width="4" height="14" rx="0.8" />
+          </svg>
+          <svg
+            v-else
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M7 4.8v14.4c0 .9 1 1.5 1.8 1L20.4 13a1.2 1.2 0 0 0 0-2L8.8 3.8c-.8-.5-1.8.1-1.8 1z" />
+          </svg>
+          <span class="transport-label">{{ playLabel }}</span>
+        </button>
+      </div>
       <span class="meta-tween-count">{{ tweenCount }} tween{{ tweenCount === 1 ? '' : 's' }}</span>
       <span class="meta-duration">{{ duration.toFixed(2) }}s</span>
       <span class="meta-playhead">{{ playheadLabel }}</span>
-      <span v-if="status" class="meta-status" :data-status="status">{{ status }}</span>
       <span class="legend">
         <span class="legend-item"><span class="swatch swatch-template" />template</span>
         <span class="legend-item"><span class="swatch swatch-behavior" />behavior</span>
@@ -564,15 +667,76 @@ watch(
   letter-spacing: 0;
 }
 
-.meta-status[data-status='playing'] {
+.transport {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.transport-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  height: 22px;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.transport-btn:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.16);
+  color: #e7ecff;
+}
+
+.transport-btn:focus-visible {
+  outline: 1px solid rgba(91, 124, 250, 0.75);
+  outline-offset: 1px;
+}
+
+.transport-btn:disabled {
+  color: #555;
+  cursor: default;
+}
+
+.transport-to-start {
+  width: 24px;
+  padding: 0;
+}
+
+.transport-play {
+  gap: 5px;
+  min-width: 70px;
+  justify-content: flex-start;
+  padding: 0 8px 0 6px;
+}
+
+.transport-label {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-feature-settings: 'tnum';
+  color: inherit;
+}
+
+.transport-play[data-playing='true']:not(:disabled) {
   color: #06d6a0;
 }
 
-.meta-status[data-status='ended'] {
+.transport-play[data-status='ended']:not(:disabled) {
   color: #ffd166;
 }
 
-.meta-status[data-status='error'] {
+.transport-play[data-status='error'] {
   color: #ff6b6b;
 }
 

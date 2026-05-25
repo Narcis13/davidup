@@ -15,6 +15,7 @@
 
 import { computed, ref } from 'vue'
 import type { Composition } from '~/composables/useCommandBus'
+import { useActiveLayer } from '~/composables/useActiveLayer'
 import { useSelection } from '~/composables/useSelection'
 import OutlinerNode, { type OutlinerTreeNode } from '~/components/OutlinerNode.vue'
 
@@ -32,10 +33,36 @@ const props = defineProps<{
 }>()
 
 const selection = useSelection()
+const activeLayer = useActiveLayer()
 
-const collapsed = ref(false)
+// §6 — start collapsed by default so the panel doesn't cover the canvas
+// on load. Persisted across sessions via localStorage so a user who
+// opens it once doesn't have to re-expand every reload.
+const COLLAPSED_STORAGE_KEY = 'davidup.outliner.collapsed'
+const collapsed = ref(readCollapsedPref(true))
 const expandedIds = ref<Set<string>>(new Set())
 const filter = ref('')
+
+function readCollapsedPref(fallback: boolean): boolean {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_STORAGE_KEY)
+    if (raw === '0') return false
+    if (raw === '1') return true
+  } catch {
+    /* localStorage may be unavailable in privacy modes */
+  }
+  return fallback
+}
+
+function persistCollapsedPref(value: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(COLLAPSED_STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 
 // Layers, top-to-bottom (highest z first) so the tree reads like Photoshop /
 // Figma. Matches LayersPanel.vue's row order so the two panels stay
@@ -231,8 +258,24 @@ function isItemSelected(itemId: string): boolean {
   return selection.selectedItemId.value === itemId
 }
 
+// §8 — clicking a layer row body promotes it to the active layer (newly
+// placed primitives land there) AND expands it so the user immediately
+// sees the children. The caret stays a pure expand toggle (no active-layer
+// change) so the user can browse the tree without disturbing placement.
+function selectLayer(layerId: string): void {
+  activeLayer.setActiveLayer(layerId)
+  if (!expandedIds.value.has(`layer:${layerId}`)) {
+    toggleExpanded(`layer:${layerId}`)
+  }
+}
+
+function isLayerActive(layerId: string): boolean {
+  return activeLayer.activeLayerId.value === layerId
+}
+
 function toggleCollapsed(): void {
   collapsed.value = !collapsed.value
+  persistCollapsedPref(collapsed.value)
 }
 
 function clearFilter(): void {
@@ -329,25 +372,48 @@ const visibleMatchCount = computed<number>(() => {
             class="tree-layer"
             :data-testid="`outliner-layer-${layer.layerId}`"
           >
-            <button
-              type="button"
+            <!--
+              §8 — split disclosure caret from the row body. The caret
+              toggles expansion only (so the user can browse without
+              changing the active layer); the body sets the layer active
+              AND expands it. Modelled as two stacked buttons so each
+              gets its own focus + a11y semantics.
+            -->
+            <div
               class="tree-row tree-row-layer"
-              :title="`Layer ${layer.layerId} (z=${layer.z}) — click to expand/collapse`"
-              :aria-expanded="isExpanded(`layer:${layer.layerId}`) ? 'true' : 'false'"
+              :class="{ active: isLayerActive(layer.layerId) }"
               :data-testid="`outliner-layer-row-${layer.layerId}`"
-              @click="toggleExpanded(`layer:${layer.layerId}`)"
             >
-              <span
-                class="caret"
-                :class="{ open: isExpanded(`layer:${layer.layerId}`) }"
-                aria-hidden="true"
-              >▸</span>
-              <span class="tree-glyph layer-glyph" aria-hidden="true">▤</span>
-              <span class="tree-label">{{ layer.layerId }}</span>
-              <span class="tree-meta">
-                z {{ layer.z }} · {{ layer.nodes.length }} item{{ layer.nodes.length === 1 ? '' : 's' }}
-              </span>
-            </button>
+              <button
+                type="button"
+                class="tree-row-caret"
+                :title="isExpanded(`layer:${layer.layerId}`) ? 'Collapse layer' : 'Expand layer'"
+                :aria-label="isExpanded(`layer:${layer.layerId}`) ? 'Collapse layer' : 'Expand layer'"
+                :aria-expanded="isExpanded(`layer:${layer.layerId}`) ? 'true' : 'false'"
+                :data-testid="`outliner-layer-caret-${layer.layerId}`"
+                @click.stop="toggleExpanded(`layer:${layer.layerId}`)"
+              >
+                <span
+                  class="caret"
+                  :class="{ open: isExpanded(`layer:${layer.layerId}`) }"
+                  aria-hidden="true"
+                >▸</span>
+              </button>
+              <button
+                type="button"
+                class="tree-row-body"
+                :title="`Select layer ${layer.layerId} (z=${layer.z}) — newly placed items will land here`"
+                :data-testid="`outliner-layer-select-${layer.layerId}`"
+                @click="selectLayer(layer.layerId)"
+              >
+                <span class="tree-glyph layer-glyph" aria-hidden="true">▤</span>
+                <span class="tree-label">{{ layer.layerId }}</span>
+                <span class="tree-meta">
+                  z {{ layer.z }} · {{ layer.nodes.length }} item{{ layer.nodes.length === 1 ? '' : 's' }}
+                  <span v-if="isLayerActive(layer.layerId)" class="active-pill" title="Active layer — primitives land here">active</span>
+                </span>
+              </button>
+            </div>
 
             <ul
               v-if="isExpanded(`layer:${layer.layerId}`) && layer.nodes.length > 0"
@@ -563,10 +629,75 @@ const visibleMatchCount = computed<number>(() => {
 
 .tree-row-layer {
   background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
 }
 
 .tree-row-layer:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.tree-row-layer.active {
+  background: rgba(91, 124, 250, 0.12);
+  border-color: rgba(91, 124, 250, 0.55);
+}
+
+.tree-row-layer .tree-row-caret {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #909090;
+  width: 22px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.tree-row-layer .tree-row-caret:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e5e5;
+}
+
+.tree-row-layer .tree-row-body {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font: inherit;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  padding: 3px 6px;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.tree-row-layer .tree-row-body:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.active-pill {
+  background: rgba(91, 124, 250, 0.25);
+  color: #c8d2ff;
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(91, 124, 250, 0.55);
+  margin-left: 6px;
+  font-feature-settings: normal;
 }
 
 .tree-glyph {

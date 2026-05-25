@@ -4,8 +4,11 @@
 // Specialised number input for "seconds" values: shows a `s` suffix, uses
 // 0.05s steps by default, and clamps to non-negative. The Inspector uses
 // this for any field semantically describing a duration / time offset.
+//
+// The spinner is buffered locally so multi-digit typing isn't clobbered by
+// the modelValue prop flowing back per keystroke — see Number.vue.
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps<{
   modelValue: number | undefined
@@ -32,13 +35,37 @@ const displayValue = computed(() =>
   props.modelValue === undefined ? '' : String(props.modelValue),
 )
 
+const buffer = ref(displayValue.value)
+const focused = ref(false)
+const spinnerDisplay = computed(() => (focused.value ? buffer.value : displayValue.value))
+
+function parseAndEmit(raw: string): void {
+  if (raw === '') return
+  const next = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(next)) return
+  const clamped = Math.max(0, props.max !== undefined ? Math.min(props.max, next) : next)
+  if (clamped !== props.modelValue) emit('update:modelValue', clamped)
+}
+
 function onInput(event: Event): void {
   const target = event.target as HTMLInputElement
-  if (target.value === '') return
-  const raw = Number(target.value.replace(',', '.'))
-  if (!Number.isFinite(raw)) return
-  const clamped = Math.max(0, props.max !== undefined ? Math.min(props.max, raw) : raw)
-  emit('update:modelValue', clamped)
+  buffer.value = target.value
+}
+
+function onChange(event: Event): void {
+  const target = event.target as HTMLInputElement
+  parseAndEmit(target.value)
+}
+
+function onFocus(event: FocusEvent): void {
+  buffer.value = displayValue.value
+  focused.value = true
+  ;(event.target as HTMLInputElement).select()
+}
+
+function onBlur(): void {
+  focused.value = false
+  buffer.value = displayValue.value
 }
 </script>
 
@@ -53,10 +80,13 @@ function onInput(event: Event): void {
         type="text"
         inputmode="decimal"
         class="spinner"
-        :value="displayValue"
+        :value="spinnerDisplay"
         :placeholder="placeholder"
         :disabled="disabled"
         @input="onInput"
+        @change="onChange"
+        @focus="onFocus"
+        @blur="onBlur"
       />
       <span class="suffix">s</span>
     </span>
