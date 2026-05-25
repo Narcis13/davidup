@@ -5,8 +5,12 @@
 // (0-100) while preserving the underlying 0-1 wire format. Useful for
 // `opacity`, weight knobs, etc., where authors think in percent but the
 // composition stores a fraction.
+//
+// The slider emits continuously on `input`; the number spinner is
+// buffered locally and only emits on `change` (Enter / blur) — see
+// Number.vue for why.
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps<{
   modelValue: number | undefined
@@ -26,11 +30,15 @@ const percent = computed(() => Math.round(((props.modelValue ?? 0) * 100) * 1000
 // Locale-independent display — see Number.vue for context.
 const percentDisplay = computed(() => String(percent.value))
 
+const buffer = ref(percentDisplay.value)
+const focused = ref(false)
+const spinnerDisplay = computed(() => (focused.value ? buffer.value : percentDisplay.value))
+
 function emitFromPercent(rawPct: number): void {
   if (!Number.isFinite(rawPct)) return
   const clamped = Math.max(0, Math.min(100, rawPct))
   const next = Math.round((clamped / 100) * 100000) / 100000
-  emit('update:modelValue', next)
+  if (next !== props.modelValue) emit('update:modelValue', next)
 }
 
 function onSliderInput(event: Event): void {
@@ -41,8 +49,24 @@ function onSliderInput(event: Event): void {
 
 function onNumberInput(event: Event): void {
   const target = event.target as HTMLInputElement
+  buffer.value = target.value
+}
+
+function onNumberChange(event: Event): void {
+  const target = event.target as HTMLInputElement
   if (target.value === '') return
   emitFromPercent(Number(target.value.replace(',', '.')))
+}
+
+function onNumberFocus(event: FocusEvent): void {
+  buffer.value = percentDisplay.value
+  focused.value = true
+  ;(event.target as HTMLInputElement).select()
+}
+
+function onNumberBlur(): void {
+  focused.value = false
+  buffer.value = percentDisplay.value
 }
 </script>
 
@@ -68,9 +92,12 @@ function onNumberInput(event: Event): void {
           type="text"
           inputmode="decimal"
           class="spinner"
-          :value="percentDisplay"
+          :value="spinnerDisplay"
           :disabled="disabled"
           @input="onNumberInput"
+          @change="onNumberChange"
+          @focus="onNumberFocus"
+          @blur="onNumberBlur"
         />
         <span class="unit" aria-hidden="true">%</span>
       </span>

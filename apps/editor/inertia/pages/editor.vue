@@ -828,6 +828,8 @@ onBeforeUnmount(() => {
         :pick-item-at="stage.pickItemAt"
         :get-item-bounds-at="stage.getItemBoundsAt"
         :on-tick="stage.onTick"
+        :status="stage.status.value"
+        :pause="stage.pause"
         @apply="bus.apply"
       />
       <div v-else class="empty">
@@ -847,6 +849,7 @@ onBeforeUnmount(() => {
         :playhead="stage.playhead.value"
         :item-last-source="bus.itemLastSource.value"
         :last-pick-source="selection.lastPickSource.value"
+        :get-resolved-item-at="stage.getResolvedItemAt"
         @apply="bus.apply"
         @reveal-source="onRevealSourceFromInspector"
       />
@@ -861,6 +864,7 @@ onBeforeUnmount(() => {
         @seek="(t) => stage.seek(t)"
         @apply="bus.apply"
         @open-scene-source="onOpenSceneSource"
+        @toggle-play="() => stage.togglePlay()"
       />
     </template>
 

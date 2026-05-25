@@ -13,6 +13,7 @@
 
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import type { AttachHandle, ItemBounds, PickHit } from 'davidup/browser'
+import type { Item } from 'davidup/schema'
 
 export type StageStatus =
   | 'idle'
@@ -77,6 +78,13 @@ export interface UseStageReturn {
    * frame to draw the selection ring.
    */
   getItemBoundsAt: (itemId: string, t?: number) => ItemBounds | null
+  /**
+   * UX_FINDINGS §7 — fully-resolved item state at time `t` (defaults to the
+   * driver's current render time). Includes the effects of every tween that
+   * applies at `t`, so the Inspector can show the value matching the
+   * painted frame rather than the authored base.
+   */
+  getResolvedItemAt: (itemId: string, t?: number) => Item | null
   /**
    * Register a callback fired once per animation frame, regardless of play
    * state — returns an unsubscriber. Used by Stage.vue to redraw the
@@ -164,7 +172,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     return Math.max(0, lastAttachStartAt + elapsed)
   }
 
-  async function start(opts: { resume?: boolean; resumeAt?: number } = {}): Promise<void> {
+  async function start(opts: { resume?: boolean; resumeAt?: number; keepPaused?: boolean } = {}): Promise<void> {
     const canvasEl = options.canvas.value
     const comp = readComposition()
     // `resumeAt` is the explicit (paused-playhead, etc) path; `resume` is the
@@ -176,6 +184,10 @@ export function useStage(options: UseStageOptions): UseStageReturn {
         : opts.resume
           ? readCurrentPlayhead()
           : 0
+    // Capture the prior status before stopInternal/'loading' overwrite it —
+    // keepPaused restores it after the re-attach so an Inspector edit made
+    // while paused doesn't flip the stage into playback.
+    const priorStatus = status.value
     stopInternal()
     if (!canvasEl) {
       status.value = 'error'
@@ -217,6 +229,27 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       lastAttachStartMs = Date.now()
       lastAttachStartAt = startAt
       playhead.value = startAt
+      if (opts.keepPaused === true) {
+        // The driver's `attach()` paints the first frame synchronously
+        // (see drivers/browser/index.ts: `tick()` is invoked before the
+        // returned handle is yielded). Suspending the engine via the new
+        // driver `pause()` (rather than `stop()`) leaves the canvas
+        // latched on the new composition state at `startAt` *and* keeps
+        // the handle alive — so a subsequent `seek(t)` from the timeline
+        // can paint a deterministic frame at the new t without paying
+        // for a full re-attach (UX_FINDINGS §3).
+        try {
+          h.pause()
+        } catch {
+          /* ignore */
+        }
+        handle.value = h
+        status.value =
+          priorStatus === 'paused' || priorStatus === 'stopped' || priorStatus === 'ended'
+            ? priorStatus
+            : 'paused'
+        return
+      }
       status.value = 'playing'
       startTicking()
       if (duration > 0) {
@@ -245,6 +278,74 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       }
       handle.value = null
     }
+  }
+
+  // Pause path used by both `pause()` and `togglePlay()`. Latches the
+  // playhead at the current time, halts the engine's RAF loop via the
+  // driver's `pause()` (which — unlike `stop()` — keeps the handle alive
+  // so seek(t) can repaint deterministically while paused), and flips the
+  // status. Pre-condition: caller has already verified status === 'playing'.
+  function pauseInternal(): void {
+    const t = readCurrentPlayhead()
+    clearEndTimer()
+    cancelRaf()
+    if (handle.value) {
+      try {
+        handle.value.pause()
+      } catch {
+        /* ignore */
+      }
+    }
+    playhead.value = t
+    lastAttachStartMs = Date.now()
+    lastAttachStartAt = t
+    status.value = 'paused'
+  }
+
+  function armEndTimer(fromT: number): void {
+    const comp = readComposition()
+    const duration = readDuration(comp)
+    if (duration > 0 && fromT < duration) {
+      endTimer = setTimeout(
+        () => {
+          if (status.value === 'playing') status.value = 'ended'
+          endTimer = null
+        },
+        (duration - fromT) * 1000 + 50,
+      )
+    }
+  }
+
+  // Resume path used by both `resume()` and `togglePlay()`. When we still
+  // hold an alive driver handle (the new pause-keeps-handle-alive flow),
+  // call its cheap `resume()` and re-arm the JS-side trackers. Otherwise
+  // fall back to a full `start()` re-attach.
+  async function resumeInternal(): Promise<void> {
+    if (status.value !== 'paused' && status.value !== 'stopped') return
+    const t = playhead.value
+    if (status.value === 'paused' && handle.value !== null) {
+      let resumed = false
+      try {
+        handle.value.resume()
+        resumed = true
+      } catch {
+        /* fall through to re-attach */
+      }
+      if (resumed) {
+        lastAttachStartMs = Date.now()
+        lastAttachStartAt = t
+        status.value = 'playing'
+        startTicking()
+        // Any endTimer left over from a `seek` issued during the paused
+        // window was scheduled against the pre-resume wall-clock — letting
+        // it fire would mark the comp 'ended' early. Re-arm against the
+        // freshly-set baseline.
+        clearEndTimer()
+        armEndTimer(t)
+        return
+      }
+    }
+    await start({ resumeAt: t })
   }
 
   onMounted(() => {
@@ -276,12 +377,16 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       // playhead ref is latched — readCurrentPlayhead() would return a stale
       // time-since-pause value. Use the latched playhead ref instead so a
       // composition mutation 5s after pause doesn't snap the playhead forward.
+      // `keepPaused` is critical here: without it, `start()` ends every
+      // re-attach in 'playing', so the very first Inspector edit yanks the
+      // stage out of pause and the user has to chase the playhead between
+      // each keystroke.
       if (
         status.value === 'paused' ||
         status.value === 'stopped' ||
         status.value === 'ended'
       ) {
-        void start({ resumeAt: playhead.value })
+        void start({ resumeAt: playhead.value, keepPaused: true })
         return
       }
       void start({ resume: true })
@@ -327,47 +432,19 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     },
     pause() {
       if (status.value !== 'playing') return
-      // Capture the playhead *before* stopInternal nukes the handle —
-      // readCurrentPlayhead() reads through handle.value and would return 0
-      // once it's null.
-      const t = readCurrentPlayhead()
-      stopInternal()
-      // Latch the playhead ref so the timeline indicator and StatusBar both
-      // show the freeze time, not whatever wall-clock would have computed.
-      playhead.value = t
-      // Pin the wall-clock baseline at the freeze point. If something asks
-      // for the current playhead while paused (e.g. a click in Stage.vue's
-      // pick path), readCurrentPlayhead() still returns `t` rather than
-      // ticking forward.
-      lastAttachStartMs = Date.now()
-      lastAttachStartAt = t
-      status.value = 'paused'
+      pauseInternal()
     },
     async resume() {
-      if (status.value !== 'paused' && status.value !== 'stopped') return
-      // Pick the captured freeze time as the explicit start point — without
-      // `resumeAt`, start({ resume: true }) would fall through to
-      // readCurrentPlayhead() which is meaningless after stopInternal cleared
-      // the handle.
-      await start({ resumeAt: playhead.value })
+      await resumeInternal()
     },
     async togglePlay() {
       if (status.value === 'playing') {
         if (handle.value === null && lastAttachStartMs === 0) return
-        // Inline the pause behaviour rather than calling `this.pause()` — Vue
-        // gives us a Proxy, not a `this` binding we can rely on, and the
-        // closure capture keeps the call shape consistent with the other
-        // returned methods.
-        const t = readCurrentPlayhead()
-        stopInternal()
-        playhead.value = t
-        lastAttachStartMs = Date.now()
-        lastAttachStartAt = t
-        status.value = 'paused'
+        pauseInternal()
         return
       }
       if (status.value === 'paused' || status.value === 'stopped') {
-        await start({ resumeAt: playhead.value })
+        await resumeInternal()
         return
       }
       if (status.value === 'ended') {
@@ -387,6 +464,11 @@ export function useStage(options: UseStageOptions): UseStageReturn {
       const h = handle.value
       if (!h) return null
       return h.getItemBoundsAt(itemId, t)
+    },
+    getResolvedItemAt(itemId: string, t?: number): Item | null {
+      const h = handle.value
+      if (!h) return null
+      return h.getResolvedItemAt(itemId, t)
     },
     onTick(cb: () => void): () => void {
       tickSubscribers.add(cb)

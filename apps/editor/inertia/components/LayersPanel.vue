@@ -51,8 +51,33 @@ const emit = defineEmits<{
   (event: 'apply', command: Command): void
 }>()
 
-const collapsed = ref(false)
+// §6 — start collapsed so the panel doesn't cover the canvas on load.
+// Persisted across sessions via localStorage so users who docked it open
+// don't have to re-expand each time.
+const COLLAPSED_STORAGE_KEY = 'davidup.layersPanel.collapsed'
+const collapsed = ref(readCollapsedPref(true))
 const expandedLayerIds = ref<Set<string>>(new Set())
+
+function readCollapsedPref(fallback: boolean): boolean {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_STORAGE_KEY)
+    if (raw === '0') return false
+    if (raw === '1') return true
+  } catch {
+    /* localStorage may be unavailable in privacy modes */
+  }
+  return fallback
+}
+
+function persistCollapsedPref(value: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(COLLAPSED_STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 
 const activeLayer = useActiveLayer()
 const selection = useSelection()
@@ -314,6 +339,7 @@ function isItemSelected(itemId: string): boolean {
 
 function toggleCollapsed(): void {
   collapsed.value = !collapsed.value
+  persistCollapsedPref(collapsed.value)
 }
 
 // UX_GAPS §P — inline rename. Double-click the row label opens an input;

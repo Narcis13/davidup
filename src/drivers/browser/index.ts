@@ -130,6 +130,20 @@ export interface ItemBounds {
 
 export interface AttachHandle {
   stop(): void;
+  /**
+   * Suspend the RAF loop without tearing the handle down. `seek(t)` paints
+   * one deterministic frame at `t` synchronously regardless of paused state;
+   * paused additionally guarantees the engine will NOT advance past `t` on
+   * its own. Cheaper than `stop()` + a fresh `attach()` because loader
+   * resources, the precompiled composition, the tween index, and the source
+   * map are retained. Idempotent. No-op after `stop()`.
+   */
+  pause(): void;
+  /**
+   * Re-enter the RAF loop from the current `lastRenderedT`. Idempotent and
+   * a no-op after `stop()` or when the handle is already playing.
+   */
+  resume(): void;
   seek(seconds: number): void;
   /**
    * Hit-test a single point in composition coordinates. Returns the resolved
@@ -146,6 +160,15 @@ export interface AttachHandle {
    * tracks tweens frame-by-frame.
    */
   getItemBoundsAt(itemId: string, t?: number): ItemBounds | null;
+  /**
+   * UX_FINDINGS §7 — resolve `itemId`'s state at time `t` (seconds;
+   * defaults to the current playhead). The returned item is the full
+   * `Item` with every tween applied for `t`, so the Inspector can display
+   * the value that matches the painted frame rather than the authored
+   * base value. Returns `null` when no driver is attached or the item
+   * isn't present in the scene at that time.
+   */
+  getResolvedItemAt(itemId: string, t?: number): Item | null;
   /**
    * Returns the source map produced by precompile, or `null` if the handle
    * was not attached with `emitSourceMap: true`.
@@ -192,6 +215,14 @@ export async function attach(
   let startTime = now() - (options.startAt ?? 0) * 1000;
   let rafId: number | null = null;
   let cancelled = false;
+  // Paused suspends the RAF loop without tearing the handle down. While
+  // paused, `seek(t)` still paints one frame at `t` synchronously, but the
+  // loop is never re-primed — so the engine doesn't drift past `t` on the
+  // next frame. The editor's `useStage.pause()` flips this on instead of
+  // calling `stop()`, so a paused-seek converges deterministically on the
+  // addressed time (UX_FINDINGS §3 — paused scrubbing must land on its
+  // frame, not "settle" a few frames later).
+  let paused = false;
 
   // Pick buffer is created lazily on the first pickItemAt call so callers
   // that never hit-test don't allocate it. The composition's canvas size
@@ -205,6 +236,21 @@ export async function attach(
   // engine never drew.
   let lastRenderedT = options.startAt ?? 0;
 
+  // Single-frame paint at `t`, clamped to [0, duration]. Shared by `tick`
+  // (RAF-driven advance) and `seek` (synchronous addressed paint). Pulling
+  // the paint out of `tick` is what lets a paused `seek(t)` deliver the
+  // frame at `t` in the same call — no waiting for an RAF callback that
+  // will never fire while `paused === true`.
+  const renderAt = (t: number): void => {
+    const clamped = t < 0 ? 0 : duration > 0 && t > duration ? duration : t;
+    renderFrame(compiled, clamped, ctx, {
+      assets: loader,
+      index: tweenIndex,
+      createOffscreen,
+    });
+    lastRenderedT = clamped;
+  };
+
   const tick = (): void => {
     rafId = null;
     if (cancelled) return;
@@ -212,14 +258,9 @@ export async function attach(
     // Clamp to [0, duration] so a seek() past the end still paints the final
     // frame instead of leaving the canvas on whatever was there before.
     const done = raw > duration;
-    const t = raw < 0 ? 0 : raw > duration ? duration : raw;
-    renderFrame(compiled, t, ctx, {
-      assets: loader,
-      index: tweenIndex,
-      createOffscreen,
-    });
-    lastRenderedT = t;
+    renderAt(raw);
     if (done) return;
+    if (paused) return;
     rafId = raf(tick);
   };
 
@@ -295,15 +336,43 @@ export async function attach(
       if (ownsLoader) loader.clear();
     },
     seek(seconds: number): void {
-      startTime = now() - seconds * 1000;
-      // Update the pick-time fallback immediately so a click that lands
-      // between seek() and the next RAF still resolves against the seeked
-      // frame, not the prior one.
-      lastRenderedT = seconds;
       if (cancelled) return;
+      startTime = now() - seconds * 1000;
+      // Paint exactly one frame at `seconds` synchronously. The earlier
+      // implementation only shifted `startTime` and waited for the next
+      // RAF tick to render — fine while playing (next frame is ~16ms away)
+      // but broken when paused: no RAF ever fires, so the canvas stayed on
+      // the pre-pause frame even though the playhead readout said
+      // otherwise (UX_FINDINGS §3). `renderAt` also refreshes
+      // `lastRenderedT`, so picks line up with the seeked frame on the
+      // very next click.
+      renderAt(seconds);
+      // While paused we intentionally do NOT re-prime the RAF loop: the
+      // sync paint above is the entire contract of a paused seek.
+      if (paused) return;
       // The loop self-stops once t > duration; seeking back into bounds must
       // re-prime it. tick() always clears rafId before doing work, so the
       // null-check guarantees we never double-schedule.
+      if (rafId === null) {
+        rafId = raf(tick);
+      }
+    },
+    pause(): void {
+      if (cancelled) return;
+      if (paused) return;
+      paused = true;
+      if (rafId !== null) {
+        caf(rafId);
+        rafId = null;
+      }
+    },
+    resume(): void {
+      if (cancelled) return;
+      if (!paused) return;
+      paused = false;
+      // Realign wall-clock to the last frame we painted — without this the
+      // RAF clock would skip forward by the pause duration on the next tick.
+      startTime = now() - lastRenderedT * 1000;
       if (rafId === null) {
         rafId = raf(tick);
       }
@@ -323,6 +392,13 @@ export async function attach(
         }
       }
       return null;
+    },
+    getResolvedItemAt(itemId: string, tArg?: number): Item | null {
+      if (cancelled) return null;
+      const t = tArg !== undefined ? tArg : currentT();
+      const scene = computeStateAt(compiled, t, tweenIndex);
+      const item = scene.items[itemId];
+      return item ?? null;
     },
     getSourceMap(): SourceMap | null {
       return sourceMap;

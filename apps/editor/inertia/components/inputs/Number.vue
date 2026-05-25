@@ -3,10 +3,12 @@
 //
 // One row in the Inspector. Renders a label, an optional override dot
 // (rendered by the parent), and a paired range + number input so the
-// user can either scrub or type. Emits `update:modelValue` on every
-// change so the Inspector can dispatch `updateItem` commands.
+// user can either scrub or type. The slider emits on every `input`
+// (continuous scrubbing); the spinner is buffered locally and only
+// emits on `change` (Enter / blur), so multi-digit typing isn't
+// clobbered by the modelValue prop flowing back per keystroke.
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps<{
   modelValue: number | undefined
@@ -38,12 +40,51 @@ const value = computed(() => (props.modelValue ?? 0))
 // `type="text" inputmode="decimal"` and binding an explicit dot-decimal string.
 const displayValue = computed(() => String(value.value))
 
-function onInput(event: Event): void {
-  const target = event.target as HTMLInputElement
-  if (target.value === '') return
+// While focused, the spinner is driven by `buffer` (uncontrolled w.r.t. the
+// prop). When not focused, it mirrors `displayValue`. This is what prevents
+// a per-keystroke updateItem from echoing back and overwriting characters
+// the user hasn't finished typing yet.
+const buffer = ref(displayValue.value)
+const focused = ref(false)
+const spinnerDisplay = computed(() => (focused.value ? buffer.value : displayValue.value))
+
+function parseAndEmit(raw: string): void {
+  if (raw === '') return
   // Accept either dot or comma as decimal separator on entry so a user on a
   // comma-decimal keyboard layout can still type naturally.
-  const next = Number(target.value.replace(',', '.'))
+  const next = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(next)) return
+  if (next !== value.value) emit('update:modelValue', next)
+}
+
+function onSpinnerInput(event: Event): void {
+  const target = event.target as HTMLInputElement
+  buffer.value = target.value
+}
+
+function onSpinnerChange(event: Event): void {
+  const target = event.target as HTMLInputElement
+  parseAndEmit(target.value)
+}
+
+function onSpinnerFocus(event: FocusEvent): void {
+  buffer.value = displayValue.value
+  focused.value = true
+  // Make triple-click-to-replace work reliably across browsers.
+  ;(event.target as HTMLInputElement).select()
+}
+
+function onSpinnerBlur(): void {
+  focused.value = false
+  // Reconcile buffer with the current prop value. Covers invalid input
+  // (revert) and the post-change case (buffer already matches).
+  buffer.value = displayValue.value
+}
+
+function onSliderInput(event: Event): void {
+  const target = event.target as HTMLInputElement
+  if (target.value === '') return
+  const next = Number(target.value)
   if (!Number.isFinite(next)) return
   emit('update:modelValue', next)
 }
@@ -65,15 +106,18 @@ function onInput(event: Event): void {
         :max="max"
         :step="step"
         :disabled="disabled"
-        @input="onInput"
+        @input="onSliderInput"
       />
       <input
         type="text"
         inputmode="decimal"
         class="spinner"
-        :value="displayValue"
+        :value="spinnerDisplay"
         :disabled="disabled"
-        @input="onInput"
+        @input="onSpinnerInput"
+        @change="onSpinnerChange"
+        @focus="onSpinnerFocus"
+        @blur="onSpinnerBlur"
       />
     </span>
   </label>
