@@ -178,6 +178,33 @@ export const TweenSchema = z.object({
   easing: z.enum(EASING_NAMES).optional(),
 });
 
+// External audio track on the composition timeline (v0.2 §S1). Audio is never
+// derived from video — every track here is an explicitly declared external
+// asset. Placement is `[start, end)` seconds on the composition timeline; an
+// omitted `end` means "play the asset out to its natural duration" (resolved at
+// mux time, S4). `volume` is a linear gain multiplier in [0, 2] (1 = unchanged,
+// 2 = +6dB); `fadeIn` / `fadeOut` are ramp lengths in seconds at each edge.
+//
+// `id` is optional in hand-authored JSON but is the addressing key used by the
+// S3 MCP tools (update_audio_track / remove_audio_track); the store assigns one
+// when a track is created without it. Mirrored field-for-field in the editor's
+// command schema (apps/editor/app/types/commands.ts) — keep both in sync or new
+// fields are silently stripped off UI/MCP payloads.
+export const AudioTrackSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    asset: z.string().min(1),
+    start: z.number().nonnegative(),
+    end: z.number().optional(),
+    volume: z.number().min(0).max(2).optional(),
+    fadeIn: z.number().nonnegative().optional(),
+    fadeOut: z.number().nonnegative().optional(),
+  })
+  .refine((t) => t.end === undefined || t.end > t.start, {
+    message: "Audio track `end` must be greater than `start`.",
+    path: ["end"],
+  });
+
 export const CompositionSchema = z.object({
   version: z.string(),
   composition: CompositionMetaSchema,
@@ -185,4 +212,7 @@ export const CompositionSchema = z.object({
   layers: z.array(LayerSchema),
   items: z.record(z.string().min(1), ItemSchema),
   tweens: z.array(TweenSchema),
+  // Optional so pre-v0.2 project JSON (no audio key) stays valid without a
+  // migration, matching the rest of the schema's additive evolution.
+  audio: z.array(AudioTrackSchema).optional(),
 });

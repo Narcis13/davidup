@@ -3,6 +3,7 @@ export * from "./validator.js";
 export { validate as validateComposition } from "./validator.js";
 export {
   AssetSchema,
+  AudioTrackSchema,
   BLEND_MODES,
   BlendModeSchema,
   CANVAS2D_COMPOSITE_OPS,

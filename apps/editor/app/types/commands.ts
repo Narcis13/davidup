@@ -108,6 +108,33 @@ const ITEM_PROPS = z
 
 const SOURCE = z.enum(['ui', 'mcp']).default('ui')
 
+// ──────────────── Composition-document fragments ────────────────
+
+// External audio track (v0.2 §S1). DUAL of engine `AudioTrackSchema`
+// (src/schema/zod.ts) — this UI-side copy is intentionally separate so the two
+// schemas can diverge per the dual-schema contract, but any new AudioTrack
+// field MUST be mirrored here too or it is silently stripped from UI payloads.
+// `[start, end)` seconds on the composition timeline; `end` omitted ⇒ play to
+// the asset's natural duration. `volume` is a linear gain in [0, 2];
+// `fadeIn` / `fadeOut` are ramp lengths in seconds. `id` is the addressing key
+// used by the S3 MCP tools; optional in hand-authored JSON.
+export const AudioTrackSchema = z
+  .object({
+    id: ID.optional(),
+    asset: ID,
+    start: NON_NEG,
+    end: z.number().optional(),
+    volume: z.number().min(0).max(2).optional(),
+    fadeIn: NON_NEG.optional(),
+    fadeOut: NON_NEG.optional(),
+  })
+  .refine((t) => t.end === undefined || t.end > t.start, {
+    message: 'Audio track `end` must be greater than `start`.',
+    path: ['end'],
+  })
+
+export type AudioTrack = z.infer<typeof AudioTrackSchema>
+
 // ──────────────── Per-tool payload schemas ────────────────
 
 const setCompositionProperty = z.object({

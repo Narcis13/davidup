@@ -1,0 +1,30 @@
+{
+  "version": "0.2",
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 25,
+    "background": "#000000"
+  },
+  "assets": [],
+  "layers": [],
+  "items": {},
+  "tweens": [],
+  "audio": [
+    {
+      "id": "voiceover-1",
+      "asset": "voiceover",
+      "start": 0,
+      "end": 12,
+      "volume": 1,
+      "fadeIn": 0.5,
+      "fadeOut": 1
+    },
+    {
+      "asset": "music-bed",
+      "start": 0,
+      "volume": 0.4
+    }
+  ]
+}

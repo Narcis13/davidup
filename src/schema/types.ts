@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type {
   AssetSchema,
+  AudioTrackSchema,
   BlendModeSchema,
   CompositionMetaSchema,
   CompositionSchema,
@@ -37,3 +38,4 @@ export type ItemType = Item["type"];
 
 export type Layer = z.infer<typeof LayerSchema>;
 export type Tween = z.infer<typeof TweenSchema>;
+export type AudioTrack = z.infer<typeof AudioTrackSchema>;
