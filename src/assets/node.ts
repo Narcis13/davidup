@@ -50,20 +50,7 @@ export class NodeAssetLoader extends BaseAssetLoader {
   }
 
   private resolveSrc(src: string): string {
-    // `global:<rest>` → an absolute path under $DAVIDUP_LIBRARY (default
-    // ~/.davidup/library). skia-canvas accepts plain filesystem paths.
-    if (src.startsWith("global:")) {
-      const rest = src.slice("global:".length).replace(/^\/+/, "");
-      return nodePath.join(this.globalLibraryRoot(), rest);
-    }
-    return src;
-  }
-
-  private globalLibraryRoot(): string {
-    if (this.globalLibraryRootOverride) return this.globalLibraryRootOverride;
-    const override = process.env.DAVIDUP_LIBRARY;
-    if (override && override.length > 0) return override;
-    return nodePath.join(nodeOs.homedir(), ".davidup", "library");
+    return resolveGlobalSrc(src, this.globalLibraryRootOverride);
   }
 
   private getSkia(): Promise<SkiaCanvasModule> {
@@ -71,6 +58,31 @@ export class NodeAssetLoader extends BaseAssetLoader {
     this.skiaPromise ??= importSkiaCanvas();
     return this.skiaPromise;
   }
+}
+
+/**
+ * Resolve an asset `src` to a filesystem path the way the Node loader does.
+ *
+ * `global:<rest>` → an absolute path under the global library root
+ * ($DAVIDUP_LIBRARY, default ~/.davidup/library). Any other `src` is returned
+ * unchanged (skia-canvas and ffmpeg both accept plain filesystem paths).
+ *
+ * Shared with the audio mux pipeline (v0.2 §S4), which needs the same
+ * resolution to hand audio asset paths to ffmpeg.
+ */
+export function resolveGlobalSrc(src: string, globalLibraryRoot?: string): string {
+  if (src.startsWith("global:")) {
+    const rest = src.slice("global:".length).replace(/^\/+/, "");
+    return nodePath.join(globalLibraryRoot ?? defaultGlobalLibraryRoot(), rest);
+  }
+  return src;
+}
+
+/** Env-or-default global library root: $DAVIDUP_LIBRARY, else ~/.davidup/library. */
+export function defaultGlobalLibraryRoot(): string {
+  const override = process.env.DAVIDUP_LIBRARY;
+  if (override && override.length > 0) return override;
+  return nodePath.join(nodeOs.homedir(), ".davidup", "library");
 }
 
 function importSkiaCanvas(): Promise<SkiaCanvasModule> {

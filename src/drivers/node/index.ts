@@ -17,7 +17,10 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -30,6 +33,7 @@ import type { ReadFile } from "../../compose/imports.js";
 import { indexTweens, renderFrame } from "../../engine/index.js";
 import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
+import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
 
 export {
   probeAudio,
@@ -39,6 +43,20 @@ export {
   type ProbeAudioOptions,
   type ProbeSpawn,
 } from "./ffprobe.js";
+
+export {
+  buildAudioFilterComplex,
+  buildMuxArgs,
+  compositionHasAudio,
+  muxAudioTracks,
+  resolveAudioInputs,
+  secs as formatFilterSeconds,
+  MUX_SAMPLE_RATE,
+  MUX_AUDIO_BITRATE,
+  type BuildMuxArgsInput,
+  type MuxAudioOptions,
+  type ResolvedAudioTrack,
+} from "./audioMux.js";
 
 export interface SkiaCanvasInstance {
   getContext(kind: "2d"): Canvas2DContext;
@@ -118,7 +136,21 @@ export async function renderToFile(
 
   const totalFrames = frameCount(compiled);
 
-  const args = buildFfmpegArgs(compiled, outPath, opts);
+  // Two-stage pipeline (v0.2 §S4): when the composition declares audio tracks,
+  // stage 1 encodes the silent video to a temp file and stage 2 muxes the audio
+  // into the real output (`-c:v copy`, zero re-encode). Without audio it's the
+  // single-stage encode straight to `outPath`, byte-for-byte as before.
+  const hasAudio = compositionHasAudio(compiled);
+  const tempVideoPath = hasAudio
+    ? join(dirname(outPath), `.davidup-tmpvideo-${randomUUID()}.mp4`)
+    : outPath;
+
+  // faststart on the silent temp video is wasted work — it's re-muxed away.
+  // Apply it (when requested) to the final muxed output instead.
+  const stage1Opts: RenderToFileOptions = hasAudio
+    ? { ...opts, movflagsFaststart: false }
+    : opts;
+  const args = buildFfmpegArgs(compiled, tempVideoPath, stage1Opts);
   const spawnFn = opts.spawn ?? defaultSpawn;
   const ffmpeg = spawnFn(opts.ffmpegPath ?? "ffmpeg", args);
 
@@ -176,6 +208,7 @@ export async function renderToFile(
     }
   } catch (err) {
     safeKill(ffmpeg);
+    if (hasAudio) await safeUnlink(tempVideoPath);
     throw err;
   }
 
@@ -187,9 +220,25 @@ export async function renderToFile(
     // from a missing dynamic library) — we must surface that as a failure
     // rather than silently treat it as success.
     const reason = code === null ? `signal ${signal ?? "unknown"}` : `code ${code}`;
+    // Best-effort cleanup of the silent temp video on a stage-1 failure too.
+    if (hasAudio) await safeUnlink(tempVideoPath);
     throw new Error(
       `ffmpeg exited with ${reason}${tail ? `:\n${tail}` : ""}`,
     );
+  }
+
+  // Stage 2: mux the declared audio tracks onto the silent temp video.
+  if (hasAudio) {
+    try {
+      await muxAudioTracks(compiled, tempVideoPath, outPath, totalFrames / meta.fps, {
+        // Default faststart on the final MP4 unless the caller opted out.
+        movflagsFaststart: opts.movflagsFaststart ?? true,
+        ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
+        ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+      });
+    } finally {
+      await safeUnlink(tempVideoPath);
+    }
   }
 
   return {
@@ -275,6 +324,16 @@ async function waitForClose(
 
 function toNodeBuffer(raw: Uint8Array): Buffer {
   return Buffer.isBuffer(raw) ? raw : Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
+}
+
+async function safeUnlink(path: string): Promise<void> {
+  // `force` swallows ENOENT (e.g. the temp video was never written because a
+  // test injected a fake spawn); any other error is non-fatal cleanup noise.
+  try {
+    await rm(path, { force: true });
+  } catch {
+    // Leaving an orphan temp file is preferable to masking the real error.
+  }
 }
 
 function safeKill(child: ChildProcess): void {
