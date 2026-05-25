@@ -67,9 +67,46 @@ export const FontAssetSchema = z.object({
   family: z.string().min(1),
 });
 
+// External audio asset (v0.2 §S2). Container extensions accepted by
+// `register_asset` — the canonical list both the MCP tool and the store check
+// before admitting `type: "audio"`. Lowercased dotted form so `extname()`
+// output compares directly.
+export const AUDIO_ASSET_EXTENSIONS = [
+  ".mp3",
+  ".wav",
+  ".aac",
+  ".m4a",
+  ".ogg",
+] as const;
+
+/** True when `src` ends with one of {@link AUDIO_ASSET_EXTENSIONS} (case-insensitive). */
+export function isSupportedAudioSrc(src: string): boolean {
+  const lower = src.toLowerCase();
+  return AUDIO_ASSET_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+// Audio asset (v0.2 §S2). `src` is a path to an external audio file in a
+// supported container (see AUDIO_ASSET_EXTENSIONS). The metadata fields are
+// populated by `register_asset` via ffprobe at registration time; they are all
+// optional so an asset registered while ffprobe is unavailable still parses and
+// validates (the tool surfaces a warning instead of failing). Referenced by
+// AudioTrack.asset (resolved at mux time, S4). `duration` is seconds;
+// `sampleRate` is Hz; `channels` is the channel count; `codec` is ffprobe's
+// `codec_name` (e.g. "mp3", "aac", "pcm_s16le").
+export const AudioAssetSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("audio"),
+  src: z.string().min(1),
+  duration: z.number().nonnegative().optional(),
+  sampleRate: z.number().int().positive().optional(),
+  channels: z.number().int().positive().optional(),
+  codec: z.string().min(1).optional(),
+});
+
 export const AssetSchema = z.discriminatedUnion("type", [
   ImageAssetSchema,
   FontAssetSchema,
+  AudioAssetSchema,
 ]);
 
 export const TransformSchema = z.object({

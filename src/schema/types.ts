@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type {
   AssetSchema,
+  AudioAssetSchema,
   AudioTrackSchema,
   BlendModeSchema,
   CompositionMetaSchema,
@@ -25,6 +26,7 @@ export type CompositionMeta = z.infer<typeof CompositionMetaSchema>;
 export type Asset = z.infer<typeof AssetSchema>;
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;
 export type FontAsset = z.infer<typeof FontAssetSchema>;
+export type AudioAsset = z.infer<typeof AudioAssetSchema>;
 
 export type Transform = z.infer<typeof TransformSchema>;
 

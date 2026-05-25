@@ -27,7 +27,12 @@ import type {
   Transform,
   Tween,
 } from "../schema/types.js";
-import { COMPOSITION_VERSION, ItemSchema } from "../schema/zod.js";
+import {
+  AUDIO_ASSET_EXTENSIONS,
+  COMPOSITION_VERSION,
+  ItemSchema,
+  isSupportedAudioSrc,
+} from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
 import type { BehaviorDescriptor } from "../compose/behaviors.js";
 import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
@@ -104,9 +109,16 @@ export type SetMetaPropertyName =
 
 export interface RegisterAssetInput {
   id: string;
-  type: "image" | "font";
+  type: "image" | "font" | "audio";
   src: string;
   family?: string;
+  // Audio metadata (v0.2 §S2). Probed via ffprobe by the `register_asset` tool
+  // before the input reaches the store; all optional so an audio asset can be
+  // registered even when ffprobe is unavailable.
+  duration?: number;
+  sampleRate?: number;
+  channels?: number;
+  codec?: string;
 }
 
 export interface AddLayerInput {
@@ -437,11 +449,31 @@ export class CompositionStore {
         src: input.src,
         family: input.family,
       });
+    } else if (input.type === "audio") {
+      if (!isSupportedAudioSrc(input.src)) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Audio asset "${input.id}" has unsupported src "${input.src}".`,
+          `Audio sources must end with one of: ${AUDIO_ASSET_EXTENSIONS.join(", ")}.`,
+        );
+      }
+      // Only persist metadata fields that were actually resolved — leaving them
+      // absent (rather than undefined) keeps the serialised JSON clean and
+      // mirrors how an asset registered without ffprobe looks.
+      comp.assets.set(input.id, {
+        id: input.id,
+        type: "audio",
+        src: input.src,
+        ...(input.duration !== undefined ? { duration: input.duration } : {}),
+        ...(input.sampleRate !== undefined ? { sampleRate: input.sampleRate } : {}),
+        ...(input.channels !== undefined ? { channels: input.channels } : {}),
+        ...(input.codec !== undefined ? { codec: input.codec } : {}),
+      });
     } else {
       throw new MCPToolError(
         "E_INVALID_VALUE",
         `Unknown asset type "${String((input as { type: unknown }).type)}".`,
-        'Expected "image" or "font".',
+        'Expected "image", "font", or "audio".',
       );
     }
   }
@@ -1102,9 +1134,7 @@ export class CompositionStore {
       // Already merged by an earlier instance; skip to keep dedupe behavior.
       return;
     }
-    comp.assets.set(asset.id, asset.type === "image"
-      ? { id: asset.id, type: "image", src: asset.src }
-      : { id: asset.id, type: "font", src: asset.src, family: asset.family });
+    comp.assets.set(asset.id, cloneAsset(asset));
   }
 
   /**
@@ -1513,9 +1543,22 @@ function pushUnique(arr: string[], value: string): void {
 }
 
 function cloneAsset(asset: Asset): Asset {
-  return asset.type === "image"
-    ? { id: asset.id, type: "image", src: asset.src }
-    : { id: asset.id, type: "font", src: asset.src, family: asset.family };
+  switch (asset.type) {
+    case "image":
+      return { id: asset.id, type: "image", src: asset.src };
+    case "font":
+      return { id: asset.id, type: "font", src: asset.src, family: asset.family };
+    case "audio":
+      return {
+        id: asset.id,
+        type: "audio",
+        src: asset.src,
+        ...(asset.duration !== undefined ? { duration: asset.duration } : {}),
+        ...(asset.sampleRate !== undefined ? { sampleRate: asset.sampleRate } : {}),
+        ...(asset.channels !== undefined ? { channels: asset.channels } : {}),
+        ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
+      };
+  }
 }
 
 function cloneLayer(layer: Layer): Layer {

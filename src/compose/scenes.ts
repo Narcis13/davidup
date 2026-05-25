@@ -60,7 +60,7 @@
 // `E_ASSET_CONFLICT`.
 
 import { MCPToolError } from "../engine/errors.js";
-import type { Asset } from "../schema/types.js";
+import type { Asset, AudioAsset } from "../schema/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
 // ──────────────── Public types ────────────────
@@ -1172,9 +1172,22 @@ function numberOr(v: unknown, fallback: number): number {
 }
 
 function cloneAsset(a: Asset): Asset {
-  return a.type === "image"
-    ? { id: a.id, type: "image", src: a.src }
-    : { id: a.id, type: "font", src: a.src, family: a.family };
+  switch (a.type) {
+    case "image":
+      return { id: a.id, type: "image", src: a.src };
+    case "font":
+      return { id: a.id, type: "font", src: a.src, family: a.family };
+    case "audio":
+      return {
+        id: a.id,
+        type: "audio",
+        src: a.src,
+        ...(a.duration !== undefined ? { duration: a.duration } : {}),
+        ...(a.sampleRate !== undefined ? { sampleRate: a.sampleRate } : {}),
+        ...(a.channels !== undefined ? { channels: a.channels } : {}),
+        ...(a.codec !== undefined ? { codec: a.codec } : {}),
+      };
+  }
 }
 
 function cloneRawAsset(a: Record<string, unknown>): Asset {
@@ -1207,6 +1220,25 @@ function cloneRawAsset(a: Record<string, unknown>): Asset {
       );
     }
     return { id, type: "font", src, family };
+  }
+  if (type === "audio") {
+    // Carry any authored metadata through; it is otherwise (re-)derived by
+    // `register_asset` via ffprobe (v0.2 §S2). Only finite numbers / non-empty
+    // strings survive — malformed entries are dropped rather than rejected.
+    const out: AudioAsset = { id, type: "audio", src };
+    if (typeof a.duration === "number" && Number.isFinite(a.duration)) {
+      out.duration = a.duration;
+    }
+    if (typeof a.sampleRate === "number" && Number.isFinite(a.sampleRate)) {
+      out.sampleRate = a.sampleRate;
+    }
+    if (typeof a.channels === "number" && Number.isFinite(a.channels)) {
+      out.channels = a.channels;
+    }
+    if (typeof a.codec === "string" && a.codec.length > 0) {
+      out.codec = a.codec;
+    }
+    return out;
   }
   throw new MCPToolError(
     "E_INVALID_VALUE",

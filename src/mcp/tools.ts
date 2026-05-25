@@ -49,11 +49,22 @@ import {
   type TemplateParamDescriptor,
 } from "../compose/templates.js";
 import { RefResolutionError } from "../compose/imports.js";
-import { renderToFile } from "../drivers/node/index.js";
+import {
+  renderToFile,
+  probeAudio as defaultProbeAudio,
+  FfprobeUnavailableError,
+  type AudioMetadata,
+} from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
 import { listTweenable } from "../schema/tweenable.js";
 import type { FontAsset, Tween } from "../schema/types.js";
-import { BLEND_MODES, BlendModeSchema, COMPOSITION_VERSION } from "../schema/zod.js";
+import {
+  AUDIO_ASSET_EXTENSIONS,
+  BLEND_MODES,
+  BlendModeSchema,
+  COMPOSITION_VERSION,
+  isSupportedAudioSrc,
+} from "../schema/zod.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -256,6 +267,10 @@ export interface ToolDeps {
   projectControls?: ProjectControls;
   libraryControls?: LibraryControls;
   renderControls?: RenderControls;
+  // Audio metadata probe for `register_asset` (v0.2 §S2). Injected by tests to
+  // avoid spawning ffprobe; production leaves it unset and the tool spawns the
+  // bundled `ffprobe-static` binary via the node driver.
+  probeAudio?: (src: string) => Promise<AudioMetadata>;
 }
 
 function requireProjectControls(deps: ToolDeps): ProjectControls {
@@ -455,15 +470,52 @@ const registerAsset = defineTool({
   name: "register_asset",
   title: "Register asset",
   description:
-    "Register an image or font asset by id. Font assets require a `family`.",
+    "Register an image, font, or audio asset by id. Font assets require a `family`. " +
+    `Audio assets accept ${AUDIO_ASSET_EXTENSIONS.join(", ")} and are probed with ffprobe to ` +
+    "extract duration, sampleRate, channels, and codec (a `warnings` entry is returned, and the " +
+    "asset registered without metadata, if ffprobe is unavailable).",
   inputSchema: {
     id: z.string().min(1),
-    type: z.enum(["image", "font"]),
+    type: z.enum(["image", "font", "audio"]),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
-  handler: (args, { store }) => {
+  handler: async (args, deps) => {
+    const { store } = deps;
+    if (args.type === "audio") {
+      const warnings: string[] = [];
+      let metadata: AudioMetadata = {};
+      // Probe only supported containers — an unsupported src is rejected by
+      // store.registerAsset below, so skip the wasted subprocess.
+      if (isSupportedAudioSrc(args.src)) {
+        const probe = deps.probeAudio ?? defaultProbeAudio;
+        try {
+          metadata = await probe(args.src);
+        } catch (err) {
+          if (err instanceof FfprobeUnavailableError) {
+            warnings.push(
+              "ffprobe not found — audio asset registered without metadata " +
+                "(duration, sampleRate, channels, codec). Install ffmpeg/ffprobe to enable extraction.",
+            );
+          } else {
+            warnings.push(
+              `ffprobe could not read "${args.src}": ${
+                err instanceof Error ? err.message : String(err)
+              }. Audio asset registered without metadata.`,
+            );
+          }
+        }
+      }
+      store.registerAsset(
+        { id: args.id, type: "audio", src: args.src, ...metadata },
+        args.compositionId,
+      );
+      return warnings.length > 0
+        ? { ok: true as const, warnings }
+        : { ok: true as const };
+    }
+
     store.registerAsset(
       {
         id: args.id,

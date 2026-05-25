@@ -118,6 +118,69 @@ describe("CompositionStore — assets", () => {
       store.registerAsset({ id: "f", type: "font", src: "f.ttf" }),
     ).toThrow(/family/);
   });
+
+  it("registers an audio asset with probed metadata and round-trips it through toJSON", () => {
+    const { store } = makeStore();
+    store.registerAsset({
+      id: "vo",
+      type: "audio",
+      src: "voiceover.mp3",
+      duration: 12.5,
+      sampleRate: 44100,
+      channels: 2,
+      codec: "mp3",
+    });
+    expect(store.listAssets()).toContainEqual({
+      id: "vo",
+      type: "audio",
+      src: "voiceover.mp3",
+      duration: 12.5,
+      sampleRate: 44100,
+      channels: 2,
+      codec: "mp3",
+    });
+    // Cloned on the way out — the serialised composition carries the metadata.
+    expect(store.toJSON().assets).toContainEqual(
+      expect.objectContaining({ id: "vo", type: "audio", codec: "mp3", channels: 2 }),
+    );
+  });
+
+  it("registers an audio asset with no metadata (ffprobe-less path)", () => {
+    const { store } = makeStore();
+    store.registerAsset({ id: "music", type: "audio", src: "bed.wav" });
+    const asset = store.listAssets().find((a) => a.id === "music");
+    expect(asset).toEqual({ id: "music", type: "audio", src: "bed.wav" });
+    // No spurious undefined metadata keys leak into the registry.
+    expect(Object.keys(asset!).sort()).toEqual(["id", "src", "type"]);
+  });
+
+  it("rejects an audio asset whose src has an unsupported extension", () => {
+    const { store } = makeStore();
+    expect(() =>
+      store.registerAsset({ id: "x", type: "audio", src: "notes.txt" }),
+    ).toThrow(MCPToolError);
+    try {
+      store.registerAsset({ id: "x", type: "audio", src: "notes.txt" });
+    } catch (err) {
+      expect((err as MCPToolError).code).toBe("E_INVALID_VALUE");
+    }
+  });
+
+  it("accepts every supported audio extension (case-insensitive)", () => {
+    const { store } = makeStore();
+    for (const [i, src] of [
+      "a.mp3",
+      "b.WAV",
+      "c.aac",
+      "d.M4A",
+      "e.ogg",
+    ].entries()) {
+      expect(() =>
+        store.registerAsset({ id: `aud${i}`, type: "audio", src }),
+      ).not.toThrow();
+    }
+    expect(store.listAssets().filter((a) => a.type === "audio")).toHaveLength(5);
+  });
 });
 
 describe("CompositionStore — layers", () => {

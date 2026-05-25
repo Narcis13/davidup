@@ -31,6 +31,15 @@ import { indexTweens, renderFrame } from "../../engine/index.js";
 import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 
+export {
+  probeAudio,
+  resolveFfprobePath,
+  FfprobeUnavailableError,
+  type AudioMetadata,
+  type ProbeAudioOptions,
+  type ProbeSpawn,
+} from "./ffprobe.js";
+
 export interface SkiaCanvasInstance {
   getContext(kind: "2d"): Canvas2DContext;
   toBuffer(format: "raw"): Promise<Uint8Array> | Uint8Array;
