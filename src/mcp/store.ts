@@ -15,6 +15,7 @@ import type { EasingName } from "../easings/index.js";
 import { validate, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
+  AudioTrack,
   BlendMode,
   Composition,
   CompositionMeta,
@@ -83,12 +84,16 @@ interface MutableComposition {
   // group children that are created without a layer assignment in future.
   itemLayer: Map<string, string>;
   tweens: Map<string, Tween>;
+  // External audio tracks keyed by id (v0.2 §S3). Insertion-ordered like the
+  // other maps so the serialised `audio[]` keeps add order. Audio is never
+  // derived from video — every entry is an explicitly declared external asset.
+  audio: Map<string, AudioTrack>;
   // Scene instance tracking — populated by add_scene_instance / cleared by
   // update_scene_instance + remove. Lets scene-instance MCP tools roll back
   // exactly the items/tweens/assets a prior call added without scanning.
   sceneInstances: Map<string, SceneInstanceRecord>;
   // Monotonic counters used when an explicit id is not supplied.
-  nextSeq: { layer: number; item: number; tween: number; comp: number; scene: number };
+  nextSeq: { layer: number; item: number; tween: number; comp: number; scene: number; audio: number };
 }
 
 export interface CreateCompositionInput {
@@ -281,6 +286,43 @@ export interface ListTweensFilter {
   property?: string;
 }
 
+// Audio track inputs (v0.2 §S3). `start`/`end` are composition seconds (`end`
+// omitted ⇒ play out to the asset's natural duration at mux time); `volume` is
+// a linear gain in [0, 2]; `fadeIn`/`fadeOut` are ramp lengths in seconds.
+export interface AddAudioTrackInput {
+  asset: string;
+  start: number;
+  end?: number;
+  volume?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  id?: string;
+}
+
+export interface UpdateAudioTrackProps {
+  asset?: string;
+  start?: number;
+  end?: number;
+  volume?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+}
+
+export interface ListAudioTracksFilter {
+  asset?: string;
+}
+
+// Returned by add/update so the MCP tool can surface non-fatal placement
+// warnings (track extends past the composition end) without failing the call —
+// aligns with the v0.2 plan's Q6 "warn, don't error" rule.
+export interface AudioTrackMutationResult {
+  warnings: string[];
+}
+
+export interface AddAudioTrackResult extends AudioTrackMutationResult {
+  id: string;
+}
+
 export class CompositionStore {
   private readonly compositions = new Map<string, MutableComposition>();
   private defaultId: string | null = null;
@@ -326,8 +368,9 @@ export class CompositionStore {
       items: new Map(),
       itemLayer: new Map(),
       tweens: new Map(),
+      audio: new Map(),
       sceneInstances: new Map(),
-      nextSeq: { layer: 0, item: 0, tween: 0, comp: 0, scene: 0 },
+      nextSeq: { layer: 0, item: 0, tween: 0, comp: 0, scene: 0, audio: 0 },
     };
     this.compositions.set(id, comp);
     if (this.defaultId === null) this.defaultId = id;
@@ -404,6 +447,7 @@ export class CompositionStore {
 
   toJSON(compositionId?: string): Composition {
     const comp = this.requireComposition(compositionId);
+    const audio = Array.from(comp.audio.values()).map(cloneAudioTrack);
     return {
       version: COMPOSITION_VERSION,
       composition: { ...comp.meta },
@@ -413,6 +457,10 @@ export class CompositionStore {
         Array.from(comp.items.entries()).map(([id, item]) => [id, cloneItem(item)]),
       ),
       tweens: Array.from(comp.tweens.values()).map(cloneTween),
+      // Emit `audio` only when there's at least one track so pre-v0.2 projects
+      // (and every composition that never touched audio) serialise byte-for-byte
+      // as before — the schema keeps `audio` optional for exactly this reason.
+      ...(audio.length > 0 ? { audio } : {}),
     };
   }
 
@@ -505,6 +553,15 @@ export class CompositionStore {
           "E_ASSET_IN_USE",
           `Asset "${assetId}" is used as font by text "${itemId}".`,
           "Remove or reassign the item before removing the asset.",
+        );
+      }
+    }
+    for (const [trackId, track] of comp.audio) {
+      if (track.asset === assetId) {
+        throw new MCPToolError(
+          "E_ASSET_IN_USE",
+          `Asset "${assetId}" is used by audio track "${trackId}".`,
+          "Remove the audio track (remove_audio_track) before removing the asset.",
         );
       }
     }
@@ -1027,6 +1084,143 @@ export class CompositionStore {
     return out;
   }
 
+  // ──────────────── Audio tracks (§S3) ────────────────
+
+  addAudioTrack(
+    input: AddAudioTrackInput,
+    compositionId?: string,
+  ): AddAudioTrackResult {
+    const comp = this.requireComposition(compositionId);
+    const asset = this.requireAudioAsset(comp, input.asset);
+    validateAudioFields(input);
+
+    const id = input.id ?? this.nextAudioTrackId(comp);
+    if (comp.audio.has(id)) {
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Audio track id "${id}" already exists.`,
+        "Omit `id` to let the store auto-assign, or call remove_audio_track first to replace.",
+      );
+    }
+
+    const track: AudioTrack = {
+      id,
+      asset: input.asset,
+      start: input.start,
+      ...(input.end !== undefined ? { end: input.end } : {}),
+      ...(input.volume !== undefined ? { volume: input.volume } : {}),
+      ...(input.fadeIn !== undefined ? { fadeIn: input.fadeIn } : {}),
+      ...(input.fadeOut !== undefined ? { fadeOut: input.fadeOut } : {}),
+    };
+    comp.audio.set(id, track);
+    return { id, warnings: audioPlacementWarnings(comp, track, asset) };
+  }
+
+  updateAudioTrack(
+    id: string,
+    props: UpdateAudioTrackProps,
+    compositionId?: string,
+  ): AudioTrackMutationResult {
+    const comp = this.requireComposition(compositionId);
+    const existing = comp.audio.get(id);
+    if (!existing) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No audio track "${id}".`,
+        "Call list_audio_tracks to see existing audio track ids, or add_audio_track first.",
+      );
+    }
+
+    const assetId = props.asset ?? existing.asset;
+    const asset = this.requireAudioAsset(comp, assetId);
+    const merged = {
+      asset: assetId,
+      start: props.start ?? existing.start,
+      end: props.end ?? existing.end,
+      volume: props.volume ?? existing.volume,
+      fadeIn: props.fadeIn ?? existing.fadeIn,
+      fadeOut: props.fadeOut ?? existing.fadeOut,
+    };
+    validateAudioFields(merged);
+
+    const updated: AudioTrack = {
+      id,
+      asset: merged.asset,
+      start: merged.start,
+      ...(merged.end !== undefined ? { end: merged.end } : {}),
+      ...(merged.volume !== undefined ? { volume: merged.volume } : {}),
+      ...(merged.fadeIn !== undefined ? { fadeIn: merged.fadeIn } : {}),
+      ...(merged.fadeOut !== undefined ? { fadeOut: merged.fadeOut } : {}),
+    };
+    comp.audio.set(id, updated);
+    return { warnings: audioPlacementWarnings(comp, updated, asset) };
+  }
+
+  removeAudioTrack(id: string, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    if (!comp.audio.delete(id)) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No audio track "${id}".`,
+        "Call list_audio_tracks to see existing audio track ids.",
+      );
+    }
+  }
+
+  listAudioTracks(
+    filter: ListAudioTracksFilter = {},
+    compositionId?: string,
+  ): AudioTrack[] {
+    const comp = this.requireComposition(compositionId);
+    const out: AudioTrack[] = [];
+    for (const track of comp.audio.values()) {
+      if (filter.asset !== undefined && track.asset !== filter.asset) continue;
+      out.push(cloneAudioTrack(track));
+    }
+    return out;
+  }
+
+  /**
+   * Add an audio track from a fully-formed object (used by editor hydration in
+   * apply_command's hydrateStore). Lenient on the asset reference — the schema
+   * intentionally lets a track name an asset that isn't registered yet (S1), so
+   * a composition that came off disk hydrates without the asset-existence check
+   * that `addAudioTrack` enforces for fresh MCP calls. Assigns an id when the
+   * loaded track omits one.
+   */
+  addRawAudioTrack(track: AudioTrack, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    const id = track.id ?? this.nextAudioTrackId(comp);
+    if (comp.audio.has(id)) {
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Audio track id "${id}" already exists.`,
+        "Pick a different id, or remove_audio_track the existing one first.",
+      );
+    }
+    comp.audio.set(id, cloneAudioTrack({ ...track, id }));
+  }
+
+  /** Require an asset that exists AND is type "audio"; the shared add/update guard. */
+  private requireAudioAsset(comp: MutableComposition, assetId: string): Asset {
+    const asset = comp.assets.get(assetId);
+    if (!asset) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `Audio track references unknown asset "${assetId}".`,
+        "Register it first with register_asset({ type: 'audio' }); list_assets shows registered ids.",
+      );
+    }
+    if (asset.type !== "audio") {
+      throw new MCPToolError(
+        "E_ASSET_TYPE_MISMATCH",
+        `Asset "${assetId}" is type "${asset.type}", not "audio".`,
+        "Audio tracks can only reference assets registered with type 'audio'.",
+      );
+    }
+    return asset;
+  }
+
   // ──────────────── Scene instances ────────────────
 
   /**
@@ -1493,6 +1687,14 @@ export class CompositionStore {
     } while (comp.tweens.has(candidate));
     return candidate;
   }
+
+  private nextAudioTrackId(comp: MutableComposition): string {
+    let candidate: string;
+    do {
+      candidate = `audio-${++comp.nextSeq.audio}`;
+    } while (comp.audio.has(candidate));
+    return candidate;
+  }
 }
 
 // ──────────────── Helpers ────────────────
@@ -1540,6 +1742,71 @@ function ensureUnitInterval(name: string, value: number): void {
 function pushUnique(arr: string[], value: string): void {
   if (arr.includes(value)) return;
   arr.push(value);
+}
+
+// Audio-track field rules (v0.2 §S1, enforced here at the store boundary too so
+// direct callers and editor-hydrated updates get the same guarantees the Zod
+// tool schema gives MCP clients). Shape-level rejection → E_INVALID_VALUE.
+function validateAudioFields(t: {
+  start: number;
+  end?: number | undefined;
+  volume?: number | undefined;
+  fadeIn?: number | undefined;
+  fadeOut?: number | undefined;
+}): void {
+  ensureNonNegative("Audio track start", t.start);
+  if (t.end !== undefined && t.end <= t.start) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Audio track `end` must be greater than `start`.",
+      "Omit `end` to play the asset out to its natural duration.",
+    );
+  }
+  if (t.volume !== undefined && (!Number.isFinite(t.volume) || t.volume < 0 || t.volume > 2)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Audio track volume must be in [0, 2].",
+      "1 = unchanged, 0 = silent, 2 = +6dB.",
+    );
+  }
+  if (t.fadeIn !== undefined) ensureNonNegative("Audio track fadeIn", t.fadeIn);
+  if (t.fadeOut !== undefined) ensureNonNegative("Audio track fadeOut", t.fadeOut);
+}
+
+// Non-fatal placement check: a track that starts at/after the composition end,
+// or whose end (explicit, or implied by the asset's natural duration) runs past
+// it, is reported as a warning — never an error (plan Q6: trim at mux, don't
+// reject the edit). 1µs epsilon absorbs float drift in `start + duration` sums.
+const AUDIO_DURATION_EPS = 1e-6;
+
+function audioPlacementWarnings(
+  comp: MutableComposition,
+  track: AudioTrack,
+  asset: Asset,
+): string[] {
+  const warnings: string[] = [];
+  const compDuration = comp.meta.duration;
+  if (compDuration <= 0) return warnings;
+  const label = `Audio track "${track.id ?? track.asset}"`;
+
+  if (track.start >= compDuration) {
+    warnings.push(
+      `${label} starts at ${track.start}s, at or past the composition end (${compDuration}s); it will be silent.`,
+    );
+    return warnings;
+  }
+
+  const assetDuration =
+    asset.type === "audio" ? asset.duration : undefined;
+  const effectiveEnd =
+    track.end ??
+    (assetDuration !== undefined ? track.start + assetDuration : undefined);
+  if (effectiveEnd !== undefined && effectiveEnd > compDuration + AUDIO_DURATION_EPS) {
+    warnings.push(
+      `${label} ends at ${effectiveEnd}s, past the composition end (${compDuration}s); it will be truncated at mux time.`,
+    );
+  }
+  return warnings;
 }
 
 function cloneAsset(asset: Asset): Asset {
@@ -1643,6 +1910,18 @@ function cloneTween(tween: Tween): Tween {
     start: tween.start,
     duration: tween.duration,
     ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
+  };
+}
+
+function cloneAudioTrack(track: AudioTrack): AudioTrack {
+  return {
+    ...(track.id !== undefined ? { id: track.id } : {}),
+    asset: track.asset,
+    start: track.start,
+    ...(track.end !== undefined ? { end: track.end } : {}),
+    ...(track.volume !== undefined ? { volume: track.volume } : {}),
+    ...(track.fadeIn !== undefined ? { fadeIn: track.fadeIn } : {}),
+    ...(track.fadeOut !== undefined ? { fadeOut: track.fadeOut } : {}),
   };
 }
 

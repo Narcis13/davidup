@@ -19,7 +19,7 @@
 */
 
 import { CompositionStore, dispatchTool, TOOLS, type ToolDef } from 'davidup/mcp'
-import type { Composition, Asset, Layer, Item, Tween } from 'davidup/schema'
+import type { Composition, Asset, Layer, Item, Tween, AudioTrack } from 'davidup/schema'
 import { z } from 'zod'
 
 import { COMMAND_TO_TOOL, type Command } from '#types/commands'
@@ -168,5 +168,13 @@ export function hydrateStore(
 
   for (const tween of composition.tweens as ReadonlyArray<Tween>) {
     store.addRawTween(tween, compositionId)
+  }
+
+  // Audio tracks (v0.2 §S3). Optional on disk — pre-v0.2 projects have no
+  // `audio` key. addRawAudioTrack is lenient on the asset reference (matching
+  // the schema, which lets a track name an asset registered later), so a loaded
+  // composition hydrates without the asset-existence check fresh MCP adds get.
+  for (const track of (composition.audio ?? []) as ReadonlyArray<AudioTrack>) {
+    store.addRawAudioTrack(track, compositionId)
   }
 }

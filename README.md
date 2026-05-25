@@ -4,7 +4,7 @@
 > One canonical JSON composition runs in the **browser** (live preview via
 > Canvas2D + `requestAnimationFrame`), on the **server** (frame-by-frame render
 > with [`skia-canvas`](https://github.com/samizdatco/skia-canvas) piped to
-> `ffmpeg` → MP4), inside an **AI agent** loop (52 atomic MCP tools), or in a
+> `ffmpeg` → MP4), inside an **AI agent** loop (56 atomic MCP tools), or in a
 > **human editor** (`davidup edit`). Same input → same pixels, every host.
 
 ```
@@ -17,7 +17,7 @@
             │                        │                        │
     ┌───────▼───────┐       ┌────────▼────────┐      ┌────────▼────────┐
     │ browser/      │       │ drivers/node    │      │ mcp server      │
-    │ attach()      │       │ renderToFile()  │      │ 52 tools, stdio │
+    │ attach()      │       │ renderToFile()  │      │ 56 tools, stdio │
     │ live preview  │       │ → mp4/mov/webm  │      │ for AI agents   │
     └───────────────┘       └─────────────────┘      └─────────────────┘
                                                               │
@@ -440,7 +440,7 @@ runs through the four MCP tools `current_project`, `list_projects`,
 ## The MCP server — full reference for agents
 
 **Transport**: stdio. **Entry**: `bun run src/mcp/bin.ts` (declared as the
-`davidup-mcp` bin). **Tools**: 52 atomic tools, all returning structured
+`davidup-mcp` bin). **Tools**: 56 atomic tools, all returning structured
 results with `{error: {code, message, hint?, issues?, warnings?, details?}}`
 on failure (`isError: true`).
 
@@ -453,6 +453,7 @@ on failure (`isError: true`).
 | 4.3 | Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 | Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
 | 4.5 | Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
+| 4.5a | Audio tracks | `add_audio_track`, `update_audio_track`, `remove_audio_track`, `list_audio_tracks` |
 | 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` |
 | 4.5c | Templates | `apply_template`, `list_templates`, `define_user_template`, `remove_user_template` |
 | 4.5d | Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
@@ -699,7 +700,7 @@ src/
   drivers/
     node/         renderToFile via skia-canvas + ffmpeg           (§5.6, §6)
     browser/      attach() — RAF preview + pick + bounds + source (§5.6)
-  mcp/            server + 52 tools + in-memory store + bin       (§4)
+  mcp/            server + 56 tools + in-memory store + bin       (§4)
   cli/            scaffold + commands (new / edit / list)
 
 apps/

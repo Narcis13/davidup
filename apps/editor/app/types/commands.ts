@@ -372,6 +372,53 @@ const removeTween = z.object({
   source: SOURCE,
 })
 
+// DUAL of engine `add_audio_track` (src/mcp/tools.ts §S3). Field ranges mirror
+// AudioTrackSchema; add a new field here too or the command bus strips it
+// before it reaches the MCP tool. `list_audio_tracks` is read-only, so — like
+// `list_tweens` — it is intentionally NOT a command.
+const addAudioTrack = z.object({
+  kind: z.literal('add_audio_track'),
+  payload: z.object({
+    asset: ID,
+    start: NON_NEG,
+    end: z.number().optional(),
+    volume: z.number().min(0).max(2).optional(),
+    fadeIn: NON_NEG.optional(),
+    fadeOut: NON_NEG.optional(),
+    id: ID.optional(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+const updateAudioTrack = z.object({
+  kind: z.literal('update_audio_track'),
+  payload: z.object({
+    id: ID,
+    props: z
+      .object({
+        asset: ID,
+        start: NON_NEG,
+        end: z.number(),
+        volume: z.number().min(0).max(2),
+        fadeIn: NON_NEG,
+        fadeOut: NON_NEG,
+      })
+      .partial(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+const removeAudioTrack = z.object({
+  kind: z.literal('remove_audio_track'),
+  payload: z.object({
+    id: ID,
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
 const applyBehavior = z.object({
   kind: z.literal('apply_behavior'),
   payload: z.object({
@@ -456,6 +503,9 @@ export const CommandSchema = z.discriminatedUnion('kind', [
   addTween,
   updateTween,
   removeTween,
+  addAudioTrack,
+  updateAudioTrack,
+  removeAudioTrack,
   applyBehavior,
   applyTemplate,
   addSceneInstance,
@@ -487,6 +537,9 @@ export const COMMAND_TO_TOOL: { readonly [K in CommandKind]: string } = {
   add_tween: 'add_tween',
   update_tween: 'update_tween',
   remove_tween: 'remove_tween',
+  add_audio_track: 'add_audio_track',
+  update_audio_track: 'update_audio_track',
+  remove_audio_track: 'remove_audio_track',
   apply_behavior: 'apply_behavior',
   apply_template: 'apply_template',
   add_scene_instance: 'add_scene_instance',

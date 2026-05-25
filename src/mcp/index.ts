@@ -8,15 +8,20 @@
 
 export { CompositionStore } from "./store.js";
 export type {
+  AddAudioTrackInput,
+  AddAudioTrackResult,
   AddGroupInput,
   AddLayerInput,
   AddShapeInput,
   AddSpriteInput,
   AddTextInput,
   AddTweenInput,
+  AudioTrackMutationResult,
   CreateCompositionInput,
+  ListAudioTracksFilter,
   RegisterAssetInput,
   SetMetaPropertyName,
+  UpdateAudioTrackProps,
   UpdateItemProps,
   UpdateLayerProps,
   UpdateTweenProps,

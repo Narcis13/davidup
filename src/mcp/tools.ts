@@ -1009,6 +1009,120 @@ const listTweens = defineTool({
   },
 });
 
+// ──────────────── 4.5a Audio tracks (v0.2 §S3) ────────────────
+
+// Audio is composition-level (a sibling of `tweens`, not an item): every track
+// is an explicitly declared external asset, never derived from video. `[start,
+// end)` are composition seconds; an omitted `end` plays the asset out to its
+// natural duration (resolved at mux time, S4). The store rejects a track that
+// references a missing or non-audio asset (E_NOT_FOUND / E_ASSET_TYPE_MISMATCH)
+// but only *warns* when the track runs past the composition end — placement is
+// trimmed at mux, not rejected (plan Q6).
+const AUDIO_VOLUME = z
+  .number()
+  .min(0)
+  .max(2)
+  .describe("Linear gain multiplier in [0, 2] (1 = unchanged, 0 = silent, 2 = +6dB).");
+const AUDIO_FADE = z
+  .number()
+  .nonnegative()
+  .describe("Fade ramp length in seconds.");
+
+const addAudioTrack = defineTool({
+  name: "add_audio_track",
+  title: "Add audio track",
+  description:
+    "Add an external audio track to the composition timeline. `asset` must be a registered audio asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't audio). `end` is optional — omit it to play the asset out to its natural duration. Returns the assigned `audioTrackId`, plus a `warnings` array when the track extends past the composition end (it is trimmed at mux time, never rejected).",
+  inputSchema: {
+    asset: z.string().min(1),
+    start: z.number().nonnegative(),
+    end: z.number().optional(),
+    volume: AUDIO_VOLUME.optional(),
+    fadeIn: AUDIO_FADE.optional(),
+    fadeOut: AUDIO_FADE.optional(),
+    id: z.string().min(1).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const { id, warnings } = store.addAudioTrack(
+      {
+        asset: args.asset,
+        start: args.start,
+        ...(args.end !== undefined ? { end: args.end } : {}),
+        ...(args.volume !== undefined ? { volume: args.volume } : {}),
+        ...(args.fadeIn !== undefined ? { fadeIn: args.fadeIn } : {}),
+        ...(args.fadeOut !== undefined ? { fadeOut: args.fadeOut } : {}),
+        ...(args.id !== undefined ? { id: args.id } : {}),
+      },
+      args.compositionId,
+    );
+    return warnings.length > 0
+      ? { audioTrackId: id, warnings }
+      : { audioTrackId: id };
+  },
+});
+
+const updateAudioTrack = defineTool({
+  name: "update_audio_track",
+  title: "Update audio track",
+  description:
+    "Patch fields on an existing audio track. Re-checks the (new) asset is audio and re-evaluates the past-composition-end warning. Returns `{ ok: true }`, plus a `warnings` array when the resulting placement extends past the composition end.",
+  inputSchema: {
+    id: z.string().min(1),
+    props: z
+      .object({
+        asset: z.string().min(1),
+        start: z.number().nonnegative(),
+        end: z.number(),
+        volume: AUDIO_VOLUME,
+        fadeIn: AUDIO_FADE,
+        fadeOut: AUDIO_FADE,
+      })
+      .partial(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const { warnings } = store.updateAudioTrack(
+      args.id,
+      stripUndefined(args.props),
+      args.compositionId,
+    );
+    return warnings.length > 0
+      ? { ok: true as const, warnings }
+      : { ok: true as const };
+  },
+});
+
+const removeAudioTrack = defineTool({
+  name: "remove_audio_track",
+  title: "Remove audio track",
+  description: "Remove an audio track by id.",
+  inputSchema: {
+    id: z.string().min(1),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    store.removeAudioTrack(args.id, args.compositionId);
+    return { ok: true as const };
+  },
+});
+
+const listAudioTracks = defineTool({
+  name: "list_audio_tracks",
+  title: "List audio tracks",
+  description:
+    "List the composition's audio tracks in declaration order, optionally filtered by `asset`.",
+  inputSchema: {
+    asset: z.string().min(1).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const filter: { asset?: string } = {};
+    if (args.asset !== undefined) filter.asset = args.asset;
+    return { audioTracks: store.listAudioTracks(filter, args.compositionId) };
+  },
+});
+
 // ──────────────── 4.5b Behaviors (§6.7) ────────────────
 
 const applyBehavior = defineTool({
@@ -2247,7 +2361,7 @@ const listEngineCapabilitiesTool = defineTool({
   name: "list_engine_capabilities",
   title: "List engine capabilities",
   description:
-    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
+    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, supported audio containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
   inputSchema: {},
   handler: () => {
     return {
@@ -2256,6 +2370,13 @@ const listEngineCapabilitiesTool = defineTool({
       blendModes: [...BLEND_MODES],
       itemTypes: ["sprite", "text", "shape", "group"] as const,
       shapeKinds: ["rect", "circle", "polygon"] as const,
+      // Audio support (v0.2 §S3): external tracks on the composition timeline via
+      // add_audio_track. `extensions` are the containers register_asset accepts
+      // for `type: "audio"`. Mux into the rendered MP4 lands in S4.
+      audio: {
+        tracks: true,
+        extensions: [...AUDIO_ASSET_EXTENSIONS],
+      },
       tweenable: {
         sprite: listTweenable("sprite"),
         text: listTweenable("text"),
@@ -2349,6 +2470,11 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   updateTween,
   removeTween,
   listTweens,
+  // 4.5a — audio tracks (v0.2 §S3)
+  addAudioTrack,
+  updateAudioTrack,
+  removeAudioTrack,
+  listAudioTracks,
   // 4.5b — behaviors
   applyBehavior,
   listBehaviorsTool,
