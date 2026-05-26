@@ -60,7 +60,7 @@
 // `E_ASSET_CONFLICT`.
 
 import { MCPToolError } from "../engine/errors.js";
-import type { Asset, AudioAsset } from "../schema/types.js";
+import type { Asset, AudioAsset, VideoAsset } from "../schema/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
 // ──────────────── Public types ────────────────
@@ -1187,6 +1187,19 @@ function cloneAsset(a: Asset): Asset {
         ...(a.channels !== undefined ? { channels: a.channels } : {}),
         ...(a.codec !== undefined ? { codec: a.codec } : {}),
       };
+    case "video":
+      return {
+        id: a.id,
+        type: "video",
+        src: a.src,
+        ...(a.duration !== undefined ? { duration: a.duration } : {}),
+        ...(a.width !== undefined ? { width: a.width } : {}),
+        ...(a.height !== undefined ? { height: a.height } : {}),
+        ...(a.fps !== undefined ? { fps: a.fps } : {}),
+        ...(a.hasAlpha !== undefined ? { hasAlpha: a.hasAlpha } : {}),
+        ...(a.codec !== undefined ? { codec: a.codec } : {}),
+        ...(a.pixelFormat !== undefined ? { pixelFormat: a.pixelFormat } : {}),
+      };
   }
 }
 
@@ -1237,6 +1250,33 @@ function cloneRawAsset(a: Record<string, unknown>): Asset {
     }
     if (typeof a.codec === "string" && a.codec.length > 0) {
       out.codec = a.codec;
+    }
+    return out;
+  }
+  if (type === "video") {
+    // Same as audio: carry authored metadata through (otherwise re-derived by
+    // `register_asset` via ffprobe, §S6); drop malformed entries silently.
+    const out: VideoAsset = { id, type: "video", src };
+    if (typeof a.duration === "number" && Number.isFinite(a.duration)) {
+      out.duration = a.duration;
+    }
+    if (typeof a.width === "number" && Number.isFinite(a.width)) {
+      out.width = a.width;
+    }
+    if (typeof a.height === "number" && Number.isFinite(a.height)) {
+      out.height = a.height;
+    }
+    if (typeof a.fps === "number" && Number.isFinite(a.fps)) {
+      out.fps = a.fps;
+    }
+    if (typeof a.hasAlpha === "boolean") {
+      out.hasAlpha = a.hasAlpha;
+    }
+    if (typeof a.codec === "string" && a.codec.length > 0) {
+      out.codec = a.codec;
+    }
+    if (typeof a.pixelFormat === "string" && a.pixelFormat.length > 0) {
+      out.pixelFormat = a.pixelFormat;
     }
     return out;
   }

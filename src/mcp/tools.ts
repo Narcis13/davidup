@@ -52,18 +52,22 @@ import { RefResolutionError } from "../compose/imports.js";
 import {
   renderToFile,
   probeAudio as defaultProbeAudio,
+  probeVideo as defaultProbeVideo,
   FfprobeUnavailableError,
   type AudioMetadata,
+  type VideoMetadata,
 } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
 import { listTweenable } from "../schema/tweenable.js";
 import type { FontAsset, Tween } from "../schema/types.js";
 import {
   AUDIO_ASSET_EXTENSIONS,
+  VIDEO_ASSET_EXTENSIONS,
   BLEND_MODES,
   BlendModeSchema,
   COMPOSITION_VERSION,
   isSupportedAudioSrc,
+  isSupportedVideoSrc,
 } from "../schema/zod.js";
 import { MCPToolError } from "./errors.js";
 import {
@@ -271,6 +275,9 @@ export interface ToolDeps {
   // avoid spawning ffprobe; production leaves it unset and the tool spawns the
   // bundled `ffprobe-static` binary via the node driver.
   probeAudio?: (src: string) => Promise<AudioMetadata>;
+  // Video metadata probe for `register_asset` (v0.2 §S6). Same injection
+  // contract as `probeAudio`.
+  probeVideo?: (src: string) => Promise<VideoMetadata>;
 }
 
 function requireProjectControls(deps: ToolDeps): ProjectControls {
@@ -466,17 +473,58 @@ const resetTool = defineTool({
 
 // ──────────────── 4.2 Assets ────────────────
 
+// Video warning policy (v0.2 §S6). All bounds are advisory — the asset still
+// registers; `register_asset` just surfaces a `warnings` entry so the author
+// knows the clip may be heavy to decode/render:
+//   - resolution at or above 4K UHD (3840×2160) — large frames are expensive
+//   - duration beyond 60s — long clips inflate render time and memory
+//   - an exotic codec that commonly lacks hardware decode (notably AV1)
+const VIDEO_WARN_WIDTH = 3840;
+const VIDEO_WARN_HEIGHT = 2160;
+const VIDEO_WARN_DURATION_S = 60;
+const EXOTIC_VIDEO_CODECS = new Set(["av1"]);
+
+/** Warnings derived from probed video metadata (resolution / duration / codec). */
+function videoMetadataWarnings(meta: VideoMetadata): string[] {
+  const warnings: string[] = [];
+  if (
+    (meta.width !== undefined && meta.width >= VIDEO_WARN_WIDTH) ||
+    (meta.height !== undefined && meta.height >= VIDEO_WARN_HEIGHT)
+  ) {
+    warnings.push(
+      `Video resolution ${meta.width ?? "?"}×${meta.height ?? "?"} is at or above 4K ` +
+        `(${VIDEO_WARN_WIDTH}×${VIDEO_WARN_HEIGHT}) — large frames slow decode and render.`,
+    );
+  }
+  if (meta.duration !== undefined && meta.duration > VIDEO_WARN_DURATION_S) {
+    warnings.push(
+      `Video duration ${meta.duration.toFixed(1)}s exceeds ${VIDEO_WARN_DURATION_S}s — ` +
+        "long clips increase render time and memory.",
+    );
+  }
+  if (meta.codec !== undefined && EXOTIC_VIDEO_CODECS.has(meta.codec)) {
+    warnings.push(
+      `Video codec "${meta.codec}" may lack hardware decode on the target machine — ` +
+        "decoding can be slow; consider transcoding to H.264 if playback stutters.",
+    );
+  }
+  return warnings;
+}
+
 const registerAsset = defineTool({
   name: "register_asset",
   title: "Register asset",
   description:
-    "Register an image, font, or audio asset by id. Font assets require a `family`. " +
+    "Register an image, font, audio, or video asset by id. Font assets require a `family`. " +
     `Audio assets accept ${AUDIO_ASSET_EXTENSIONS.join(", ")} and are probed with ffprobe to ` +
-    "extract duration, sampleRate, channels, and codec (a `warnings` entry is returned, and the " +
-    "asset registered without metadata, if ffprobe is unavailable).",
+    "extract duration, sampleRate, channels, and codec. " +
+    `Video assets accept ${VIDEO_ASSET_EXTENSIONS.join(", ")} and are probed for duration, width, ` +
+    "height, fps, hasAlpha, codec, and pixelFormat; a `warnings` entry flags >=4K resolution, " +
+    ">60s duration, or an exotic codec (e.g. AV1). For audio and video, if ffprobe is unavailable " +
+    "the asset is registered without metadata and a `warnings` entry is returned.",
   inputSchema: {
     id: z.string().min(1),
-    type: z.enum(["image", "font", "audio"]),
+    type: z.enum(["image", "font", "audio", "video"]),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
@@ -509,6 +557,42 @@ const registerAsset = defineTool({
       }
       store.registerAsset(
         { id: args.id, type: "audio", src: args.src, ...metadata },
+        args.compositionId,
+      );
+      return warnings.length > 0
+        ? { ok: true as const, warnings }
+        : { ok: true as const };
+    }
+
+    if (args.type === "video") {
+      const warnings: string[] = [];
+      let metadata: VideoMetadata = {};
+      // Probe only supported containers — an unsupported src is rejected by
+      // store.registerAsset below, so skip the wasted subprocess.
+      if (isSupportedVideoSrc(args.src)) {
+        const probe = deps.probeVideo ?? defaultProbeVideo;
+        try {
+          metadata = await probe(args.src);
+        } catch (err) {
+          if (err instanceof FfprobeUnavailableError) {
+            warnings.push(
+              "ffprobe not found — video asset registered without metadata " +
+                "(duration, width, height, fps, hasAlpha, codec, pixelFormat). " +
+                "Install ffmpeg/ffprobe to enable extraction.",
+            );
+          } else {
+            warnings.push(
+              `ffprobe could not read "${args.src}": ${
+                err instanceof Error ? err.message : String(err)
+              }. Video asset registered without metadata.`,
+            );
+          }
+        }
+      }
+      // Advisory limit warnings only make sense once the probe succeeded.
+      warnings.push(...videoMetadataWarnings(metadata));
+      store.registerAsset(
+        { id: args.id, type: "video", src: args.src, ...metadata },
         args.compositionId,
       );
       return warnings.length > 0

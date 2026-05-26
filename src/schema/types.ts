@@ -16,6 +16,7 @@ import type {
   TextItemSchema,
   TransformSchema,
   TweenSchema,
+  VideoAssetSchema,
   VideoFitSchema,
   VideoItemSchema,
 } from "./zod.js";
@@ -29,6 +30,7 @@ export type Asset = z.infer<typeof AssetSchema>;
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;
 export type FontAsset = z.infer<typeof FontAssetSchema>;
 export type AudioAsset = z.infer<typeof AudioAssetSchema>;
+export type VideoAsset = z.infer<typeof VideoAssetSchema>;
 
 export type Transform = z.infer<typeof TransformSchema>;
 

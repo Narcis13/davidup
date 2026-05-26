@@ -37,10 +37,14 @@ import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
 
 export {
   probeAudio,
+  probeVideo,
+  pixelFormatHasAlpha,
   resolveFfprobePath,
   FfprobeUnavailableError,
   type AudioMetadata,
+  type VideoMetadata,
   type ProbeAudioOptions,
+  type ProbeVideoOptions,
   type ProbeSpawn,
 } from "./ffprobe.js";
 

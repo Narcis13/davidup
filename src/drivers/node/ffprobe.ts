@@ -23,6 +23,23 @@ export interface AudioMetadata {
   codec?: string;
 }
 
+export interface VideoMetadata {
+  /** Seconds. */
+  duration?: number;
+  /** Pixels. */
+  width?: number;
+  /** Pixels. */
+  height?: number;
+  /** Frames per second (decimal; parsed from ffprobe's frame-rate fraction). */
+  fps?: number;
+  /** True when the pixel format carries an alpha plane (e.g. "yuva420p", "rgba"). */
+  hasAlpha?: boolean;
+  /** ffprobe `codec_name`, e.g. "h264", "hevc", "vp9", "av1". */
+  codec?: string;
+  /** ffprobe `pix_fmt`, e.g. "yuv420p", "yuva420p". */
+  pixelFormat?: string;
+}
+
 export type ProbeSpawn = (
   cmd: string,
   args: ReadonlyArray<string>,
@@ -34,6 +51,9 @@ export interface ProbeAudioOptions {
   /** Override the spawn function (tests). Default: `child_process.spawn`. */
   spawn?: ProbeSpawn;
 }
+
+/** Same shape as {@link ProbeAudioOptions}; named separately for clarity at call sites. */
+export type ProbeVideoOptions = ProbeAudioOptions;
 
 /**
  * Thrown when ffprobe could not be launched at all (binary missing / not
@@ -55,6 +75,12 @@ interface FfprobeStream {
   sample_rate?: string;
   channels?: number;
   duration?: string;
+  width?: number;
+  height?: number;
+  r_frame_rate?: string;
+  avg_frame_rate?: string;
+  pix_fmt?: string;
+  tags?: { alpha_mode?: string };
 }
 
 interface FfprobeOutput {
@@ -114,6 +140,23 @@ export async function probeAudio(
   const spawnFn = opts.spawn ?? defaultSpawn;
   const output = await runFfprobe(spawnFn, ffprobePath, src);
   return parseAudioMetadata(output, src);
+}
+
+/**
+ * Probe a video file's metadata via ffprobe (v0.2 §S6).
+ *
+ * @throws {FfprobeUnavailableError} when the ffprobe binary cannot be spawned.
+ * @throws {Error} when ffprobe ran but failed (non-zero exit, unparseable
+ *   output, or no video stream) — i.e. a problem with the file, not the tool.
+ */
+export async function probeVideo(
+  src: string,
+  opts: ProbeVideoOptions = {},
+): Promise<VideoMetadata> {
+  const ffprobePath = opts.ffprobePath ?? (await resolveFfprobePath());
+  const spawnFn = opts.spawn ?? defaultSpawn;
+  const output = await runFfprobe(spawnFn, ffprobePath, src);
+  return parseVideoMetadata(output, src);
 }
 
 function runFfprobe(
@@ -217,6 +260,79 @@ function parseAudioMetadata(probe: FfprobeOutput, src: string): AudioMetadata {
   }
 
   return out;
+}
+
+function parseVideoMetadata(probe: FfprobeOutput, src: string): VideoMetadata {
+  const video = (probe.streams ?? []).find((s) => s.codec_type === "video");
+  if (!video) {
+    throw new Error(`No video stream found in "${src}".`);
+  }
+  const out: VideoMetadata = {};
+
+  // Duration: prefer the container format duration (the per-stream duration is
+  // often absent in webm/mkv), fall back to the stream's own.
+  const durRaw = probe.format?.duration ?? video.duration;
+  if (typeof durRaw === "string") {
+    const n = Number.parseFloat(durRaw);
+    if (Number.isFinite(n) && n >= 0) out.duration = n;
+  }
+
+  if (typeof video.width === "number" && video.width > 0) out.width = video.width;
+  if (typeof video.height === "number" && video.height > 0) out.height = video.height;
+
+  // Frame rate: prefer the average (the true playback rate for VFR / decimal
+  // fps), fall back to the base `r_frame_rate`. Both arrive as "num/den"
+  // strings; "0/0" (unknown) parses to undefined and is skipped.
+  const fps =
+    parseFrameRate(video.avg_frame_rate) ?? parseFrameRate(video.r_frame_rate);
+  if (fps !== undefined) out.fps = fps;
+
+  if (typeof video.codec_name === "string" && video.codec_name.length > 0) {
+    out.codec = video.codec_name;
+  }
+
+  // Alpha surfaces two ways: most containers encode it in the pixel format
+  // (yuva420p, rgba, …), but WebM (VP8/VP9) carries it out-of-band in the
+  // `alpha_mode` stream tag while pix_fmt stays "yuv420p" — so check both.
+  const pixFmt = video.pix_fmt;
+  const alphaFromTag = video.tags?.alpha_mode === "1";
+  if (typeof pixFmt === "string" && pixFmt.length > 0) {
+    out.pixelFormat = pixFmt;
+    out.hasAlpha = pixelFormatHasAlpha(pixFmt) || alphaFromTag;
+  } else if (alphaFromTag) {
+    out.hasAlpha = true;
+  }
+
+  return out;
+}
+
+/**
+ * Parse an ffprobe frame-rate field ("num/den", e.g. "30000/1001" → 29.97).
+ * Returns undefined for the "0/0" unknown marker or any unparseable value.
+ */
+function parseFrameRate(raw: string | undefined): number | undefined {
+  if (typeof raw !== "string") return undefined;
+  const m = raw.match(/^(\d+)\/(\d+)$/);
+  if (m) {
+    const num = Number.parseInt(m[1]!, 10);
+    const den = Number.parseInt(m[2]!, 10);
+    if (num > 0 && den > 0) return num / den;
+    return undefined;
+  }
+  // Some builds emit a bare decimal; accept that too.
+  const single = Number.parseFloat(raw);
+  return Number.isFinite(single) && single > 0 ? single : undefined;
+}
+
+/**
+ * True when an ffprobe pixel-format name carries an alpha plane. FFmpeg encodes
+ * the component layout in the name: an alpha plane shows up as a leading
+ * "yuva"/"ya8|ya16" (planar YUV / grey + alpha), an "rgba"/"bgra"/"argb"/"abgr"
+ * packing, or a "gbrap" planar form. Bit-depth and endianness suffixes (e.g.
+ * "yuva420p10le") don't move the alpha marker.
+ */
+export function pixelFormatHasAlpha(pixFmt: string): boolean {
+  return /(^yuva|^ya(8|16)|rgba|bgra|argb|abgr|gbrap)/i.test(pixFmt);
 }
 
 function defaultSpawn(cmd: string, args: ReadonlyArray<string>): ChildProcess {

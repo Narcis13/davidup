@@ -103,10 +103,52 @@ export const AudioAssetSchema = z.object({
   codec: z.string().min(1).optional(),
 });
 
+// External video asset (v0.2 §S6). Container extensions accepted by
+// `register_asset` — the canonical list both the MCP tool and the store check
+// before admitting `type: "video"`. Lowercased dotted form so `extname()`
+// output compares directly. Mirrors AUDIO_ASSET_EXTENSIONS.
+export const VIDEO_ASSET_EXTENSIONS = [
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".mkv",
+] as const;
+
+/** True when `src` ends with one of {@link VIDEO_ASSET_EXTENSIONS} (case-insensitive). */
+export function isSupportedVideoSrc(src: string): boolean {
+  const lower = src.toLowerCase();
+  return VIDEO_ASSET_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+// Video asset (v0.2 §S6). `src` is a path to an external video file in a
+// supported container (see VIDEO_ASSET_EXTENSIONS). The metadata fields are
+// populated by `register_asset` via ffprobe at registration time; they are all
+// optional so an asset registered while ffprobe is unavailable still parses and
+// validates (the tool surfaces a warning instead of failing). Referenced by
+// VideoItem.asset (§S5) — once registered with a numeric `duration` it
+// activates the `trimOut ≤ duration` check in the semantic validator.
+// `duration` is seconds; `width`/`height` are pixels; `fps` is the frame rate;
+// `hasAlpha` is true when the pixel format carries an alpha plane; `codec` is
+// ffprobe's `codec_name` (e.g. "h264", "vp9", "av1"); `pixelFormat` is
+// ffprobe's `pix_fmt` (e.g. "yuv420p", "yuva420p").
+export const VideoAssetSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("video"),
+  src: z.string().min(1),
+  duration: z.number().nonnegative().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  fps: z.number().positive().optional(),
+  hasAlpha: z.boolean().optional(),
+  codec: z.string().min(1).optional(),
+  pixelFormat: z.string().min(1).optional(),
+});
+
 export const AssetSchema = z.discriminatedUnion("type", [
   ImageAssetSchema,
   FontAssetSchema,
   AudioAssetSchema,
+  VideoAssetSchema,
 ]);
 
 export const TransformSchema = z.object({

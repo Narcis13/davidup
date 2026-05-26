@@ -195,15 +195,17 @@ const setCompositionProperty = z.object({
   source: SOURCE,
 })
 
-// DUAL of engine `register_asset` (src/mcp/tools.ts). `audio` is admitted here
-// too (v0.2 §S2) or the command is silently stripped before reaching the MCP
-// tool. Audio metadata (duration/sampleRate/channels/codec) is NOT part of the
-// payload — the engine derives it via ffprobe at registration time.
+// DUAL of engine `register_asset` (src/mcp/tools.ts). `audio` (v0.2 §S2) and
+// `video` (§S6) are admitted here too or the command is silently stripped
+// before reaching the MCP tool. Probed metadata (audio: duration/sampleRate/
+// channels/codec; video: duration/width/height/fps/hasAlpha/codec/pixelFormat)
+// is NOT part of the payload — the engine derives it via ffprobe at
+// registration time.
 const registerAsset = z.object({
   kind: z.literal('register_asset'),
   payload: z.object({
     id: ID,
-    type: z.enum(['image', 'font', 'audio']),
+    type: z.enum(['image', 'font', 'audio', 'video']),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,

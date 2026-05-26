@@ -31,9 +31,11 @@ import type {
 } from "../schema/types.js";
 import {
   AUDIO_ASSET_EXTENSIONS,
+  VIDEO_ASSET_EXTENSIONS,
   COMPOSITION_VERSION,
   ItemSchema,
   isSupportedAudioSrc,
+  isSupportedVideoSrc,
 } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
 import type { BehaviorDescriptor } from "../compose/behaviors.js";
@@ -115,16 +117,23 @@ export type SetMetaPropertyName =
 
 export interface RegisterAssetInput {
   id: string;
-  type: "image" | "font" | "audio";
+  type: "image" | "font" | "audio" | "video";
   src: string;
   family?: string;
-  // Audio metadata (v0.2 §S2). Probed via ffprobe by the `register_asset` tool
-  // before the input reaches the store; all optional so an audio asset can be
-  // registered even when ffprobe is unavailable.
+  // Audio (v0.2 §S2) + video (§S6) metadata. Probed via ffprobe by the
+  // `register_asset` tool before the input reaches the store; all optional so
+  // the asset can be registered even when ffprobe is unavailable. `duration`
+  // and `codec` are shared; `sampleRate`/`channels` are audio-only;
+  // `width`/`height`/`fps`/`hasAlpha`/`pixelFormat` are video-only.
   duration?: number;
   sampleRate?: number;
   channels?: number;
   codec?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  hasAlpha?: boolean;
+  pixelFormat?: string;
 }
 
 export interface AddLayerInput {
@@ -518,11 +527,33 @@ export class CompositionStore {
         ...(input.channels !== undefined ? { channels: input.channels } : {}),
         ...(input.codec !== undefined ? { codec: input.codec } : {}),
       });
+    } else if (input.type === "video") {
+      if (!isSupportedVideoSrc(input.src)) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Video asset "${input.id}" has unsupported src "${input.src}".`,
+          `Video sources must end with one of: ${VIDEO_ASSET_EXTENSIONS.join(", ")}.`,
+        );
+      }
+      // As with audio: only persist metadata fields that were actually
+      // resolved, so an asset registered without ffprobe serialises clean.
+      comp.assets.set(input.id, {
+        id: input.id,
+        type: "video",
+        src: input.src,
+        ...(input.duration !== undefined ? { duration: input.duration } : {}),
+        ...(input.width !== undefined ? { width: input.width } : {}),
+        ...(input.height !== undefined ? { height: input.height } : {}),
+        ...(input.fps !== undefined ? { fps: input.fps } : {}),
+        ...(input.hasAlpha !== undefined ? { hasAlpha: input.hasAlpha } : {}),
+        ...(input.codec !== undefined ? { codec: input.codec } : {}),
+        ...(input.pixelFormat !== undefined ? { pixelFormat: input.pixelFormat } : {}),
+      });
     } else {
       throw new MCPToolError(
         "E_INVALID_VALUE",
         `Unknown asset type "${String((input as { type: unknown }).type)}".`,
-        'Expected "image", "font", or "audio".',
+        'Expected "image", "font", "audio", or "video".',
       );
     }
   }
@@ -553,6 +584,13 @@ export class CompositionStore {
         throw new MCPToolError(
           "E_ASSET_IN_USE",
           `Asset "${assetId}" is used as font by text "${itemId}".`,
+          "Remove or reassign the item before removing the asset.",
+        );
+      }
+      if (item.type === "video" && item.asset === assetId) {
+        throw new MCPToolError(
+          "E_ASSET_IN_USE",
+          `Asset "${assetId}" is used by video "${itemId}".`,
           "Remove or reassign the item before removing the asset.",
         );
       }
@@ -1825,6 +1863,19 @@ function cloneAsset(asset: Asset): Asset {
         ...(asset.sampleRate !== undefined ? { sampleRate: asset.sampleRate } : {}),
         ...(asset.channels !== undefined ? { channels: asset.channels } : {}),
         ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
+      };
+    case "video":
+      return {
+        id: asset.id,
+        type: "video",
+        src: asset.src,
+        ...(asset.duration !== undefined ? { duration: asset.duration } : {}),
+        ...(asset.width !== undefined ? { width: asset.width } : {}),
+        ...(asset.height !== undefined ? { height: asset.height } : {}),
+        ...(asset.fps !== undefined ? { fps: asset.fps } : {}),
+        ...(asset.hasAlpha !== undefined ? { hasAlpha: asset.hasAlpha } : {}),
+        ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
+        ...(asset.pixelFormat !== undefined ? { pixelFormat: asset.pixelFormat } : {}),
       };
   }
 }
