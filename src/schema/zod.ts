@@ -188,11 +188,59 @@ export const GroupItemSchema = z.object({
   ...ItemFlagsSchema,
 });
 
+// How a VideoItem's decoded frame is scaled into its [width, height] box,
+// mirroring CSS `object-fit` (v0.2 §S5):
+//   cover   — fill the box, preserve aspect, crop overflow
+//   contain — fit inside the box, preserve aspect, letterbox (the default)
+//   fill    — stretch to the box, aspect not preserved
+//   none    — draw at native frame size, no scaling
+// Drives the renderer's dst-rect math (S8); inert until then.
+export const VIDEO_FIT_MODES = ["cover", "contain", "fill", "none"] as const;
+export const VideoFitSchema = z.enum(VIDEO_FIT_MODES);
+
+// Video clip placed on the composition (v0.2 §S5). Spatially a sprite — same
+// `transform` + `width`/`height` box — so the existing resolver/renderer
+// transform path and every sprite tween (transform.*, width, height) apply
+// unchanged (see tweenable.ts `video`). On top of that it carries a temporal
+// window on the composition timeline plus a trim into the source asset:
+//   start            — composition time (s) the clip begins playing
+//   end              — composition time (s) it stops; omitted ⇒ runs until the
+//                      trimmed source is exhausted, then freeze/loop (S8)
+//   trimIn / trimOut — [trimIn, trimOut) seconds sliced out of the source
+//   fit              — how the frame fills the box (default "contain")
+//   loop             — replay the trimmed source when `end` outlasts it
+//
+// Video is a SILENT texture: it carries ZERO audio fields by design — all
+// audio comes from explicitly declared external AudioTracks (§S1). The `asset`
+// reference is intentionally NOT cross-checked at parse time (video asset
+// registration is §S6, mirroring how audio §S1 defers its check to §S2), so a
+// composition naming a not-yet-registered clip still parses. The temporal/trim
+// invariants (`0 ≤ trimIn < trimOut ≤ asset.duration`, `end > start`) are
+// enforced by the semantic validator, not here: `.refine()` cannot sit inside a
+// discriminatedUnion, and the `≤ asset.duration` bound needs the asset map.
+// DUAL: mirror any new field in apps/editor/app/types/commands.ts or it is
+// silently stripped off UI payloads.
+export const VideoItemSchema = z.object({
+  type: z.literal("video"),
+  asset: z.string().min(1),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  start: z.number().nonnegative(),
+  end: z.number().positive().optional(),
+  trimIn: z.number().nonnegative().optional(),
+  trimOut: z.number().positive().optional(),
+  fit: VideoFitSchema.default("contain"),
+  loop: z.boolean().default(false),
+  transform: TransformSchema,
+  ...ItemFlagsSchema,
+});
+
 export const ItemSchema = z.discriminatedUnion("type", [
   SpriteItemSchema,
   TextItemSchema,
   ShapeItemSchema,
   GroupItemSchema,
+  VideoItemSchema,
 ]);
 
 export const LayerSchema = z.object({

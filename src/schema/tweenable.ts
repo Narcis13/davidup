@@ -46,11 +46,21 @@ const SHAPE_PROPS: PropertyDescriptor[] = [
 
 const GROUP_PROPS: PropertyDescriptor[] = [...COMMON_TRANSFORM];
 
+// Video is spatially a sprite, so it tweens the same way (transform.* + the
+// width/height box) — but it has no `tint`. Render-time drawing lands in S8;
+// the tweenable surface is declared here so tweens validate from S5 on.
+const VIDEO_PROPS: PropertyDescriptor[] = [
+  ...COMMON_TRANSFORM,
+  { path: "width", kind: "number" },
+  { path: "height", kind: "number" },
+];
+
 const TABLE: Record<ItemType, ReadonlyMap<string, PropertyDescriptor>> = {
   sprite: indexBy(SPRITE_PROPS),
   text: indexBy(TEXT_PROPS),
   shape: indexBy(SHAPE_PROPS),
   group: indexBy(GROUP_PROPS),
+  video: indexBy(VIDEO_PROPS),
 };
 
 function indexBy(

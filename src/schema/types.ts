@@ -16,6 +16,8 @@ import type {
   TextItemSchema,
   TransformSchema,
   TweenSchema,
+  VideoFitSchema,
+  VideoItemSchema,
 } from "./zod.js";
 
 export type BlendMode = z.infer<typeof BlendModeSchema>;
@@ -35,6 +37,8 @@ export type SpriteItem = z.infer<typeof SpriteItemSchema>;
 export type TextItem = z.infer<typeof TextItemSchema>;
 export type ShapeItem = z.infer<typeof ShapeItemSchema>;
 export type GroupItem = z.infer<typeof GroupItemSchema>;
+export type VideoItem = z.infer<typeof VideoItemSchema>;
+export type VideoFit = z.infer<typeof VideoFitSchema>;
 
 export type ItemType = Item["type"];
 

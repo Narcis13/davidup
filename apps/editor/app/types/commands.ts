@@ -135,6 +135,54 @@ export const AudioTrackSchema = z
 
 export type AudioTrack = z.infer<typeof AudioTrackSchema>
 
+// Video clip item (v0.2 §S5). DUAL of engine `VideoItemSchema`
+// (src/schema/zod.ts) — a separate UI-side copy per the dual-schema contract;
+// mirror any new field here or it is silently stripped from UI payloads.
+// Spatially a sprite (`transform` + `width`/`height` box); on top of that it
+// carries a temporal window (`start`, optional `end`) and a source trim
+// (`trimIn`/`trimOut`). `fit` defaults to 'contain', `loop` to false. ZERO
+// audio fields by design — all audio comes from external AudioTracks. The
+// add_video / update_video MCP commands arrive in §S9; this document fragment
+// exists now so the composition type is complete and the Inspector/Timeline
+// work (U4/U5) can bind to it. Cross-field invariants (trimIn < trimOut ≤
+// asset.duration, end > start) are enforced by the engine's semantic validator,
+// not here.
+const VIDEO_TRANSFORM = z.object({
+  x: z.number(),
+  y: z.number(),
+  scaleX: z.number(),
+  scaleY: z.number(),
+  rotation: z.number(),
+  anchorX: z.number(),
+  anchorY: z.number(),
+  opacity: UNIT,
+})
+
+export const VIDEO_FIT_MODES = ['cover', 'contain', 'fill', 'none'] as const
+
+export const VideoItemSchema = z.object({
+  type: z.literal('video'),
+  asset: ID,
+  width: NON_NEG,
+  height: NON_NEG,
+  start: NON_NEG,
+  end: POSITIVE.optional(),
+  trimIn: NON_NEG.optional(),
+  trimOut: POSITIVE.optional(),
+  fit: z.enum(VIDEO_FIT_MODES).default('contain'),
+  loop: z.boolean().default(false),
+  transform: VIDEO_TRANSFORM,
+  // §M flags + §P friendly label, mirroring engine ItemFlagsSchema.
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  name: z.string().max(80).optional(),
+  // Lifespan: half-open [enter, exit) seconds on the composition timeline.
+  enter: NON_NEG.optional(),
+  exit: POSITIVE.optional(),
+})
+
+export type VideoItem = z.infer<typeof VideoItemSchema>
+
 // ──────────────── Per-tool payload schemas ────────────────
 
 const setCompositionProperty = z.object({

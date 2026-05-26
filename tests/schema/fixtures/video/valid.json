@@ -1,0 +1,63 @@
+{
+  "version": "0.2",
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 25,
+    "background": "#000000"
+  },
+  "assets": [],
+  "layers": [
+    {
+      "id": "video-layer",
+      "z": 0,
+      "opacity": 1,
+      "blendMode": "normal",
+      "items": ["intro", "bg-loop"]
+    }
+  ],
+  "items": {
+    "intro": {
+      "type": "video",
+      "asset": "intro-clip",
+      "width": 1920,
+      "height": 1080,
+      "start": 0,
+      "end": 8,
+      "trimIn": 0.5,
+      "trimOut": 6,
+      "fit": "cover",
+      "loop": false,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    },
+    "bg-loop": {
+      "type": "video",
+      "asset": "bg-loop-clip",
+      "width": 640,
+      "height": 360,
+      "start": 2,
+      "loop": true,
+      "transform": {
+        "x": 100,
+        "y": 100,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0.5,
+        "anchorY": 0.5,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": []
+}

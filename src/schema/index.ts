@@ -22,6 +22,9 @@ export {
   TextItemSchema,
   TransformSchema,
   TweenSchema,
+  VIDEO_FIT_MODES,
+  VideoFitSchema,
+  VideoItemSchema,
 } from "./zod.js";
 export {
   getTweenable,

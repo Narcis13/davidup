@@ -27,6 +27,7 @@ import type {
   TextItem,
   Transform,
   Tween,
+  VideoItem,
 } from "../schema/types.js";
 import {
   AUDIO_ASSET_EXTENSIONS,
@@ -1897,6 +1898,23 @@ function cloneItem(item: Item): Item {
         transform: { ...item.transform },
         ...flags,
       };
+    case "video":
+      // `fit` / `loop` always present after a schema parse (they carry
+      // defaults); the temporal trim bounds are optional.
+      return {
+        type: "video",
+        asset: item.asset,
+        width: item.width,
+        height: item.height,
+        start: item.start,
+        fit: item.fit,
+        loop: item.loop,
+        transform: { ...item.transform },
+        ...(item.end !== undefined ? { end: item.end } : {}),
+        ...(item.trimIn !== undefined ? { trimIn: item.trimIn } : {}),
+        ...(item.trimOut !== undefined ? { trimOut: item.trimOut } : {}),
+        ...flags,
+      };
   }
 }
 
@@ -2064,6 +2082,35 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
       };
       rejectKeys(props, item.type, [
         "items",
+        "x",
+        "y",
+        "scaleX",
+        "scaleY",
+        "rotation",
+        "anchorX",
+        "anchorY",
+        "opacity",
+        ...COMMON_ALLOWED,
+      ]);
+      return next;
+    }
+    case "video": {
+      // generic update_item patches video's spatial surface only (transform +
+      // box + asset), exactly like a sprite minus `tint`. The temporal/display
+      // fields (start/end/trimIn/trimOut/fit/loop) are not part of
+      // UpdateItemProps — dedicated add_video/update_video tools land in §S9.
+      const next: VideoItem = {
+        ...item,
+        transform,
+        ...(props.asset !== undefined ? { asset: props.asset } : {}),
+        ...(props.width !== undefined ? { width: props.width } : {}),
+        ...(props.height !== undefined ? { height: props.height } : {}),
+        ...flagPatch,
+      };
+      rejectKeys(props, item.type, [
+        "asset",
+        "width",
+        "height",
         "x",
         "y",
         "scaleX",

@@ -190,6 +190,8 @@ function cloneItem(item: Item): Item {
       return { ...item, transform: { ...item.transform } };
     case "group":
       return { ...item, transform: { ...item.transform } };
+    case "video":
+      return { ...item, transform: { ...item.transform } };
   }
 }
 

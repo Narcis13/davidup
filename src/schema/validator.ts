@@ -14,6 +14,8 @@
 //   6. tween.start + duration > comp.duration → W_TWEEN_TRUNCATED (warning)
 //   7. Layers sorted by z — handled by the renderer, not by validation.
 //   8. Cycles in group hierarchy             → E_GROUP_CYCLE
+//   9. Video item trim/timing window         → E_VIDEO_RANGE
+//      (0 ≤ trimIn < trimOut ≤ asset.duration; end > start)
 
 import type { Composition } from "./types.js";
 import { getTweenable } from "./tweenable.js";
@@ -28,7 +30,8 @@ export type ValidationErrorCode =
   | "E_VALUE_KIND"
   | "E_COLOR_INVALID"
   | "E_TWEEN_OVERLAP"
-  | "E_GROUP_CYCLE";
+  | "E_GROUP_CYCLE"
+  | "E_VIDEO_RANGE";
 
 export type ValidationWarningCode = "W_TWEEN_TRUNCATED";
 
@@ -79,8 +82,60 @@ export function validate(input: unknown): ValidationResult {
   validateItemRefs(comp, assetMap, itemIds, errors);
   validateTweens(comp, itemIds, errors, warnings);
   validateGroupCycles(comp, errors);
+  validateVideoRanges(comp, assetMap, errors);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Video temporal/trim invariants (v0.2 §S5). Zod already guarantees the simple
+// bounds (`trimIn ≥ 0`, `trimOut > 0`, `start ≥ 0`, `end > 0`); the cross-field
+// and cross-reference parts live here:
+//   - trimIn < trimOut          — the trim window must be non-empty
+//   - trimOut ≤ asset.duration  — only enforced once the source asset is
+//     registered with a known duration. Video asset registration is §S6, so in
+//     §S5 this is dormant (clips reference not-yet-registered assets) — exactly
+//     how audio §S1 defers its asset check to §S2. It activates automatically
+//     when an asset carrying a numeric `duration` is present.
+//   - end > start               — the visible window must be non-empty
+function validateVideoRanges(
+  comp: Composition,
+  assetMap: ReadonlyMap<string, Composition["assets"][number]>,
+  errors: ValidationError[],
+): void {
+  for (const [itemId, item] of Object.entries(comp.items)) {
+    if (item.type !== "video") continue;
+
+    const trimIn = item.trimIn ?? 0;
+    if (item.trimOut !== undefined && trimIn >= item.trimOut) {
+      errors.push({
+        code: "E_VIDEO_RANGE",
+        message: `Video "${itemId}" trim window is empty: trimIn (${trimIn}) must be less than trimOut (${item.trimOut}).`,
+        path: `items.${itemId}.trimOut`,
+      });
+    }
+
+    if (item.trimOut !== undefined) {
+      const asset = assetMap.get(item.asset) as
+        | { duration?: number }
+        | undefined;
+      const duration = asset?.duration;
+      if (typeof duration === "number" && item.trimOut > duration) {
+        errors.push({
+          code: "E_VIDEO_RANGE",
+          message: `Video "${itemId}" trimOut (${item.trimOut}) exceeds the duration of asset "${item.asset}" (${duration}).`,
+          path: `items.${itemId}.trimOut`,
+        });
+      }
+    }
+
+    if (item.end !== undefined && item.end <= item.start) {
+      errors.push({
+        code: "E_VIDEO_RANGE",
+        message: `Video "${itemId}" end (${item.end}) must be greater than start (${item.start}).`,
+        path: `items.${itemId}.end`,
+      });
+    }
+  }
 }
 
 function validateLayerRefs(

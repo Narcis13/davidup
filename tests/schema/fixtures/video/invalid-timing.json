@@ -1,0 +1,33 @@
+{
+  "version": "0.2",
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 25,
+    "background": "#000000"
+  },
+  "assets": [],
+  "layers": [],
+  "items": {
+    "bad-timing": {
+      "type": "video",
+      "asset": "intro-clip",
+      "width": 1920,
+      "height": 1080,
+      "start": 5,
+      "end": 3,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "anchorX": 0,
+        "anchorY": 0,
+        "opacity": 1
+      }
+    }
+  },
+  "tweens": []
+}

@@ -510,6 +510,9 @@ function cornersForItem(
   switch (item.type) {
     case "sprite":
       return rectCorners(0, 0, item.width, item.height, m);
+    case "video":
+      // Spatially a sprite: the pickable area is its [width, height] box.
+      return rectCorners(0, 0, item.width, item.height, m);
     case "shape": {
       if (item.kind === "rect") {
         return rectCorners(0, 0, item.width ?? 0, item.height ?? 0, m);
