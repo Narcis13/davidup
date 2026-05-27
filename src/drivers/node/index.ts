@@ -34,6 +34,11 @@ import { indexTweens, renderFrame } from "../../engine/index.js";
 import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
+import {
+  compositionHasVideo,
+  preExtractVideoFrames,
+  type FrameExtractProgress,
+} from "./videoExtract.js";
 
 export {
   probeAudio,
@@ -61,6 +66,26 @@ export {
   type MuxAudioOptions,
   type ResolvedAudioTrack,
 } from "./audioMux.js";
+
+export {
+  buildExtractArgs,
+  collectVideoExtractSpecs,
+  compositionHasVideo,
+  computeSpecHash,
+  defaultFrameCacheRoot,
+  preExtractVideoFrames,
+  pruneCache,
+  resolveFfmpegPath,
+  DEFAULT_CACHE_MAX_BYTES,
+  type CacheUsage,
+  type CollectSpecsOptions,
+  type FileStat,
+  type FrameCacheEntry,
+  type FrameExtractProgress,
+  type PreExtractOptions,
+  type PreExtractResult,
+  type VideoExtractSpec,
+} from "./videoExtract.js";
 
 export interface SkiaCanvasInstance {
   getContext(kind: "2d"): Canvas2DContext;
@@ -104,6 +129,24 @@ export interface RenderToFileOptions {
    * Editor / SaaS callers wire this into an SSE channel; CLI callers ignore it.
    */
   onProgress?: (info: { frame: number; total: number }) => void;
+
+  /**
+   * Video frame pre-extraction (v0.2 §S7). Before encoding, every distinct
+   * video clip is extracted to a cached PNG sequence (drawing from it is §S8).
+   * Enabled by default whenever the composition contains video items; pass
+   * `false` to skip it, or an object to configure the cache. ffmpeg path /
+   * spawn are inherited from the top-level options.
+   */
+  preExtract?: false | PreExtractRenderOptions;
+}
+
+export interface PreExtractRenderOptions {
+  /** Cache root. Default: `$DAVIDUP_CACHE/frames` or `~/.davidup/cache/frames`. */
+  cacheRoot?: string;
+  /** LRU byte budget. Default 5 GB. */
+  maxBytes?: number;
+  /** Per-frame progress for the extraction phase (distinct from `onProgress`). */
+  onExtractProgress?: (info: FrameExtractProgress) => void;
 }
 
 export interface RenderToFileResult {
@@ -128,6 +171,25 @@ export async function renderToFile(
   const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
 
   await loader.preloadAll(compiled.assets);
+
+  // Pre-extract phase (v0.2 §S7): materialise/refresh the cached PNG sequence
+  // for every distinct video clip before the encode loop. The frames are not
+  // drawn yet (render-time drawing is §S8) — this populates the cache so a
+  // second render of the same project is a pure cache hit. Skipped entirely
+  // when the composition has no video items (zero behaviour change for the
+  // pre-S5 path) or when the caller opts out with `preExtract: false`.
+  if (opts.preExtract !== false && compositionHasVideo(compiled)) {
+    const pe = typeof opts.preExtract === "object" ? opts.preExtract : {};
+    await preExtractVideoFrames(compiled, {
+      ...(pe.cacheRoot !== undefined ? { cacheRoot: pe.cacheRoot } : {}),
+      ...(pe.maxBytes !== undefined ? { maxBytes: pe.maxBytes } : {}),
+      ...(pe.onExtractProgress !== undefined
+        ? { onProgress: pe.onExtractProgress }
+        : {}),
+      ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
+      ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+    });
+  }
 
   const meta = compiled.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
