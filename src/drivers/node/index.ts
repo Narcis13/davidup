@@ -31,13 +31,19 @@ import {
 import { precompile } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
 import { indexTweens, renderFrame } from "../../engine/index.js";
-import type { Canvas2DContext, OffscreenSurface } from "../../engine/types.js";
+import type {
+  Canvas2DContext,
+  OffscreenSurface,
+  VideoClip,
+  VideoFrameProvider,
+} from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
 import {
   compositionHasVideo,
   preExtractVideoFrames,
   type FrameExtractProgress,
+  type PreExtractResult,
 } from "./videoExtract.js";
 
 export {
@@ -172,15 +178,15 @@ export async function renderToFile(
 
   await loader.preloadAll(compiled.assets);
 
-  // Pre-extract phase (v0.2 §S7): materialise/refresh the cached PNG sequence
-  // for every distinct video clip before the encode loop. The frames are not
-  // drawn yet (render-time drawing is §S8) — this populates the cache so a
-  // second render of the same project is a pure cache hit. Skipped entirely
-  // when the composition has no video items (zero behaviour change for the
-  // pre-S5 path) or when the caller opts out with `preExtract: false`.
+  // Pre-extract phase (v0.2 §S7) + frame binding (§S8): materialise/refresh the
+  // cached PNG sequence for every distinct video clip, then decode those frames
+  // into a VideoFrameProvider the renderer draws from. Skipped entirely when the
+  // composition has no video items (zero behaviour change for the pre-S5 path)
+  // or when the caller opts out with `preExtract: false`.
+  let videoProvider: VideoFrameProvider | undefined;
   if (opts.preExtract !== false && compositionHasVideo(compiled)) {
     const pe = typeof opts.preExtract === "object" ? opts.preExtract : {};
-    await preExtractVideoFrames(compiled, {
+    const peResult = await preExtractVideoFrames(compiled, {
       ...(pe.cacheRoot !== undefined ? { cacheRoot: pe.cacheRoot } : {}),
       ...(pe.maxBytes !== undefined ? { maxBytes: pe.maxBytes } : {}),
       ...(pe.onExtractProgress !== undefined
@@ -189,6 +195,7 @@ export async function renderToFile(
       ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
       ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
     });
+    videoProvider = await buildVideoFrameProvider(peResult, skia);
   }
 
   const meta = compiled.composition;
@@ -253,6 +260,7 @@ export async function renderToFile(
         assets: loader,
         index: tweenIndex,
         createOffscreen,
+        ...(videoProvider !== undefined ? { video: videoProvider } : {}),
       });
       const raw = await Promise.resolve(canvas.toBuffer("raw"));
       const buf = toNodeBuffer(raw);
@@ -355,6 +363,46 @@ export function frameCount(comp: Composition): number {
   // frame so a zero-duration composition still produces a valid (1-frame) clip.
   const { duration, fps } = comp.composition;
   return Math.max(1, Math.ceil(duration * fps));
+}
+
+/**
+ * Build the render-time {@link VideoFrameProvider} (v0.2 §S8) from a pre-extract
+ * result: decode every cached PNG (`<dir>/00001.png`, …) via skia into memory
+ * and map each composition video-item id to its {@link VideoClip}.
+ *
+ * Frames are decoded eagerly because the per-frame render loop draws
+ * synchronously — `drawImage` needs an already-decoded image. Memory scales
+ * with the total frame count across distinct clips; streaming / a bounded LRU
+ * of decoded frames is a future optimisation (kept out of §S8 alongside
+ * parallelization). Exported for unit testing with an injected skia fake.
+ */
+export async function buildVideoFrameProvider(
+  result: PreExtractResult,
+  skia: { loadImage: (src: string) => Promise<unknown> },
+): Promise<VideoFrameProvider> {
+  const byItemId = new Map<string, VideoClip>();
+  for (const entry of result.entries.values()) {
+    const frames: unknown[] = new Array(entry.frameCount);
+    for (let i = 1; i <= entry.frameCount; i++) {
+      const file = join(entry.dir, `${String(i).padStart(5, "0")}.png`);
+      frames[i - 1] = await skia.loadImage(file);
+    }
+    const clip: VideoClip = {
+      frameCount: entry.frameCount,
+      width: entry.width,
+      height: entry.height,
+      getFrame(frameIndex: number): unknown | undefined {
+        if (frameIndex < 1 || frameIndex > frames.length) return undefined;
+        return frames[frameIndex - 1];
+      },
+    };
+    for (const id of entry.itemIds) byItemId.set(id, clip);
+  }
+  return {
+    getClip(itemId: string): VideoClip | undefined {
+      return byItemId.get(itemId);
+    },
+  };
 }
 
 function defaultSpawn(cmd: string, args: ReadonlyArray<string>): ChildProcess {

@@ -51,6 +51,11 @@ export type Call =
   | {
       op: "drawImage";
       image: unknown;
+      // Source-rect crop, present only for the 9-arg form (video `fit`).
+      sx?: number;
+      sy?: number;
+      sw?: number;
+      sh?: number;
       dx: number;
       dy: number;
       dw: number;
@@ -246,20 +251,42 @@ export class FakeContext implements Canvas2DContext {
   }
   drawImage(
     image: unknown,
-    dx: number,
-    dy: number,
-    dw: number,
-    dh: number,
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    e?: number,
+    f?: number,
+    g?: number,
+    h?: number,
   ): void {
-    this.calls.push({
-      op: "drawImage",
-      image,
-      dx,
-      dy,
-      dw,
-      dh,
-      alpha: this.state.globalAlpha,
-    });
+    if (e === undefined || f === undefined || g === undefined || h === undefined) {
+      // 5-arg: a..d = dx, dy, dw, dh.
+      this.calls.push({
+        op: "drawImage",
+        image,
+        dx: a,
+        dy: b,
+        dw: c,
+        dh: d,
+        alpha: this.state.globalAlpha,
+      });
+    } else {
+      // 9-arg: a..d = source crop, e..h = destination rect.
+      this.calls.push({
+        op: "drawImage",
+        image,
+        sx: a,
+        sy: b,
+        sw: c,
+        sh: d,
+        dx: e,
+        dy: f,
+        dw: g,
+        dh: h,
+        alpha: this.state.globalAlpha,
+      });
+    }
   }
 }
 

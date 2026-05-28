@@ -306,6 +306,10 @@ export interface FrameCacheEntry {
   dir: string;
   /** Number of PNG frames in the entry. */
   frameCount: number;
+  /** Intrinsic pixel width of each extracted frame (drives §S8 `fit`). */
+  width: number;
+  /** Intrinsic pixel height of each extracted frame. */
+  height: number;
   /** Total bytes of the PNG frames (excludes the meta marker). */
   bytes: number;
   /** Composition item ids served by this entry. */
@@ -404,6 +408,10 @@ export async function preExtractVideoFrames(
         hash: spec.hash,
         dir,
         frameCount: hitMeta.frameCount,
+        // Older cache entries may predate width/height in meta.json — fall
+        // back to the spec's resolution (identical, since the hash pins it).
+        width: hitMeta.width || spec.width,
+        height: hitMeta.height || spec.height,
         bytes: hitMeta.bytes,
         itemIds: spec.itemIds,
         cached: true,
@@ -480,6 +488,8 @@ export async function preExtractVideoFrames(
         hash: spec.hash,
         dir,
         frameCount: frames.length,
+        width: spec.width,
+        height: spec.height,
         bytes,
         itemIds: spec.itemIds,
         cached: false,

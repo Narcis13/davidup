@@ -42,7 +42,21 @@ export interface Canvas2DContext {
   textBaseline: string;
   fillText(text: string, x: number, y: number): void;
 
+  // Both Canvas2D overloads. The 5-arg form scales the whole image into the
+  // destination box (sprites); the 9-arg form crops a source rect first, which
+  // the video `fit` math uses for cover/none without overflowing the box.
   drawImage(image: unknown, dx: number, dy: number, dw: number, dh: number): void;
+  drawImage(
+    image: unknown,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ): void;
 }
 
 // Lookup of preloaded assets by id. The engine never owns asset state — drivers
@@ -51,6 +65,35 @@ export interface Canvas2DContext {
 export interface AssetRegistry {
   getImage(id: string): unknown | undefined;
   getFontFamily(id: string): string | undefined;
+}
+
+// A video clip's pre-extracted frame sequence (v0.2 §S8). Video items render
+// as textures: the driver pre-extracts a PNG per composition frame (§S7) and
+// exposes them here so the renderer can pick one per frame. The renderer owns
+// the temporal math (which frame index at time t, freeze/loop) and the spatial
+// `fit` math; the provider only resolves a clip for an item id and hands back
+// a decoded frame by its 1-based index.
+export interface VideoClip {
+  /** Number of frames available in the sequence (≥ 1). */
+  frameCount: number;
+  /** Intrinsic pixel width of each extracted frame (drives `fit`). */
+  width: number;
+  /** Intrinsic pixel height of each extracted frame (drives `fit`). */
+  height: number;
+  /**
+   * Decoded frame image for a 1-based index (matching ffmpeg's `%05d.png`),
+   * or undefined when out of range / not loaded. The opaque image type is
+   * whatever the host's `drawImage` accepts (skia Image, HTMLImageElement).
+   */
+  getFrame(frameIndex: number): unknown | undefined;
+}
+
+// Resolves the backing {@link VideoClip} for a video item by its composition
+// id. Supplied by the driver (the node driver builds it from the §S7 frame
+// cache); absent for callers that never render video (e.g. the browser preview
+// until a frame source is wired), in which case video items draw nothing.
+export interface VideoFrameProvider {
+  getClip(itemId: string): VideoClip | undefined;
 }
 
 import type { TweenIndex } from "./resolver.js";
@@ -70,6 +113,9 @@ export interface RenderOptions {
   // without polluting the main canvas. When absent, sprite tint falls back to
   // drawing the untinted image (texture preserved, no colorization).
   createOffscreen?: (width: number, height: number) => OffscreenSurface;
+  // Resolves pre-extracted frames for video items (v0.2 §S8). When absent,
+  // video items draw nothing — every other item type renders unchanged.
+  video?: VideoFrameProvider;
 }
 
 // ──────────────── Source-map authoring trail (editor v1.0) ────────────────
