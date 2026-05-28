@@ -27,6 +27,7 @@ import type {
   TextItem,
   Transform,
   Tween,
+  VideoFit,
   VideoItem,
 } from "../schema/types.js";
 import {
@@ -331,6 +332,74 @@ export interface AudioTrackMutationResult {
 
 export interface AddAudioTrackResult extends AudioTrackMutationResult {
   id: string;
+}
+
+// Video item inputs (v0.2 §S9). Spatially a sprite (`x`/`y` + `width`/`height`
+// box + transform); on top of that a temporal window (`start`/`end`) and a
+// source trim (`trimIn`/`trimOut`). `width`/`height` default to the composition
+// dimensions; `start` defaults to 0; `fit` to "contain"; `loop` to false.
+// `layerId` is optional — omitted, the clip lands on the topmost layer (highest
+// z). Video carries ZERO audio fields by design.
+export interface AddVideoInput {
+  layerId?: string;
+  asset: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  anchorX?: number;
+  anchorY?: number;
+  rotation?: number;
+  opacity?: number;
+  scaleX?: number;
+  scaleY?: number;
+  start?: number;
+  end?: number;
+  trimIn?: number;
+  trimOut?: number;
+  fit?: VideoFit;
+  loop?: boolean;
+  id?: string;
+  name?: string;
+}
+
+export interface UpdateVideoProps {
+  // Transform overrides.
+  x?: number;
+  y?: number;
+  scaleX?: number;
+  scaleY?: number;
+  rotation?: number;
+  anchorX?: number;
+  anchorY?: number;
+  opacity?: number;
+  // Spatial box + source.
+  width?: number;
+  height?: number;
+  asset?: string;
+  // Temporal window + source trim + display.
+  start?: number;
+  end?: number;
+  trimIn?: number;
+  trimOut?: number;
+  fit?: VideoFit;
+  loop?: boolean;
+  // §M flags + §P label + lifespan (every item type).
+  visible?: boolean;
+  locked?: boolean;
+  name?: string;
+  enter?: number;
+  exit?: number;
+}
+
+// Like the audio result types, add/update surface non-fatal placement warnings
+// (the clip's visible window extends past the composition end) without failing.
+export interface VideoMutationResult {
+  warnings: string[];
+}
+
+export interface AddVideoResult extends VideoMutationResult {
+  itemId: string;
 }
 
 export class CompositionStore {
@@ -870,6 +939,148 @@ export class CompositionStore {
     return id;
   }
 
+  // ──────────────── Video items (§S9) ────────────────
+
+  addVideo(input: AddVideoInput, compositionId?: string): AddVideoResult {
+    const comp = this.requireComposition(compositionId);
+    const layer =
+      input.layerId !== undefined
+        ? this.requireLayer(comp, input.layerId)
+        : this.requireTopmostLayer(comp);
+    const asset = this.requireVideoAsset(comp, input.asset);
+
+    const start = input.start ?? 0;
+    // Box defaults to the composition frame so a dropped clip fills it (with
+    // fit=contain it letterboxes, never overflows) even when the asset was
+    // registered without ffprobe metadata.
+    const width = input.width ?? comp.meta.width;
+    const height = input.height ?? comp.meta.height;
+    validateVideoFields(
+      {
+        start,
+        end: input.end,
+        trimIn: input.trimIn,
+        trimOut: input.trimOut,
+        width,
+        height,
+      },
+      asset,
+    );
+
+    const id = input.id ?? this.nextItemId(comp);
+    this.ensureNoItem(comp, id);
+
+    const transform: Transform = {
+      ...DEFAULT_TRANSFORM,
+      x: input.x,
+      y: input.y,
+      scaleX: input.scaleX ?? DEFAULT_TRANSFORM.scaleX,
+      scaleY: input.scaleY ?? DEFAULT_TRANSFORM.scaleY,
+      rotation: input.rotation ?? DEFAULT_TRANSFORM.rotation,
+      anchorX: input.anchorX ?? DEFAULT_TRANSFORM.anchorX,
+      anchorY: input.anchorY ?? DEFAULT_TRANSFORM.anchorY,
+      opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
+    };
+    ensureUnitInterval("opacity", transform.opacity);
+
+    const video: VideoItem = {
+      type: "video",
+      asset: input.asset,
+      width,
+      height,
+      start,
+      fit: input.fit ?? "contain",
+      loop: input.loop ?? false,
+      transform,
+      ...(input.end !== undefined ? { end: input.end } : {}),
+      ...(input.trimIn !== undefined ? { trimIn: input.trimIn } : {}),
+      ...(input.trimOut !== undefined ? { trimOut: input.trimOut } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
+    };
+    comp.items.set(id, video);
+    comp.itemLayer.set(id, layer.id);
+    pushUnique(layer.items, id);
+    return { itemId: id, warnings: videoPlacementWarnings(comp, video, asset) };
+  }
+
+  updateVideo(
+    id: string,
+    props: UpdateVideoProps,
+    compositionId?: string,
+  ): VideoMutationResult {
+    const comp = this.requireComposition(compositionId);
+    const existing = comp.items.get(id);
+    if (!existing) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${id}".`,
+        "Inspect get_composition().items for existing item ids, or add_video first.",
+      );
+    }
+    if (existing.type !== "video") {
+      throw new MCPToolError(
+        "E_INVALID_PROPERTY",
+        `Item "${id}" is type "${existing.type}", not "video".`,
+        "update_video only patches video items; use update_item for other types.",
+      );
+    }
+
+    const assetId = props.asset ?? existing.asset;
+    const asset = this.requireVideoAsset(comp, assetId);
+
+    const transform = { ...existing.transform };
+    if (props.x !== undefined) transform.x = props.x;
+    if (props.y !== undefined) transform.y = props.y;
+    if (props.scaleX !== undefined) transform.scaleX = props.scaleX;
+    if (props.scaleY !== undefined) transform.scaleY = props.scaleY;
+    if (props.rotation !== undefined) transform.rotation = props.rotation;
+    if (props.anchorX !== undefined) transform.anchorX = props.anchorX;
+    if (props.anchorY !== undefined) transform.anchorY = props.anchorY;
+    if (props.opacity !== undefined) {
+      ensureUnitInterval("opacity", props.opacity);
+      transform.opacity = props.opacity;
+    }
+
+    const width = props.width ?? existing.width;
+    const height = props.height ?? existing.height;
+    const start = props.start ?? existing.start;
+    const end = props.end ?? existing.end;
+    const trimIn = props.trimIn ?? existing.trimIn;
+    const trimOut = props.trimOut ?? existing.trimOut;
+    validateVideoFields({ start, end, trimIn, trimOut, width, height }, asset);
+
+    if (props.enter !== undefined) ensureNonNegative("enter", props.enter);
+    if (props.exit !== undefined) ensurePositive("exit", props.exit);
+
+    // §M flags + §P label + lifespan: patch wins, otherwise keep existing.
+    const visible = props.visible ?? existing.visible;
+    const locked = props.locked ?? existing.locked;
+    const name = props.name ?? existing.name;
+    const enter = props.enter ?? existing.enter;
+    const exit = props.exit ?? existing.exit;
+
+    const updated: VideoItem = {
+      type: "video",
+      asset: assetId,
+      width,
+      height,
+      start,
+      fit: props.fit ?? existing.fit,
+      loop: props.loop ?? existing.loop,
+      transform,
+      ...(end !== undefined ? { end } : {}),
+      ...(trimIn !== undefined ? { trimIn } : {}),
+      ...(trimOut !== undefined ? { trimOut } : {}),
+      ...(visible !== undefined ? { visible } : {}),
+      ...(locked !== undefined ? { locked } : {}),
+      ...(name !== undefined ? { name } : {}),
+      ...(enter !== undefined ? { enter } : {}),
+      ...(exit !== undefined ? { exit } : {}),
+    };
+    comp.items.set(id, updated);
+    return { warnings: videoPlacementWarnings(comp, updated, asset) };
+  }
+
   /**
    * Add a fully-formed canonical Item under an explicit id and layer. Bypasses
    * the type-specific input shapes used by `addSprite` / `addText` / etc.,
@@ -1258,6 +1469,46 @@ export class CompositionStore {
       );
     }
     return asset;
+  }
+
+  /** Require an asset that exists AND is type "video"; the add_video/update_video guard. */
+  private requireVideoAsset(comp: MutableComposition, assetId: string): Asset {
+    const asset = comp.assets.get(assetId);
+    if (!asset) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `Video item references unknown asset "${assetId}".`,
+        "Register it first with register_asset({ type: 'video' }); list_assets shows registered ids.",
+      );
+    }
+    if (asset.type !== "video") {
+      throw new MCPToolError(
+        "E_ASSET_TYPE_MISMATCH",
+        `Asset "${assetId}" is type "${asset.type}", not "video".`,
+        "Video items can only reference assets registered with type 'video'.",
+      );
+    }
+    return asset;
+  }
+
+  /**
+   * The layer a video lands on when add_video omits `layerId`: highest z wins,
+   * ties broken by most-recent insertion (Map order). Errors when the
+   * composition has no layers yet.
+   */
+  private requireTopmostLayer(comp: MutableComposition): Layer {
+    let top: Layer | undefined;
+    for (const layer of comp.layers.values()) {
+      if (top === undefined || layer.z >= top.z) top = layer;
+    }
+    if (top === undefined) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        "Composition has no layers to add the video to.",
+        "Call add_layer first, or pass an explicit layerId.",
+      );
+    }
+    return top;
   }
 
   // ──────────────── Scene instances ────────────────
@@ -1843,6 +2094,83 @@ function audioPlacementWarnings(
   if (effectiveEnd !== undefined && effectiveEnd > compDuration + AUDIO_DURATION_EPS) {
     warnings.push(
       `${label} ends at ${effectiveEnd}s, past the composition end (${compDuration}s); it will be truncated at mux time.`,
+    );
+  }
+  return warnings;
+}
+
+// Video field rules (v0.2 §S5/§S9), enforced at the store boundary so direct
+// callers and editor-hydrated updates get the same guarantees the validator's
+// E_VIDEO_RANGE pass gives loaded compositions. Shape-level rejection here is
+// E_INVALID_VALUE (E_VIDEO_RANGE is a validator-only code). The asset is passed
+// so the `trimOut ≤ duration` bound can be checked once the source is probed.
+function validateVideoFields(
+  t: {
+    start: number;
+    end?: number | undefined;
+    trimIn?: number | undefined;
+    trimOut?: number | undefined;
+    width: number;
+    height: number;
+  },
+  asset: Asset,
+): void {
+  ensureNonNegative("Video start", t.start);
+  ensureNonNegative("Video width", t.width);
+  ensureNonNegative("Video height", t.height);
+  if (t.trimIn !== undefined) ensureNonNegative("Video trimIn", t.trimIn);
+  if (t.trimOut !== undefined) ensurePositive("Video trimOut", t.trimOut);
+
+  const trimIn = t.trimIn ?? 0;
+  if (t.trimOut !== undefined && trimIn >= t.trimOut) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Video trim window is empty: trimIn (${trimIn}) must be less than trimOut (${t.trimOut}).`,
+      "Widen the trim window so trimIn < trimOut.",
+    );
+  }
+  if (t.trimOut !== undefined) {
+    const duration = asset.type === "video" ? asset.duration : undefined;
+    if (typeof duration === "number" && t.trimOut > duration) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Video trimOut (${t.trimOut}) exceeds the duration of asset "${asset.id}" (${duration}).`,
+        "Lower trimOut to the asset duration or shorter.",
+      );
+    }
+  }
+  if (t.end !== undefined && t.end <= t.start) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Video end (${t.end}) must be greater than start (${t.start}).`,
+      "Omit `end` to let the trimmed source play out (then freeze/loop).",
+    );
+  }
+}
+
+// Non-fatal placement check mirroring audioPlacementWarnings: a clip that starts
+// at/after the composition end, or whose explicit `end` runs past it, is a
+// warning, not an error. (Without an explicit `end` the clip freezes/loops at
+// the composition edge, so there is nothing to warn about.)
+function videoPlacementWarnings(
+  comp: MutableComposition,
+  item: VideoItem,
+  _asset: Asset,
+): string[] {
+  const warnings: string[] = [];
+  const compDuration = comp.meta.duration;
+  if (compDuration <= 0) return warnings;
+  const label = `Video "${item.name ?? item.asset}"`;
+
+  if (item.start >= compDuration) {
+    warnings.push(
+      `${label} starts at ${item.start}s, at or past the composition end (${compDuration}s); it will not be visible.`,
+    );
+    return warnings;
+  }
+  if (item.end !== undefined && item.end > compDuration + AUDIO_DURATION_EPS) {
+    warnings.push(
+      `${label} ends at ${item.end}s, past the composition end (${compDuration}s); it will be cut off at render time.`,
     );
   }
   return warnings;

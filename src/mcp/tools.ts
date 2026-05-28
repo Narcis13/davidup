@@ -63,6 +63,7 @@ import type { FontAsset, Tween } from "../schema/types.js";
 import {
   AUDIO_ASSET_EXTENSIONS,
   VIDEO_ASSET_EXTENSIONS,
+  VIDEO_FIT_MODES,
   BLEND_MODES,
   BlendModeSchema,
   COMPOSITION_VERSION,
@@ -1204,6 +1205,122 @@ const listAudioTracks = defineTool({
     const filter: { asset?: string } = {};
     if (args.asset !== undefined) filter.asset = args.asset;
     return { audioTracks: store.listAudioTracks(filter, args.compositionId) };
+  },
+});
+
+// ──────────────── 4.4a Video items (v0.2 §S9) ────────────────
+
+// A video item is spatially a sprite (same `x`/`y` + `width`/`height` box +
+// transform) plus a temporal window on the composition timeline and a trim into
+// the source. It is a SILENT texture — zero audio fields (all audio comes from
+// add_audio_track). Generic update_item still patches the spatial surface;
+// update_video below is the full-fidelity patcher that also reaches the
+// temporal/display fields. remove_item / move_item_to_layer work unchanged
+// (they address any item by id). Tween x/y/opacity/width/height via add_tween
+// exactly like a sprite (see list_engine_capabilities.tweenable.video).
+const VIDEO_FIT = z
+  .enum(VIDEO_FIT_MODES)
+  .describe(
+    "How the decoded frame fills the [width, height] box (CSS object-fit): cover | contain (default) | fill | none.",
+  );
+
+const addVideo = defineTool({
+  name: "add_video",
+  title: "Add video item",
+  description:
+    "Add a video clip item to a layer. `asset` must be a registered video asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't video). Coordinates `x`/`y` are pixels from the composition top-left (y down). `width`/`height` default to the composition size (so the clip fills the frame; with fit=contain it letterboxes, never overflows). `start` (default 0) and optional `end` are composition seconds; `trimIn`/`trimOut` slice [trimIn, trimOut) out of the source; `fit` defaults to \"contain\"; `loop` (default false) replays the trimmed source when `end` outlasts it. `layerId` is optional — omit it to drop the clip on the topmost layer. Returns the assigned `itemId`, plus a `warnings` array when the clip's window extends past the composition end (cut at render, never rejected).",
+  inputSchema: {
+    layerId: z.string().min(1).optional(),
+    asset: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().nonnegative().optional(),
+    height: z.number().nonnegative().optional(),
+    ...TRANSFORM_INPUT,
+    start: z.number().nonnegative().optional(),
+    end: z.number().positive().optional(),
+    trimIn: z.number().nonnegative().optional(),
+    trimOut: z.number().positive().optional(),
+    fit: VIDEO_FIT.optional(),
+    loop: z.boolean().optional(),
+    id: z.string().min(1).optional(),
+    name: z.string().max(80).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const { itemId, warnings } = store.addVideo(
+      {
+        asset: args.asset,
+        x: args.x,
+        y: args.y,
+        ...(args.layerId !== undefined ? { layerId: args.layerId } : {}),
+        ...(args.width !== undefined ? { width: args.width } : {}),
+        ...(args.height !== undefined ? { height: args.height } : {}),
+        ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
+        ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
+        ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
+        ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
+        ...(args.scaleX !== undefined ? { scaleX: args.scaleX } : {}),
+        ...(args.scaleY !== undefined ? { scaleY: args.scaleY } : {}),
+        ...(args.start !== undefined ? { start: args.start } : {}),
+        ...(args.end !== undefined ? { end: args.end } : {}),
+        ...(args.trimIn !== undefined ? { trimIn: args.trimIn } : {}),
+        ...(args.trimOut !== undefined ? { trimOut: args.trimOut } : {}),
+        ...(args.fit !== undefined ? { fit: args.fit } : {}),
+        ...(args.loop !== undefined ? { loop: args.loop } : {}),
+        ...(args.id !== undefined ? { id: args.id } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
+      },
+      args.compositionId,
+    );
+    return warnings.length > 0 ? { itemId, warnings } : { itemId };
+  },
+});
+
+const updateVideo = defineTool({
+  name: "update_video",
+  title: "Update video item",
+  description:
+    "Patch any field of a video item — spatial (`x`/`y`/`scaleX`/`scaleY`/`rotation`/`anchorX`/`anchorY`/`opacity`/`width`/`height`/`asset`), temporal (`start`/`end`/`trimIn`/`trimOut`), display (`fit`/`loop`), and flags (`visible`/`locked`/`name`/`enter`/`exit`). Errors with E_NOT_FOUND if the id is unknown, E_INVALID_PROPERTY if it isn't a video item, E_ASSET_TYPE_MISMATCH if a new `asset` isn't video, and E_INVALID_VALUE on a bad trim/timing window. Returns `{ ok: true }`, plus a `warnings` array when the resulting window extends past the composition end.",
+  inputSchema: {
+    id: z.string().min(1),
+    props: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        scaleX: z.number(),
+        scaleY: z.number(),
+        rotation: z.number(),
+        anchorX: z.number(),
+        anchorY: z.number(),
+        opacity: z.number().min(0).max(1),
+        width: z.number().nonnegative(),
+        height: z.number().nonnegative(),
+        asset: z.string().min(1),
+        start: z.number().nonnegative(),
+        end: z.number().positive(),
+        trimIn: z.number().nonnegative(),
+        trimOut: z.number().positive(),
+        fit: VIDEO_FIT,
+        loop: z.boolean(),
+        visible: z.boolean(),
+        locked: z.boolean(),
+        name: z.string().max(80),
+        enter: z.number().nonnegative(),
+        exit: z.number().positive(),
+      })
+      .partial(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: (args, { store }) => {
+    const { warnings } = store.updateVideo(
+      args.id,
+      stripUndefined(args.props),
+      args.compositionId,
+    );
+    return warnings.length > 0
+      ? { ok: true as const, warnings }
+      : { ok: true as const };
   },
 });
 
@@ -2445,14 +2562,14 @@ const listEngineCapabilitiesTool = defineTool({
   name: "list_engine_capabilities",
   title: "List engine capabilities",
   description:
-    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, supported audio containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
+    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, supported audio/video containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
   inputSchema: {},
   handler: () => {
     return {
       schemaVersion: COMPOSITION_VERSION,
       easings: [...EASING_NAMES],
       blendModes: [...BLEND_MODES],
-      itemTypes: ["sprite", "text", "shape", "group"] as const,
+      itemTypes: ["sprite", "text", "shape", "group", "video"] as const,
       shapeKinds: ["rect", "circle", "polygon"] as const,
       // Audio support (v0.2 §S3): external tracks on the composition timeline via
       // add_audio_track. `extensions` are the containers register_asset accepts
@@ -2461,11 +2578,22 @@ const listEngineCapabilitiesTool = defineTool({
         tracks: true,
         extensions: [...AUDIO_ASSET_EXTENSIONS],
       },
+      // Video support (v0.2 §S9): silent texture items via add_video / update_video.
+      // `extensions` are the containers register_asset accepts for `type: "video"`;
+      // `fitModes` are the object-fit values; `loop` advertises end-outlasts-source
+      // replay. Tween x/y/opacity/width/height like a sprite (see tweenable.video).
+      video: {
+        items: true,
+        extensions: [...VIDEO_ASSET_EXTENSIONS],
+        fitModes: [...VIDEO_FIT_MODES],
+        loop: true,
+      },
       tweenable: {
         sprite: listTweenable("sprite"),
         text: listTweenable("text"),
         shape: listTweenable("shape"),
         group: listTweenable("group"),
+        video: listTweenable("video"),
       },
       // Param-type vocabularies accepted by each descriptor surface. Use these
       // when constructing `params` for define_user_behavior / define_user_template /
@@ -2549,6 +2677,9 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   updateItem,
   moveItemToLayer,
   removeItem,
+  // 4.4a — video items (v0.2 §S9)
+  addVideo,
+  updateVideo,
   // 4.5
   addTween,
   updateTween,

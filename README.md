@@ -4,7 +4,7 @@
 > One canonical JSON composition runs in the **browser** (live preview via
 > Canvas2D + `requestAnimationFrame`), on the **server** (frame-by-frame render
 > with [`skia-canvas`](https://github.com/samizdatco/skia-canvas) piped to
-> `ffmpeg` → MP4), inside an **AI agent** loop (56 atomic MCP tools), or in a
+> `ffmpeg` → MP4), inside an **AI agent** loop (58 atomic MCP tools), or in a
 > **human editor** (`davidup edit`). Same input → same pixels, every host.
 
 ```

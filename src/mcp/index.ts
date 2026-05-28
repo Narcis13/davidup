@@ -16,6 +16,8 @@ export type {
   AddSpriteInput,
   AddTextInput,
   AddTweenInput,
+  AddVideoInput,
+  AddVideoResult,
   AudioTrackMutationResult,
   CreateCompositionInput,
   ListAudioTracksFilter,
@@ -25,6 +27,8 @@ export type {
   UpdateItemProps,
   UpdateLayerProps,
   UpdateTweenProps,
+  UpdateVideoProps,
+  VideoMutationResult,
   ListTweensFilter,
 } from "./store.js";
 
