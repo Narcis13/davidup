@@ -28,7 +28,7 @@ with `bun run src/mcp/bin.ts` (or via the `davidup-mcp` bin shim defined
 in `package.json`), the process:
 
 - attaches to `stdin`/`stdout` as an MCP transport (JSON-RPC framed);
-- registers the 56 tools from the design doc §4.1–4.9 against an in-memory
+- registers the 58 tools from the design doc §4.1–4.9 against an in-memory
   `CompositionStore`;
 - never logs to `stdout` — diagnostic output goes to `stderr` so the protocol
   framing stays uncorrupted.
@@ -50,6 +50,7 @@ MCP registries.
 | 4.2 Assets | `register_asset`, `list_assets`, `remove_asset` |
 | 4.3 Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
+| 4.4a Video items | `add_video`, `update_video` |
 | 4.5 Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
 | 4.5a Audio tracks | `add_audio_track`, `update_audio_track`, `remove_audio_track`, `list_audio_tracks` |
 | 4.5b Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` |
@@ -114,7 +115,7 @@ Notes:
   `node --experimental-strip-types` and adjust the entry path. Bun is the
   primary supported runtime per the implementation plan.
 
-Reload Claude Code (`/mcp` to verify) and the 56 tools become callable.
+Reload Claude Code (`/mcp` to verify) and the 58 tools become callable.
 
 ### 2.2 Programmatic registration (`claude mcp add`)
 

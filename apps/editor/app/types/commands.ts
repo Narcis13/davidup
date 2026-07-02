@@ -377,6 +377,70 @@ const removeItem = z.object({
   source: SOURCE,
 })
 
+// DUAL of engine `add_video` / `update_video` (src/mcp/tools.ts §S9). Every
+// field the MCP tools accept is mirrored here or the command bus strips it
+// before the call reaches the engine (see VideoItemSchema note above). Video is
+// spatially a sprite (transform + width/height box) plus a temporal window
+// (start/end), source trim (trimIn/trimOut), and display (fit/loop). ZERO audio
+// fields. `layerId` is optional — omitted, the clip lands on the topmost layer.
+const addVideo = z.object({
+  kind: z.literal('add_video'),
+  payload: z.object({
+    layerId: ID.optional(),
+    asset: ID,
+    x: z.number(),
+    y: z.number(),
+    width: NON_NEG.optional(),
+    height: NON_NEG.optional(),
+    ...TRANSFORM_INPUT,
+    start: NON_NEG.optional(),
+    end: POSITIVE.optional(),
+    trimIn: NON_NEG.optional(),
+    trimOut: POSITIVE.optional(),
+    fit: z.enum(VIDEO_FIT_MODES).optional(),
+    loop: z.boolean().optional(),
+    id: ID.optional(),
+    name: z.string().max(80).optional(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+const updateVideo = z.object({
+  kind: z.literal('update_video'),
+  payload: z.object({
+    id: ID,
+    props: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        scaleX: z.number(),
+        scaleY: z.number(),
+        rotation: z.number(),
+        anchorX: z.number(),
+        anchorY: z.number(),
+        opacity: UNIT,
+        width: NON_NEG,
+        height: NON_NEG,
+        asset: ID,
+        start: NON_NEG,
+        end: POSITIVE,
+        trimIn: NON_NEG,
+        trimOut: POSITIVE,
+        fit: z.enum(VIDEO_FIT_MODES),
+        loop: z.boolean(),
+        visible: z.boolean(),
+        locked: z.boolean(),
+        name: z.string().max(80),
+        enter: NON_NEG,
+        exit: POSITIVE,
+      })
+      .partial(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
 const addTween = z.object({
   kind: z.literal('add_tween'),
   payload: z.object({
@@ -550,6 +614,8 @@ export const CommandSchema = z.discriminatedUnion('kind', [
   updateItem,
   moveItemToLayer,
   removeItem,
+  addVideo,
+  updateVideo,
   addTween,
   updateTween,
   removeTween,
@@ -584,6 +650,8 @@ export const COMMAND_TO_TOOL: { readonly [K in CommandKind]: string } = {
   update_item: 'update_item',
   move_item_to_layer: 'move_item_to_layer',
   remove_item: 'remove_item',
+  add_video: 'add_video',
+  update_video: 'update_video',
   add_tween: 'add_tween',
   update_tween: 'update_tween',
   remove_tween: 'remove_tween',

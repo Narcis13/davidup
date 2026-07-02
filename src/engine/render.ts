@@ -19,6 +19,8 @@ import type {
   ShapeItem,
   SpriteItem,
   TextItem,
+  VideoFit,
+  VideoItem,
 } from "../schema/types.js";
 import type { Composition } from "../schema/types.js";
 import {
@@ -31,6 +33,7 @@ import type {
   Canvas2DContext,
   OffscreenSurface,
   RenderOptions,
+  VideoFrameProvider,
 } from "./types.js";
 
 // Subset of RenderOptions plumbed through the per-item draw functions. Built
@@ -39,9 +42,22 @@ import type {
 interface DrawContext {
   assets: AssetRegistry | undefined;
   createOffscreen: ((w: number, h: number) => OffscreenSurface) | undefined;
+  // Composition time (seconds) of the frame being painted. Video items map it
+  // through their `start`/trim window to a frame index; every other item type
+  // ignores it. Defaults to 0 for legacy callers that don't render video.
+  time: number;
+  // Resolves pre-extracted frames for video items; undefined ⇒ video draws
+  // nothing. See {@link VideoFrameProvider}.
+  video: VideoFrameProvider | undefined;
 }
 
 const COMPOSITE_NORMAL = "source-over";
+
+// Guards `floor(localTime * fps)` against the float error in `t = i / fps`
+// round-tripped back through `* fps`: e.g. frame 29 can surface as 28.9999999
+// and floor to 28. A 1e-6 nudge recovers the intended integer without ever
+// bumping a genuinely sub-frame time up to the next index.
+const FRAME_EPSILON = 1e-6;
 
 export function renderFrame(
   comp: Composition,
@@ -50,7 +66,18 @@ export function renderFrame(
   options: RenderOptions = {},
 ): void {
   const scene = computeStateAt(comp, t, options.index);
-  drawScene(scene, ctx, options.assets, options.createOffscreen);
+  drawScene(scene, ctx, options.assets, options.createOffscreen, {
+    time: t,
+    ...(options.video !== undefined ? { video: options.video } : {}),
+  });
+}
+
+// Optional video render context for `drawScene`. `time` is the composition
+// time of the frame; `video` resolves a clip's frames. Omitting it (legacy
+// callers / non-video scenes) makes video items draw nothing.
+export interface VideoRenderContext {
+  time: number;
+  video?: VideoFrameProvider;
 }
 
 export function drawScene(
@@ -58,6 +85,7 @@ export function drawScene(
   ctx: Canvas2DContext,
   assets: AssetRegistry | undefined,
   createOffscreen?: (w: number, h: number) => OffscreenSurface,
+  video?: VideoRenderContext,
 ): void {
   drawBackground(
     ctx,
@@ -66,7 +94,12 @@ export function drawScene(
     scene.composition.height,
   );
 
-  const dc: DrawContext = { assets, createOffscreen };
+  const dc: DrawContext = {
+    assets,
+    createOffscreen,
+    time: video?.time ?? 0,
+    video: video?.video,
+  };
 
   const sorted = sortLayersByZ(scene.layers);
   for (const layer of sorted) {
@@ -80,7 +113,7 @@ export function drawScene(
       const item = scene.items[itemId];
       if (!item) continue;
       if (item.visible === false) continue;
-      drawItem(ctx, item, scene, assets, dc);
+      drawItem(ctx, item, scene, assets, dc, itemId);
     }
     ctx.restore();
   }
@@ -91,7 +124,13 @@ export function drawItem(
   item: Item,
   scene: ResolvedScene,
   assets: AssetRegistry | undefined,
-  dc: DrawContext = { assets, createOffscreen: undefined },
+  dc: DrawContext = {
+    assets,
+    createOffscreen: undefined,
+    time: 0,
+    video: undefined,
+  },
+  itemId?: string,
 ): void {
   const tr = item.transform;
   ctx.save();
@@ -116,6 +155,9 @@ export function drawItem(
       break;
     case "shape":
       drawShape(ctx, item);
+      break;
+    case "video":
+      drawVideo(ctx, item, scene, dc, itemId);
       break;
     case "group":
       drawGroupChildren(ctx, item, scene, dc);
@@ -157,12 +199,15 @@ function applyBlendMode(ctx: Canvas2DContext, mode: BlendMode): void {
 
 function anchorWidth(item: Item): number {
   if (item.type === "sprite") return item.width;
+  // Video is spatially a sprite: its anchor pivots on the [width, height] box.
+  if (item.type === "video") return item.width;
   if (item.type === "shape") return item.width ?? 0;
   return 0;
 }
 
 function anchorHeight(item: Item): number {
   if (item.type === "sprite") return item.height;
+  if (item.type === "video") return item.height;
   if (item.type === "shape") {
     // §3.2: a circle's `width` is its diameter on both axes, and `height` is
     // intentionally not authored. Fall back to width so anchorY actually
@@ -219,6 +264,167 @@ function isIdentityTint(tint: string): boolean {
     norm === "rgb(255,255,255)" ||
     norm === "rgba(255,255,255,1)"
   );
+}
+
+// Video clip drawing (v0.2 §S8). A VideoItem is a sprite-shaped texture whose
+// pixels come from a pre-extracted PNG sequence (§S7). The transform stack
+// (position, rotation, scale, anchor, opacity) has already been applied by
+// drawItem exactly as for a sprite — so x/y/opacity/width/height tweens behave
+// identically. Here we only resolve WHICH frame to paint at this composition
+// time and HOW it fills the box.
+//
+// Frame selection (per the §S8 spec):
+//   localFrame = floor((t - start) * fps)            // 0-based offset into clip
+//   when localFrame ≥ frameCount (content exhausted):
+//     loop  → wrap with modulo
+//     else  → freeze on the last available frame
+//   frameIndex = localFrame + 1                       // 1-based, matches %05d.png
+//
+// The clip's available `frameCount` is the authority for the trim window: it
+// already equals round((trimOut - trimIn) * fps), so we never have to re-derive
+// the window from trimIn/trimOut (and it stays correct when trimOut was EOF).
+function drawVideo(
+  ctx: Canvas2DContext,
+  item: VideoItem,
+  scene: ResolvedScene,
+  dc: DrawContext,
+  itemId: string | undefined,
+): void {
+  if (dc.video === undefined || itemId === undefined) return;
+  const clip = dc.video.getClip(itemId);
+  if (!clip || clip.frameCount < 1) return;
+
+  const t = dc.time;
+  // Temporal window [start, end): nothing to paint before the clip begins or
+  // once its placement ends (freeze/loop only fills the gap up to `end`).
+  if (t < item.start) return;
+  if (item.end !== undefined && t >= item.end) return;
+
+  const fps = scene.composition.fps;
+  const frameIndex = videoFrameIndex(
+    t,
+    item.start,
+    fps,
+    clip.frameCount,
+    item.loop,
+  );
+  if (frameIndex === undefined) return;
+
+  const image = clip.getFrame(frameIndex);
+  if (image === undefined) return;
+
+  const r = computeFitRects(item.fit, clip.width, clip.height, item.width, item.height);
+  if (r.sw <= 0 || r.sh <= 0 || r.dw <= 0 || r.dh <= 0) return;
+  ctx.drawImage(image, r.sx, r.sy, r.sw, r.sh, r.dx, r.dy, r.dw, r.dh);
+}
+
+/**
+ * 1-based frame index (matching ffmpeg's `%05d.png`) to paint for a video clip
+ * at composition time `t`, or undefined when `t` precedes the clip's `start`.
+ *
+ * Pure and exported for unit testing. `frameCount` is the number of frames
+ * available in the pre-extracted sequence; `loop` wraps past the end, otherwise
+ * the last frame freezes.
+ */
+export function videoFrameIndex(
+  t: number,
+  start: number,
+  fps: number,
+  frameCount: number,
+  loop: boolean,
+): number | undefined {
+  if (frameCount < 1) return undefined;
+  const localFrame = Math.floor((t - start) * fps + FRAME_EPSILON);
+  if (localFrame < 0) return undefined;
+  let idx0: number;
+  if (localFrame >= frameCount) {
+    idx0 = loop
+      ? ((localFrame % frameCount) + frameCount) % frameCount
+      : frameCount - 1;
+  } else {
+    idx0 = localFrame;
+  }
+  return idx0 + 1;
+}
+
+/** A source rect (crop) + destination rect for a `drawImage` 9-arg call. */
+export interface FitRects {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+  dx: number;
+  dy: number;
+  dw: number;
+  dh: number;
+}
+
+/**
+ * Map a frame of intrinsic size `iw × ih` into a `bw × bh` box per CSS
+ * `object-fit` semantics, returning the source-crop + destination rects for a
+ * 9-arg `drawImage`. Pure and exported for unit testing.
+ *
+ *   fill    — stretch to the box (aspect not preserved).
+ *   contain — scale to fit inside the box, letterboxed (whole frame visible).
+ *   cover   — scale to cover the box, cropping the overflow (box fully filled).
+ *   none    — 1:1 pixels, centered; crops if larger than the box, letterboxes
+ *             if smaller. No scaling.
+ *
+ * cover/none crop via the source rect rather than overflowing, so a clip never
+ * paints outside its own box onto neighbouring items.
+ */
+export function computeFitRects(
+  fit: VideoFit,
+  iw: number,
+  ih: number,
+  bw: number,
+  bh: number,
+): FitRects {
+  // Degenerate inputs: fall back to a plain full→full map (the caller skips a
+  // zero-area result anyway).
+  if (iw <= 0 || ih <= 0 || bw <= 0 || bh <= 0) {
+    return {
+      sx: 0,
+      sy: 0,
+      sw: Math.max(0, iw),
+      sh: Math.max(0, ih),
+      dx: 0,
+      dy: 0,
+      dw: Math.max(0, bw),
+      dh: Math.max(0, bh),
+    };
+  }
+
+  switch (fit) {
+    case "fill":
+      return { sx: 0, sy: 0, sw: iw, sh: ih, dx: 0, dy: 0, dw: bw, dh: bh };
+    case "contain": {
+      const s = Math.min(bw / iw, bh / ih);
+      const dw = iw * s;
+      const dh = ih * s;
+      return { sx: 0, sy: 0, sw: iw, sh: ih, dx: (bw - dw) / 2, dy: (bh - dh) / 2, dw, dh };
+    }
+    case "cover": {
+      const s = Math.max(bw / iw, bh / ih);
+      const sw = bw / s;
+      const sh = bh / s;
+      return { sx: (iw - sw) / 2, sy: (ih - sh) / 2, sw, sh, dx: 0, dy: 0, dw: bw, dh: bh };
+    }
+    case "none": {
+      const vw = Math.min(iw, bw);
+      const vh = Math.min(ih, bh);
+      return {
+        sx: (iw - vw) / 2,
+        sy: (ih - vh) / 2,
+        sw: vw,
+        sh: vh,
+        dx: (bw - vw) / 2,
+        dy: (bh - vh) / 2,
+        dw: vw,
+        dh: vh,
+      };
+    }
+  }
 }
 
 function drawText(
@@ -298,7 +504,7 @@ function drawGroupChildren(
     const child = scene.items[childId];
     if (!child) continue;
     if (child.visible === false) continue;
-    drawItem(ctx, child, scene, dc.assets, dc);
+    drawItem(ctx, child, scene, dc.assets, dc, childId);
   }
 }
 

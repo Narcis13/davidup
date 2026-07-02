@@ -6,6 +6,8 @@ export type {
   RenderOptions,
   SourceLocation,
   SourceMap,
+  VideoClip,
+  VideoFrameProvider,
 } from "./types.js";
 export {
   computeStateAt,
@@ -14,7 +16,15 @@ export {
   type ResolvedScene,
   type TweenIndex,
 } from "./resolver.js";
-export { drawItem, drawScene, renderFrame } from "./render.js";
+export {
+  computeFitRects,
+  drawItem,
+  drawScene,
+  renderFrame,
+  videoFrameIndex,
+  type FitRects,
+  type VideoRenderContext,
+} from "./render.js";
 export {
   MCP_ERROR_CODES,
   MCPToolError,
