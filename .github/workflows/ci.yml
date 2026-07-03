@@ -1,0 +1,96 @@
+# CI — mirrors the verification baseline from v1_implementation_plan.md:
+#
+#   bun run typecheck          # root
+#   bunx vitest run            # root suite (manifest sync test called out separately)
+#   cd apps/editor && npm run typecheck && node ace test
+#
+# Two independent jobs: `root` (bun) and `editor` (pnpm — the editor tree is
+# pnpm-installed; apps/editor/package-lock.json is stale and has no davidup
+# entry, so npm ci would fail there).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  root:
+    name: Root (typecheck, vitest, manifest sync)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Cache bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # Integration tests prefer the bundled ffmpeg-static/ffprobe-static
+      # binaries; apt ffmpeg is the PATH fallback for code paths that spawn
+      # plain `ffmpeg`/`ffprobe` (node driver default, MCP render tools).
+      - name: Install ffmpeg (PATH fallback)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      # trustedDependencies in package.json lets bun run the ffmpeg-static /
+      # skia-canvas postinstalls that download their native binaries.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Root typecheck
+        run: bun run typecheck
+
+      - name: MCP manifest sync test
+        run: bunx vitest run tests/mcp/manifest.test.ts
+
+      - name: Root test suite
+        run: bunx vitest run
+
+  editor:
+    name: Editor (typecheck, ace test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/editor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/editor/pnpm-lock.yaml
+
+      # The editor engine falls back to PATH ffmpeg/ffprobe: ffmpeg-static and
+      # ffprobe-static are devDependencies of davidup, so pnpm does not install
+      # them for the file:../.. dependency.
+      - name: Install ffmpeg (provides PATH ffmpeg + ffprobe)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create .env from example
+        run: cp .env.example .env
+
+      - name: Editor typecheck
+        run: npm run typecheck
+
+      - name: Editor test suite (ace test)
+        run: node ace test
