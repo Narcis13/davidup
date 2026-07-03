@@ -28,6 +28,7 @@ import { once } from "node:events";
 
 import { resolveGlobalSrc } from "../../assets/node.js";
 import type { AudioAsset, AudioTrack, Composition } from "../../schema/types.js";
+import { resolveFfmpeg } from "./ffmpeg.js";
 import type { FfmpegSpawn } from "./index.js";
 
 /** Every source and the final output are forced to this sample rate (§S4). */
@@ -240,7 +241,8 @@ export async function muxAudioTracks(
   });
 
   const spawnFn = opts.spawn ?? defaultSpawn;
-  const ffmpeg = spawnFn(opts.ffmpegPath ?? "ffmpeg", args);
+  const ffmpegPath = opts.ffmpegPath ?? (await resolveFfmpeg());
+  const ffmpeg = spawnFn(ffmpegPath, args);
 
   let stderrTail = "";
   if (ffmpeg.stderr) {

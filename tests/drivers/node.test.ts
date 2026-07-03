@@ -210,6 +210,25 @@ describe("renderToFile — error paths", () => {
       }),
     ).rejects.toThrow(/ffmpeg exited with code 1[\s\S]*Unknown encoder 'libx999'/);
   });
+
+  it("fails loudly (never 'succeeds') when ffmpeg is killed by a signal (R-7)", async () => {
+    // `code === null` on close is how Node reports a signal-killed child (e.g.
+    // SIGABRT from a broken dylib) — this must reject, not resolve as if the
+    // silent temp/output file were valid.
+    const comp = tinyComp();
+    const skia = makeFakeSkia();
+    const harness = makeFakeSpawn({
+      signal: "SIGABRT",
+      stderr: "dyld: Library not loaded\n",
+    });
+
+    await expect(
+      renderToFile(comp, "/tmp/killed.mp4", {
+        skiaCanvas: skia,
+        spawn: harness.spawn,
+      }),
+    ).rejects.toThrow(/ffmpeg exited with signal SIGABRT[\s\S]*Library not loaded/);
+  });
 });
 
 describe("renderToFile — v0.2 pre-compile auto-run (COMPOSITION_PRIMITIVES.md §10.3)", () => {

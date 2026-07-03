@@ -114,7 +114,9 @@ interface FakeHarness {
   calls: { cmd: string; args: ReadonlyArray<string>; outDir: string }[];
 }
 
-function makeExtractFake(opts: { frames?: number; exitCode?: number } = {}): FakeHarness {
+function makeExtractFake(
+  opts: { frames?: number; exitCode?: number; signal?: NodeJS.Signals } = {},
+): FakeHarness {
   const calls: FakeHarness["calls"] = [];
   const spawn: FfmpegSpawn = (cmd, args) => {
     const pattern = args[args.length - 1]!;
@@ -136,6 +138,11 @@ function makeExtractFake(opts: { frames?: number; exitCode?: number } = {}): Fak
 
     stdin.on("finish", () => {
       setImmediate(async () => {
+        if (opts.signal) {
+          stderr.emit("data", "boom\n");
+          proc.emit("close", null, opts.signal);
+          return;
+        }
         const code = opts.exitCode ?? 0;
         if (code === 0) {
           const n = opts.frames ?? 3;
@@ -380,6 +387,20 @@ describe("preExtractVideoFrames (fake ffmpeg)", () => {
         spawn: fake.spawn,
       }),
     ).rejects.toThrow(/exited with code 1/);
+    expect(readdirSync(root).some((n) => n.startsWith(".tmp-"))).toBe(false);
+  });
+
+  it("fails loudly (never a silent partial) when ffmpeg is killed by a signal (R-7)", async () => {
+    const comp = videoComp({ a: { trimIn: 0, trimOut: 1 } });
+    const fake = makeExtractFake({ signal: "SIGKILL" });
+    await expect(
+      preExtractVideoFrames(comp, {
+        cacheRoot: root,
+        statFile: fixedStat,
+        spawn: fake.spawn,
+      }),
+    ).rejects.toThrow(/ffmpeg \(extract\) exited with signal SIGKILL/);
+    // The failed extraction's staging dir must not survive as a silent orphan.
     expect(readdirSync(root).some((n) => n.startsWith(".tmp-"))).toBe(false);
   });
 

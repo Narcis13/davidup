@@ -287,7 +287,7 @@ Per U8 spec (add-video/add-audio entry points, empty states, polish). **Verify:*
 | 2 | Editor typecheck | R-10 | ☐ |
 | 3 | CI pipeline | §6.4 | ☐ |
 | 4 | Schema/validator hardening | R-3, R-15, R-21 | ☐ |
-| 5 | ffmpeg resolver + tmp sweep | R-6, R-7, R-12 | ☐ |
+| 5 | ffmpeg resolver + tmp sweep | R-6, R-7, R-12 | ☑ |
 | 6 | Expansion v2 (kenburns + order) | R-4, R-24 | ☐ |
 | 7 | MCP epsilon + tween ids | R-25, R-31 | ☐ |
 | 8 | Scene-instance lifetime | R-26, R-27 | ☐ |

@@ -39,6 +39,7 @@ import type {
 } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
+import { resolveFfmpeg, sweepOrphanTempVideos } from "./ffmpeg.js";
 import {
   compositionHasVideo,
   preExtractVideoFrames,
@@ -81,7 +82,6 @@ export {
   defaultFrameCacheRoot,
   preExtractVideoFrames,
   pruneCache,
-  resolveFfmpegPath,
   DEFAULT_CACHE_MAX_BYTES,
   type CacheUsage,
   type CollectSpecsOptions,
@@ -92,6 +92,17 @@ export {
   type PreExtractResult,
   type VideoExtractSpec,
 } from "./videoExtract.js";
+
+export {
+  resolveFfmpeg,
+  sweepOrphanExtractDirs,
+  sweepOrphanTempVideos,
+  DEFAULT_ORPHAN_MAX_AGE_MS,
+  EXTRACT_TMP_PREFIX,
+  TEMP_VIDEO_PREFIX,
+  type SweepOptions,
+  type SweepResult,
+} from "./ffmpeg.js";
 
 export interface SkiaCanvasInstance {
   getContext(kind: "2d"): Canvas2DContext;
@@ -213,6 +224,12 @@ export async function renderToFile(
   // stage 1 encodes the silent video to a temp file and stage 2 muxes the audio
   // into the real output (`-c:v copy`, zero re-encode). Without audio it's the
   // single-stage encode straight to `outPath`, byte-for-byte as before.
+  // Best-effort cleanup of orphaned stage-1 temp videos left by a prior
+  // crashed/killed render into this output directory (R-12) — scoped to
+  // `dirname(outPath)` since these files have no fixed cache root. Never
+  // blocks or fails the current render.
+  await sweepOrphanTempVideos(dirname(outPath)).catch(() => undefined);
+
   const hasAudio = compositionHasAudio(compiled);
   const tempVideoPath = hasAudio
     ? join(dirname(outPath), `.davidup-tmpvideo-${randomUUID()}.mp4`)
@@ -225,7 +242,8 @@ export async function renderToFile(
     : opts;
   const args = buildFfmpegArgs(compiled, tempVideoPath, stage1Opts);
   const spawnFn = opts.spawn ?? defaultSpawn;
-  const ffmpeg = spawnFn(opts.ffmpegPath ?? "ffmpeg", args);
+  const ffmpegPath = opts.ffmpegPath ?? (await resolveFfmpeg());
+  const ffmpeg = spawnFn(ffmpegPath, args);
 
   const stdin = ffmpeg.stdin;
   if (!stdin) {

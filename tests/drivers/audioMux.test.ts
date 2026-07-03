@@ -344,4 +344,24 @@ describe("renderToFile — two-stage audio pipeline", () => {
     ).rejects.toThrow(/ffmpeg \(mux\) exited with code 1[\s\S]*filtergraph/);
     expect(calls).toHaveLength(2);
   });
+
+  it("fails loudly when the mux (stage 2) ffmpeg is killed by a signal (R-7)", async () => {
+    const skia = makeFakeSkia();
+    const calls: FakeSpawnRecord[] = [];
+    const spawn: FfmpegSpawn = (cmd, args) => {
+      const isMux = args.includes("-filter_complex");
+      const ffmpeg = new FakeFfmpeg(
+        isMux
+          ? { signal: "SIGKILL", stderr: "killed mid-mux\n" }
+          : { exitCode: 0 },
+      );
+      calls.push({ cmd, args, ffmpeg });
+      return ffmpeg as unknown as ReturnType<FfmpegSpawn>;
+    };
+
+    await expect(
+      renderToFile(audioComp(), "/tmp/out.mp4", { skiaCanvas: skia, spawn }),
+    ).rejects.toThrow(/ffmpeg \(mux\) exited with signal SIGKILL[\s\S]*killed mid-mux/);
+    expect(calls).toHaveLength(2);
+  });
 });

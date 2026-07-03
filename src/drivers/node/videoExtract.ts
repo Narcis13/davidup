@@ -50,6 +50,7 @@ import { join } from "node:path";
 
 import { resolveGlobalSrc } from "../../assets/node.js";
 import type { Composition, VideoAsset, VideoItem } from "../../schema/types.js";
+import { resolveFfmpeg, sweepOrphanExtractDirs } from "./ffmpeg.js";
 import type { FfmpegSpawn } from "./index.js";
 
 /** Default LRU byte budget for the frame cache: 5 GB. Overridable per call. */
@@ -386,6 +387,11 @@ export async function preExtractVideoFrames(
   const maxBytes = opts.maxBytes ?? DEFAULT_CACHE_MAX_BYTES;
   const entries = new Map<string, FrameCacheEntry>();
 
+  // Best-effort sweep of `.tmp-*` dirs orphaned by a crashed/killed
+  // extraction (R-12) before doing any new work. Age-gated so a concurrent
+  // render's own in-flight staging dir is never touched; never fails the run.
+  await sweepOrphanExtractDirs(root).catch(() => undefined);
+
   if (specs.length === 0) {
     return { root, entries, cacheBytes: 0, pruned: [] };
   }
@@ -527,7 +533,7 @@ async function runExtraction(
 ): Promise<void> {
   const pattern = join(tmpDir, "%05d.png");
   const args = buildExtractArgs(spec, pattern);
-  const ffmpegPath = opts.ffmpegPath ?? (await resolveFfmpegPath());
+  const ffmpegPath = opts.ffmpegPath ?? (await resolveFfmpeg());
   const spawnFn = opts.spawn ?? defaultExtractSpawn;
   const ffmpeg = spawnFn(ffmpegPath, args);
 
@@ -722,33 +728,6 @@ async function sumFrameBytes(dir: string, frames: string[]): Promise<number> {
 }
 
 // ───────────────────────────── binary / paths ──────────────────────────────
-
-let cachedFfmpegPath: string | undefined;
-
-/**
- * Resolve the ffmpeg binary path. Prefers the bundled `ffmpeg-static` binary
- * (present as a dependency, independent of a possibly-broken system ffmpeg),
- * falls back to `"ffmpeg"` on PATH. Memoised. Mirrors `resolveFfprobePath`.
- */
-export async function resolveFfmpegPath(): Promise<string> {
-  if (cachedFfmpegPath !== undefined) return cachedFfmpegPath;
-  try {
-    const specifier = "ffmpeg-static";
-    const mod = (await import(/* @vite-ignore */ specifier)) as
-      | { default?: string | null }
-      | string
-      | null;
-    const fromDefault =
-      typeof mod === "string" ? mod : (mod?.default ?? null);
-    if (typeof fromDefault === "string" && fromDefault.length > 0) {
-      cachedFfmpegPath = fromDefault;
-    }
-  } catch {
-    // ffmpeg-static not installed — fall through to PATH.
-  }
-  if (cachedFfmpegPath === undefined) cachedFfmpegPath = "ffmpeg";
-  return cachedFfmpegPath;
-}
 
 /**
  * Frame-cache root: `$DAVIDUP_CACHE/frames` when set, else
