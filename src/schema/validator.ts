@@ -16,6 +16,11 @@
 //   8. Cycles in group hierarchy             → E_GROUP_CYCLE
 //   9. Video item trim/timing window         → E_VIDEO_RANGE
 //      (0 ≤ trimIn < trimOut ≤ asset.duration; end > start)
+//  10. Duplicate layer.id                    → E_DUPLICATE_LAYER_ID
+//      Duplicate tween.id                    → E_DUPLICATE_TWEEN_ID
+//      (tween ids are the MCP addressing key — a duplicate makes
+//      update_tween/remove_tween ambiguous about which tween they touch)
+//  11. Polygon shape with < 3 points          → E_POLYGON_INVALID
 
 import type { Composition } from "./types.js";
 import { getTweenable } from "./tweenable.js";
@@ -31,7 +36,10 @@ export type ValidationErrorCode =
   | "E_COLOR_INVALID"
   | "E_TWEEN_OVERLAP"
   | "E_GROUP_CYCLE"
-  | "E_VIDEO_RANGE";
+  | "E_VIDEO_RANGE"
+  | "E_DUPLICATE_LAYER_ID"
+  | "E_DUPLICATE_TWEEN_ID"
+  | "E_POLYGON_INVALID";
 
 export type ValidationWarningCode = "W_TWEEN_TRUNCATED";
 
@@ -83,8 +91,63 @@ export function validate(input: unknown): ValidationResult {
   validateTweens(comp, itemIds, errors, warnings);
   validateGroupCycles(comp, errors);
   validateVideoRanges(comp, assetMap, errors);
+  validateDuplicateIds(comp, errors);
+  validateShapes(comp, errors);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Layer ids are addressed directly by update_layer/remove_layer; tween ids are
+// the MCP addressing key for update_tween/remove_tween. Zod only guarantees
+// each id is a non-empty, "::"-free string — it can't see across array
+// elements to catch duplicates, so a composition with two tweens sharing an id
+// parses fine but leaves update_tween/remove_tween unable to tell which tween
+// a caller means.
+function validateDuplicateIds(
+  comp: Composition,
+  errors: ValidationError[],
+): void {
+  const seenLayerIds = new Set<string>();
+  for (const layer of comp.layers) {
+    if (seenLayerIds.has(layer.id)) {
+      errors.push({
+        code: "E_DUPLICATE_LAYER_ID",
+        message: `Duplicate layer id "${layer.id}".`,
+        path: `layers.${layer.id}`,
+      });
+    }
+    seenLayerIds.add(layer.id);
+  }
+
+  const seenTweenIds = new Set<string>();
+  for (const tween of comp.tweens) {
+    if (seenTweenIds.has(tween.id)) {
+      errors.push({
+        code: "E_DUPLICATE_TWEEN_ID",
+        message: `Duplicate tween id "${tween.id}".`,
+        path: `tweens.${tween.id}`,
+      });
+    }
+    seenTweenIds.add(tween.id);
+  }
+}
+
+// A polygon shape needs at least 3 points to describe a non-degenerate
+// area; Zod can only check each point is a valid [number, number] tuple, not
+// that the array is long enough, since `points` is shared by every shape kind
+// and only meaningful for "polygon".
+function validateShapes(comp: Composition, errors: ValidationError[]): void {
+  for (const [itemId, item] of Object.entries(comp.items)) {
+    if (item.type !== "shape" || item.kind !== "polygon") continue;
+    const count = item.points?.length ?? 0;
+    if (count < 3) {
+      errors.push({
+        code: "E_POLYGON_INVALID",
+        message: `Polygon "${itemId}" has ${count} point(s); a polygon needs at least 3.`,
+        path: `items.${itemId}.points`,
+      });
+    }
+  }
 }
 
 // Video temporal/trim invariants (v0.2 §S5). Zod already guarantees the simple

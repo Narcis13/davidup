@@ -14,6 +14,7 @@ export {
   CompositionSchema,
   FontAssetSchema,
   GroupItemSchema,
+  idSchema,
   ImageAssetSchema,
   ItemSchema,
   LayerSchema,

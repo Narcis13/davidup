@@ -69,6 +69,34 @@ describe("parseColor — rgb()/rgba()", () => {
     expect(() => parseColor("rgba(1,2)")).toThrow();
     expect(() => parseColor("rgb(a,b,c)")).toThrow();
   });
+
+  it("clamps out-of-range channels at parse time, not just at format time", () => {
+    // Previously parsed to { r: 999, ... } unclamped — a tween lerping toward
+    // this value would only visually clamp once the interpolated number
+    // crossed back under 255, producing a jump instead of a smooth fade.
+    expect(parseColor("rgb(999, 0, 0)")).toEqual({ r: 255, g: 0, b: 0, a: 1 });
+    expect(parseColor("rgb(-50, 300, 0)")).toEqual({
+      r: 0,
+      g: 255,
+      b: 0,
+      a: 1,
+    });
+  });
+
+  it("clamps out-of-range alpha at parse time", () => {
+    expect(parseColor("rgba(0, 0, 0, 5)")).toEqual({
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 1,
+    });
+    expect(parseColor("rgba(0, 0, 0, -1)")).toEqual({
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 0,
+    });
+  });
 });
 
 describe("formatColor", () => {

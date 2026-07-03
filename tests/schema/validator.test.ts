@@ -294,6 +294,156 @@ describe("validate — duration warning (W_TWEEN_TRUNCATED)", () => {
   });
 });
 
+describe("validate — ids forbid \"::\" (E_SCHEMA)", () => {
+  it("rejects an item id containing '::'", () => {
+    const comp = baseComposition() as unknown as {
+      items: Record<string, unknown>;
+    };
+    const item = comp.items["logo-sprite"];
+    delete comp.items["logo-sprite"];
+    comp.items["logo::sprite"] = item;
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a layer id containing '::'", () => {
+    const comp = baseComposition();
+    comp.layers[0]!.id = "background::layer";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a tween id containing '::'", () => {
+    const comp = baseComposition();
+    comp.tweens[0]!.id = "logo::fade-in";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a tween target containing '::'", () => {
+    const comp = baseComposition();
+    comp.tweens[0]!.target = "logo::sprite";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a tween property containing '::'", () => {
+    const comp = baseComposition();
+    comp.tweens[0]!.property = "transform::opacity";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+});
+
+describe("validate — duplicate ids", () => {
+  it("flags duplicate layer ids (E_DUPLICATE_LAYER_ID)", () => {
+    const comp = baseComposition();
+    comp.layers[1]!.id = comp.layers[0]!.id;
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.code === "E_DUPLICATE_LAYER_ID"),
+    ).toBe(true);
+  });
+
+  it("flags duplicate tween ids (E_DUPLICATE_TWEEN_ID)", () => {
+    // Previously-"valid" composition: two tweens sharing an id used to parse
+    // and validate fine even though update_tween/remove_tween (addressed by
+    // tween.id) couldn't tell them apart.
+    const comp = baseComposition();
+    comp.tweens.push({
+      id: comp.tweens[0]!.id,
+      target: "title-text",
+      property: "transform.opacity",
+      from: 1,
+      to: 0,
+      start: 2,
+      duration: 1,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.code === "E_DUPLICATE_TWEEN_ID"),
+    ).toBe(true);
+  });
+});
+
+describe("validate — polygon points (E_POLYGON_INVALID)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("rejects a polygon with fewer than 3 points", () => {
+    const comp = baseComposition();
+    comp.items["triangle"] = {
+      type: "shape",
+      kind: "polygon",
+      points: [
+        [0, 0],
+        [10, 10],
+      ],
+      transform,
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_POLYGON_INVALID")).toBe(
+      true,
+    );
+  });
+
+  it("rejects a polygon with no points at all", () => {
+    const comp = baseComposition();
+    comp.items["triangle"] = { type: "shape", kind: "polygon", transform };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_POLYGON_INVALID")).toBe(
+      true,
+    );
+  });
+
+  it("accepts a polygon with 3 or more points", () => {
+    const comp = baseComposition();
+    comp.items["triangle"] = {
+      type: "shape",
+      kind: "polygon",
+      points: [
+        [0, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      transform,
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+  });
+
+  it("does not require points on non-polygon shapes", () => {
+    const comp = baseComposition();
+    comp.items["box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 10,
+      height: 10,
+      transform,
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+  });
+});
+
 describe("validate — group cycles (E_GROUP_CYCLE)", () => {
   it("flags a self-referential group", () => {
     const comp = baseComposition();

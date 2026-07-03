@@ -19,12 +19,16 @@
 
 import { z } from 'zod'
 import { EASING_NAMES } from 'davidup/easings'
-import { BlendModeSchema } from 'davidup/schema'
+import { BlendModeSchema, idSchema } from 'davidup/schema'
 
 // ──────────────── Reusable fragments ────────────────
 
-const ID = z.string().min(1)
-const COMPOSITION_ID = z.string().min(1).optional()
+// DUAL of the engine's id restriction (src/schema/zod.ts `idSchema`): ids are
+// half of the resolver's `${target}::${property}` bucket key, so "::" must
+// never appear in one. Enforcing it here too means the editor rejects a bad
+// id at authoring time instead of only failing MCP-side validation later.
+const ID = idSchema('id')
+const COMPOSITION_ID = idSchema('id').optional()
 const UNIT = z.number().min(0).max(1)
 const NON_NEG = z.number().nonnegative()
 const POSITIVE = z.number().positive()

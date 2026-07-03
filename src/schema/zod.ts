@@ -46,6 +46,19 @@ export const CANVAS2D_COMPOSITE_OPS = [
 export const BLEND_MODES = [...CANVAS2D_COMPOSITE_OPS, "normal"] as const;
 export const BlendModeSchema = z.enum(BLEND_MODES);
 
+// Item ids (the `items` record key), layer ids, tween ids, tween targets, and
+// tween properties all end up as one half of the resolver's bucket key
+// `${target}::${property}` (see engine/resolver.ts). That key is split on the
+// first "::" it finds, so any of these strings containing "::" would corrupt
+// the split and silently misroute or drop tweens (R-3). Forbidding the
+// substring outright — rather than rejecting every colon — keeps
+// single-colon ids (if any project relies on them) valid.
+export function idSchema(label: string) {
+  return z.string().min(1).refine((v) => !v.includes("::"), {
+    message: `${label} must not contain "::"`,
+  });
+}
+
 export const CompositionMetaSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -286,7 +299,7 @@ export const ItemSchema = z.discriminatedUnion("type", [
 ]);
 
 export const LayerSchema = z.object({
-  id: z.string().min(1),
+  id: idSchema("Layer id"),
   z: z.number(),
   opacity: z.number().min(0).max(1),
   blendMode: BlendModeSchema,
@@ -295,9 +308,9 @@ export const LayerSchema = z.object({
 });
 
 export const TweenSchema = z.object({
-  id: z.string().min(1),
-  target: z.string().min(1),
-  property: z.string().min(1),
+  id: idSchema("Tween id"),
+  target: idSchema("Tween target"),
+  property: idSchema("Tween property"),
   from: z.union([z.number(), z.string()]),
   to: z.union([z.number(), z.string()]),
   start: z.number().nonnegative(),
@@ -337,7 +350,7 @@ export const CompositionSchema = z.object({
   composition: CompositionMetaSchema,
   assets: z.array(AssetSchema),
   layers: z.array(LayerSchema),
-  items: z.record(z.string().min(1), ItemSchema),
+  items: z.record(idSchema("Item id"), ItemSchema),
   tweens: z.array(TweenSchema),
   // Optional so pre-v0.2 project JSON (no audio key) stays valid without a
   // migration, matching the rest of the schema's additive evolution.
