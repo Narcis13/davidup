@@ -148,11 +148,12 @@ Suggested calendar: Phase 0 ≈ week 1 · Phases 1–3 ≈ weeks 2–4 · Phases
 **Verify:** baseline + integration test rendering a comp with a video item → extracted frame visibly contains video pixels (not blank).
 **Commit:** `feat: video items render — draw case, validator case, pick buffer (S8, R-5)`
 
-### Session 11 — S9: MCP video tools
+### Session 11 — S9: MCP video tools *(ALREADY DONE — predates this ledger, re-verified 2026-07-04)*
 **Goal:** `add_video` / `update_video` MCP tools per `v0.2-plan.md` S9.
 **Steps:** the two tools + Zod schemas + structured errors; update `list_engine_capabilities` (tweenable paths for video); **update the DUAL mirror `apps/editor/app/types/commands.ts`** — this is the repo's known trap and this session is its highest-risk spot; update manifest (`server.json`, README, mcp-demo) — the sync test will enforce it.
+**Status:** `add_video`/`update_video` (`src/mcp/tools.ts`), the `video` block in `list_engine_capabilities`, the `commands.ts` mirror, and the manifest entries (`server.json`, README, `examples/mcp-demo.md`) were all already committed in `8da4bdf` ("S9", 2026-05-28) — before `DAVIDUP_V1_REVIEW.md` was written, whose "S8/S9 unshipped" claim (§1.3) turned out to be stale (same root cause as the R-5 note on Session 10: the review's checkout predated this work). Re-verified 2026-07-04 against current HEAD: `bun run typecheck` clean, `bunx vitest run` green (674/674; the two `registerAsset*` ffprobe tests only flake under full-suite worker contention, pass standalone), `tests/mcp/manifest.test.ts` green, and a live stdio smoke (`create_composition` → `add_layer` → `register_asset(video)` → `add_video` → `add_tween(transform.opacity)` → `validate` → `render_to_video(wait:true)` → `ffmpeg` frame extraction) produced a real, non-black frame with the source test pattern's timecode overlay visible. No code changes were needed; no new commit made.
 **Verify:** baseline; manifest test green; live smoke: boot MCP server, `register_asset(video)` → `add_video` → `validate` → `render_to_video` → extract a frame and confirm video pixels.
-**Commit:** `feat: add_video/update_video MCP tools + capabilities + command mirror (S9)`
+**Commit:** `feat: add_video/update_video MCP tools + capabilities + command mirror (S9)` — n/a, already shipped in `8da4bdf`.
 
 ### Session 12 — S10: sample compositions + doc sync
 **Goal:** three sample compositions exercising video (per `v0.2-plan.md` S10) + docs updated to say video is real.
