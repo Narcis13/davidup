@@ -42,6 +42,11 @@ export const runnerHooks: Required<Pick<Config, 'setup' | 'teardown'>> = {
         await rm(testStateDir, { recursive: true, force: true })
         testStateDir = null
       }
+      // The throwaway global-library root minted by bin/test.ts.
+      const libDir = process.env.DAVIDUP_LIBRARY
+      if (libDir && libDir.includes('davidup-test-library-')) {
+        await rm(libDir, { recursive: true, force: true })
+      }
     },
   ],
 }

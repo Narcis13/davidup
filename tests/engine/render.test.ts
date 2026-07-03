@@ -269,11 +269,13 @@ describe("drawItem — sprite", () => {
     }
   });
 
-  it("tints via offscreen multiply + destination-in, then composites to main ctx", () => {
-    // Pre-fix tint used `source-atop` + solid fillRect on the main ctx, which
-    // *replaced* the image's RGB with a flat colour and erased the texture.
-    // The fix moves tinting onto a scratch surface and uses `multiply` so the
-    // sprite's luminance survives.
+  it("tints via an offscreen source-atop fill, then composites to main ctx", () => {
+    // Shipping algorithm (render.ts drawSprite): draw the image onto a
+    // scratch surface, then fillRect the tint colour with `source-atop` so
+    // the image's own alpha clips the fill. The earlier multiply +
+    // destination-in variant double-counted source alpha on semi-transparent
+    // PNGs (E2). Trade-off: flat tint over the silhouette rather than a
+    // luminance-preserving multiply — that's intentional.
     const ctx = new FakeContext();
     const offCtx = new FakeContext();
     const offSource = { __offscreen: true };
@@ -312,50 +314,39 @@ describe("drawItem — sprite", () => {
 
     expect(lastSize).toEqual({ w: 200, h: 100 });
 
-    // Offscreen sequence: drawImage → multiply fillRect → destination-in drawImage.
+    // Offscreen sequence: base drawImage → source-atop fillRect.
     const offDrawImages = offCtx.calls.filter((c) => c.op === "drawImage");
-    const offMultiplyFill = offCtx.calls.find(
-      (c) => c.op === "fillRect" && c.composite === "multiply",
-    );
-    const offMaskDraw = offCtx.calls.find(
-      (c) => c.op === "drawImage" && c.alpha !== undefined,
-    );
-    expect(offDrawImages.length).toBe(2); // base image + alpha re-mask
-    expect(offMultiplyFill).toBeDefined();
-    if (offMultiplyFill && offMultiplyFill.op === "fillRect") {
-      expect(offMultiplyFill.fillStyle).toBe("#ff00aa");
-      expect(offMultiplyFill.w).toBe(200);
-      expect(offMultiplyFill.h).toBe(100);
+    expect(offDrawImages.length).toBe(1);
+    if (offDrawImages[0] && offDrawImages[0].op === "drawImage") {
+      expect(offDrawImages[0].image).toEqual({ __image: "logo" });
+      expect(offDrawImages[0].dw).toBe(200);
+      expect(offDrawImages[0].dh).toBe(100);
     }
-    expect(offMaskDraw).toBeDefined();
+    const offAtopFill = offCtx.calls.find(
+      (c) => c.op === "fillRect" && c.composite === "source-atop",
+    );
+    expect(offAtopFill).toBeDefined();
+    if (offAtopFill && offAtopFill.op === "fillRect") {
+      expect(offAtopFill.fillStyle).toBe("#ff00aa");
+      expect(offAtopFill.w).toBe(200);
+      expect(offAtopFill.h).toBe(100);
+    }
 
-    // The offscreen ops must be in the right order for the multiply+mask trick.
+    // The fill must land on top of the image for source-atop to clip it.
     const idxImage = offCtx.calls.findIndex((c) => c.op === "drawImage");
-    const idxMultiply = offCtx.calls.findIndex(
-      (c) => c.op === "fillRect" && c.composite === "multiply",
+    const idxAtop = offCtx.calls.findIndex(
+      (c) => c.op === "fillRect" && c.composite === "source-atop",
     );
-    const lastDraw = offCtx.calls
-      .map((c, i) => ({ c, i }))
-      .filter((x) => x.c.op === "drawImage")
-      .pop();
-    expect(idxMultiply).toBeGreaterThan(idxImage);
-    expect(lastDraw && lastDraw.i).toBeGreaterThan(idxMultiply);
-    const maskCall = lastDraw?.c;
-    if (maskCall && maskCall.op === "drawImage") {
-      // The mask drawImage runs while compositeOperation is "destination-in".
-      // FakeContext doesn't snapshot composite on drawImage, but we can prove
-      // it via the explicit composite-state set right before it: search backwards.
-      // Simpler: the second drawImage must reuse the same image as the first.
-      expect(maskCall.image).toEqual({ __image: "logo" });
-    }
+    expect(idxAtop).toBeGreaterThan(idxImage);
 
-    // The MAIN context must NOT show the legacy source-atop fillRect, and must
-    // composite the offscreen surface as its single sprite-level drawImage.
-    expect(
-      ctx.calls.some(
-        (c) => c.op === "fillRect" && c.composite === "source-atop",
-      ),
-    ).toBe(false);
+    // Composite state is restored so a reused offscreen doesn't leak
+    // source-atop into other code paths.
+    expect(offCtx.globalCompositeOperation).toBe("source-over");
+
+    // The MAIN context must not tint directly (no fillRect at all for this
+    // sprite) and must composite the offscreen surface as its single
+    // sprite-level drawImage.
+    expect(ctx.calls.some((c) => c.op === "fillRect")).toBe(false);
     const mainDraws = ctx.calls.filter((c) => c.op === "drawImage");
     expect(mainDraws.length).toBe(1);
     if (mainDraws[0] && mainDraws[0].op === "drawImage") {

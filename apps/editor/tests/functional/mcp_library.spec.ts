@@ -227,7 +227,7 @@ test.group('MCP list_library', (group) => {
     }
   })
 
-  test('surfaces E_UNKNOWN when libraryControls are not injected (standalone engine)', async ({
+  test('surfaces E_FEATURE_UNAVAILABLE when libraryControls are not injected (standalone engine)', async ({
     assert,
   }) => {
     const res = await dispatchTool(
@@ -237,7 +237,9 @@ test.group('MCP list_library', (group) => {
     )
     assert.isFalse(res.ok)
     if (!res.ok) {
-      assert.equal(res.error.code, 'E_UNKNOWN')
+      // The engine's requireLibraryControls (src/mcp/tools.ts) throws a
+      // typed E_FEATURE_UNAVAILABLE for standalone servers.
+      assert.equal(res.error.code, 'E_FEATURE_UNAVAILABLE')
     }
   })
 })

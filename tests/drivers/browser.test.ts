@@ -192,7 +192,7 @@ describe("attach", () => {
     handle.stop();
   });
 
-  it("stops scheduling once t > duration (loop self-terminates)", async () => {
+  it("paints the clamped final frame once t > duration, then self-terminates", async () => {
     const comp = tinyComp({ duration: 0.1 }); // 100ms
     const canvas = new FakeCanvas();
     const clock = new FakeClock(0);
@@ -215,8 +215,10 @@ describe("attach", () => {
 
     // No new RAF queued because t > duration short-circuited.
     expect(raf.pending()).toBe(0);
-    // Final tick should NOT have rendered a new frame past the end.
-    expect(fillRectCount(canvas.ctx)).toBe(initialFills);
+    // The final tick clamps t to duration and paints that frame (renderAt in
+    // src/drivers/browser/index.ts) so the canvas ends on the last frame
+    // instead of whatever was there before.
+    expect(fillRectCount(canvas.ctx)).toBeGreaterThan(initialFills);
     handle.stop();
   });
 
@@ -359,8 +361,8 @@ describe("attach", () => {
     const clock = new FakeClock(0);
     const raf = makeFakeRaf();
 
-    // startAt: 6 seconds — past duration (5s). First tick should NOT render
-    // and should not schedule another frame.
+    // startAt: 6 seconds — past duration (5s). The first tick clamps to the
+    // end and paints the final frame, but must not schedule another frame.
     const handle = await attach(comp, canvas, {
       loader: noopLoader(),
       now: clock.now,
@@ -370,7 +372,7 @@ describe("attach", () => {
     });
 
     expect(raf.pending()).toBe(0);
-    expect(fillRectCount(canvas.ctx)).toBe(0);
+    expect(fillRectCount(canvas.ctx)).toBeGreaterThanOrEqual(1);
 
     handle.stop();
   });
