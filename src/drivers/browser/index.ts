@@ -693,6 +693,11 @@ function drawPickItem(
     case "shape":
       paintShapePath(ctx, item, colorFor(itemId));
       break;
+    case "video":
+      // Spatially a sprite: the pickable area is its [width, height] box
+      // (mirrors cornersForItem's treatment of video for the selection ring).
+      paintSpriteBounds(ctx, item.width, item.height, colorFor(itemId));
+      break;
     case "group":
       paintGroupChildren(ctx, item, scene, colorFor);
       break;
@@ -803,12 +808,16 @@ function sortLayersByZ(layers: ReadonlyArray<Layer>): ReadonlyArray<Layer> {
 
 function anchorWidth(item: Item): number {
   if (item.type === "sprite") return item.width;
+  // Video is spatially a sprite: its anchor pivots on the [width, height] box
+  // (mirrors the engine's anchorWidth in render.ts).
+  if (item.type === "video") return item.width;
   if (item.type === "shape") return item.width ?? 0;
   return 0;
 }
 
 function anchorHeight(item: Item): number {
   if (item.type === "sprite") return item.height;
+  if (item.type === "video") return item.height;
   if (item.type === "shape") {
     if (item.kind === "circle") return item.height ?? item.width ?? 0;
     return item.height ?? 0;

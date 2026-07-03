@@ -106,6 +106,62 @@ describe("validate — reference errors (E_ITEM_MISSING / E_ASSET_MISSING)", () 
     ).toMatch(/not "font"/);
   });
 
+  it("flags video pointing at unknown asset (R-5)", () => {
+    const comp = baseComposition();
+    comp.items["intro-video"] = {
+      type: "video",
+      asset: "ghost-asset",
+      width: 640,
+      height: 360,
+      start: 0,
+      fit: "contain",
+      loop: false,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.find((e) => e.code === "E_ASSET_MISSING")?.message,
+    ).toMatch(/unknown asset "ghost-asset"/);
+  });
+
+  it("flags video pointing at a non-video asset (R-5)", () => {
+    const comp = baseComposition();
+    comp.items["intro-video"] = {
+      type: "video",
+      asset: "logo",
+      width: 640,
+      height: 360,
+      start: 0,
+      fit: "contain",
+      loop: false,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.find((e) => e.code === "E_ASSET_MISSING")?.message,
+    ).toMatch(/not "video"/);
+  });
+
   it("flags tween targeting unknown item", () => {
     const comp = baseComposition();
     comp.tweens[0]!.target = "ghost-item";

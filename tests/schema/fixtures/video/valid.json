@@ -7,7 +7,10 @@
     "duration": 25,
     "background": "#000000"
   },
-  "assets": [],
+  "assets": [
+    { "id": "intro-clip", "type": "video", "src": "./intro.mp4", "duration": 10 },
+    { "id": "bg-loop-clip", "type": "video", "src": "./bg-loop.mp4", "duration": 4 }
+  ],
   "layers": [
     {
       "id": "video-layer",

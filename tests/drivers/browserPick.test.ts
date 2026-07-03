@@ -135,6 +135,67 @@ function overlappingComp(): Composition {
   } as Composition;
 }
 
+// A video item (centered anchor) beside a plain sprite — used to assert the
+// pick buffer covers video items too (R-5) and that a non-default anchor
+// shifts its pickable box exactly like it would for a sprite.
+function videoAndSpriteComp(): Composition {
+  return {
+    version: "0.1",
+    composition: {
+      width: 100,
+      height: 100,
+      fps: 60,
+      duration: 1.0,
+      background: "#000000",
+    },
+    assets: [],
+    layers: [
+      { id: "bg", z: 0, opacity: 1, blendMode: "normal", items: ["s"] },
+      { id: "fg", z: 10, opacity: 1, blendMode: "normal", items: ["v"] },
+    ],
+    items: {
+      s: {
+        type: "sprite",
+        asset: "unused",
+        width: 20,
+        height: 20,
+        transform: {
+          x: 5,
+          y: 5,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      },
+      v: {
+        type: "video",
+        asset: "clip",
+        width: 40,
+        height: 40,
+        start: 0,
+        fit: "contain",
+        loop: false,
+        // Centered anchor: the box's world span is (60-20, 60-20)..(60+20,
+        // 60+20) = (40,40)..(80,80), not (60,60)..(100,100).
+        transform: {
+          x: 60,
+          y: 60,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
+          opacity: 1,
+        },
+      },
+    },
+    tweens: [],
+  } as Composition;
+}
+
 // One rect that moves horizontally over 1s — used to assert the time arg.
 function movingRectComp(): Composition {
   return {
@@ -580,6 +641,21 @@ describe("pickItemAt", () => {
     expect(handle.pickItemAt(50, 50, 0)?.itemId).toBe("b");
     // (22, 22) is inside 'a' only.
     expect(handle.pickItemAt(22, 22, 0)?.itemId).toBe("a");
+    handle.stop();
+  });
+
+  it("resolves a video item, anchor-offset box included (R-5)", async () => {
+    const buf = makeFakePickBuffer(100, 100);
+    const { handle } = await attachWith(videoAndSpriteComp(), buf);
+
+    // Video's centered-anchor box spans (40,40)..(80,80) — inside it.
+    expect(handle.pickItemAt(60, 60, 0)?.itemId).toBe("v");
+    // Just outside that box (would be inside it if the anchor offset were
+    // ignored, i.e. box treated as (60,60)..(100,100)).
+    expect(handle.pickItemAt(90, 90, 0)).toBeNull();
+    // Sprite still resolves independently.
+    expect(handle.pickItemAt(10, 10, 0)?.itemId).toBe("s");
+
     handle.stop();
   });
 

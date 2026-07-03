@@ -5,15 +5,16 @@ import { validate } from "../../src/schema/validator.js";
 import { VideoItemSchema } from "../../src/schema/zod.js";
 import { baseComposition } from "./fixtures.js";
 
-// Video items — schema + parser coverage for v0.2 §S5.
+// Video items — schema + parser coverage for v0.2 §S5, §S8.
 //
 // Simple bounds (trimIn ≥ 0, trimOut > 0, start ≥ 0, end > 0, fit ∈ enum) live
 // in the Zod layer, so a malformed field surfaces as E_SCHEMA from `validate()`.
-// The cross-field / cross-reference invariants — trimIn < trimOut ≤
-// asset.duration and end > start — are checked by the semantic validator and
-// surface as E_VIDEO_RANGE. Like audio §S1, S5 deliberately does NOT cross-check
-// that the `asset` reference is a registered video asset (registration is §S6);
-// a clip may name an asset that isn't registered yet and still parse.
+// The cross-field invariants — trimIn < trimOut ≤ asset.duration and
+// end > start — are checked by the semantic validator and surface as
+// E_VIDEO_RANGE. As of §S8, the `asset` reference is also cross-checked
+// against a registered asset of type "video" (E_ASSET_MISSING) — mirroring
+// sprite.asset / text.font — so a dangling or wrong-type reference is a
+// validation error, not a silent render-time no-op (R-5).
 
 function loadFixture(name: string): unknown {
   const url = new URL(`./fixtures/video/${name}`, import.meta.url);
@@ -71,13 +72,19 @@ describe("video items — fixture JSON", () => {
 describe("video items — composition integration", () => {
   it("accepts a base composition with a video item added", () => {
     const comp = baseComposition() as Record<string, unknown>;
-    (comp.items as Record<string, unknown>)["clip"] = videoItem({
+    (comp.assets as unknown[]).push({
+      id: "clip",
+      type: "video",
+      src: "./clip.mp4",
+      duration: 30,
+    });
+    (comp.items as Record<string, unknown>)["clip-item"] = videoItem({
       end: 10,
       trimIn: 1,
       trimOut: 9,
       fit: "contain",
     });
-    (comp.layers as Array<{ items: string[] }>)[0]!.items.push("clip");
+    (comp.layers as Array<{ items: string[] }>)[0]!.items.push("clip-item");
     const result = validate(comp);
     expect(result.errors).toEqual([]);
     expect(result.valid).toBe(true);
@@ -85,7 +92,13 @@ describe("video items — composition integration", () => {
 
   it("flags an empty trim window nested in a full composition", () => {
     const comp = baseComposition() as Record<string, unknown>;
-    (comp.items as Record<string, unknown>)["clip"] = videoItem({
+    (comp.assets as unknown[]).push({
+      id: "clip",
+      type: "video",
+      src: "./clip.mp4",
+      duration: 30,
+    });
+    (comp.items as Record<string, unknown>)["clip-item"] = videoItem({
       trimIn: 5,
       trimOut: 5,
     });
@@ -94,12 +107,33 @@ describe("video items — composition integration", () => {
     expect(result.errors.some((e) => e.code === "E_VIDEO_RANGE")).toBe(true);
   });
 
-  it("keeps the asset reference unchecked at S5 (registration is S6)", () => {
-    // No video asset type exists yet, so the clip names an unregistered asset.
-    // Mirrors audio §S1: this must still validate.
+  it("flags an unregistered asset reference as E_ASSET_MISSING (R-5)", () => {
+    // Nothing registers "clip" as an asset — this must now fail validation,
+    // not silently parse (the render-time dead-end R-5 documents).
     const comp = baseComposition() as Record<string, unknown>;
-    (comp.items as Record<string, unknown>)["clip"] = videoItem();
-    expect(validate(comp).valid).toBe(true);
+    (comp.items as Record<string, unknown>)["clip-item"] = videoItem();
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) => e.code === "E_ASSET_MISSING" && e.message.includes("clip"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags a video item pointing at a non-video asset as E_ASSET_MISSING (R-5)", () => {
+    const comp = baseComposition() as Record<string, unknown>;
+    (comp.assets as unknown[]).push({
+      id: "clip",
+      type: "image",
+      src: "./clip.png",
+    });
+    (comp.items as Record<string, unknown>)["clip-item"] = videoItem();
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.find((e) => e.code === "E_ASSET_MISSING")?.message,
+    ).toMatch(/not "video"/);
   });
 });
 
@@ -167,17 +201,13 @@ describe("video items — E_VIDEO_RANGE (validator layer)", () => {
   });
 
   it("rejects trimOut beyond a registered asset's duration", () => {
-    // The duration gate is asset-type-agnostic by design (video asset
-    // registration arrives in §S6). An audio asset carries a `duration`, so it
-    // exercises the same `trimOut ≤ asset.duration` path the future video
-    // asset will use.
-    const asset = { id: "clip", type: "audio", src: "./clip.mp3", duration: 5 };
+    const asset = { id: "clip", type: "video", src: "./clip.mp4", duration: 5 };
     const result = validate(compWith(videoItem({ trimIn: 0, trimOut: 10 }), [asset]));
     expect(result.errors.some((e) => e.code === "E_VIDEO_RANGE")).toBe(true);
   });
 
   it("accepts trimOut within a registered asset's duration", () => {
-    const asset = { id: "clip", type: "audio", src: "./clip.mp3", duration: 30 };
+    const asset = { id: "clip", type: "video", src: "./clip.mp4", duration: 30 };
     const result = validate(compWith(videoItem({ trimIn: 0, trimOut: 10 }), [asset]));
     expect(result.errors.filter((e) => e.code === "E_VIDEO_RANGE")).toEqual([]);
   });

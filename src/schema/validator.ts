@@ -6,7 +6,8 @@
 //   2. tween.target → existing item          → E_ITEM_MISSING
 //      layer.items[*] → existing item        → E_ITEM_MISSING
 //      group.items[*] → existing item        → E_ITEM_MISSING
-//   3. sprite.asset / text.font → existing asset of correct type → E_ASSET_MISSING
+//   3. sprite.asset / text.font / video.asset → existing asset of correct
+//      type → E_ASSET_MISSING
 //   4. tween.property tweenable for item type → E_PROPERTY_INVALID
 //      tween.from / .to value-kind matches   → E_VALUE_KIND
 //      color-kind tween.from / .to parseable → E_COLOR_INVALID
@@ -273,6 +274,23 @@ function validateItemRefs(
               path: `items.${itemId}.items`,
             });
           }
+        }
+        break;
+      }
+      case "video": {
+        const asset = assetMap.get(item.asset);
+        if (!asset) {
+          errors.push({
+            code: "E_ASSET_MISSING",
+            message: `Video "${itemId}" references unknown asset "${item.asset}".`,
+            path: `items.${itemId}.asset`,
+          });
+        } else if (asset.type !== "video") {
+          errors.push({
+            code: "E_ASSET_MISSING",
+            message: `Video "${itemId}" references asset "${item.asset}" which is type "${asset.type}", not "video".`,
+            path: `items.${itemId}.asset`,
+          });
         }
         break;
       }
