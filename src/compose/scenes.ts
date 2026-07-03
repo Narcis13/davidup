@@ -63,6 +63,18 @@ import { MCPToolError } from "../engine/errors.js";
 import type { Asset, AudioAsset, VideoAsset } from "../schema/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
+/**
+ * Scene-expansion semantics version. Bumped when the synthetic group's child
+ * list (paint order) or other structural expansion behavior changes in a way
+ * that alters existing renders. See CHANGELOG.md.
+ *
+ *   v1 → v2: the synthetic group's children now paint in the scene author's
+ *   declaration order (was alphabetized via `Object.keys(...).sort()`, which
+ *   silently reordered overlapping items — an opaque item declared after its
+ *   siblings could paint *behind* them instead of on top).
+ */
+export const SCENE_EXPANSION_VERSION = 2;
+
 // ──────────────── Public types ────────────────
 
 export type SceneParamType = "number" | "string" | "color" | "boolean";
@@ -259,7 +271,7 @@ export function expandSceneInstance(
     chain: [...chain, def.id],
     ...(options.scenes !== undefined ? { scenes: options.scenes } : {}),
   };
-  for (const localId of Object.keys(def.items).sort()) {
+  for (const localId of Object.keys(def.items)) {
     const itemRaw = def.items[localId];
     const substituted = substitute(itemRaw, ctx, `scenes.${def.id}.items.${localId}`);
     const prefixedId = `${instanceId}__${localId}`;
@@ -332,7 +344,7 @@ export function expandSceneInstance(
   //    expanded items are owned by their wrapper group, not by us.
   const groupChildren: string[] = [];
   if (bgChildId !== undefined) groupChildren.push(bgChildId);
-  for (const localId of Object.keys(def.items).sort()) {
+  for (const localId of Object.keys(def.items)) {
     groupChildren.push(`${instanceId}__${localId}`);
   }
   const groupItem: Record<string, unknown> = {

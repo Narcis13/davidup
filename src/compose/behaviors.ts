@@ -20,6 +20,16 @@ import type { EasingName } from "../easings/index.js";
 import { MCPToolError } from "../engine/errors.js";
 import type { Tween } from "../schema/types.js";
 
+/**
+ * Behavior-expansion semantics version. Bumped when a *registered* behavior's
+ * emitted tweens change in a way that alters existing renders (not merely
+ * when a new behavior/param is added). See CHANGELOG.md.
+ *
+ *   v1 → v2: `kenburns` now emits `scaleX` + `scaleY` (was `scaleX`-only,
+ *   which rendered a horizontal stretch instead of a zoom).
+ */
+export const BEHAVIOR_EXPANSION_VERSION = 2;
+
 // ──────────────── Public types ────────────────
 
 export type BehaviorParamType =
@@ -629,7 +639,7 @@ register({
   descriptor: {
     name: "kenburns",
     description:
-      "Slow positional drift on the chosen axis plus uniform scale drift — a classic still-frame ken burns.",
+      "Slow positional drift on the chosen axis plus uniform scale drift on both axes — a classic still-frame ken burns.",
     params: [
       { name: "fromScale", type: "number", required: true, description: "Scale at start of move." },
       { name: "toScale", type: "number", required: true, description: "Scale at end of move." },
@@ -655,8 +665,16 @@ register({
         duration,
       },
       {
-        suffix: "scale",
+        suffix: "scaleX",
         property: "transform.scaleX",
+        from: fromScale,
+        to: toScale,
+        start,
+        duration,
+      },
+      {
+        suffix: "scaleY",
+        property: "transform.scaleY",
         from: fromScale,
         to: toScale,
         start,

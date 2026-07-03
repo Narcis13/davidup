@@ -215,7 +215,7 @@ describe("expandBehavior — slideIn / slideOut / rotateSpin / pulse", () => {
 });
 
 describe("expandBehavior — kenburns / shake / colorCycle", () => {
-  it("kenburns emits position + scaleX tweens", () => {
+  it("kenburns emits position + scaleX + scaleY tweens (dual-axis zoom)", () => {
     const out = expandBehavior({
       behavior: "kenburns",
       target: "still",
@@ -223,13 +223,16 @@ describe("expandBehavior — kenburns / shake / colorCycle", () => {
       duration: 4,
       params: { fromScale: 1, toScale: 1.2, pan: 100 },
     });
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(3);
     expect(out[0]?.property).toBe("transform.x");
     expect(out[0]?.from).toBe(0);
     expect(out[0]?.to).toBe(100);
     expect(out[1]?.property).toBe("transform.scaleX");
     expect(out[1]?.from).toBe(1);
     expect(out[1]?.to).toBe(1.2);
+    expect(out[2]?.property).toBe("transform.scaleY");
+    expect(out[2]?.from).toBe(1);
+    expect(out[2]?.to).toBe(1.2);
   });
 
   it("kenburns missing required params errors with E_BEHAVIOR_PARAM_MISSING", () => {

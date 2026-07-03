@@ -105,13 +105,15 @@ describe("expandSceneInstance — single instance", () => {
     expect(tween.id).toBe("intro__t0");
 
     // Wrapper group lists direct children only (bg + scene-local items),
-    // not the nested-scene-expanded ids.
+    // not the nested-scene-expanded ids. Order is the scene author's
+    // declaration order (bg first, then `title` then `subtitle` as declared
+    // in makeIntroCard) — expansion v2 no longer alphabetizes paint order.
     const group = expanded.groupItem;
     expect(group.type).toBe("group");
     expect((group as { items: string[] }).items).toEqual([
       "intro__$bg",
-      "intro__subtitle",
       "intro__title",
+      "intro__subtitle",
     ]);
   });
 
@@ -158,6 +160,65 @@ describe("expandSceneInstance — single instance", () => {
       expect(err).toBeInstanceOf(MCPToolError);
       expect((err as MCPToolError).code).toBe("E_SCENE_UNKNOWN");
     }
+  });
+
+  it("paints children in declaration order, not alphabetical order (R-24 regression)", () => {
+    // `zzLabel` is declared first (should paint first / underneath); the
+    // opaque `aaCover` rect is declared *after* it (should paint last / on
+    // top). Their ids are chosen so the old `Object.keys(...).sort()`
+    // behavior would reverse this — "aaCover" sorts before "zzLabel"
+    // alphabetically — reproducing the R-24 defect where a later-declared
+    // opaque item silently ended up painted *behind* its siblings.
+    const def: SceneDefinition = {
+      id: "paintOrder",
+      duration: 2,
+      params: [],
+      assets: [],
+      items: {
+        zzLabel: {
+          type: "text",
+          text: "hello",
+          font: "intro-font",
+          fontSize: 32,
+          color: "#ffffff",
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0,
+            anchorY: 0,
+            opacity: 1,
+          },
+        },
+        aaCover: {
+          type: "shape",
+          kind: "rect",
+          width: 200,
+          height: 200,
+          fillColor: "#000000",
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0,
+            anchorY: 0,
+            opacity: 1,
+          },
+        },
+      },
+      tweens: [],
+    };
+    const expanded = expandSceneInstance("scn", { scene: "paintOrder" }, {
+      scenes: { paintOrder: def },
+    });
+    expect((expanded.groupItem as { items: string[] }).items).toEqual([
+      "scn__zzLabel",
+      "scn__aaCover",
+    ]);
   });
 });
 

@@ -7,6 +7,7 @@ export {
 } from "./imports.js";
 export { evaluatePointer, JsonPointerError } from "./jsonPointer.js";
 export {
+  BEHAVIOR_EXPANSION_VERSION,
   expandBehavior,
   expandBehaviors,
   getBehaviorDescriptor,
@@ -37,6 +38,7 @@ export {
 } from "./templates.js";
 export { BUILT_IN_TEMPLATE_IDS } from "./builtInTemplates.js";
 export {
+  SCENE_EXPANSION_VERSION,
   expandSceneInstance,
   expandSceneInstances,
   getSceneDefinition,
