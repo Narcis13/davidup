@@ -380,10 +380,7 @@ test.group('Renders · HTTP', (group) => {
     }
   }).timeout(30_000)
 
-  test('GET /project-renders/:filename serves a finished render file', async ({
-    client,
-    assert,
-  }) => {
+  test('GET /project-renders/:filename serves a finished render file', async ({ client }) => {
     const dir = await makeProject()
     try {
       await projectStore.load(dir)

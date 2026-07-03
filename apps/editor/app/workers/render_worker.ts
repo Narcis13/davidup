@@ -47,7 +47,7 @@ async function resolveFfmpegPath(): Promise<string> {
   }
   try {
     // ffmpeg-static is an optional dep — dynamic import lets us soft-fail.
-    const mod = (await import('ffmpeg-static')) as { default?: string | null }
+    const mod = (await import('ffmpeg-static')) as unknown as { default?: string | null }
     if (mod.default && typeof mod.default === 'string') {
       cachedFfmpegPath = mod.default
       return mod.default

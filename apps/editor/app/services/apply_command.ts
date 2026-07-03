@@ -19,7 +19,7 @@
 */
 
 import { CompositionStore, dispatchTool, TOOLS, type ToolDef } from 'davidup/mcp'
-import type { Composition, Asset, Layer, Item, Tween, AudioTrack } from 'davidup/schema'
+import type { Composition, Asset, Layer, Item, Tween } from 'davidup/schema'
 import { z } from 'zod'
 
 import { COMMAND_TO_TOOL, type Command } from '#types/commands'
@@ -174,7 +174,13 @@ export function hydrateStore(
   // `audio` key. addRawAudioTrack is lenient on the asset reference (matching
   // the schema, which lets a track name an asset registered later), so a loaded
   // composition hydrates without the asset-existence check fresh MCP adds get.
-  for (const track of (composition.audio ?? []) as ReadonlyArray<AudioTrack>) {
-    store.addRawAudioTrack(track, compositionId)
+  // The linked engine snapshot predates audio (no AudioTrack type, no `audio`
+  // on Composition, no addRawAudioTrack on the store), so the pass-through is
+  // typed structurally until the snapshot is refreshed.
+  const audioTracks = (composition as { audio?: ReadonlyArray<unknown> }).audio ?? []
+  for (const track of audioTracks) {
+    ;(
+      store as unknown as { addRawAudioTrack: (track: unknown, compositionId: string) => void }
+    ).addRawAudioTrack(track, compositionId)
   }
 }
