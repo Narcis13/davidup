@@ -1829,6 +1829,8 @@ function applySceneInstanceToStore(
     params?: Record<string, unknown>;
     transform?: Record<string, unknown>;
     time?: TimeMapping;
+    enter?: number;
+    exit?: number;
     compositionId?: string;
   },
 ): { itemIds: string[]; tweenIds: string[]; assetIds: string[] } {
@@ -1852,6 +1854,8 @@ function applySceneInstanceToStore(
     ...(args.params !== undefined ? { params: args.params } : {}),
     ...(args.transform !== undefined ? { transform: args.transform } : {}),
     ...(args.time !== undefined ? { time: args.time } : {}),
+    ...(args.enter !== undefined ? { enter: args.enter } : {}),
+    ...(args.exit !== undefined ? { exit: args.exit } : {}),
   };
   // Pass the session's scene record into the expander so any nested scene
   // references inside this scene also resolve session-first.
@@ -1902,27 +1906,29 @@ function applySceneInstanceToStore(
     }
 
     // Wrapper group — sits in the requested layer with the merged transform.
-    const wrapperTransform = (
-      expanded.groupItem as {
-        transform: {
-          x: number;
-          y: number;
-          scaleX: number;
-          scaleY: number;
-          rotation: number;
-          anchorX: number;
-          anchorY: number;
-          opacity: number;
-        };
-      }
-    ).transform;
-    const wrapperChildren = (expanded.groupItem as { items: string[] }).items;
+    const wrapperGroup = expanded.groupItem as {
+      transform: {
+        x: number;
+        y: number;
+        scaleX: number;
+        scaleY: number;
+        rotation: number;
+        anchorX: number;
+        anchorY: number;
+        opacity: number;
+      };
+      items: string[];
+      enter?: number;
+      exit?: number;
+    };
     store.addRawGroup(
       {
         id: args.instanceId,
         layerId: args.layerId,
-        childItemIds: wrapperChildren,
-        transform: { ...wrapperTransform },
+        childItemIds: wrapperGroup.items,
+        transform: { ...wrapperGroup.transform },
+        ...(wrapperGroup.enter !== undefined ? { enter: wrapperGroup.enter } : {}),
+        ...(wrapperGroup.exit !== undefined ? { exit: wrapperGroup.exit } : {}),
       },
       args.compositionId,
     );
@@ -1963,7 +1969,7 @@ const addSceneInstance = defineTool({
   name: "add_scene_instance",
   title: "Add scene instance",
   description:
-    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. In `transform`, `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; `anchorX`/`anchorY` are fractional in 0..1 of the synthetic group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the scene's rotation/scale; `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
+    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. In `transform`, `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; `anchorX`/`anchorY` are fractional in 0..1 of the synthetic group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the scene's rotation/scale; `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. The synthetic group's visibility defaults to `[start, start + effectiveDuration)` (effectiveDuration follows `time`'s mode) so the instance disappears when its own scene ends; pass explicit `enter`/`exit` (absolute composition-timeline seconds, same axis as `start`) to override either bound, e.g. to keep the instance's last frame held past its own duration. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
   inputSchema: {
     sceneId: z.string().min(1),
     layerId: z.string().min(1),
@@ -1971,6 +1977,8 @@ const addSceneInstance = defineTool({
     params: z.record(z.string(), z.unknown()).optional(),
     transform: SCENE_TRANSFORM.optional(),
     time: TIME_MAPPING_SCHEMA.optional(),
+    enter: z.number().nonnegative().optional(),
+    exit: z.number().positive().optional(),
     id: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -1986,6 +1994,8 @@ const addSceneInstance = defineTool({
       ...(args.params !== undefined ? { params: args.params } : {}),
       ...(args.transform !== undefined ? { transform: args.transform } : {}),
       ...(args.time !== undefined ? { time: args.time } : {}),
+      ...(args.enter !== undefined ? { enter: args.enter } : {}),
+      ...(args.exit !== undefined ? { exit: args.exit } : {}),
       ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
     });
 
@@ -1998,6 +2008,8 @@ const addSceneInstance = defineTool({
         params: args.params ?? {},
         transform: args.transform,
         time: args.time,
+        enter: args.enter,
+        exit: args.exit,
         itemIds: result.itemIds,
         tweenIds: result.tweenIds,
         assetIds: result.assetIds,
@@ -2018,13 +2030,15 @@ const updateSceneInstance = defineTool({
   name: "update_scene_instance",
   title: "Update scene instance",
   description:
-    "Patch a scene instance's params / transform / start / time. The instance is removed and re-expanded under the same id; rolled back to the previous state on any error.",
+    "Patch a scene instance's params / transform / start / time / enter / exit. The instance is removed and re-expanded under the same id; rolled back to the previous state on any error. Omitted fields keep their previous value (including a previous explicit `enter`/`exit` override); `start`/`time` changes recompute the default visibility window unless `enter`/`exit` were explicitly set.",
   inputSchema: {
     instanceId: z.string().min(1),
     params: z.record(z.string(), z.unknown()).optional(),
     transform: SCENE_TRANSFORM.optional(),
     start: z.number().nonnegative().optional(),
     time: TIME_MAPPING_SCHEMA.optional(),
+    enter: z.number().nonnegative().optional(),
+    exit: z.number().positive().optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -2040,6 +2054,8 @@ const updateSceneInstance = defineTool({
     const nextTransform = args.transform ?? prev.transform;
     const nextStart = args.start ?? prev.start;
     const nextTime = args.time ?? prev.time;
+    const nextEnter = args.enter ?? prev.enter;
+    const nextExit = args.exit ?? prev.exit;
 
     // Drop the previous expansion entirely.
     store.removeSceneInstance(args.instanceId, args.compositionId);
@@ -2053,6 +2069,8 @@ const updateSceneInstance = defineTool({
         params: nextParams,
         ...(nextTransform !== undefined ? { transform: nextTransform } : {}),
         ...(nextTime !== undefined ? { time: nextTime } : {}),
+        ...(nextEnter !== undefined ? { enter: nextEnter } : {}),
+        ...(nextExit !== undefined ? { exit: nextExit } : {}),
         ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
       });
       store.trackSceneInstance(
@@ -2064,6 +2082,8 @@ const updateSceneInstance = defineTool({
           params: nextParams,
           transform: nextTransform,
           time: nextTime,
+          enter: nextEnter,
+          exit: nextExit,
           itemIds: result.itemIds,
           tweenIds: result.tweenIds,
           assetIds: result.assetIds,
@@ -2084,6 +2104,8 @@ const updateSceneInstance = defineTool({
           params: prev.params,
           ...(prev.transform !== undefined ? { transform: prev.transform } : {}),
           ...(prev.time !== undefined ? { time: prev.time } : {}),
+          ...(prev.enter !== undefined ? { enter: prev.enter } : {}),
+          ...(prev.exit !== undefined ? { exit: prev.exit } : {}),
           ...(args.compositionId !== undefined ? { compositionId: args.compositionId } : {}),
         });
         store.trackSceneInstance(
@@ -2095,6 +2117,8 @@ const updateSceneInstance = defineTool({
             params: prev.params,
             transform: prev.transform,
             time: prev.time,
+            enter: prev.enter,
+            exit: prev.exit,
             itemIds: restored.itemIds,
             tweenIds: restored.tweenIds,
             assetIds: restored.assetIds,
@@ -2113,7 +2137,7 @@ const removeSceneInstanceTool = defineTool({
   name: "remove_scene_instance",
   title: "Remove scene instance",
   description:
-    "Drop a previously-added scene instance: removes the wrapper group, all prefixed inner items, and all tweens added by the original expansion. Assets contributed by the instance are removed only if no item still references them.",
+    "Drop a previously-added scene instance: removes the wrapper group, all prefixed inner items, and only the tweens added by the original expansion (or the most recent update_scene_instance). Tweens authored separately — even ones targeting the instance's synthetic group, the one target parent tweens are allowed to use — are never touched, no matter what id they target. Assets contributed by the instance are removed only if no item still references them.",
   inputSchema: {
     instanceId: z.string().min(1),
     compositionId: COMPOSITION_ID,

@@ -58,6 +58,19 @@
 // Assets: scene-declared assets are merged into the root `assets` array at
 // expansion time. Same id + same src = dedupe. Same id + different src =
 // `E_ASSET_CONFLICT`.
+//
+// Lifetime (§8.6, R-26): the synthetic group's `enter`/`exit` default to the
+// instance's own span — `[start, start + effectiveDuration)` where
+// `effectiveDuration` follows the time-mapping mode (scene.duration for
+// identity/timeScale-adjusted, `toTime - fromTime` for clip, `scene.duration
+// * count` for loop). This makes the instance disappear when its own scene
+// ends instead of riding the parent timeline all the way to its end. An
+// instance may set explicit `enter`/`exit` (same units as `start` — absolute
+// parent-timeline seconds) to override either bound. Nested scene instances'
+// synthetic groups get the same treatment: their window is computed in the
+// child's own frame, then remapped through the parent's time mapping the
+// same way the child's tweens are, so lifetime nests correctly through
+// `loop`/`clip`/`timeScale` levels.
 
 import { MCPToolError } from "../engine/errors.js";
 import type { Asset, AudioAsset, VideoAsset } from "../schema/types.js";
@@ -72,8 +85,15 @@ import { substitute, type SubstitutionContext } from "./params.js";
  *   declaration order (was alphabetized via `Object.keys(...).sort()`, which
  *   silently reordered overlapping items — an opaque item declared after its
  *   siblings could paint *behind* them instead of on top).
+ *
+ *   v2 → v3 (R-26): the synthetic group's `enter`/`exit` now default to the
+ *   instance's own effective span instead of being left unset (which let the
+ *   instance ride the parent timeline all the way to the end). A scene
+ *   instance that previously overstayed its own duration now disappears when
+ *   its scene ends; pass explicit `enter`/`exit` to opt back into an
+ *   unbounded or custom window.
  */
-export const SCENE_EXPANSION_VERSION = 2;
+export const SCENE_EXPANSION_VERSION = 3;
 
 // ──────────────── Public types ────────────────
 
@@ -147,6 +167,14 @@ export interface SceneInstance {
   transform?: Record<string, unknown>;
   /** Time-mapping spec. Defaults to identity when absent. */
   time?: TimeMapping;
+  /**
+   * Explicit override for the synthetic group's visibility window (§8.6).
+   * Absolute parent-timeline seconds, same axis as `start`. When omitted,
+   * defaults to `[start, start + effectiveDuration)` — see file header.
+   */
+  enter?: number;
+  /** See {@link SceneInstance.enter}. */
+  exit?: number;
 }
 
 export interface ExpandedScene {
@@ -251,6 +279,39 @@ export function expandSceneInstance(
     throw new MCPToolError(
       "E_INVALID_VALUE",
       `Scene instance "${instanceId}" requires a non-negative numeric start.`,
+    );
+  }
+
+  if (
+    instance.enter !== undefined &&
+    (typeof instance.enter !== "number" ||
+      !Number.isFinite(instance.enter) ||
+      instance.enter < 0)
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Scene instance "${instanceId}" enter must be a non-negative number.`,
+    );
+  }
+  if (
+    instance.exit !== undefined &&
+    (typeof instance.exit !== "number" ||
+      !Number.isFinite(instance.exit) ||
+      instance.exit <= 0)
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Scene instance "${instanceId}" exit must be a positive number.`,
+    );
+  }
+  if (
+    instance.enter !== undefined &&
+    instance.exit !== undefined &&
+    instance.exit <= instance.enter
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Scene instance "${instanceId}" exit (${instance.exit}) must be greater than enter (${instance.enter}).`,
     );
   }
 
@@ -363,6 +424,44 @@ export function expandSceneInstance(
     def.id,
     def.duration,
   );
+
+  // §8.6 / R-26: default the wrapper's visibility window to the instance's
+  // own effective span, remapped through this level's time mapping. Nested
+  // groups were expanded with their `enter`/`exit` already set in *this*
+  // scene's local time (mirroring how their tweens are in local time before
+  // the shift below) — remap those too so lifetime nests correctly.
+  for (const child of childExpansions) {
+    const childGroup = child.groupItem as { enter?: number; exit?: number };
+    const childEnter = typeof childGroup.enter === "number" ? childGroup.enter : 0;
+    const childExit =
+      typeof childGroup.exit === "number" ? childGroup.exit : undefined;
+    const mapped = mapWindowThroughTimeMapping(
+      childEnter,
+      childExit,
+      timeMapping,
+      start,
+      def.duration,
+    );
+    childGroup.enter = mapped.enter;
+    if (mapped.exit !== undefined && mapped.exit > mapped.enter) {
+      childGroup.exit = mapped.exit;
+    } else {
+      delete childGroup.exit;
+    }
+  }
+
+  const ownWindow = mapWindowThroughTimeMapping(
+    0,
+    def.duration,
+    timeMapping,
+    start,
+    def.duration,
+  );
+  groupItem.enter = instance.enter ?? ownWindow.enter;
+  const finalExit = instance.exit ?? ownWindow.exit;
+  if (finalExit !== undefined && finalExit > (groupItem.enter as number)) {
+    groupItem.exit = finalExit;
+  }
 
   // First pass: lower every scene-local tween into a target/start/id pair
   // expressed in *scene-local* time (start of scene = t=0). Time-mapping is
@@ -910,6 +1009,68 @@ function applyTimeMapping(
   }
 }
 
+/**
+ * Map a single-item visibility window `[localEnter, localExit)` (scene-local
+ * time; `localExit` undefined = unbounded) through a time-mapping spec into
+ * parent-relative time, producing the `enter`/`exit` a synthetic group
+ * should carry so it disappears when its own scene content ends (§8.6,
+ * R-26).
+ *
+ * Unlike {@link applyTimeMapping}, this never drops, replicates, or throws:
+ * a group is a single item with exactly one lifespan, not a per-tween
+ * animation, so:
+ *   - `loop` collapses every iteration into one continuous window spanning
+ *     the first iteration's start through the last iteration's end (the
+ *     item exists once; only its tweens repeat).
+ *   - `clip` clamps the window to the intersection with `[fromTime, toTime)`
+ *     instead of throwing on a boundary straddle — a visibility window can
+ *     be truncated without the "interpolation would be wrong" problem a
+ *     mid-flight property tween has. A window with no overlap at all
+ *     collapses to zero width at `parentStart` (never visible).
+ */
+function mapWindowThroughTimeMapping(
+  localEnter: number,
+  localExit: number | undefined,
+  spec: TimeMapping,
+  parentStart: number,
+  sceneDuration: number,
+): { enter: number; exit: number | undefined } {
+  switch (spec.mode) {
+    case "identity":
+      return {
+        enter: parentStart + localEnter,
+        exit: localExit === undefined ? undefined : parentStart + localExit,
+      };
+    case "timeScale": {
+      const inv = 1 / spec.scale;
+      return {
+        enter: parentStart + localEnter * inv,
+        exit: localExit === undefined ? undefined : parentStart + localExit * inv,
+      };
+    }
+    case "loop": {
+      const lastIterShift = parentStart + (spec.count - 1) * sceneDuration;
+      return {
+        enter: parentStart + localEnter,
+        exit: localExit === undefined ? undefined : lastIterShift + localExit,
+      };
+    }
+    case "clip": {
+      const { fromTime, toTime } = spec;
+      const clampedEnter = Math.max(localEnter, fromTime);
+      const clampedExit =
+        localExit === undefined ? toTime : Math.min(localExit, toTime);
+      if (clampedExit <= clampedEnter) {
+        return { enter: parentStart, exit: parentStart };
+      }
+      return {
+        enter: parentStart + (clampedEnter - fromTime),
+        exit: parentStart + (clampedExit - fromTime),
+      };
+    }
+  }
+}
+
 function shiftStart(
   tween: Record<string, unknown>,
   delta: number,
@@ -988,6 +1149,24 @@ function readSceneInstanceFromItem(
   }
   if (raw.time !== undefined) {
     inst.time = readTimeMappingFromRaw(instanceId, raw.time);
+  }
+  if (raw.enter !== undefined) {
+    if (typeof raw.enter !== "number" || !Number.isFinite(raw.enter)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene instance "${instanceId}" enter must be a finite number.`,
+      );
+    }
+    inst.enter = raw.enter;
+  }
+  if (raw.exit !== undefined) {
+    if (typeof raw.exit !== "number" || !Number.isFinite(raw.exit)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene instance "${instanceId}" exit must be a finite number.`,
+      );
+    }
+    inst.exit = raw.exit;
   }
   return inst;
 }

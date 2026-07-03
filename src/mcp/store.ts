@@ -67,6 +67,14 @@ interface SceneInstanceRecord {
   transform: Record<string, unknown> | undefined;
   /** v0.5 time-mapping spec. Undefined means identity. */
   time: TimeMapping | undefined;
+  /**
+   * Explicit visibility-window override supplied by the caller (R-26).
+   * Undefined means "use the computed `[start, start + effectiveDuration)`
+   * default" — recomputed on every (re-)expansion, not stored here.
+   */
+  enter: number | undefined;
+  /** See {@link SceneInstanceRecord.enter}. */
+  exit: number | undefined;
   /** Item ids added by this scene instance (wrapper group + prefixed inner items). */
   itemIds: string[];
   /** Tween ids added by this scene instance. */
@@ -1562,10 +1570,16 @@ export class CompositionStore {
 
   /**
    * Drop everything a prior `trackSceneInstance` call added: tweens first
-   * (they reference items), then items (a group's children are dropped via
-   * normal `removeItemImpl`), then any assets the instance contributed
-   * exclusively. Best-effort — every removal is wrapped in a try/catch so a
-   * partially-rolled-back state doesn't trap subsequent calls.
+   * (they reference items), then items, then any assets the instance
+   * contributed exclusively. Best-effort — every removal is wrapped in a
+   * try/catch so a partially-rolled-back state doesn't trap subsequent calls.
+   *
+   * R-27: item removal disables `removeItemImpl`'s normal tween cascade.
+   * Every expansion-owned tween is already gone from the explicit
+   * `record.tweenIds` loop above it, so the cascade's only remaining effect
+   * would be deleting tweens this instance never created — most notably a
+   * separately-authored tween targeting the instance's synthetic group (the
+   * one target parent tweens are allowed to use, per §8.7). Those survive.
    */
   removeSceneInstance(instanceId: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
@@ -1582,7 +1596,7 @@ export class CompositionStore {
     for (const iid of record.itemIds) {
       if (comp.items.has(iid)) {
         try {
-          this.removeItemImpl(comp, iid);
+          this.removeItemImpl(comp, iid, { cascadeTweens: false });
         } catch {
           /* best-effort */
         }
@@ -1663,7 +1677,14 @@ export class CompositionStore {
 
   /** Required for scene-instance handlers that need to add a fully-formed wrapper group with explicit transform + child ids. */
   addRawGroup(
-    input: { id: string; layerId: string; childItemIds: ReadonlyArray<string>; transform: Transform },
+    input: {
+      id: string;
+      layerId: string;
+      childItemIds: ReadonlyArray<string>;
+      transform: Transform;
+      enter?: number;
+      exit?: number;
+    },
     compositionId?: string,
   ): void {
     const comp = this.requireComposition(compositionId);
@@ -1680,6 +1701,8 @@ export class CompositionStore {
       type: "group",
       items: [...input.childItemIds],
       transform: { ...input.transform },
+      ...(input.enter !== undefined ? { enter: input.enter } : {}),
+      ...(input.exit !== undefined ? { exit: input.exit } : {}),
     };
     comp.items.set(input.id, group);
     comp.itemLayer.set(input.id, layer.id);
@@ -1934,7 +1957,20 @@ export class CompositionStore {
     }
   }
 
-  private removeItemImpl(comp: MutableComposition, id: string): void {
+  /**
+   * `cascadeTweens` (default true) drops any tween targeting the removed
+   * item, per §4.4 `remove_item`'s documented behavior. `removeSceneInstance`
+   * passes `false` (R-27): it manages tween removal itself via the tracked
+   * `SceneInstanceRecord.tweenIds`, and the generic cascade would otherwise
+   * also delete separately-authored tweens that happen to target the same
+   * id (e.g. a user tween targeting the instance's synthetic group).
+   */
+  private removeItemImpl(
+    comp: MutableComposition,
+    id: string,
+    options: { cascadeTweens?: boolean } = {},
+  ): void {
+    const cascadeTweens = options.cascadeTweens ?? true;
     const layerId = comp.itemLayer.get(id);
     if (layerId !== undefined) {
       const layer = comp.layers.get(layerId);
@@ -1952,9 +1988,10 @@ export class CompositionStore {
       }
     }
     comp.items.delete(id);
-    // Cascade: drop any tween targeting this item (per §4.4 remove_item).
-    for (const [tid, tween] of comp.tweens) {
-      if (tween.target === id) comp.tweens.delete(tid);
+    if (cascadeTweens) {
+      for (const [tid, tween] of comp.tweens) {
+        if (tween.target === id) comp.tweens.delete(tid);
+      }
     }
   }
 
