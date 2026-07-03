@@ -324,6 +324,40 @@ describe("CompositionStore — tweens", () => {
     ).not.toThrow();
   });
 
+  // R-25 repro: 5.2 + 0.4 sums to 5.6000000000000005 in IEEE-754, so a tween
+  // authored to start exactly where the previous one ends was being rejected
+  // as an overlap. The MCP layer now shares the validator's OVERLAP_EPS.
+  it("allows a tween starting exactly where a chained FP-noisy end lands", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const id = store.addShape({
+      layerId,
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+    });
+    store.addTween({
+      target: id,
+      property: "transform.x",
+      from: 0,
+      to: 10,
+      start: 5.2,
+      duration: 0.4, // start + duration === 5.6000000000000005
+    });
+    expect(() =>
+      store.addTween({
+        target: id,
+        property: "transform.x",
+        from: 10,
+        to: 20,
+        start: 5.6,
+        duration: 0.4,
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects color values on numeric properties and vice versa", () => {
     const { store } = makeStore();
     const layerId = store.addLayer({ z: 0 });

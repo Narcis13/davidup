@@ -12,7 +12,7 @@
 // structured `{error}` payloads.
 
 import type { EasingName } from "../easings/index.js";
-import { validate, type ValidationResult } from "../schema/validator.js";
+import { validate, OVERLAP_EPS, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
   AudioTrack,
@@ -1914,8 +1914,16 @@ export class CompositionStore {
       if (ignoreId !== null && other.id === ignoreId) continue;
       if (other.target !== target || other.property !== property) continue;
       const oEnd = other.start + other.duration;
-      // Strict overlap (touching at endpoints is OK; matches validator §3.5.5).
-      if (start < oEnd && other.start < end) {
+      // Strict overlap (touching at endpoints is OK; matches validator §3.5.5),
+      // with the same OVERLAP_EPS tolerance the validator uses so mathematically
+      // abutting windows survive chained `start + duration` FP drift (e.g.
+      // 5.2 + 0.4 = 5.6000000000000005) instead of tripping E_TWEEN_OVERLAP.
+      // Unlike the validator's adjacent-pair scan over a start-sorted bucket,
+      // `other` here isn't guaranteed to start before the candidate, so the
+      // comparison is written symmetrically via the shared overlap span.
+      const overlapStart = Math.max(start, other.start);
+      const overlapEnd = Math.min(end, oEnd);
+      if (overlapStart + OVERLAP_EPS < overlapEnd) {
         throw new MCPToolError(
           "E_TWEEN_OVERLAP",
           `Tween overlaps "${other.id}" on ${target}.${property}: ` +

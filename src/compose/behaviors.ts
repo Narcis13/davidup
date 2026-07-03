@@ -255,7 +255,38 @@ export function expandBehaviors(comp: unknown): unknown {
 
 function deriveParentId(block: BehaviorBlock): string {
   if (block.id !== undefined && block.id.length > 0) return block.id;
-  return `${block.target}_${block.behavior}_${block.start}`;
+  return `${block.target}_${block.behavior}_${idNumber(block.start)}`;
+}
+
+// Ids are read by humans (and re-typed as MCP addressing keys), so a `start`
+// that arrived with FP noise from an upstream chained sum (e.g.
+// 4.8999999999999995 instead of 4.9) shouldn't be embedded verbatim. Round to
+// microsecond precision — far finer than any authored timing — before
+// formatting, purely for id text; the tween's numeric `start` is untouched.
+function idNumber(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+// Divide [start, start+duration] into `segments` equal pieces as an explicit
+// breakpoint array (rather than each tween independently computing its own
+// `start + i*step`). Two tweens that each recomputed `start + i*step` and
+// `start + (i+1)*step` from scratch can disagree in the last bit or two
+// (floating-point addition isn't associative), so segment i's `start+duration`
+// wouldn't bit-match segment i+1's `start` — exactly the E_TWEEN_OVERLAP false
+// positive this fixes. Deriving every tween's start/duration from the same
+// breakpoints array guarantees prev.start + prev.duration === next.start.
+function segmentBreakpoints(
+  start: number,
+  duration: number,
+  segments: number,
+): number[] {
+  const step = duration / segments;
+  const points: number[] = [start];
+  for (let i = 1; i < segments; i++) points.push(start + i * step);
+  // Pin the final point to start+duration exactly, rather than start+segments*step,
+  // so the total span always matches the requested duration bit-for-bit.
+  points.push(start + duration);
+  return points;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -704,7 +735,6 @@ register({
     const axis = readAxisParam(params, "axis", "shake", "x");
     const center = readNumberParam(params, "center", "shake", 0);
     const segments = cycles * 4; // quarter-waves
-    const seg = duration / segments;
     // 0 → +amp → 0 → -amp → 0   (per cycle)
     const path: number[] = [center];
     for (let c = 0; c < cycles; c += 1) {
@@ -713,6 +743,7 @@ register({
       path.push(center - amplitude);
       path.push(center);
     }
+    const breakpoints = segmentBreakpoints(start, duration, segments);
     const tweens: RawTween[] = [];
     for (let i = 0; i < segments; i += 1) {
       tweens.push({
@@ -720,8 +751,8 @@ register({
         property: `transform.${axis}`,
         from: path[i] as number,
         to: path[i + 1] as number,
-        start: start + i * seg,
-        duration: seg,
+        start: breakpoints[i] as number,
+        duration: (breakpoints[i + 1] as number) - (breakpoints[i] as number),
       });
     }
     return tweens;
@@ -743,7 +774,7 @@ register({
     const colors = requireColorArrayParam(params, "colors", "colorCycle", 2);
     const property = readColorParam(params, "property", "colorCycle", "tint");
     const segments = colors.length - 1;
-    const seg = duration / segments;
+    const breakpoints = segmentBreakpoints(start, duration, segments);
     const tweens: RawTween[] = [];
     for (let i = 0; i < segments; i += 1) {
       tweens.push({
@@ -751,8 +782,8 @@ register({
         property,
         from: colors[i] as string,
         to: colors[i + 1] as string,
-        start: start + i * seg,
-        duration: seg,
+        start: breakpoints[i] as number,
+        duration: (breakpoints[i + 1] as number) - (breakpoints[i] as number),
       });
     }
     return tweens;

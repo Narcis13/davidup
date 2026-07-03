@@ -46,7 +46,10 @@ export type ValidationWarningCode = "W_TWEEN_TRUNCATED";
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
 // segments authored with non-bit-exact durations validate correctly.
-const OVERLAP_EPS = 1e-6;
+// Exported so other layers doing the same "do these two windows overlap"
+// comparison (e.g. the MCP store's add_tween/apply_behavior guards) share
+// this exact tolerance instead of drifting from a second magic number.
+export const OVERLAP_EPS = 1e-6;
 
 export type ValidationError = {
   code: ValidationErrorCode;

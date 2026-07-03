@@ -323,6 +323,41 @@ describe("expandBehavior — kenburns / shake / colorCycle", () => {
     expect(out[0]?.duration).toBeCloseTo(1, 10);
     expect(out[1]?.start).toBeCloseTo(1, 10);
   });
+
+  // R-25/R-31 repro: a `start` arriving with FP noise from an upstream chain
+  // (e.g. 13.200000000000001, from summing prior tween starts+durations)
+  // used to make colorCycle self-collide — segment i's computed end
+  // (start + i*seg + seg) didn't bit-match segment i+1's start
+  // (start + (i+1)*seg) — an internal E_TWEEN_OVERLAP false positive.
+  // Boundaries are now derived from one shared breakpoints array so
+  // consecutive segments abut exactly regardless of `start`'s own noise.
+  it("colorCycle segments abut exactly even when start carries FP noise", () => {
+    const noisyStart = 13.2 + 4 * 0.20000000000000284; // reproduces 13.200000000000001-style drift
+    const out = expandBehavior({
+      behavior: "colorCycle",
+      target: "ball",
+      start: noisyStart,
+      duration: 0.8,
+      params: { colors: ["#ff0000", "#00ff00", "#0000ff"] },
+    });
+    expect(out).toHaveLength(2);
+    for (let i = 1; i < out.length; i += 1) {
+      const prev = out[i - 1]!;
+      const cur = out[i]!;
+      // Bit-exact, not just close — this is the property the overlap check relies on.
+      expect(cur.start).toBe(prev.start + prev.duration);
+    }
+  });
+
+  it("derives the auto id from a rounded start, stripping FP noise", () => {
+    const out = expandBehavior({
+      behavior: "fadeIn",
+      target: "stat2__label",
+      start: 4.8999999999999995,
+      duration: 0.3,
+    });
+    expect(out[0]?.id).toBe("stat2__label_fadeIn_4.9__opacity");
+  });
 });
 
 describe("expandBehavior — error paths", () => {
