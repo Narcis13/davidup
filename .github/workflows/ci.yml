@@ -48,6 +48,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # alpha.webm is git-ignored (WebM alpha lives in a stream tag that must
+      # be produced by a real encoder); the script rebuilds all fixtures with
+      # the bundled ffmpeg-static.
+      - name: Generate video fixtures
+        run: bash tests/drivers/fixtures/video/generate.sh
+
       - name: Root typecheck
         run: bun run typecheck
 
