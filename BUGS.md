@@ -24,7 +24,7 @@ review's finding numbers stable as cross-reference anchors).
 | R-2 | P0 | Editor test suite unrunnable + hangs: extensionless ESM imports crashed Japa's loader | **CLOSED** — Session 1 (`ea51b0e`) | `inertia/composables/useCommandBus.ts`, `useLibrary.ts` |
 | R-3 | P0 | `::` in item ids silently kills animation (resolver splits bucket key at first `::`, schema didn't forbid it) | **CLOSED** — Session 4 (`ee90fea`) | `src/engine/resolver.ts`, `src/schema/zod.ts` |
 | R-4 | P0 | kenburns/kenburnsImage rendered a horizontal stretch, not a zoom (only emitted `scaleX`) | **CLOSED** — Session 6 (`c3d13f2`) | `src/compose/behaviors.ts`, `builtInTemplates.ts` |
-| R-5 | P0 | Video dead-end ships a lie: `register_asset(video)` validates and tweens but renders as nothing, invisible to editor pick buffer | **OPEN** | `src/engine/render.ts` (no video case), `src/schema/validator.ts` |
+| R-5 | P0 | Video dead-end ships a lie: `register_asset(video)` validates and tweens but renders as nothing, invisible to editor pick buffer | **CLOSED** — Session 10 (`c9c6b99`); render case + node frame provider were already fixed earlier (`93abbf5`, predates this ledger's OPEN status) | `src/schema/validator.ts`, `src/drivers/browser/index.ts` |
 | R-6 | P1 | ffmpeg resolution inconsistent across extraction/encode/mux pipelines | **CLOSED** — Session 5 (`3f84001`) | `src/drivers/node/ffmpeg.ts` (new shared resolver) |
 | R-7 | P1 | Signal-killed ffmpeg could yield "success" + garbage file | **CLOSED** — Session 5 (`3f84001`) | `src/drivers/node/render.ts` |
 | R-8 | P1 | No `davidup render` CLI — headless render requires MCP or writing JS | **OPEN** | `src/cli/cli.ts` |
