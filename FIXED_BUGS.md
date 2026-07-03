@@ -1,8 +1,8 @@
-# Known bugs
+# Fixed bugs
 
 All four bugs filed against the v0.1 comprehensive demo are now fixed in `src/`
 and exercised by the demo composition rather than worked around. This file is
-kept as a postmortem.
+kept as a postmortem. For open defects, see [`BUGS.md`](./BUGS.md).
 
 ---
 

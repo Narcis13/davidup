@@ -68,11 +68,10 @@ Every tool returns either:
 - a structured error envelope `{ error: { code, message, hint? } }` with
   `isError: true` on the MCP `CallToolResult`.
 
-Error codes are stable strings (`E_NO_COMPOSITION`, `E_DUPLICATE_ID`,
-`E_NOT_FOUND`, `E_VALIDATION_FAILED`, `E_TWEEN_OVERLAP`,
-`E_ASSET_IN_USE`, `E_ASSET_TYPE_MISMATCH`, `E_LAYER_NOT_EMPTY`,
-`E_INVALID_PROPERTY`, `E_INVALID_VALUE`, `E_RENDER_FAILED`, `E_UNKNOWN`).
-Agents are expected to branch on `code`, not on `message`.
+Error codes are stable strings, one of the 32 in `MCP_ERROR_CODES`
+(`src/engine/errors.ts`) — see §3.10 for the full table with cause and
+recovery per code. Agents are expected to branch on `code`, not on
+`message`.
 
 ---
 
@@ -354,13 +353,63 @@ The shape is identical in both modes — only `status` and `result` differ.
 Poll `get_render(jobId)` (editor only) until `result !== null`, or pass
 `wait: true` to block on the call.
 
-Failure modes the agent should expect:
+Failure modes the agent should expect from render calls specifically:
 
 | Code | Cause | Recovery |
 |---|---|---|
 | `E_VALIDATION_FAILED` | Composition not valid at render time. | Call `validate`, address each error, retry. |
 | `E_RENDER_FAILED` | ffmpeg crashed, asset missing on disk, codec unavailable. | Read `message` for the ffmpeg stderr tail; check `$PATH`. |
 | `E_INVALID_VALUE` | `time < 0`, non-positive `count`, malformed args. | Re-issue with valid args. |
+
+The full 32-code reference (every code a tool call can return, not just
+render calls) is in §3.10.
+
+### 3.10 Error code reference
+
+Every error code the server can return, in the order declared by
+`MCP_ERROR_CODES` in `src/engine/errors.ts` (the source of truth — if this
+table and that file ever disagree, the file wins; regenerate this table
+from it).
+
+| Code | Cause | Recovery |
+|---|---|---|
+| `E_NO_COMPOSITION` | No composition is active — either no `compositionId` was given and no default composition exists yet, or the given `compositionId` doesn't match any created composition. | Call `create_composition` first (optionally with an explicit `id`), or omit `compositionId` to target the default, or re-check the id against `list_projects`/prior `create_composition` response. |
+| `E_DUPLICATE_ID` | An id you supplied (or an id auto-derived during scene/template expansion) collides with an existing composition, item, layer, tween, scene, or audio-track id. | Pass a different, unique id, or call `get_composition`/`list_scenes` first to see ids already in use before retrying. |
+| `E_NOT_FOUND` | A referenced entity — composition, layer, item, tween target, asset, scene, template, or audio track — doesn't exist under the id/name you passed. | Re-list the relevant entities (`get_composition`, `list_assets`, `list_scenes`, etc.) to get valid ids, then retry the call with a corrected id. |
+| `E_VALIDATION_FAILED` | The full composition failed `validate()` (e.g. before a render call), aggregating one or more structural/schema errors. | Call `validate` directly to see the itemized error list, fix each reported issue, then retry the render/tool call. |
+| `E_TWEEN_OVERLAP` | Two tweens on the same target+property have overlapping time ranges (beyond a 1µs epsilon tolerance for float drift). | Adjust the `start`/`duration` of one of the conflicting tweens so the ranges no longer overlap, or remove/merge one of them (check `list_tweens` for the target::property pair). |
+| `E_INVALID_PROPERTY` | The named property doesn't apply to the target's actual type — e.g. calling `update_video` on a non-video item, or tweening a property name that isn't tweenable for that item type. | Use the tool/property matching the item's actual type (check `get_composition().items[id].type`), or pick a valid tweenable property name for that type. |
+| `E_LAYER_NOT_EMPTY` | `remove_layer` was called without `cascade=true` on a layer that still contains items. | Retry with `cascade=true` to delete the layer's items (and their tweens) too, or move/remove the items individually first. |
+| `E_ASSET_IN_USE` | `remove_asset` targeted an asset still referenced by a sprite, text (font), video item, or audio track. | Remove or reassign every item/track referencing the asset (per the error's named item/track id) before retrying `remove_asset`. |
+| `E_ASSET_TYPE_MISMATCH` | An asset id was supplied to a tool expecting a specific asset type (e.g. `audio` for tracks, `video` for video items) but the registered asset is a different type. | Register/reference an asset of the correct type via `register_asset`, or pass the id of an existing asset whose type (check `list_assets`) matches what the tool expects. |
+| `E_INVALID_VALUE` | Generic catch-all: a supplied value fails a specific constraint — wrong type, disallowed number range, invalid enum/string format, or unknown property — distinct from `E_VALIDATION_FAILED` (whole-composition failure) and `E_INVALID_PROPERTY` (property doesn't apply to this item type). | Check the tool's `inputSchema` and the error's message/hint for the exact constraint violated, and resend the call with a corrected value for that specific field. |
+| `E_RENDER_FAILED` | `render_to_video` failed — the render job errored, finished with no result payload, or the underlying render call threw (e.g. ffmpeg missing, asset path unresolved). | Call `get_render` to inspect the terminal error detail, confirm ffmpeg is on `$PATH` and asset paths resolve, then retry `render_to_video`. |
+| `E_BEHAVIOR_UNKNOWN` | `apply_behavior` (or a `$behavior` tween block) named a behavior that isn't in the registry. | Call `list_behaviors` and re-issue `apply_behavior` with one of the returned built-in names. |
+| `E_BEHAVIOR_PARAM_MISSING` | `apply_behavior` omitted a `params` key that the behavior requires (no default exists for that param). | Check the behavior's descriptor via `list_behaviors` for its required param names and re-call `apply_behavior` including that key in `params`. |
+| `E_BEHAVIOR_PARAM_TYPE` | `apply_behavior` supplied a param of the wrong shape (e.g. non-finite number, invalid axis, empty string, malformed color array). | Fix the offending param's type/value to match the descriptor and retry `apply_behavior`. |
+| `E_TEMPLATE_UNKNOWN` | `apply_template` referenced a `template` id that isn't registered in the per-composition or global template store. | Call `list_templates` and retry `apply_template` with a valid template id (or `define_user_template` it first). |
+| `E_TEMPLATE_PARAM_MISSING` | `apply_template` left out a required param with no default, or a template placeholder referenced a key never resolved into the substitution context. | Supply the missing param in the `params` object of `apply_template` (check the template's declared param list via `list_templates`). |
+| `E_TEMPLATE_PARAM_TYPE` | `apply_template` supplied a param whose value doesn't match the template's declared type. | Coerce the param to the declared type shown in the template's param descriptor and retry `apply_template`. |
+| `E_SCENE_UNKNOWN` | `add_scene_instance` referenced a `sceneId` not found in the scene store/registry, or a scene-instance item is missing its `scene` field entirely. | Call `list_scenes` (or `define_scene`/`import_scene` first) and retry with a valid scene id. |
+| `E_SCENE_PARAM_MISSING` | `add_scene_instance` (or scene expansion) left out a required scene param with no default. | Check the scene's required params (via `list_scenes`/`get_composition`) and include the missing key in the instance's `params`. |
+| `E_SCENE_PARAM_TYPE` | `add_scene_instance` supplied a scene param whose value doesn't match the scene's declared type. | Coerce the param to the declared type and retry `add_scene_instance`. |
+| `E_SCENE_RECURSION` | Expanding a scene instance found the scene's own id already in the current expansion chain — the scene instantiates itself directly or transitively, forming a cycle. | Remove the self/mutual scene reference in `define_scene`, or factor the shared content into a template instead of a nested scene instance. |
+| `E_SCENE_INSTANCE_DEEP_TARGET` | A composition-level tween's `target` pointed at an id inside an expanded scene instance rather than at the instance id itself — tweens may not reach past the scene's sealed boundary. | Re-target the tween's `target` to the scene instance id, and vary motion inside it via the scene's own `params` with `update_scene_instance`. |
+| `E_ASSET_CONFLICT` | An incoming asset id (from scene expansion or import) already exists with a different `src`, `type`, or font `family`. | Rename the incoming asset id to something unique, or edit the existing asset so both sides share id+src+type before retrying. |
+| `E_TIME_MAPPING_INVALID` | A scene instance's `time` mapping is malformed or out of range (e.g. `clip.fromTime`/`toTime` out of bounds, invalid `loop.count`, non-positive `timeScale.scale`). | Check the target scene's duration and resend `add_scene_instance`/`update_scene_instance` with a `time` object whose fields satisfy the failed constraint. |
+| `E_TIME_MAPPING_TWEEN_SPLIT` | A `clip` time-mapping window cuts through the middle of one of the scene's own tweens instead of containing it fully or excluding it fully. | Widen/shift `fromTime`/`toTime` so the tween falls entirely inside or outside the window, or split that tween at the clip boundary in the scene definition. |
+| `E_FEATURE_UNAVAILABLE` | The called tool needs project/library/render-queue controls not wired up on this MCP server (i.e. talking to the standalone engine server, not the full editor). | Reconnect through the full editor server instead of the standalone engine server, or avoid this tool and use only engine-level tools. |
+| `E_REF_CYCLE` | A `$ref` chain during precompile re-enters a `(file, pointer)` already being resolved higher up the same chain — a genuine circular reference. | Inspect the reported `chain` in `details`, then edit one of the referenced files/scenes to remove the back-reference before retrying. |
+| `E_REF_MISSING` | The file targeted by a `$ref` path could not be read (doesn't exist, wrong path, or IO error). | Check the `ref` path in `details` against the actual filesystem layout relative to the referencing file, fix or add the file, and retry. |
+| `E_REF_PARSE` | The file a `$ref` points to was read but its contents aren't valid JSON. | Open the target file named in `details.ref`, fix the JSON syntax error, and retry. |
+| `E_REF_POINTER` | The `$ref`'s JSON-pointer fragment (`#/...`) didn't resolve inside the target file. | Verify the pointer path against the actual structure of the target file and correct the fragment in the `$ref` string before retrying. |
+| `E_REF_INVALID` | The `$ref` is structurally malformed other than parse/pointer/missing/cycle — currently a bare `#...` same-document ref with no file path, which isn't supported. | Rewrite the `$ref` to include an explicit file path before the `#pointer` and retry. |
+| `E_UNKNOWN` | Catch-all fallback when the thrown value isn't a structured `MCPToolError` — an unexpected/uncaught exception leaked out of a tool handler. | Retry the call once in case it was transient; if it recurs, capture the `message` field and report it since no specific input fix can be inferred from the code alone. |
+
+`E_INVALID_VALUE` and `E_TIME_MAPPING_INVALID` are generic codes with many
+individual throw sites; the rows above describe the general pattern rather
+than enumerating every branch — check the error's `message`/`issues` for
+the specific constraint that failed.
 
 ---
 

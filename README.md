@@ -735,11 +735,12 @@ Shipped since v0.1:
 - Shared `~/.davidup/library` global pool + `bun run seed:library`.
 - Engine discovery tools (`list_engine_capabilities` / `list_easings` / `list_fonts`).
 - Visible / locked / name flags on items and layers.
+- **v0.2** — audio muxing post-render (`add_audio_track` / `update_audio_track`
+  / `remove_audio_track` / `list_audio_tracks`, §4.5a).
 
 Still open:
 
-- **v0.2** — audio muxing post-render, cubic-bezier easings, frame-range
-  parallelization on the server.
+- **v0.2** — cubic-bezier easings, frame-range parallelization on the server.
 - **v0.3** — video clips as sprite sources.
 - **v0.4** — visual effects (blur, glow, drop shadow).
 

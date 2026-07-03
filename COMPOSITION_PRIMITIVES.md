@@ -479,6 +479,18 @@ apply_template({
 Returns the expanded ids so the agent can target them with subsequent
 `update_item` / `add_tween` calls if needed.
 
+### 7.9 Templates inside scene definitions
+
+A `$template` block may also appear in a **scene definition's** `items`
+map, not just at the root. The precompile pipeline lowers scene-internal
+templates in the same pass as root-level ones, before scene instances are
+expanded — see `expandTemplatesInScene` in `src/compose/templates.ts` and
+the coverage in `tests/compose/scenes.test.ts`
+("`expandTemplates` — scene-internal `$template` instances"). Expanded ids
+carry both prefixes: `${sceneInstanceId}__${templateInstanceKey}__${localId}`.
+All other rules (param substitution, behavior expansion, sealed instances)
+are unchanged.
+
 ---
 
 ## 8. Primitive 4 — Scenes (sub-compositions / pre-comps)
