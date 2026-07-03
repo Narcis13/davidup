@@ -17,7 +17,7 @@
             │                        │                        │
     ┌───────▼───────┐       ┌────────▼────────┐      ┌────────▼────────┐
     │ browser/      │       │ drivers/node    │      │ mcp server      │
-    │ attach()      │       │ renderToFile()  │      │ 56 tools, stdio │
+    │ attach()      │       │ renderToFile()  │      │ 58 tools, stdio │
     │ live preview  │       │ → mp4/mov/webm  │      │ for AI agents   │
     └───────────────┘       └─────────────────┘      └─────────────────┘
                                                               │
@@ -197,6 +197,42 @@ await renderToFile(comp, "out.mp4", { codec: "libx264", crf: 18 });
 RGBA bytes straight into `ffmpeg`'s stdin with `drain` backpressure, and
 surfaces ffmpeg's stderr tail in any thrown `Error.message`. Signal-killed
 ffmpeg subprocesses now fail loudly (was previously silent).
+
+**Video + audio, minimal**: a `video` item is a silent, sprite-shaped clip
+(`trimIn`/`trimOut` window into the source file, `fit`/`loop` like any other
+box); audio comes from the separate top-level `audio` array, muxed on after
+the silent video encode:
+
+```ts
+{
+  assets: [
+    { id: "clip", type: "video", src: "./clip.mp4", duration: 8 },
+    { id: "vo", type: "audio", src: "./voiceover.mp3", duration: 6 },
+  ],
+  items: {
+    v: {
+      type: "video", asset: "clip", width: 1920, height: 1080,
+      start: 0, trimIn: 1, trimOut: 7, fit: "cover", loop: false,
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0, opacity: 1 },
+    },
+  },
+  audio: [{ id: "vo-1", asset: "vo", start: 0.5 }],
+  // ...layers referencing "v", composition/tweens as usual
+}
+```
+
+Frame pre-extraction (cached PNG sequence per clip) and the two-stage
+video+audio mux pipeline are automatic — `renderToFile` detects video/audio
+items and switches pipelines with zero extra options. Three runnable video
+samples, each with a real-ffmpeg integration test that renders it and
+verifies duration via `ffprobe`:
+
+- [`examples/video-pip/`](./examples/video-pip/) — two simultaneous video
+  items (looping full-frame background + inset clip), picture-in-picture.
+- [`examples/video-bg-text/`](./examples/video-bg-text/) — full-frame video
+  background under a fading/sliding text caption.
+- [`examples/video-freeze-trim/`](./examples/video-freeze-trim/) — a trimmed
+  clip that freezes on its last frame once the trim window runs out.
 
 ### D — AI agent driving the engine via MCP
 
@@ -440,7 +476,7 @@ runs through the four MCP tools `current_project`, `list_projects`,
 ## The MCP server — full reference for agents
 
 **Transport**: stdio. **Entry**: `bun run src/mcp/bin.ts` (declared as the
-`davidup-mcp` bin). **Tools**: 56 atomic tools, all returning structured
+`davidup-mcp` bin). **Tools**: 58 atomic tools, all returning structured
 results with `{error: {code, message, hint?, issues?, warnings?, details?}}`
 on failure (`isError: true`).
 
@@ -452,6 +488,7 @@ on failure (`isError: true`).
 | 4.2 | Assets | `register_asset`, `list_assets`, `remove_asset` |
 | 4.3 | Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 | Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
+| 4.4a | Video items | `add_video`, `update_video` — silent, sprite-shaped clips with `trimIn`/`trimOut`, `fit`, `loop` (freezes on the last frame once trimmed content runs out) |
 | 4.5 | Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
 | 4.5a | Audio tracks | `add_audio_track`, `update_audio_track`, `remove_audio_track`, `list_audio_tracks` |
 | 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` |
@@ -700,7 +737,7 @@ src/
   drivers/
     node/         renderToFile via skia-canvas + ffmpeg           (§5.6, §6)
     browser/      attach() — RAF preview + pick + bounds + source (§5.6)
-  mcp/            server + 56 tools + in-memory store + bin       (§4)
+  mcp/            server + 58 tools + in-memory store + bin       (§4)
   cli/            scaffold + commands (new / edit / list)
 
 apps/
@@ -737,11 +774,14 @@ Shipped since v0.1:
 - Visible / locked / name flags on items and layers.
 - **v0.2** — audio muxing post-render (`add_audio_track` / `update_audio_track`
   / `remove_audio_track` / `list_audio_tracks`, §4.5a).
+- **v0.2** — video clips as sprite-shaped items (`add_video` / `update_video`,
+  §4.4a): trim, fit, loop, freeze-on-last-frame, picture-in-picture (multiple
+  simultaneous clips), video background + tweened overlays — see
+  `examples/video-pip/`, `examples/video-bg-text/`, `examples/video-freeze-trim/`.
 
 Still open:
 
 - **v0.2** — cubic-bezier easings, frame-range parallelization on the server.
-- **v0.3** — video clips as sprite sources.
 - **v0.4** — visual effects (blur, glow, drop shadow).
 
 Full discussion: [`design-doc.md` §8](./design-doc.md).

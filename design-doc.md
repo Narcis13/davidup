@@ -23,8 +23,8 @@ Engine programatic 2D pentru compoziții video deterministe, generabile de agen�
 
 ### Out of scope pentru v0.1
 
-- Audio (muxing post-render, dar nu sinteză/timeline audio)
-- Video clips ca surse (doar imagini statice ca sprite-uri)
+- Audio (muxing post-render, dar nu sinteză/timeline audio) — **livrat în v0.2**, vezi §3.2a, §4.5a.
+- Video clips ca surse (doar imagini statice ca sprite-uri) — **livrat în v0.2**, vezi §3.2 (`video`), §4.4a.
 - Particule, fizică, efecte de shader
 - Text multi-linie cu wrap automat
 - Color spaces avansate (RGB lerp linear pentru moment)
@@ -216,6 +216,54 @@ Engine programatic 2D pentru compoziții video deterministe, generabile de agen�
 }
 ```
 
+#### `video` (v0.2)
+```ts
+{
+  type: "video",
+  asset: string,        // asset id, must be type "video"
+  width: number,         // px, draw box (independent of source resolution)
+  height: number,
+  start: number,          // composition-time seconds the clip becomes visible
+  end?: number,           // composition-time seconds it disappears; omit = stays until comp ends
+  trimIn?: number,        // seconds into the source file where playback starts (default 0)
+  trimOut?: number,       // seconds into the source file where the trim window ends
+  fit?: "cover" | "contain" | "fill" | "none",  // default "contain"
+  loop?: boolean,         // default false — wrap the trim window vs. freeze on its last frame
+  transform: Transform
+}
+```
+A `video` item is a **silent, sprite-shaped texture**: zero audio fields by
+design (audio is a separate top-level concept, §3.2a). It is temporally
+windowed on the composition timeline (`start`/`end`) and spatially windowed
+on the source file (`trimIn`/`trimOut`). Once the trimmed content is
+exhausted before `end`, the engine either wraps (`loop: true`) or freezes on
+the last extracted frame (`loop: false`, the default) — this is what makes
+"trimmed clip that holds its last frame while the composition keeps
+running" work with no special-case authoring. Asset type gains `"video"`
+alongside `"image"`/`"font"` (`{ id, type: "video", src, duration?, width?,
+height?, fps?, hasAlpha?, codec?, pixelFormat? }`; container must be one of
+`.mp4`/`.mov`/`.webm`/`.mkv`).
+
+### 3.2a Audio tracks (v0.2, top-level — nu item)
+
+Audio is **not** an item type; it is declared once per composition on a
+top-level `audio` array, separate from `items`/`layers` (no z-order, no
+transform, no visibility flags — it just plays):
+```ts
+// Composition.audio
+{
+  id?: string,          // auto-assigned if omitted
+  asset: string,        // asset id, must be type "audio" (.mp3/.wav/.aac/.m4a/.ogg)
+  start: number,         // composition-time seconds the track starts
+  end?: number,          // composition-time seconds it stops (must be > start)
+  volume?: number,       // default 1, gain multiplier, [0,2]
+  fadeIn?: number,       // seconds
+  fadeOut?: number,      // seconds
+}[]
+```
+Multiple tracks can overlap (e.g. a music bed under a voiceover) — the
+renderer mixes them, not the author.
+
 ### 3.3 Tween — proprietăți tweenable
 
 Sintaxa `property` folosește dot-path. Lista actuală suportată:
@@ -227,7 +275,7 @@ Sintaxa `property` folosește dot-path. Lista actuală suportată:
 | `transform.rotation` | toate | numeric (radiani) |
 | `transform.opacity` | toate | numeric, clamp [0,1] |
 | `transform.anchorX`, `transform.anchorY` | toate | numeric |
-| `width`, `height` | sprite, shape | numeric |
+| `width`, `height` | sprite, shape, video | numeric |
 | `fontSize` | text | numeric |
 | `color`, `fillColor`, `strokeColor`, `tint` | text/shape/sprite | RGB lerp |
 
@@ -393,6 +441,34 @@ Eroare dacă vreun item îl mai folosește.
 } → { itemId: string }
 ```
 
+### 4.4a Video items (v0.2)
+
+#### `add_video`
+```ts
+{
+  layerId?: string,
+  asset: string,        // must be a registered "video" asset
+  x: number, y: number,
+  width?: number, height?: number,  // default: composition frame size
+  scaleX?: number, scaleY?: number, rotation?: number,
+  anchorX?: number, anchorY?: number, opacity?: number,
+  start?: number,         // default 0
+  end?: number,
+  trimIn?: number, trimOut?: number,
+  fit?: "cover" | "contain" | "fill" | "none",  // default "contain"
+  loop?: boolean,          // default false
+  id?: string, name?: string
+} → { itemId: string, warnings?: string[] }
+```
+`warnings` (non-fatal) fire when the clip's placement window extends past the
+composition's end — never rejects, mirrors the tween-overrun warning in §3.5.
+
+#### `update_video`
+```ts
+{ id: string, props: Partial<AddVideoProps> } → { ok: true }
+```
+Re-resolves the asset (and re-validates trim/timing) if `asset` is patched.
+
 #### `update_item`
 ```ts
 { id: string, props: Partial<ItemProps> } → { ok: true }
@@ -439,6 +515,40 @@ Eroare dacă se suprapune cu alt tween pe aceeași `(target, property)`.
 #### `list_tweens`
 ```ts
 { target?: string, property?: string } → { tweens: Tween[] }
+```
+
+### 4.5a Audio tracks (v0.2)
+
+Audio lives on the composition's top-level `audio` array (§3.2a), not on
+`items` — these tools manage that array directly rather than going through
+`add_*`/`update_item`.
+
+#### `add_audio_track`
+```ts
+{
+  asset: string,          // must be a registered "audio" asset
+  start: number,
+  end?: number,
+  volume?: number, fadeIn?: number, fadeOut?: number,
+  id?: string
+} → { audioTrackId: string, warnings?: string[] }
+```
+`warnings` (non-fatal) fire when the track extends past the composition end
+— it's trimmed at mux time, never rejected.
+
+#### `update_audio_track`
+```ts
+{ id: string, props: Partial<AddAudioTrackProps> } → { ok: true }
+```
+
+#### `remove_audio_track`
+```ts
+{ id: string } → { ok: true }
+```
+
+#### `list_audio_tracks`
+```ts
+{} → { tracks: AudioTrack[] }
 ```
 
 ### 4.6 Inspection și render
@@ -710,8 +820,44 @@ ffmpeg -y \
 
 - `-pix_fmt rgba` la input pentru că skia-canvas întoarce RGBA. Converția la `yuv420p` se face de ffmpeg pentru compatibilitate cu playere.
 - `-crf 18` = calitate aproape lossless. Pentru web mai mic, `crf 23`.
-- Pentru audio (post-v0.1): `-i audio.mp3 -c:a aac -b:a 192k -shortest`.
 - Pentru playere care vor `+faststart` (web streaming): adaugă `-movflags +faststart`.
+- Dimensiunile compoziției (`width`/`height`) trebuie să fie pare — `libx264`
+  refuză `yuv420p` pe o dimensiune impară ("height not divisible by 2").
+
+### 6.1 Video items — extract pass (v0.2)
+
+Un `video` item nu se citește direct din fișierul sursă la fiecare frame —
+prea lent și non-determinist frame-seek pe containere comprimate. În schimb,
+înainte de encode, fiecare clip distinct e **pre-extras** o dată la o
+secvență de PNG-uri cache-uite:
+
+```bash
+ffmpeg -y -ss <trimIn> -t <trimOut-trimIn> -i <src> \
+  -vf fps=<composition.fps> <cacheDir>/%05d.png
+```
+
+Cache-ul e cheiat pe hash-ul (src, trimIn, trimOut, fps) — un al doilea render
+cu aceleași parametri e un pure cache hit (`~/.davidup/cache/frames` implicit,
+override via `preExtract.cacheRoot`). La randare, fiecare frame al
+compoziției alege indexul corect din secvență (`floor((t-start)*fps)`); dacă
+indexul depășește frame-urile disponibile, fie face wrap (`loop: true`) fie
+îngheață pe ultimul frame extras (`loop: false`, default) — nu mai e nevoie
+de re-derivare din `trimIn`/`trimOut` la runtime.
+
+### 6.2 Audio mux — pipeline în 2 etape (v0.2)
+
+Când compoziția are `audio: []` nevid, randarea trece prin 2 etape în loc de
+una:
+
+1. **Etapa 1** — pipeline-ul canonic de mai sus randează video-ul mut la un
+   fișier temporar (`.davidup-tmpvideo-*.mp4`, curățat automat).
+2. **Etapa 2** — mux audio peste el, video copiat 1:1 (fără re-encode):
+   ```bash
+   ffmpeg -y -i <tempVideo> -filter_complex "<amix cu volume/fadeIn/fadeOut per track>" \
+     -c:v copy -c:a aac -ar 48000 -shortest [-movflags +faststart] output.mp4
+   ```
+   Track-urile sunt resample-uite forțat la 48kHz stereo și mixate cu
+   `amix`/`volume`/`afade`; fișierul temporar e șters la final (sau la eșec).
 
 ---
 
@@ -723,7 +869,7 @@ ffmpeg -y \
 | Q2 | Color space pentru lerp culori — RGB linear sau OKLab? Acum: RGB simplu. | open |
 | Q3 | Suport pentru `cubic-bezier(x1,y1,x2,y2)` ca easing custom în plus față de cele numite? | open |
 | Q4 | Group cu transform propriu — păstrăm doar matrix implicit prin Canvas2D, sau expunem și matrix explicit pentru queries? | open |
-| Q5 | Curs de evoluție: după v0.1 — adăugăm video clips ca surse, particule, sau efecte (blur, glow)? Care e prioritar? | open |
+| Q5 | Curs de evoluție: după v0.1 — adăugăm video clips ca surse, particule, sau efecte (blur, glow)? Care e prioritar? | **rezolvat (v0.2)** — video clips (§3.2, §4.4a) și audio muxing (§3.2a, §4.5a) au fost prioritizate și livrate. Particule și efecte vizuale rămân deschise, vezi §8. |
 | Q6 | Validation strictness: tween peste durata compoziției = warning sau eroare? Acum: warning. | open |
 | Q7 | Convenția pentru anchor cu group: anchor relativ la bounding box al children sau (0,0)? Acum: (0,0). | open |
 | Q8 | MCP tool granularity: `add_sprite` cu mulți parametri vs `add_sprite` minimal + `update_item`? Acum: bogat la add. | open |
@@ -736,8 +882,12 @@ ffmpeg -y \
 ## 8. Roadmap (indicativ)
 
 - **v0.1** — Schema + tooluri MCP de bază + renderer 2D + ffmpeg pipeline. Sprite, text, shape, group. Tween numeric + color RGB.
-- **v0.2** — Audio muxing post-render. Easing custom cubic-bezier. Frame-range parallelization pe server.
-- **v0.3** — Video clips ca surse (extract frame la timp t din video file).
+- ✅ **v0.2** — Audio muxing post-render (`add_audio_track`/§4.5a). Video clips
+  ca items sprite-shaped, cu trim/fit/loop/freeze (`add_video`/§4.4a, §3.2).
+  Sample compositions: `examples/video-pip/`, `examples/video-bg-text/`,
+  `examples/video-freeze-trim/`.
+  Ce a rămas deschis din v0.2: easing custom cubic-bezier (Q3), frame-range
+  parallelization pe server.
 - **v0.4** — Efecte vizuale: blur, glow, drop shadow.
 - **v0.5** — Particule simple (emitters cu count, lifetime, transform tweens).
 - **v1.0** — Editor vizual web (preview interactiv + drag-drop pe timeline) ca client peste același JSON.
@@ -755,3 +905,11 @@ ffmpeg -y \
 ## Changelog
 
 - **2026-05-05** — v0.1 inițial. Schema, tooluri MCP, renderer core, ffmpeg pipeline. 11 întrebări deschise notate.
+- **2026-07-04** — v0.2 S10: documentat item-ul `video` + top-level `audio`
+  (§3.2, §3.2a), toolurile `add_video`/`update_video`/§4.4a și
+  `add_audio_track`/§4.5a, pipeline-ul de extract + mux în 2 etape (§6.1,
+  §6.2). §"Out of scope pentru v0.1" actualizat (video + audio livrate în
+  v0.2). Q5 rezolvat. Roadmap §8 bifat pentru v0.2. Trei compoziții sample
+  video adăugate (`examples/video-pip/`, `examples/video-bg-text/`,
+  `examples/video-freeze-trim/`), fiecare cu test de integrare
+  render-then-ffprobe (`tests/drivers/videoExamples.integration.test.ts`).
