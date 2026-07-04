@@ -394,7 +394,10 @@ function getResolvableItem(
     height?: unknown
   }
   const type = typeof obj.type === 'string' ? obj.type : ''
-  if (type !== 'shape' && type !== 'sprite') return null
+  // U6 — video items are spatially a box exactly like a sprite (the browser
+  // driver's corner/anchor math already treats them identically), so they
+  // get the same resize/rotate handles.
+  if (type !== 'shape' && type !== 'sprite' && type !== 'video') return null
   const t = obj.transform ?? {}
   const num = (v: unknown, d: number): number =>
     typeof v === 'number' && Number.isFinite(v) ? v : d

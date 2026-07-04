@@ -46,6 +46,8 @@ const shortcuts = computed<Shortcut[]>(() => [
   { keys: [`${modKey.value}`, 'J'], label: 'Toggle reveal-in-source drawer' },
   { keys: [`${modKey.value}`, 'R'], label: 'Render to MP4' },
   { keys: [`${modKey.value}`, 'S'], label: 'Save (force flush)' },
+  { keys: ['V'], label: 'Add Video… — opens the video asset picker (placed at stage centre)' },
+  { keys: ['A'], label: 'Add Audio Track… — opens the audio asset picker (placed at the playhead)' },
   { keys: ['?'], label: 'Toggle this help overlay' },
   { keys: ['Esc'], label: 'Dismiss overlays / menus / cancel place mode / close animate popover' },
 ])
@@ -108,6 +110,16 @@ const dragAffordances: DragAffordance[] = [
     result: 'Inserts the item on that track with brand defaults pre-bound.',
   },
   {
+    from: 'Library card (video asset)',
+    to: 'Stage',
+    result: 'Adds a video clip (add_video) at the drop position, fit=contain.',
+  },
+  {
+    from: 'Library card (audio asset)',
+    to: 'Timeline → Audio lane',
+    result: 'Creates an audio track (add_audio_track) at the drop\'s time position.',
+  },
+  {
     from: 'Library card',
     to: 'Empty area below the last track',
     result: 'Creates a new track and inserts the item there.',
@@ -164,9 +176,20 @@ const mcpGroups: McpGroup[] = [
       'add_text',
       'add_shape',
       'add_group',
+      'add_video',
+      'update_video',
       'update_item',
       'move_item_to_layer',
       'remove_item',
+    ],
+  },
+  {
+    group: 'Audio',
+    tools: [
+      'add_audio_track',
+      'update_audio_track',
+      'remove_audio_track',
+      'list_audio_tracks',
     ],
   },
   {

@@ -214,6 +214,111 @@ test.group('applyCommand · pure', () => {
   })
 })
 
+// ──────────────── U2/U4 — editor UI's audio/video command round trip ────────────────
+//
+// The engine's own MCP test suite (tests/mcp/audioTracks.test.ts,
+// videoItems.test.ts) covers `add_video`/`add_audio_track` at the tool
+// layer. This exercises the SAME commands through the editor's
+// `applyCommand` dispatch — the code path the Inspector/Timeline/ItemToolbar
+// UI added in this session actually calls — so a regression in the dual
+// `commands.ts` schema or the COMMAND_TO_TOOL wiring fails here even if the
+// engine-level tests stay green.
+
+function compWithMedia() {
+  const c = cloneComp()
+  c.assets.push(
+    { id: 'clip', type: 'video', src: './clip.mp4', duration: 5, width: 1280, height: 720, fps: 30 },
+    { id: 'voice', type: 'audio', src: './voice.mp3', duration: 8 },
+  )
+  return c
+}
+
+test.group('applyCommand · video items (U4)', () => {
+  test('add_video + update_video round-trip', async ({ assert }) => {
+    const a = await applyCommand(compWithMedia(), {
+      kind: 'add_video',
+      payload: {
+        layerId: 'fg',
+        asset: 'clip',
+        x: 640,
+        y: 360,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        id: 'clip1',
+      },
+      source: 'ui',
+    })
+    const item = a.items.clip1 as { type: string; fit: string; loop: boolean; asset: string }
+    assert.equal(item.type, 'video')
+    assert.equal(item.asset, 'clip')
+    // Engine defaults (v0.2-plan S9): fit → contain, loop → false.
+    assert.equal(item.fit, 'contain')
+    assert.equal(item.loop, false)
+    assert.include(a.layers[0].items, 'clip1')
+
+    const b = await applyCommand(a, {
+      kind: 'update_video',
+      payload: { id: 'clip1', props: { trimIn: 0, trimOut: 5, fit: 'cover', loop: true } },
+      source: 'ui',
+    })
+    const updated = b.items.clip1 as {
+      trimIn: number
+      trimOut: number
+      fit: string
+      loop: boolean
+    }
+    assert.equal(updated.trimIn, 0)
+    assert.equal(updated.trimOut, 5)
+    assert.equal(updated.fit, 'cover')
+    assert.equal(updated.loop, true)
+  })
+
+  test('add_video rejects an unregistered asset id', async ({ assert }) => {
+    await assert.rejects(() =>
+      applyCommand(compWithMedia(), {
+        kind: 'add_video',
+        payload: { layerId: 'fg', asset: 'does-not-exist', x: 0, y: 0 },
+        source: 'ui',
+      }),
+    )
+  })
+})
+
+test.group('applyCommand · audio tracks (U2)', () => {
+  test('add_audio_track + update_audio_track + remove_audio_track round-trip', async ({
+    assert,
+  }) => {
+    const a = await applyCommand(compWithMedia(), {
+      kind: 'add_audio_track',
+      payload: { asset: 'voice', start: 0.5, id: 'vo1' },
+      source: 'ui',
+    })
+    const audio = (a as { audio?: ReadonlyArray<{ id: string; asset: string; start: number }> }).audio
+    assert.exists(audio)
+    assert.lengthOf(audio!, 1)
+    assert.equal(audio![0]!.id, 'vo1')
+    assert.equal(audio![0]!.asset, 'voice')
+    assert.equal(audio![0]!.start, 0.5)
+
+    const b = await applyCommand(a, {
+      kind: 'update_audio_track',
+      payload: { id: 'vo1', props: { volume: 0, fadeIn: 0.2 } },
+      source: 'ui',
+    })
+    const bAudio = (b as { audio?: ReadonlyArray<{ id: string; volume?: number; fadeIn?: number }> }).audio
+    assert.equal(bAudio![0]!.volume, 0)
+    assert.equal(bAudio![0]!.fadeIn, 0.2)
+
+    const c = await applyCommand(b, {
+      kind: 'remove_audio_track',
+      payload: { id: 'vo1' },
+      source: 'ui',
+    })
+    const cAudio = (c as { audio?: ReadonlyArray<unknown> }).audio
+    assert.lengthOf(cAudio ?? [], 0)
+  })
+})
+
 // ──────────────── CommandBus ────────────────
 
 test.group('CommandBus · in-process', (group) => {

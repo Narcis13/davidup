@@ -18,7 +18,7 @@ const props = defineProps<{
   modelValue: string | undefined
   label: string
   /** Filter the listed assets to a single type. */
-  assetType?: 'image' | 'font'
+  assetType?: 'image' | 'font' | 'audio' | 'video'
   /** Composition's `assets` array — defaults to empty when nothing's loaded. */
   assets?: ReadonlyArray<Asset>
   overridden?: boolean
@@ -46,6 +46,8 @@ const isEmpty = computed<boolean>(() => filteredAssets.value.length === 0)
 const emptyLabel = computed<string>(() => {
   if (props.assetType === 'font') return 'No fonts registered'
   if (props.assetType === 'image') return 'No image assets registered'
+  if (props.assetType === 'audio') return 'No audio assets registered'
+  if (props.assetType === 'video') return 'No video assets registered'
   return 'No assets registered'
 })
 

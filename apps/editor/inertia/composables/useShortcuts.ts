@@ -57,6 +57,10 @@ export interface UseShortcutsOptions {
   group?: () => void | Promise<void>
   /** ⌘⇧G / Ctrl+Shift+G — ungroup the selected group. */
   ungroup?: () => void | Promise<void>
+  /** U8 — `V` (no modifier) opens the "Add Video…" asset picker. */
+  addVideo?: () => void | Promise<void>
+  /** U8 — `A` (no modifier) opens the "Add Audio Track…" asset picker. */
+  addAudioTrack?: () => void | Promise<void>
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -127,6 +131,25 @@ export function useShortcuts(options: UseShortcutsOptions): void {
       if (!options.toggleHelp) return
       event.preventDefault()
       invoke(options.toggleHelp)
+      return
+    }
+
+    // ── U8: `V` / `A` (no modifier) ── open the "Add Video…" / "Add Audio
+    // Track…" pickers. Neither letter is claimed elsewhere in this registry
+    // (all other letter chords require the platform modifier below), so
+    // these are free to bind bare like Space/Backspace/`?` above.
+    if (event.key === 'v' || event.key === 'V') {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (!options.addVideo) return
+      event.preventDefault()
+      invoke(options.addVideo)
+      return
+    }
+    if (event.key === 'a' || event.key === 'A') {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (!options.addAudioTrack) return
+      event.preventDefault()
+      invoke(options.addAudioTrack)
       return
     }
 

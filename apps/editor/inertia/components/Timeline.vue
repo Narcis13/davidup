@@ -26,6 +26,7 @@ import { computed, ref, watch, type Ref } from 'vue'
 import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
+import { useVideoTrimDrag } from '~/composables/useVideoTrimDrag'
 import { useValidation } from '~/composables/useValidation'
 import {
   buildCommandsForNewTrackDrop,
@@ -37,7 +38,13 @@ import TimelineTrack, {
   type TimelineItemRow,
   type TimelineTween,
   type TweenSource,
+  type VideoSpanPointerDownPayload,
+  type VideoTrimPointerDownPayload,
 } from '~/components/TimelineTrack.vue'
+import TimelineAudioTrack, {
+  type AudioBarPointerDownPayload,
+  type TimelineAudioRow,
+} from '~/components/TimelineAudioTrack.vue'
 
 type OriginKind = 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
 
@@ -117,6 +124,101 @@ function onBarPointerDown(payload: BarPointerDownPayload): void {
   })
 }
 
+// U3 — audio-lane drag. `useTimelineDrag`'s {start, duration} math applies
+// unchanged to an audio track's [start, end) span; only the commit shape
+// differs (`update_audio_track` takes `end`, not `duration`).
+const audioDrag = useTimelineDrag({
+  duration,
+  snapStep: snapStepRef,
+  onCommit(trackId, patch) {
+    const row = audioRows.value.find((r) => r.id === trackId)
+    if (!row) return
+    const newStart = patch.start ?? row.start
+    const newDuration = patch.duration ?? row.end - row.start
+    const props_: Record<string, number> = { end: newStart + newDuration }
+    if (patch.start !== undefined) props_.start = newStart
+    emit('apply', {
+      kind: 'update_audio_track',
+      payload: { id: trackId, props: props_ },
+      source: 'ui',
+    })
+  },
+})
+
+function onAudioBarPointerDown(payload: AudioBarPointerDownPayload): void {
+  audioDrag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    tween: { id: payload.row.id, target: payload.row.id, start: payload.row.start, duration: payload.row.end - payload.row.start },
+    mode: payload.mode,
+  })
+}
+
+// U5 — video item outer-span drag (move / resize the freeze-or-loop tail's
+// end). Reuses the same generic {start, duration} math as tweens/audio; the
+// commit maps back to `update_item` with `start`/`end`.
+const videoSpanDrag = useTimelineDrag({
+  duration,
+  snapStep: snapStepRef,
+  onCommit(itemId, patch) {
+    const row = rows.value.find((r) => r.id === itemId)
+    const span = row?.videoSpan
+    if (!span) return
+    const newStart = patch.start ?? span.start
+    const newDuration = patch.duration ?? span.end - span.start
+    const props_: Record<string, number> = {}
+    if (patch.start !== undefined) props_.start = newStart
+    if (patch.duration !== undefined) props_.end = newStart + newDuration
+    if (Object.keys(props_).length === 0) return
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id: itemId, props: props_ },
+      source: 'ui',
+    })
+  },
+})
+
+function onVideoSpanPointerDown(payload: VideoSpanPointerDownPayload): void {
+  videoSpanDrag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    tween: {
+      id: payload.itemId,
+      target: payload.itemId,
+      start: payload.span.start,
+      duration: payload.span.end - payload.span.start,
+    },
+    mode: payload.mode,
+  })
+}
+
+// U5 — trim handle drag (trimIn / trimOut). Distinct math from the outer
+// span: anchored to the source asset's time axis, not the composition
+// timeline. See `useVideoTrimDrag` / `videoTrimMath.ts`.
+const videoTrimDrag = useVideoTrimDrag({
+  duration,
+  snapStep: snapStepRef,
+  onCommit(itemId, patch) {
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id: itemId, props: patch },
+      source: 'ui',
+    })
+  },
+})
+
+function onVideoTrimPointerDown(payload: VideoTrimPointerDownPayload): void {
+  videoTrimDrag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    itemId: payload.itemId,
+    mode: payload.mode,
+    trimIn: payload.span.trimIn,
+    trimOut: payload.span.trimOut,
+    assetDuration: payload.span.assetDuration,
+  })
+}
+
 // Behavior catalogue (kept in sync with src/compose/behaviors.ts). Stored as
 // a Set so the per-tween classifier is O(1) per probe. Used only as a fallback
 // for tweens added during the session that have no source-map entry.
@@ -182,6 +284,52 @@ function classifyTween(
   // load-time source map. Fall back to the id-string heuristic.
   return classifyTweenFallback(tween, items)
 }
+
+// U5 — asset id → registered duration (seconds), used to clamp/resolve a
+// video item's trim window and its unbounded `end` fallback.
+const assetDurationById = computed<ReadonlyMap<string, number>>(() => {
+  const out = new Map<string, number>()
+  const list = props.composition?.assets
+  if (!Array.isArray(list)) return out
+  for (const a of list as ReadonlyArray<{ id?: unknown; duration?: unknown }>) {
+    if (typeof a?.id === 'string' && typeof a.duration === 'number' && Number.isFinite(a.duration)) {
+      out.set(a.id, a.duration)
+    }
+  }
+  return out
+})
+
+// U3 — one row per `composition.audio[]` entry, sorted by start so bars read
+// left-to-right like the item tracks above. `end` always resolves to a
+// concrete number here (the schema allows an absent `end` meaning "play to
+// the asset's natural duration" — we fall back to the registered asset
+// duration, then the composition duration, so the bar is never zero-width).
+const audioRows = computed<TimelineAudioRow[]>(() => {
+  const comp = props.composition
+  const list = (comp as { audio?: unknown } | null)?.audio
+  if (!Array.isArray(list)) return []
+  const out: TimelineAudioRow[] = []
+  for (const t of list as ReadonlyArray<Record<string, unknown>>) {
+    if (typeof t?.id !== 'string' || typeof t.asset !== 'string') continue
+    const start = typeof t.start === 'number' ? t.start : 0
+    const assetDur = assetDurationById.value.get(t.asset) ?? null
+    const end =
+      typeof t.end === 'number'
+        ? t.end
+        : start + (assetDur ?? Math.max(0, duration.value - start))
+    out.push({
+      id: t.id,
+      asset: t.asset,
+      start,
+      end,
+      volume: typeof t.volume === 'number' ? t.volume : 1,
+      fadeIn: typeof t.fadeIn === 'number' ? t.fadeIn : 0,
+      fadeOut: typeof t.fadeOut === 'number' ? t.fadeOut : 0,
+    })
+  }
+  out.sort((a, b) => a.start - b.start)
+  return out
+})
 
 const rows = computed<TimelineItemRow[]>(() => {
   const comp = props.composition
@@ -254,13 +402,43 @@ const rows = computed<TimelineItemRow[]>(() => {
 
   return ordered.map((id) => {
     const list = (buckets.get(id) ?? []).slice().sort((a, b) => a.start - b.start)
+    const type = items[id]?.type ?? 'unknown'
     return {
       id,
-      type: items[id]?.type ?? 'unknown',
+      type,
       tweens: list,
+      videoSpan: type === 'video' ? buildVideoSpan(id) : null,
     }
   })
 })
+
+// U5 — a video item's own occupied-time span, distinct from its tweens.
+// `end` falls back to `start + (trimOut - trimIn)` (i.e. no freeze/loop
+// tail) when the item omits it (engine leaves `end` unset meaning "play to
+// the visible-trim boundary" — see v0.2-plan S5/S9); if trim bounds are also
+// unknown, falls back to the full composition duration so the bar is at
+// least visible rather than zero-width.
+function buildVideoSpan(id: string): TimelineItemRow['videoSpan'] {
+  const comp = props.composition
+  const raw = (comp?.items as Record<string, Record<string, unknown>> | undefined)?.[id]
+  if (!raw) return null
+  const start = typeof raw.start === 'number' ? raw.start : 0
+  const trimIn = typeof raw.trimIn === 'number' ? raw.trimIn : 0
+  const assetId = typeof raw.asset === 'string' ? raw.asset : null
+  const assetDuration = assetId ? (assetDurationById.value.get(assetId) ?? null) : null
+  const trimOut =
+    typeof raw.trimOut === 'number' ? raw.trimOut : (assetDuration ?? duration.value)
+  const visible = Math.max(0, trimOut - trimIn)
+  const end = typeof raw.end === 'number' ? raw.end : start + (visible > 0 ? visible : duration.value)
+  return {
+    start,
+    end,
+    trimIn,
+    trimOut,
+    assetDuration,
+    loop: raw.loop === true,
+  }
+}
 
 const tweenCount = computed<number>(() =>
   rows.value.reduce((acc, r) => acc + r.tweens.length, 0),
@@ -351,6 +529,110 @@ function onOpenSceneSource(tween: TimelineTween): void {
   const sceneId = sceneInstanceIdForTween(tween)
   if (!sceneId) return
   emit('openSceneSource', sceneId)
+}
+
+// U3 — audio track selection + context menu (Mute / Delete / Reset volume).
+function onSelectAudioTrack(id: string): void {
+  selection.setAudioTrackSelection(id)
+}
+
+interface AudioContextMenuState {
+  id: string
+  x: number
+  y: number
+}
+const audioContextMenu = ref<AudioContextMenuState | null>(null)
+
+function onAudioContextMenu(payload: { id: string; x: number; y: number }): void {
+  audioContextMenu.value = payload
+}
+
+function closeAudioContextMenu(): void {
+  audioContextMenu.value = null
+}
+
+function contextMenuTrack(): TimelineAudioRow | null {
+  const id = audioContextMenu.value?.id
+  if (!id) return null
+  return audioRows.value.find((r) => r.id === id) ?? null
+}
+
+function contextMenuMute(): void {
+  const track = contextMenuTrack()
+  closeAudioContextMenu()
+  if (!track) return
+  emit('apply', {
+    kind: 'update_audio_track',
+    payload: { id: track.id, props: { volume: track.volume > 0 ? 0 : 1 } },
+    source: 'ui',
+  })
+}
+
+function contextMenuResetVolume(): void {
+  const track = contextMenuTrack()
+  closeAudioContextMenu()
+  if (!track) return
+  emit('apply', {
+    kind: 'update_audio_track',
+    payload: { id: track.id, props: { volume: 1 } },
+    source: 'ui',
+  })
+}
+
+function contextMenuDelete(): void {
+  const track = contextMenuTrack()
+  closeAudioContextMenu()
+  if (!track) return
+  if (selection.selectedAudioTrackId.value === track.id) {
+    selection.setAudioTrackSelection(null)
+  }
+  emit('apply', { kind: 'remove_audio_track', payload: { id: track.id }, source: 'ui' })
+}
+
+// U3 — dropping an audio asset directly into the audio lane creates a track
+// at the drop's horizontal time position (not the playhead) — matches the
+// per-row/new-track item drops, which use the mouse position on Stage but
+// the playhead on Timeline; the audio lane is explicitly time-positional so
+// it uses the drop's x-coordinate instead.
+const audioLaneEl: Ref<HTMLDivElement | null> = ref(null)
+
+function audioLaneAcceptsDrop(): boolean {
+  const p = libraryDrag.payload.value
+  return !!p && p.kind === 'asset' && p.mediaType === 'audio'
+}
+
+function onAudioLaneDragOver(event: DragEvent): void {
+  if (!audioLaneAcceptsDrop()) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  libraryDrag.setHover('new-track', null)
+}
+
+function onAudioLaneDragLeave(): void {
+  libraryDrag.clearHover('new-track', null)
+}
+
+function timeAtClientX(clientX: number): number {
+  const el = audioLaneEl.value
+  const d = duration.value
+  if (!el || d <= 0) return Math.max(0, props.playhead)
+  const rect = el.getBoundingClientRect()
+  if (rect.width <= 0) return Math.max(0, props.playhead)
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  return roundToSnap(ratio * d)
+}
+
+function onAudioLaneDrop(event: DragEvent): void {
+  event.preventDefault()
+  const payload = libraryDrag.readDropPayload(event)
+  libraryDrag.onDragEnd()
+  if (!payload || payload.kind !== 'asset' || payload.mediaType !== 'audio') return
+  const start = timeAtClientX(event.clientX)
+  emit('apply', {
+    kind: 'add_audio_track',
+    payload: { asset: payload.id, start: Math.max(0, start) },
+    source: 'ui',
+  })
 }
 
 function onSelectItem(id: string, tweenId?: string): void {
@@ -586,6 +868,8 @@ watch(
           :duration="duration"
           :selected-id="selection.selectedItemId.value"
           :drag-active="drag.active.value"
+          :video-span-drag-active="videoSpanDrag.active.value"
+          :video-trim-drag-active="videoTrimDrag.active.value"
           :marker-counts="validation.markersByTarget.value.get(row.id) ?? null"
           :library-hover="
             libraryDrag.hover.value === 'track' &&
@@ -597,6 +881,8 @@ watch(
           @select-item="onSelectItem"
           @bar-pointer-down="onBarPointerDown"
           @open-scene-source="onOpenSceneSource"
+          @video-span-pointer-down="onVideoSpanPointerDown"
+          @video-trim-pointer-down="onVideoTrimPointerDown"
           @library-drag-over="(e) => onTrackDragOver(e, row.id)"
           @library-drag-leave="(e) => onTrackDragLeave(e, row.id)"
           @library-drop="(e) => onTrackDrop(e, row.id)"
@@ -624,6 +910,67 @@ watch(
           </span>
         </div>
         <p v-if="rows.length === 0" class="empty">No items in this composition.</p>
+      </div>
+
+      <!-- U3 — Audio lane. Visually separated from the item tracks above by
+           a distinct header + top border; reads `composition.audio[]`
+           directly (never routed through the item/layer walk). -->
+      <div class="audio-section">
+        <div class="audio-section-header">
+          <span class="audio-section-title">Audio</span>
+          <span class="audio-section-count">{{ audioRows.length }}</span>
+        </div>
+        <div
+          ref="audioLaneEl"
+          class="audio-lane"
+          data-testid="timeline-audio-lane"
+          :data-drop-active="audioLaneAcceptsDrop() && libraryDrag.hover.value === 'new-track' ? 'true' : 'false'"
+          @dragenter.prevent="onAudioLaneDragOver"
+          @dragover="onAudioLaneDragOver"
+          @dragleave="onAudioLaneDragLeave"
+          @drop="onAudioLaneDrop"
+        >
+          <TimelineAudioTrack
+            v-for="row in audioRows"
+            :key="row.id"
+            :row="row"
+            :duration="duration"
+            :selected="selection.selectedAudioTrackId.value === row.id"
+            :drag-active="audioDrag.active.value"
+            @select="onSelectAudioTrack"
+            @bar-pointer-down="onAudioBarPointerDown"
+            @contextmenu="onAudioContextMenu"
+          />
+          <p
+            v-if="audioRows.length === 0"
+            class="audio-empty"
+            data-testid="timeline-audio-empty"
+          >
+            Drag an audio asset here from the Library, or click <strong>+ Add Audio Track…</strong> in the toolbar.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- U3 — audio track context menu (Mute / Delete / Reset volume). -->
+    <div
+      v-if="audioContextMenu"
+      class="context-menu-backdrop"
+      data-testid="timeline-audio-context-backdrop"
+      @click="closeAudioContextMenu"
+      @contextmenu.prevent="closeAudioContextMenu"
+    >
+      <div
+        class="context-menu"
+        :style="{ left: `${audioContextMenu.x}px`, top: `${audioContextMenu.y}px` }"
+        data-testid="timeline-audio-context-menu"
+        @click.stop
+      >
+        <button type="button" @click="contextMenuMute">
+          {{ (contextMenuTrack()?.volume ?? 1) > 0 ? 'Mute' : 'Unmute' }}
+        </button>
+        <button type="button" @click="contextMenuResetVolume">Reset volume</button>
+        <button type="button" class="danger" @click="contextMenuDelete">Delete</button>
       </div>
     </div>
   </div>
@@ -911,5 +1258,97 @@ watch(
 
 .new-track-label {
   pointer-events: none;
+}
+
+.audio-section {
+  flex: 0 0 auto;
+  border-top: 2px solid rgba(6, 214, 160, 0.25);
+  background: rgba(6, 214, 160, 0.02);
+}
+
+.audio-section-header {
+  display: grid;
+  grid-template-columns: var(--ruler-gutter-width) 1fr;
+  align-items: center;
+  padding: 4px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6bd0b0;
+  background: rgba(6, 214, 160, 0.06);
+  border-bottom: 1px solid rgba(6, 214, 160, 0.15);
+}
+
+.audio-section-count {
+  font-feature-settings: 'tnum';
+  color: #6bd0b0;
+  opacity: 0.7;
+}
+
+.audio-lane {
+  position: relative;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.audio-lane[data-drop-active='true'] {
+  background: rgba(6, 214, 160, 0.1);
+  outline: 2px dashed rgba(6, 214, 160, 0.55);
+  outline-offset: -2px;
+}
+
+.audio-empty {
+  padding: 12px;
+  color: #707070;
+  font-size: 11.5px;
+}
+
+.audio-empty strong {
+  color: #9fdec8;
+  font-weight: 500;
+}
+
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+}
+
+.context-menu {
+  position: fixed;
+  min-width: 140px;
+  background: #131313;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.context-menu button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.context-menu button.danger {
+  color: #ff8b8b;
+}
+
+.context-menu button.danger:hover {
+  background: rgba(255, 107, 107, 0.14);
 }
 </style>

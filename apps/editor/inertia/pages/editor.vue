@@ -277,6 +277,19 @@ function deleteSelection(): void {
   void bus.apply({ kind: 'remove_item', payload: { id } })
 }
 
+// U8 — `V` / `A` shortcuts route through the same window-event ItemToolbar
+// already listens on for OnboardingOverlay's "focus this button" CTAs, so
+// the keyboard path and the onboarding-driven path share one entry point.
+function addVideoViaShortcut(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('davidup:focus-toolbar-button', { detail: { kind: 'video' } }))
+}
+
+function addAudioTrackViaShortcut(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('davidup:focus-toolbar-button', { detail: { kind: 'audio' } }))
+}
+
 function fitTimeline(): void {
   // The timeline already auto-fits the panel width (no zoom state yet), so
   // "fit" collapses to the canonical reset action: seek the playhead back to
@@ -642,6 +655,8 @@ useShortcuts({
   redo: () => bus.redo(),
   group: () => groupActions.group(),
   ungroup: () => groupActions.ungroup(),
+  addVideo: addVideoViaShortcut,
+  addAudioTrack: addAudioTrackViaShortcut,
 })
 
 // ─── Step 18b: window-level file drop ────────────────────────────────────
@@ -808,8 +823,10 @@ onBeforeUnmount(() => {
         :composition="bus.composition.value"
         :can-group="groupActions.canGroup.value"
         :can-ungroup="groupActions.canUngroup.value"
+        :playhead="stage.playhead.value"
         @group="groupActions.group"
         @ungroup="groupActions.ungroup"
+        @apply="bus.apply"
       />
       <LayersPanel
         v-if="bus.composition.value"

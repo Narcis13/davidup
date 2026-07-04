@@ -26,6 +26,11 @@ interface RawItem {
   text?: unknown
   asset?: unknown
   name?: unknown
+  start?: unknown
+  end?: unknown
+  trimIn?: unknown
+  trimOut?: unknown
+  loop?: unknown
 }
 
 const props = defineProps<{
@@ -101,12 +106,23 @@ function itemTypeGlyph(item: RawItem | null): string {
       return '▭'
     case 'group':
       return '⊞'
+    case 'video':
+      return '▶'
     case 'scene-instance':
     case 'scene':
       return '◇'
     default:
       return '·'
   }
+}
+
+function formatRange(start: number, end: number | undefined): string {
+  const fmt = (t: number) => {
+    const m = Math.floor(t / 60)
+    const s = Math.round(t % 60)
+    return `${m}:${String(s).padStart(2, '0')}`
+  }
+  return end !== undefined ? `${fmt(start)}-${fmt(end)}` : `${fmt(start)}…`
 }
 
 function itemDetail(item: RawItem | null): string | undefined {
@@ -123,6 +139,15 @@ function itemDetail(item: RawItem | null): string | undefined {
       return undefined
     case 'sprite':
       return typeof item.asset === 'string' ? item.asset : undefined
+    case 'video': {
+      // U7 — "▶ 0:00-0:12" range + loop/freeze badge, matching the spec's
+      // outliner row hint.
+      const start = typeof item.start === 'number' ? item.start : 0
+      const end = typeof item.end === 'number' ? item.end : undefined
+      const range = formatRange(start, end)
+      const tail = item.loop === true ? ' · loop' : ''
+      return `▶ ${range}${tail}`
+    }
     case 'group':
       if (Array.isArray(item.items))
         return `${(item.items as ReadonlyArray<unknown>).length} items`
@@ -280,6 +305,66 @@ function toggleCollapsed(): void {
 
 function clearFilter(): void {
   filter.value = ''
+}
+
+// ─── U7: Audio Tracks section ────────────────────────────────────────────
+//
+// Audio tracks aren't layer-rooted items, so they don't fit the recursive
+// tree above — a dedicated top-level section below it (mirroring how
+// Premiere/After Effects separate audio from the visual layer stack).
+interface AudioTrackNode {
+  id: string
+  asset: string
+  start: number
+  end?: number
+  duration: number
+  muted: boolean
+}
+
+function audioTrackDuration(t: Record<string, unknown>, assetDur: number | null): number {
+  const start = typeof t.start === 'number' ? t.start : 0
+  const end = typeof t.end === 'number' ? t.end : start + (assetDur ?? 0)
+  return Math.max(0, end - start)
+}
+
+const audioTrackNodes = computed<AudioTrackNode[]>(() => {
+  const comp = props.composition
+  const list = (comp as { audio?: unknown } | null)?.audio
+  if (!Array.isArray(list)) return []
+  const assets = Array.isArray(comp?.assets) ? (comp!.assets as ReadonlyArray<Record<string, unknown>>) : []
+  const assetDurById = new Map<string, number>()
+  for (const a of assets) {
+    if (typeof a.id === 'string' && typeof a.duration === 'number') assetDurById.set(a.id, a.duration)
+  }
+  const out: AudioTrackNode[] = []
+  for (const t of list as ReadonlyArray<Record<string, unknown>>) {
+    if (typeof t.id !== 'string' || typeof t.asset !== 'string') continue
+    const assetDur = assetDurById.get(t.asset) ?? null
+    out.push({
+      id: t.id,
+      asset: t.asset,
+      start: typeof t.start === 'number' ? t.start : 0,
+      end: typeof t.end === 'number' ? t.end : undefined,
+      duration: audioTrackDuration(t, assetDur),
+      muted: typeof t.volume === 'number' && t.volume <= 0,
+    })
+  }
+  return out
+})
+
+function formatAudioDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function selectAudioTrack(id: string): void {
+  selection.setAudioTrackSelection(id)
+}
+
+function isAudioTrackSelected(id: string): boolean {
+  return selection.selectedAudioTrackId.value === id
 }
 
 const totalItemCount = computed<number>(() => {
@@ -440,6 +525,36 @@ const visibleMatchCount = computed<number>(() => {
           </li>
         </template>
       </ul>
+
+      <!-- U7 — Audio Tracks: dedicated section, separate from the layer/item
+           tree (audio isn't layer-rooted). -->
+      <div v-if="audioTrackNodes.length > 0" class="audio-tracks-section">
+        <div class="audio-tracks-header">Audio Tracks</div>
+        <ul class="tree">
+          <li
+            v-for="node in audioTrackNodes"
+            :key="node.id"
+            class="tree-item"
+          >
+            <button
+              type="button"
+              class="tree-row tree-row-item"
+              :class="{ selected: isAudioTrackSelected(node.id) }"
+              :data-testid="`outliner-audio-track-${node.id}`"
+              :title="`Select ${node.id}`"
+              @click="selectAudioTrack(node.id)"
+            >
+              <span class="caret-spacer" aria-hidden="true" />
+              <span class="tree-glyph audio-glyph" aria-hidden="true">♪</span>
+              <span class="tree-label">{{ node.id }}</span>
+              <span class="tree-meta">
+                <span class="tree-type">{{ formatAudioDuration(node.duration) }}</span>
+                <span v-if="node.muted" class="tree-detail"> · muted</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
@@ -753,5 +868,50 @@ const visibleMatchCount = computed<number>(() => {
   font-size: 10.5px;
   color: #707070;
   font-style: italic;
+}
+
+/* U7 — Audio Tracks section + the row styling it needs that OutlinerNode's
+ * scoped styles (correctly) don't leak into this component. */
+.audio-tracks-section {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.audio-tracks-header {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6bd0b0;
+  padding: 2px 6px 4px;
+}
+
+.tree-item {
+  list-style: none;
+  margin: 0;
+}
+
+.tree-row.selected {
+  background: rgba(6, 214, 160, 0.14);
+  border-color: rgba(6, 214, 160, 0.5);
+  color: #e7fff5;
+}
+
+.caret-spacer {
+  display: inline-block;
+  width: 10px;
+}
+
+.audio-glyph {
+  color: #6bd0b0;
+}
+
+.tree-type {
+  color: #909090;
+  font-feature-settings: 'tnum';
+}
+
+.tree-detail {
+  color: #707070;
 }
 </style>

@@ -220,6 +220,38 @@ const tabLabels: Record<LibraryTab, string> = {
 
 const visibleTabs = computed<LibraryTab[]>(() => LIBRARY_TABS as LibraryTab[])
 
+// ─── U1: asset media-type sub-filter (All / Images / Audio / Video) ─────
+//
+// `LibraryItem.kind: 'asset'` covers images, audio, and video alike — the
+// underlying media type only lives on `item.raw.type`. The server doesn't
+// support filtering by it (still one flat `asset` kind), so this is a
+// client-side pass over the already-fetched `lib.items` list, shown only
+// while the Assets tab is active.
+type AssetMediaFilter = 'all' | 'image' | 'audio' | 'video'
+const ASSET_MEDIA_FILTERS: AssetMediaFilter[] = ['all', 'image', 'audio', 'video']
+const assetMediaFilter = ref<AssetMediaFilter>('all')
+const assetMediaLabels: Record<AssetMediaFilter, string> = {
+  all: 'All',
+  image: 'Images',
+  audio: 'Audio',
+  video: 'Video',
+}
+
+function assetMediaTypeOf(item: LibraryItem): string | undefined {
+  const raw = item.raw as { type?: unknown } | undefined
+  return typeof raw?.type === 'string' ? raw.type : undefined
+}
+
+const visibleItems = computed<LibraryItem[]>(() => {
+  const items = lib.items.value
+  if (lib.tab.value !== 'asset' || assetMediaFilter.value === 'all') return items
+  return items.filter((item) => assetMediaTypeOf(item) === assetMediaFilter.value)
+})
+
+function setAssetMediaFilter(f: AssetMediaFilter): void {
+  assetMediaFilter.value = f
+}
+
 const scopeLabels: Record<LibraryScopeFilter, string> = {
   project: '📁 Project',
   global: '🌐 Global',
@@ -490,12 +522,34 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       </button>
     </nav>
 
+    <nav
+      v-if="lib.tab.value === 'asset'"
+      class="tabs asset-media-tabs"
+      role="tablist"
+      aria-label="Asset media type"
+      data-testid="library-asset-media-tabs"
+    >
+      <button
+        v-for="f in ASSET_MEDIA_FILTERS"
+        :key="f"
+        type="button"
+        role="tab"
+        :aria-selected="assetMediaFilter === f"
+        :data-media-filter="f"
+        :data-active="assetMediaFilter === f ? 'true' : 'false'"
+        class="tab"
+        @click="setAssetMediaFilter(f)"
+      >
+        {{ assetMediaLabels[f] }}
+      </button>
+    </nav>
+
     <div v-if="lib.error.value" class="error" role="alert">
       {{ lib.error.value }}
     </div>
 
     <div
-      v-if="lib.items.value.length === 0 && !lib.loading.value && !lib.error.value"
+      v-if="visibleItems.length === 0 && !lib.loading.value && !lib.error.value"
       class="empty"
     >
       <p>{{ emptyHint }}</p>
@@ -508,7 +562,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       data-testid="library-grid"
     >
       <LibraryCard
-        v-for="item in lib.items.value"
+        v-for="item in visibleItems"
         :key="`${item.kind}:${item.id}:${item.scope}:${item.source}`"
         :item="item"
         :generation="lib.generation.value"

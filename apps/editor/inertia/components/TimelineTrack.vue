@@ -21,6 +21,7 @@
 
 import { computed } from 'vue'
 import type { DragActive, DragMode } from '~/composables/useTimelineDrag'
+import type { VideoTrimActive, VideoTrimMode } from '~/composables/useVideoTrimDrag'
 
 export type TweenSource = 'template' | 'behavior' | 'scene' | 'plain'
 
@@ -34,10 +35,27 @@ export interface TimelineTween {
   source: TweenSource
 }
 
+// U5 — a video item's own occupied-time span. Distinct from its tweens
+// (which animate a *property*, not the item's lifetime): `[start, end)` is
+// the item's placement on the composition timeline; `[trimIn, trimOut)` is
+// the window of the *source asset* that plays back during the "visible"
+// portion of that span. When `end - start` exceeds `trimOut - trimIn`, the
+// remainder freezes on the last frame (or loops, when `loop` is true).
+export interface VideoSpanInfo {
+  start: number
+  end: number
+  trimIn: number
+  trimOut: number
+  /** Registered asset duration, or null when the asset has no probed duration. */
+  assetDuration: number | null
+  loop: boolean
+}
+
 export interface TimelineItemRow {
   id: string
   type: string
   tweens: ReadonlyArray<TimelineTween>
+  videoSpan: VideoSpanInfo | null
 }
 
 export interface BarPointerDownPayload {
@@ -45,6 +63,22 @@ export interface BarPointerDownPayload {
   laneEl: HTMLElement
   tween: TimelineTween
   mode: DragMode
+}
+
+export interface VideoSpanPointerDownPayload {
+  event: PointerEvent
+  laneEl: HTMLElement
+  itemId: string
+  span: VideoSpanInfo
+  mode: DragMode
+}
+
+export interface VideoTrimPointerDownPayload {
+  event: PointerEvent
+  laneEl: HTMLElement
+  itemId: string
+  span: VideoSpanInfo
+  mode: VideoTrimMode
 }
 
 const props = defineProps<{
@@ -76,6 +110,10 @@ const props = defineProps<{
    */
   libraryHover?: string | null
   libraryDragActive?: boolean
+  /** U5 — live outer-span drag preview from Timeline's `videoSpanDrag`. */
+  videoSpanDragActive?: DragActive | null
+  /** U5 — live trim-handle drag preview from Timeline's `videoTrimDrag`. */
+  videoTrimDragActive?: VideoTrimActive | null
 }>()
 
 const emit = defineEmits<{
@@ -87,6 +125,9 @@ const emit = defineEmits<{
   // §20.27 — double-click on a sealed (scene-origin) bar asks the parent to
   // jump SourceDrawer to the scene instance's authored line.
   (event: 'openSceneSource', tween: TimelineTween): void
+  // U5 — video span/trim handle drags.
+  (event: 'videoSpanPointerDown', payload: VideoSpanPointerDownPayload): void
+  (event: 'videoTrimPointerDown', payload: VideoTrimPointerDownPayload): void
 }>()
 
 function onLibraryDragOver(event: DragEvent): void {
@@ -189,12 +230,111 @@ const markerTitle = computed<string>(() => {
   if (w > 0) parts.push(`${w} warning${w === 1 ? '' : 's'}`)
   return parts.join(' · ')
 })
+
+// ──────────────── U5: video item outer-span + trim handles ────────────────
+//
+// A video row (`row.videoSpan` non-null) renders an extra lane above the
+// tween lane: one bar spanning the item's own `[start, end)` occupancy, with
+// two inner trim handles (trimIn/trimOut, anchored to the source asset's
+// time axis — see `videoTrimMath.ts`) and an outer right-edge handle that
+// resizes `end` (extending/shrinking the freeze-or-loop tail).
+
+function effectiveSpan(): { start: number; end: number } {
+  const span = props.row.videoSpan
+  if (!span) return { start: 0, end: 0 }
+  const a = props.videoSpanDragActive
+  if (a && a.tweenId === props.row.id) {
+    return { start: a.currentStart, end: a.currentStart + a.currentDuration }
+  }
+  return { start: span.start, end: span.end }
+}
+
+function effectiveTrim(): { trimIn: number; trimOut: number } {
+  const span = props.row.videoSpan
+  if (!span) return { trimIn: 0, trimOut: 0 }
+  const a = props.videoTrimDragActive
+  if (a && a.itemId === props.row.id) {
+    if (a.mode === 'trim-in') return { trimIn: a.currentValue, trimOut: span.trimOut }
+    return { trimIn: span.trimIn, trimOut: a.currentValue }
+  }
+  return { trimIn: span.trimIn, trimOut: span.trimOut }
+}
+
+function pctOfTimeline(t: number): string {
+  const d = props.duration
+  if (d <= 0) return '0%'
+  return `${Math.min(100, Math.max(0, (t / d) * 100))}%`
+}
+
+const videoSpanLeftPct = computed(() => pctOfTimeline(effectiveSpan().start))
+const videoSpanWidthPct = computed(() => {
+  const d = props.duration
+  if (d <= 0) return '0%'
+  const { start, end } = effectiveSpan()
+  return `${Math.max(0, ((end - start) / d) * 100)}%`
+})
+
+// Freeze/loop tail: the portion of [start,end) beyond the visible-trim
+// window, as a % of the *bar's own* width (so it renders correctly inside
+// the absolutely-positioned bar regardless of zoom).
+const videoTailWidthPct = computed<string | null>(() => {
+  const { start, end } = effectiveSpan()
+  const { trimIn, trimOut } = effectiveTrim()
+  const span = Math.max(0.0001, end - start)
+  const visible = Math.max(0, trimOut - trimIn)
+  const tail = span - visible
+  if (tail <= 0.05) return null
+  return `${Math.min(100, (tail / span) * 100)}%`
+})
+
+const isLoopTail = computed<boolean>(() => props.row.videoSpan?.loop === true)
+
+// Position the trimOut handle at the boundary between the "visible" window
+// and the freeze/loop tail (i.e. `100% - tail%`) — the one trim handle whose
+// position on the bar is actually meaningful (trimIn has no natural timeline
+// position, since it only changes *which* source frames play, not *when*).
+const trimOutHandleLeftPct = computed<string>(() => {
+  const tail = videoTailWidthPct.value
+  if (!tail) return 'calc(100% - 10px)'
+  const tailNum = parseFloat(tail)
+  if (Number.isNaN(tailNum)) return 'calc(100% - 10px)'
+  return `calc(${100 - tailNum}% - 2px)`
+})
+
+function onVideoSpanBodyPointerDown(event: PointerEvent, mode: DragMode): void {
+  if (event.button !== 0) return
+  const span = props.row.videoSpan
+  if (!span) return
+  const laneEl = (event.currentTarget as HTMLElement).closest('.video-lane') as HTMLElement | null
+  if (!laneEl) return
+  event.stopPropagation()
+  emit('videoSpanPointerDown', { event, laneEl, itemId: props.row.id, span, mode })
+}
+
+function onVideoTrimHandlePointerDown(event: PointerEvent, mode: 'trim-in' | 'trim-out'): void {
+  if (event.button !== 0) return
+  const span = props.row.videoSpan
+  if (!span) return
+  const laneEl = (event.currentTarget as HTMLElement).closest('.video-lane') as HTMLElement | null
+  if (!laneEl) return
+  event.stopPropagation()
+  emit('videoTrimPointerDown', { event, laneEl, itemId: props.row.id, span, mode })
+}
+
+function videoSpanTitle(): string {
+  const span = props.row.videoSpan
+  if (!span) return ''
+  const { start, end } = effectiveSpan()
+  const { trimIn, trimOut } = effectiveTrim()
+  const tail = span.loop ? 'loops' : 'freezes'
+  return `${props.row.id}\n${start.toFixed(2)}s → ${end.toFixed(2)}s\ntrim ${trimIn.toFixed(2)}s–${trimOut.toFixed(2)}s${videoTailWidthPct.value ? ` · tail ${tail}` : ''}`
+}
 </script>
 
 <template>
   <div
     class="track"
-    :class="{ selected: isSelected }"
+    :class="{ selected: isSelected, 'track--video': !!row.videoSpan }"
     :data-item-id="row.id"
     :data-library-hover="libraryHover ?? null"
     :data-library-drag-active="libraryDragActive ? 'true' : null"
@@ -228,6 +368,53 @@ const markerTitle = computed<string>(() => {
       </span>
       <span class="label-id">{{ row.id }}</span>
       <span class="label-type">{{ row.type }}</span>
+    </div>
+    <div class="track-lanes">
+    <!--
+      U5 — video item's own [start,end) span, with inner trim handles and an
+      outer end-resize handle. Sits above the tween lane so an animated
+      video item (e.g. a tween on x/y) still shows both.
+    -->
+    <div v-if="row.videoSpan" class="video-lane">
+      <div
+        class="video-span-bar"
+        :style="{ left: videoSpanLeftPct, width: videoSpanWidthPct }"
+        :title="videoSpanTitle()"
+        :data-testid="`timeline-video-span-${row.id}`"
+        @pointerdown="(e) => onVideoSpanBodyPointerDown(e, 'move')"
+      >
+        <span
+          v-if="videoTailWidthPct"
+          class="video-tail"
+          :class="{ 'video-tail--loop': isLoopTail }"
+          :style="{ width: videoTailWidthPct }"
+          :data-testid="`timeline-video-tail-${row.id}`"
+          aria-hidden="true"
+        />
+        <span class="video-span-label">{{ row.id }}</span>
+        <span
+          class="video-trim-handle video-trim-handle--in"
+          data-testid="timeline-video-trim-in"
+          title="Drag to trim the start of the source clip"
+          @pointerdown.stop="(e) => onVideoTrimHandlePointerDown(e, 'trim-in')"
+          @click.stop
+        />
+        <span
+          class="video-trim-handle video-trim-handle--out"
+          :style="{ left: trimOutHandleLeftPct }"
+          data-testid="timeline-video-trim-out"
+          title="Drag to trim the end of the visible (non-frozen/non-looped) window"
+          @pointerdown.stop="(e) => onVideoTrimHandlePointerDown(e, 'trim-out')"
+          @click.stop
+        />
+        <span
+          class="resize-handle resize-right"
+          data-testid="timeline-video-span-resize-end"
+          title="Drag to extend/shrink the freeze or loop tail"
+          @pointerdown.stop="(e) => onVideoSpanBodyPointerDown(e, 'resize-right')"
+          @click.stop
+        />
+      </div>
     </div>
     <div class="track-lane">
       <button
@@ -286,6 +473,7 @@ const markerTitle = computed<string>(() => {
         >{{ liveBadge(tween) }}</span>
       </button>
     </div>
+    </div>
   </div>
 </template>
 
@@ -301,6 +489,112 @@ const markerTitle = computed<string>(() => {
 
 .track:hover {
   background: rgba(255, 255, 255, 0.025);
+}
+
+.track--video {
+  min-height: 50px;
+}
+
+.track-lanes {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* U5 — video item span lane, sits above the tween lane inside the same row. */
+.video-lane {
+  position: relative;
+  height: 26px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+  background: repeating-linear-gradient(
+    to right,
+    transparent 0,
+    transparent calc(25% - 1px),
+    rgba(255, 255, 255, 0.03) calc(25% - 1px),
+    rgba(255, 255, 255, 0.03) 25%
+  );
+}
+
+.video-span-bar {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 8px;
+  padding: 0 4px;
+  border: 1px solid rgba(190, 110, 255, 0.9);
+  border-radius: 3px;
+  background: rgba(190, 110, 255, 0.4);
+  color: #f3e8ff;
+  font: 10px/1 'JetBrains Mono', ui-monospace, monospace;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.video-span-bar:active {
+  cursor: grabbing;
+}
+
+.video-span-label {
+  pointer-events: none;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  z-index: 1;
+}
+
+/* Freeze tail: hatched pattern. Loop tail: chevron repeat. Both sit at the
+ * bar's right edge, representing the portion of [start,end) beyond the
+ * visible-trim window. */
+.video-tail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.35),
+    rgba(0, 0, 0, 0.35) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}
+
+.video-tail--loop {
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0,
+    transparent 4px,
+    rgba(0, 0, 0, 0.4) 4px,
+    rgba(0, 0, 0, 0.4) 5px,
+    transparent 5px,
+    transparent 8px
+  );
+}
+
+.video-trim-handle {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: ew-resize;
+  z-index: 2;
+  touch-action: none;
+}
+
+.video-trim-handle--in {
+  left: 6px;
+}
+
+.video-trim-handle:hover {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .track.selected {

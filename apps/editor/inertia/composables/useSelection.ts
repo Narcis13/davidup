@@ -61,6 +61,17 @@ export interface SelectionApi {
    * editor while it's non-null.
    */
   setTweenSelection: (tweenId: string | null, itemId?: string | null) => void
+  /**
+   * U2 — currently selected `composition.audio[]` track id, or null. Audio
+   * tracks aren't layer-rooted items, so they get their own selection slot
+   * (parallel to `selectedTweenId`) rather than overloading
+   * `selectedItemId`. Setting this clears the item/tween selection and vice
+   * versa — the Inspector's item / tween / audio-track editors are mutually
+   * exclusive modes.
+   */
+  selectedAudioTrackId: Ref<string | null>
+  /** Select (or clear, via `null`) an audio track. See `selectedAudioTrackId`. */
+  setAudioTrackSelection: (audioTrackId: string | null) => void
   /** Convenience boolean — true while an item is selected. */
   hasSelection: Ref<boolean>
   /**
@@ -78,6 +89,7 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
   const selectedItemId = ref<string | null>(initialId)
   const selectedItemIds = ref<readonly string[]>(initialId ? [initialId] : [])
   const selectedTweenId = ref<string | null>(null)
+  const selectedAudioTrackId = ref<string | null>(null)
   const lastPickSource = ref<PickSourceInfo | null>(null)
   // Tracks the id `lastPickSource` was captured for, so a later
   // `setSelection(otherId)` (Inspector dropdown, Timeline click) can detect
@@ -92,6 +104,7 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
       selectedItemId.value = id
       selectedItemIds.value = id ? [id] : []
       selectedTweenId.value = null
+      selectedAudioTrackId.value = null
       if (id === null) {
         lastPickSource.value = null
         pickedForId = null
@@ -106,6 +119,7 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
       selectedItemId.value = id
       selectedItemIds.value = id ? [id] : []
       selectedTweenId.value = null
+      selectedAudioTrackId.value = null
       lastPickSource.value = id === null ? null : source ?? null
       pickedForId = id
     },
@@ -115,6 +129,7 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
       const primary = arr.length > 0 ? arr[0]! : null
       selectedItemId.value = primary
       selectedTweenId.value = null
+      selectedAudioTrackId.value = null
       // Marquee select never carries source-map info — drop any stale pick
       // capture so the Inspector's provenance line doesn't lie.
       lastPickSource.value = null
@@ -122,6 +137,7 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
     },
     setTweenSelection(tweenId: string | null, itemId?: string | null) {
       selectedTweenId.value = tweenId
+      selectedAudioTrackId.value = null
       if (itemId !== undefined) {
         selectedItemId.value = itemId
         selectedItemIds.value = itemId ? [itemId] : []
@@ -133,6 +149,18 @@ export function provideSelection(initialId: string | null = null): SelectionApi 
           pickedForId = null
         }
       }
+    },
+    selectedAudioTrackId,
+    setAudioTrackSelection(audioTrackId: string | null) {
+      // Mutually exclusive with the item/tween editor modes — selecting an
+      // audio track (Timeline lane bar, Outliner "Audio Tracks" row) drops
+      // any item/tween selection so the Inspector shows exactly one editor.
+      selectedAudioTrackId.value = audioTrackId
+      selectedTweenId.value = null
+      selectedItemId.value = null
+      selectedItemIds.value = []
+      lastPickSource.value = null
+      pickedForId = null
     },
     hasSelection: computed(() => selectedItemId.value !== null) as Ref<boolean>,
     lastPickSource,

@@ -46,7 +46,7 @@ import RawJsonInput from '~/components/inputs/RawJson.vue'
 import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
 
 type ItemLike = {
-  type: 'sprite' | 'text' | 'shape' | 'group'
+  type: 'sprite' | 'text' | 'shape' | 'group' | 'video'
   kind?: string
   transform: {
     x: number
@@ -260,18 +260,32 @@ const compositionDuration = computed<number>(() => {
 // pickers. Reads through `as` so the typed Composition's `assets` field stays
 // a `ReadonlyArray<{ src?: unknown }>` without forcing AssetPicker to learn
 // that wider shape.
-type InspectorAsset = { id: string; type?: string; family?: string; src?: string }
+type InspectorAsset = {
+  id: string
+  type?: string
+  family?: string
+  src?: string
+  /** U4 — probed media duration (audio/video assets), seconds. */
+  duration?: number
+}
 
 const compositionAssets = computed<ReadonlyArray<InspectorAsset>>(() => {
   const list = props.composition?.assets
   if (!Array.isArray(list)) return []
   const out: InspectorAsset[] = []
-  for (const a of list as Array<{ id?: unknown; type?: unknown; family?: unknown; src?: unknown }>) {
+  for (const a of list as Array<{
+    id?: unknown
+    type?: unknown
+    family?: unknown
+    src?: unknown
+    duration?: unknown
+  }>) {
     if (typeof a?.id !== 'string') continue
     const item: InspectorAsset = { id: a.id }
     if (typeof a.type === 'string') item.type = a.type
     if (typeof a.family === 'string') item.family = a.family
     if (typeof a.src === 'string') item.src = a.src
+    if (typeof a.duration === 'number' && Number.isFinite(a.duration)) item.duration = a.duration
     out.push(item)
   }
   return out
@@ -371,7 +385,7 @@ interface FieldDef {
   multiline?: boolean
   placeholder?: string
   /** Used with `kind: 'asset'` to filter the picker by asset type. */
-  assetType?: 'image' | 'font'
+  assetType?: 'image' | 'font' | 'audio' | 'video'
 }
 
 const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
@@ -449,6 +463,30 @@ const SHAPE_FIELDS: ReadonlyArray<FieldDef> = [
   },
 ]
 
+// U4 — VideoItem fields. Spatial (x/y/scale/rotation/anchor/opacity) is
+// already covered by TRANSFORM_FIELDS since VideoItemSchema carries the same
+// `transform` shape as a sprite. This registry only adds the video-specific
+// source/time/display fields: asset (filtered to video), trim window, the
+// item's own temporal placement (start/end — distinct from the Lifespan
+// enter/exit window every item type has), display fit mode, and loop.
+const VIDEO_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'asset', label: 'asset', kind: 'asset', path: 'asset', assetType: 'video' },
+  { key: 'start', label: 'start', kind: 'time', path: 'start', min: 0, step: 0.05 },
+  { key: 'end', label: 'end', kind: 'time', path: 'end', min: 0, step: 0.05 },
+  { key: 'trimIn', label: 'trimIn', kind: 'time', path: 'trimIn', min: 0, step: 0.05 },
+  { key: 'trimOut', label: 'trimOut', kind: 'time', path: 'trimOut', min: 0, step: 0.05 },
+  {
+    key: 'fit',
+    label: 'fit',
+    kind: 'enum',
+    path: 'fit',
+    options: ['cover', 'contain', 'fill', 'none'],
+  },
+  { key: 'loop', label: 'loop', kind: 'boolean', path: 'loop' },
+  { key: 'width', label: 'width', kind: 'number', path: 'width', min: 0, step: 1 },
+  { key: 'height', label: 'height', kind: 'number', path: 'height', min: 0, step: 1 },
+]
+
 const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
   // Multi-select across mixed item types: hide the type-specific section
   // entirely. Only Transform — common to every item — keeps rendering.
@@ -461,12 +499,73 @@ const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
       return TEXT_FIELDS
     case 'shape':
       return SHAPE_FIELDS
+    case 'video':
+      return VIDEO_FIELDS
     case 'group':
       return []
     default:
       return []
   }
 })
+
+// U4 — computed duration breakdown shown next to the video section header:
+// "Source: 12.5s · Visible: 8.0s · Freeze: 0.3s" or "… · Loops: 1.6x".
+// Resolves the asset's registered duration (from composition.assets) so the
+// hint stays accurate even before trimOut has been set explicitly.
+const selectedVideoAsset = computed<InspectorAsset | null>(() => {
+  const item = selectedItem.value
+  if (!item || item.type !== 'video') return null
+  const assetId = typeof item.asset === 'string' ? item.asset : null
+  if (!assetId) return null
+  return compositionAssets.value.find((a) => a.id === assetId) ?? null
+})
+
+const selectedVideoAssetDuration = computed<number | null>(() => {
+  const d = selectedVideoAsset.value?.duration
+  return typeof d === 'number' && Number.isFinite(d) ? d : null
+})
+
+const videoDurationSummary = computed<string | null>(() => {
+  const item = selectedItem.value
+  if (!item || item.type !== 'video' || isMultiSelect.value) return null
+  const start = typeof item.start === 'number' ? item.start : 0
+  const end = typeof item.end === 'number' ? item.end : null
+  const trimIn = typeof item.trimIn === 'number' ? item.trimIn : 0
+  const trimOut = typeof item.trimOut === 'number' ? item.trimOut : selectedVideoAssetDuration.value
+  const sourceDur = selectedVideoAssetDuration.value
+  const parts: string[] = []
+  if (sourceDur !== null) parts.push(`Source: ${sourceDur.toFixed(1)}s`)
+  if (trimOut !== null) {
+    const visible = Math.max(0, trimOut - trimIn)
+    parts.push(`Visible: ${visible.toFixed(1)}s`)
+    if (end !== null) {
+      const span = Math.max(0, end - start)
+      const tail = span - visible
+      if (tail > 0.05) {
+        if (item.loop === true) {
+          parts.push(`Loops: ${(span / Math.max(visible, 0.001)).toFixed(1)}x`)
+        } else {
+          parts.push(`Freeze: ${tail.toFixed(1)}s`)
+        }
+      }
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+})
+
+function resetVideoTrim(): void {
+  const id = selection.selectedItemId.value
+  if (!id) return
+  const dur = selectedVideoAssetDuration.value
+  emit('apply', {
+    kind: 'update_item',
+    payload: {
+      id,
+      props: { trimIn: 0, ...(dur !== null ? { trimOut: dur } : {}) },
+    },
+    source: 'ui',
+  })
+}
 
 function valueFor(field: FieldDef): unknown {
   // UX_FINDINGS §7 — for an animated property, return the value that the
@@ -958,6 +1057,95 @@ function onSelectionChange(event: Event): void {
   const target = event.target as HTMLSelectElement
   selection.setSelection(target.value || null)
 }
+
+// ──────────────── U2: Audio track editor ────────────────
+//
+// Audio tracks aren't items — they live in `composition.audio[]`, addressed
+// through `selection.selectedAudioTrackId` (mutually exclusive with the
+// item/tween editor modes above). Mirrors the tween editor's shape: a small
+// fixed field set, one `update_audio_track` per edit.
+
+type AudioTrackLike = {
+  id: string
+  asset: string
+  start: number
+  end?: number
+  volume?: number
+  fadeIn?: number
+  fadeOut?: number
+}
+
+const selectedAudioTrack = computed<AudioTrackLike | null>(() => {
+  const comp = props.composition
+  const id = selection.selectedAudioTrackId.value
+  if (!comp || !id) return null
+  const list = (comp as { audio?: unknown }).audio
+  if (!Array.isArray(list)) return null
+  for (const t of list as ReadonlyArray<AudioTrackLike>) {
+    if (t && t.id === id) return t
+  }
+  return null
+})
+
+const audioTrackAssetDuration = computed<number | null>(() => {
+  const track = selectedAudioTrack.value
+  if (!track) return null
+  const asset = compositionAssets.value.find((a) => a.id === track.asset)
+  return asset?.duration ?? null
+})
+
+// Half-open [start, end) validity check mirroring the S1 schema invariant —
+// purely advisory here (the server is the source of truth); flags when the
+// track's end runs past the composition so the user gets an inline nudge
+// before dispatching an edit the validator would otherwise flag as a
+// warning post-hoc.
+const audioTrackExceedsComposition = computed<boolean>(() => {
+  const track = selectedAudioTrack.value
+  if (!track || typeof track.end !== 'number') return false
+  return compositionDuration.value > 0 && track.end > compositionDuration.value
+})
+
+type AudioTrackEditableKey = 'asset' | 'start' | 'end' | 'volume' | 'fadeIn' | 'fadeOut'
+
+function dispatchAudioTrackEdit(key: AudioTrackEditableKey, value: unknown): void {
+  const track = selectedAudioTrack.value
+  if (!track) return
+  emit('apply', {
+    kind: 'update_audio_track',
+    payload: { id: track.id, props: { [key]: value } },
+    source: 'ui',
+  })
+}
+
+// Mute toggle (U2 spec): volume → 0, remembered per-track so a second click
+// restores the pre-mute value rather than snapping to a fixed default.
+const preMuteVolume = ref<Map<string, number>>(new Map())
+
+const isAudioTrackMuted = computed<boolean>(() => {
+  const track = selectedAudioTrack.value
+  if (!track) return false
+  return (typeof track.volume === 'number' ? track.volume : 1) <= 0
+})
+
+function toggleMuteAudioTrack(): void {
+  const track = selectedAudioTrack.value
+  if (!track) return
+  const current = typeof track.volume === 'number' ? track.volume : 1
+  if (current > 0) {
+    preMuteVolume.value.set(track.id, current)
+    dispatchAudioTrackEdit('volume', 0)
+  } else {
+    const restore = preMuteVolume.value.get(track.id) ?? 1
+    dispatchAudioTrackEdit('volume', restore > 0 ? restore : 1)
+  }
+}
+
+function deleteSelectedAudioTrack(): void {
+  const track = selectedAudioTrack.value
+  if (!track) return
+  selection.setAudioTrackSelection(null)
+  emit('apply', { kind: 'remove_audio_track', payload: { id: track.id }, source: 'ui' })
+}
 </script>
 
 <template>
@@ -991,9 +1179,88 @@ function onSelectionChange(event: Event): void {
 
     <div v-if="error" class="error">{{ error }}</div>
 
-    <div v-if="!selectedItem && !selectedTween" class="empty">
+    <div v-if="!selectedItem && !selectedTween && !selectedAudioTrack" class="empty">
       <p>Select an item to edit its parameters.</p>
     </div>
+
+    <section
+      v-else-if="selectedAudioTrack"
+      class="section"
+      data-testid="inspector-audio-track-editor"
+    >
+      <header class="section-header">
+        <span class="section-title">Audio track</span>
+        <span class="section-meta-group">
+          <span class="section-meta">{{ selectedAudioTrack.id }}</span>
+          <button
+            type="button"
+            class="tween-delete"
+            data-testid="inspector-audio-track-delete"
+            title="Remove this audio track"
+            :disabled="pending"
+            @click="deleteSelectedAudioTrack"
+          >Delete track</button>
+        </span>
+      </header>
+      <p
+        v-if="audioTrackExceedsComposition"
+        class="multi-note"
+        data-testid="inspector-audio-track-overflow-warning"
+      >
+        This track's <code>end</code> runs past the composition duration ({{ compositionDuration.toFixed(2) }}s).
+      </p>
+      <div class="fields">
+        <AssetPickerInput
+          :model-value="selectedAudioTrack.asset"
+          label="asset"
+          asset-type="audio"
+          :assets="compositionAssets"
+          :disabled="pending"
+          @update:model-value="(v: string) => dispatchAudioTrackEdit('asset', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.start"
+          label="start"
+          :max="compositionDuration"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('start', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.end ?? (audioTrackAssetDuration ?? 0) + selectedAudioTrack.start"
+          label="end"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('end', v)"
+        />
+        <PercentInput
+          :model-value="selectedAudioTrack.volume ?? 1"
+          label="volume"
+          :max="2"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('volume', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.fadeIn ?? 0"
+          label="fadeIn"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('fadeIn', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.fadeOut ?? 0"
+          label="fadeOut"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('fadeOut', v)"
+        />
+        <button
+          type="button"
+          class="animate-btn"
+          :class="{ active: isAudioTrackMuted }"
+          data-testid="inspector-audio-track-mute"
+          :disabled="pending"
+          :title="isAudioTrackMuted ? 'Unmute (restore previous volume)' : 'Mute (volume → 0, restorable)'"
+          @click="toggleMuteAudioTrack"
+        >{{ isAudioTrackMuted ? 'Unmute' : 'Mute' }}</button>
+      </div>
+    </section>
 
     <section v-else-if="selectedTween" class="section" data-testid="inspector-tween-editor">
       <header class="section-header">
@@ -1330,6 +1597,28 @@ function onSelectionChange(event: Event): void {
             {{ multiCount }} selected
           </span>
         </header>
+        <template v-if="commonItemType === 'video' && !isMultiSelect">
+          <p
+            v-if="videoDurationSummary"
+            class="video-duration-summary"
+            data-testid="inspector-video-duration-summary"
+          >{{ videoDurationSummary }}</p>
+          <img
+            v-if="selectedItem.asset"
+            class="video-preview-thumb"
+            data-testid="inspector-video-preview"
+            :src="`/api/library/thumbnail?kind=asset&id=${encodeURIComponent(String(selectedItem.asset))}`"
+            alt="Video preview"
+          />
+          <button
+            type="button"
+            class="animate-btn"
+            data-testid="inspector-video-reset-trim"
+            title="Reset trim — trimIn=0, trimOut=asset duration"
+            :disabled="pending"
+            @click="resetVideoTrim"
+          >Reset trim</button>
+        </template>
         <div class="fields">
           <template v-for="field in itemSpecificFields" :key="`item-${field.key}`">
             <div
@@ -1994,5 +2283,23 @@ function onSelectionChange(event: Event): void {
 
 .item-name-input:disabled {
   opacity: 0.45;
+}
+
+.video-duration-summary {
+  margin: 0;
+  font-size: 11px;
+  color: #a3a3a3;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.video-preview-thumb {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #050505;
 }
 </style>

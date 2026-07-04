@@ -128,12 +128,58 @@ onBeforeUnmount(() => {
 
 const isFontKind = computed(() => props.item.kind === 'font')
 
+// ─── U1: audio/video media-type badge + preview ──────────────────────────
+//
+// `LibraryItem.kind` is always `'asset'` for images/audio/video — the actual
+// media type only lives on `item.raw.type` (the composition-asset record).
+// Distinct icon + duration surface here so audio/video are visually
+// distinguishable from images in the grid without a dedicated tab (the tab
+// filter lives in Library.vue).
+type MediaType = 'image' | 'font' | 'audio' | 'video' | undefined
+
+const mediaType = computed<MediaType>(() => {
+  if (props.item.kind !== 'asset') return undefined
+  const raw = props.item.raw as { type?: unknown } | undefined
+  const t = raw?.type
+  return t === 'image' || t === 'audio' || t === 'video' ? t : undefined
+})
+
+const isAudioMedia = computed(() => mediaType.value === 'audio')
+const isVideoMedia = computed(() => mediaType.value === 'video')
+
+const mediaDuration = computed<number | undefined>(() => {
+  const raw = props.item.raw as { duration?: unknown } | undefined
+  return typeof raw?.duration === 'number' && Number.isFinite(raw.duration) ? raw.duration : undefined
+})
+
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const mediaTypeGlyph = computed<string>(() => {
+  if (isAudioMedia.value) return '♪'
+  if (isVideoMedia.value) return '▶'
+  return ''
+})
+
+const mediaTypeTitle = computed<string>(() => {
+  if (isAudioMedia.value) return 'Audio asset'
+  if (isVideoMedia.value) return 'Video asset'
+  return ''
+})
+
 const thumbnailSrc = computed(() => {
   // Fonts get a client-side preview rendered in the font itself (below),
   // so we deliberately skip the server thumbnail PNG for them — the
   // placeholder it returns when synth fails is the very thing UX_FINDINGS §7
   // calls out.
   if (isFontKind.value) return null
+  // U1 — audio has no visual frame to thumbnail; render a dedicated tile
+  // (glyph + duration) instead of asking the server for a frame preview.
+  if (isAudioMedia.value) return null
   if (!inView.value) return null
   const params = new URLSearchParams({ kind: props.item.kind, id: props.item.id })
   if (props.generation) params.set('v', String(props.generation))
@@ -363,6 +409,14 @@ function onRemove(event: Event): void {
         <span class="font-sample">AaBbCc 123</span>
         <span class="font-name">{{ displayName }}</span>
       </div>
+      <div
+        v-else-if="isAudioMedia"
+        class="thumb thumb-audio"
+        data-testid="library-audio-preview"
+      >
+        <span class="audio-glyph" aria-hidden="true">♪</span>
+        <span v-if="mediaDuration !== undefined" class="audio-duration">{{ formatDuration(mediaDuration) }}</span>
+      </div>
       <img
         v-else-if="thumbnailSrc && !errored"
         :src="thumbnailSrc"
@@ -385,6 +439,16 @@ function onRemove(event: Event): void {
       />
 
       <span class="kind-badge" :data-kind="item.kind">{{ kindLabel }}</span>
+      <span
+        v-if="mediaTypeGlyph"
+        class="media-type-badge"
+        :data-media-type="mediaType"
+        :title="mediaTypeTitle"
+        data-testid="library-media-type-badge"
+      >
+        {{ mediaTypeGlyph }}
+        <template v-if="isVideoMedia && mediaDuration !== undefined"> · {{ formatDuration(mediaDuration) }}</template>
+      </span>
       <span
         class="scope-chip"
         :data-scope="scope"
@@ -580,6 +644,50 @@ function onRemove(event: Event): void {
 
 .thumb-error-text {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.thumb-audio {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #0c0f14 0%, #0a1114 100%);
+  color: #8ad6c9;
+}
+
+.audio-glyph {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.audio-duration {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: rgba(138, 214, 201, 0.75);
+}
+
+.media-type-badge {
+  position: absolute;
+  top: 26px;
+  left: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  pointer-events: none;
+}
+
+.media-type-badge[data-media-type='audio'] {
+  color: #8ad6c9;
+}
+
+.media-type-badge[data-media-type='video'] {
+  color: #8aa8ff;
 }
 
 .thumb-shimmer {
