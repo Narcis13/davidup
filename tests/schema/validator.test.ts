@@ -569,3 +569,278 @@ describe("validate — group cycles (E_GROUP_CYCLE)", () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe("validate — invisible opacity (W_ITEM_INVISIBLE_OPACITY)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("warns when an item's own opacity is 0 for its entire lifespan with no tween", () => {
+    const comp = baseComposition();
+    // Base fixture's logo-sprite starts at opacity 0 but is saved by the
+    // fade-in tween — drop it so the item really is permanently invisible.
+    comp.tweens = [];
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]!.code).toBe("W_ITEM_INVISIBLE_OPACITY");
+    expect(result.warnings[0]!.message).toMatch(/logo-sprite/);
+  });
+
+  it("does not warn when a tween drives the item's opacity away from 0", () => {
+    const comp = baseComposition();
+    const result = validate(comp);
+    expect(
+      result.warnings.some((w) => w.code === "W_ITEM_INVISIBLE_OPACITY"),
+    ).toBe(false);
+  });
+
+  it("warns when an ancestor group's opacity is permanently 0", () => {
+    const comp = baseComposition();
+    comp.tweens = [];
+    const logo = comp.items["logo-sprite"]!;
+    if (logo.type === "sprite") logo.transform.opacity = 1; // item itself is fine
+    comp.items["wrapper"] = {
+      type: "group",
+      items: ["logo-sprite"],
+      transform: { ...transform, opacity: 0 },
+    };
+    comp.layers[1]!.items = ["wrapper", "title-text"];
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find(
+      (w) => w.code === "W_ITEM_INVISIBLE_OPACITY",
+    );
+    expect(warn?.message).toMatch(/logo-sprite/);
+    expect(warn?.message).toMatch(/wrapper/);
+  });
+
+  it("warns when the item's layer opacity is 0", () => {
+    const comp = baseComposition();
+    comp.tweens = [];
+    const logo = comp.items["logo-sprite"]!;
+    if (logo.type === "sprite") logo.transform.opacity = 1;
+    comp.layers[1]!.opacity = 0;
+    const result = validate(comp);
+    const warn = result.warnings.find(
+      (w) =>
+        w.code === "W_ITEM_INVISIBLE_OPACITY" &&
+        w.path === "items.logo-sprite.transform.opacity",
+    );
+    expect(warn?.message).toMatch(/foreground-layer/);
+  });
+});
+
+describe("validate — off-canvas items (W_ITEM_OFF_CANVAS)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("warns when a static sprite never overlaps the canvas", () => {
+    const comp = baseComposition();
+    comp.items["offscreen-sprite"] = {
+      type: "sprite",
+      asset: "logo",
+      width: 100,
+      height: 100,
+      transform: { ...transform, x: 5000, y: 5000 },
+    };
+    comp.layers[1]!.items.push("offscreen-sprite");
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find((w) => w.code === "W_ITEM_OFF_CANVAS");
+    expect(warn?.message).toMatch(/offscreen-sprite/);
+  });
+
+  it("does not warn when a tween brings the item back on-canvas", () => {
+    const comp = baseComposition();
+    comp.items["moving-sprite"] = {
+      type: "sprite",
+      asset: "logo",
+      width: 100,
+      height: 100,
+      // y is already on-canvas; only x starts off-canvas and gets tweened back.
+      transform: { ...transform, x: 5000, y: 500 },
+    };
+    comp.layers[1]!.items.push("moving-sprite");
+    comp.tweens.push({
+      id: "moving-sprite-slide",
+      target: "moving-sprite",
+      property: "transform.x",
+      from: 5000,
+      to: 100,
+      start: 0,
+      duration: 2,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(
+      result.warnings.some(
+        (w) => w.code === "W_ITEM_OFF_CANVAS" && w.message.includes("moving-sprite"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn about an item off-canvas inside a group (ancestor transform out of scope)", () => {
+    const comp = baseComposition();
+    comp.items["nested-offscreen"] = {
+      type: "sprite",
+      asset: "logo",
+      width: 100,
+      height: 100,
+      transform: { ...transform, x: 5000, y: 5000 },
+    };
+    comp.items["wrapper"] = {
+      type: "group",
+      items: ["nested-offscreen"],
+      transform,
+    };
+    comp.layers[1]!.items.push("wrapper");
+    const result = validate(comp);
+    expect(result.warnings.some((w) => w.code === "W_ITEM_OFF_CANVAS")).toBe(
+      false,
+    );
+  });
+});
+
+describe("validate — unregistered font (W_FONT_UNREGISTERED)", () => {
+  it("warns (alongside E_ASSET_MISSING) when text.font doesn't resolve", () => {
+    const comp = baseComposition();
+    const text = comp.items["title-text"]!;
+    if (text.type === "text") text.font = "ghost-font";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_ASSET_MISSING")).toBe(true);
+    const warn = result.warnings.find((w) => w.code === "W_FONT_UNREGISTERED");
+    expect(warn?.message).toMatch(/ghost-font/);
+  });
+
+  it("does not warn when the font resolves to a registered font asset", () => {
+    const comp = baseComposition();
+    const result = validate(comp);
+    expect(result.warnings.some((w) => w.code === "W_FONT_UNREGISTERED")).toBe(
+      false,
+    );
+  });
+});
+
+describe("validate — scene instance outliving its scene (W_SCENE_INSTANCE_OUTLIVES)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("warns when a scene-instance wrapper stays visible long after its content's last tween", () => {
+    const comp = baseComposition();
+    comp.items["intro__box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 100,
+      height: 100,
+      fillColor: "#ffffff",
+      transform,
+    };
+    comp.items["intro"] = {
+      type: "group",
+      items: ["intro__box"],
+      transform,
+      enter: 0,
+      exit: 10,
+    };
+    comp.layers[1]!.items.push("intro");
+    comp.tweens.push({
+      id: "intro-box-fade",
+      target: "intro__box",
+      property: "transform.opacity",
+      from: 0,
+      to: 1,
+      start: 0,
+      duration: 2,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find(
+      (w) => w.code === "W_SCENE_INSTANCE_OUTLIVES",
+    );
+    expect(warn?.message).toMatch(/"intro"/);
+  });
+
+  it("does not warn when the wrapper's exit matches the content's last tween end", () => {
+    const comp = baseComposition();
+    comp.items["intro__box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 100,
+      height: 100,
+      fillColor: "#ffffff",
+      transform,
+    };
+    comp.items["intro"] = {
+      type: "group",
+      items: ["intro__box"],
+      transform,
+      enter: 0,
+      exit: 2,
+    };
+    comp.layers[1]!.items.push("intro");
+    comp.tweens.push({
+      id: "intro-box-fade",
+      target: "intro__box",
+      property: "transform.opacity",
+      from: 0,
+      to: 1,
+      start: 0,
+      duration: 2,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(
+      result.warnings.some((w) => w.code === "W_SCENE_INSTANCE_OUTLIVES"),
+    ).toBe(false);
+  });
+
+  it("does not warn on a scene-instance wrapper with no animation inside it", () => {
+    const comp = baseComposition();
+    comp.items["intro__box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 100,
+      height: 100,
+      fillColor: "#ffffff",
+      transform,
+    };
+    comp.items["intro"] = {
+      type: "group",
+      items: ["intro__box"],
+      transform,
+      enter: 0,
+      exit: 100,
+    };
+    comp.layers[1]!.items.push("intro");
+    const result = validate(comp);
+    expect(
+      result.warnings.some((w) => w.code === "W_SCENE_INSTANCE_OUTLIVES"),
+    ).toBe(false);
+  });
+});

@@ -1194,6 +1194,10 @@ is bit-deterministic.
 | `E_TWEEN_OVERLAP`                 | validator / store   | two tweens on same (target,property) overlap               |
 | `E_GROUP_CYCLE`                   | validator           | cycle in group containment                                 |
 | `W_TWEEN_TRUNCATED`               | validator (warning) | tween extends past composition.duration                    |
+| `W_ITEM_INVISIBLE_OPACITY`        | validator (warning) | item/ancestor group/layer opacity is 0 for the whole run, untweened |
+| `W_ITEM_OFF_CANVAS`               | validator (warning) | item's full range of motion never overlaps the canvas rect  |
+| `W_FONT_UNREGISTERED`             | validator (warning) | text.font doesn't resolve to a registered font asset (host-dependent fallback at render) |
+| `W_SCENE_INSTANCE_OUTLIVES`       | validator (warning) | scene-instance wrapper group stays visible well past its content's last tween |
 | `E_NO_COMPOSITION`                | store / dispatch    | no default composition; pass `compositionId`               |
 | `E_DUPLICATE_ID`                  | store               | id already in use                                          |
 | `E_NOT_FOUND`                     | store               | entity (item/layer/asset/tween) does not exist             |
