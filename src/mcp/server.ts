@@ -99,13 +99,27 @@ function registerTool(
     async (args: unknown) => {
       const deps = await depsFactory(tool.name);
       const outcome = await dispatchTool(tool, args, deps, router);
-      return toCallToolResult(outcome);
+      return toCallToolResult(tool, outcome);
     },
   );
 }
 
-function toCallToolResult(outcome: DispatchResult): CallToolResult {
+function toCallToolResult(tool: ToolDef, outcome: DispatchResult): CallToolResult {
   if (outcome.ok) {
+    if (tool.toImages) {
+      const { images, metadata } = tool.toImages(outcome.result);
+      return {
+        content: [
+          ...images.map((img) => ({
+            type: "image" as const,
+            data: img.data,
+            mimeType: img.mimeType,
+          })),
+          { type: "text" as const, text: jsonStringify(metadata) },
+        ],
+        structuredContent: asStructured(metadata),
+      };
+    }
     const payload = outcome.result;
     return {
       content: [{ type: "text", text: jsonStringify(payload) }],

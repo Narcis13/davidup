@@ -74,7 +74,10 @@ import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
   renderThumbnailStrip,
+  THUMBNAIL_STRIP_MAX_COUNT,
+  type PreviewResult,
   type PreviewSkiaModule,
+  type ThumbnailStripResult,
 } from "./render.js";
 import {
   CompositionStore,
@@ -357,6 +360,11 @@ async function resolveImportScenePath(
 
 // ──────────────── Tool definition shape ────────────────
 
+export interface ToolImageContent {
+  data: string; // base64
+  mimeType: string;
+}
+
 export interface ToolDef<Shape extends z.ZodRawShape = z.ZodRawShape> {
   name: string;
   title: string;
@@ -366,6 +374,17 @@ export interface ToolDef<Shape extends z.ZodRawShape = z.ZodRawShape> {
   // We re-validate with our own object here so direct callers (tests,
   // examples) can use the dispatcher without going through the SDK.
   handler: (args: z.infer<z.ZodObject<Shape>>, deps: ToolDeps) => Promise<unknown> | unknown;
+  // R-17 — optional escape hatch for tools whose payload embeds base64 image
+  // bytes (preview / thumbnail renders). The handler's return value stays a
+  // plain, transport-agnostic object (so direct callers and tests keep
+  // seeing `{ image, mimeType, ... }`); `toImages` tells server.ts — the one
+  // place that knows about MCP `CallToolResult` shape — how to split that
+  // object into real MCP image content blocks plus a base64-free metadata
+  // object for the trailing text block / structuredContent. Without this,
+  // image bytes sit inert inside a JSON text blob: vision-capable MCP
+  // clients don't render that as an image, and it doubles response size for
+  // clients that do read structuredContent.
+  toImages?: (result: unknown) => { images: ToolImageContent[]; metadata: unknown };
 }
 
 function defineTool<Shape extends z.ZodRawShape>(def: ToolDef<Shape>): ToolDef<z.ZodRawShape> {
@@ -390,7 +409,11 @@ const createComposition = defineTool({
   name: "create_composition",
   title: "Create composition",
   description:
-    "Create a new composition. Becomes the default composition if none exists. Returns the assigned compositionId.",
+    "Create a new composition. Becomes the default composition if none exists. Returns the assigned compositionId. " +
+    "On the standalone engine server, composition state lives in the long-running server process, not per MCP " +
+    "client connection — a new conversation attached to an already-running server can inherit compositions left " +
+    "over from a previous conversation. If this call fails with E_DUPLICATE_ID against an `id` you haven't used " +
+    "yet, that's almost certainly why: call `reset` (or pass a fresh `id`) to start clean.",
   inputSchema: {
     width: z.number().int().positive(),
     height: z.number().int().positive(),
@@ -462,7 +485,10 @@ const resetTool = defineTool({
   name: "reset",
   title: "Reset / drop composition",
   description:
-    "Clear the active (or specified) composition. Leaves other compositions untouched if compositionId is given.",
+    "Clear the active (or specified) composition. Leaves other compositions untouched if compositionId is given. " +
+    "State is not scoped to your MCP client session: on the standalone engine server it lives in the server " +
+    "process and persists across separate conversations/connections until something calls `reset` or the " +
+    "process restarts. Call this at the start of a new session if you can't assume a clean slate.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
   },
@@ -786,7 +812,10 @@ const addText = defineTool({
   name: "add_text",
   title: "Add text item",
   description:
-    "Add a text item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the text's measured box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
+    "Add a text item to a layer. `font` is the `id` of a font asset already registered via `register_asset` " +
+    '(`type: "font"`) or present in the editor Library — NOT a CSS font-family name like "Arial" or "sans-serif". ' +
+    "Call `list_fonts` first to see what's registered/available; if it comes back empty, its `hint` field explains " +
+    "how to register one. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the text's measured box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     text: z.string(),
@@ -2165,7 +2194,10 @@ const renderPreviewFrameTool = defineTool({
   name: "render_preview_frame",
   title: "Render preview frame",
   description:
-    "Render a single frame at time t and return base64-encoded PNG/JPEG. Validates first.",
+    "Render a single frame at time t and return it as a real MCP image content block (PNG/JPEG) " +
+    "so vision-capable clients (and you, watching the agent work) can see it directly — not just " +
+    "base64 text an agent can't view. `mimeType`/`width`/`height` are also returned as metadata " +
+    "alongside the image block. Validates first.",
   inputSchema: {
     time: z.number().nonnegative(),
     format: z.enum(["png", "jpeg"]).optional(),
@@ -2180,13 +2212,21 @@ const renderPreviewFrameTool = defineTool({
     });
     return result;
   },
+  toImages: (result) => {
+    const { image, ...metadata } = result as PreviewResult;
+    return { images: [{ data: image, mimeType: metadata.mimeType }], metadata };
+  },
 });
 
 const renderThumbnailStripTool = defineTool({
   name: "render_thumbnail_strip",
   title: "Render thumbnail strip",
   description:
-    "Render `count` frames uniformly sampled across the timeline. Returns base64 image array + sample times.",
+    "Render `count` frames uniformly sampled across the timeline and return each as a real MCP " +
+    "image content block (not base64 buried in JSON), alongside the parallel `times` sample array " +
+    `and mimeType/width/height metadata. \`count\` is capped at ${THUMBNAIL_STRIP_MAX_COUNT} per ` +
+    "call — a higher value returns a structured E_INVALID_VALUE with a hint instead of flooding " +
+    "the response with dozens of images; sample a narrower time range or call again for the rest.",
   inputSchema: {
     count: z.number().int().positive(),
     format: z.enum(["png", "jpeg"]).optional(),
@@ -2201,6 +2241,13 @@ const renderThumbnailStripTool = defineTool({
       ...(skiaCanvas !== undefined ? { skiaCanvas } : {}),
     });
     return result;
+  },
+  toImages: (result) => {
+    const { images, ...metadata } = result as ThumbnailStripResult;
+    return {
+      images: images.map((data) => ({ data, mimeType: metadata.mimeType })),
+      metadata,
+    };
   },
 });
 
@@ -2545,7 +2592,8 @@ const listFontsTool = defineTool({
   name: "list_fonts",
   title: "List fonts",
   description:
-    "List fonts available to `add_text`. `composition` lists font assets currently registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`.",
+    "List fonts available to `add_text`. `composition` lists font assets currently registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`. " +
+    "If both arrays come back empty (a fresh standalone server ships with zero fonts registered), the response carries a `hint` explaining how to register one — `add_text`'s `font` will otherwise reject with E_NOT_FOUND/E_INVALID_VALUE against an id that doesn't exist yet.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
   },
@@ -2578,6 +2626,19 @@ const listFontsTool = defineTool({
         // not block composition-scoped discovery.
       }
     }
+    // R-30 — an agent hitting an empty catalog had no signal beyond "the
+    // arrays are empty"; it had to go hunting for a .ttf on disk before it
+    // could call add_text at all. Spell out the fix inline instead.
+    if (composition.length === 0 && library.length === 0) {
+      return {
+        composition,
+        library,
+        hint:
+          "No fonts are registered yet. Call `register_asset` with " +
+          '`type: "font"`, a `family` name, and `src` pointing at a .ttf/.otf/.woff(2) file on ' +
+          "disk, then pass that asset's `id` (not `family`) as `add_text`'s `font` field.",
+      };
+    }
     return { composition, library };
   },
 });
@@ -2586,10 +2647,22 @@ const listEngineCapabilitiesTool = defineTool({
   name: "list_engine_capabilities",
   title: "List engine capabilities",
   description:
-    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, supported audio/video containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary.",
+    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, supported audio/video containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary. " +
+    "Also reports `server.flavor` (`\"standalone\"` | `\"editor\"`) so you know up front whether project_*/library_*/render-queue tools are available — check that instead of learning the hard way via `E_FEATURE_UNAVAILABLE`.",
   inputSchema: {},
-  handler: () => {
+  handler: (_args, deps) => {
     return {
+      // R-28 — tell the agent which optional surfaces this server hosts
+      // instead of making it discover the gaps one E_FEATURE_UNAVAILABLE at
+      // a time. `projectControls`/`libraryControls`/`renderControls` are
+      // only ever injected by the editor's mcp_bridge (see ToolDeps in this
+      // file); their absence is exactly what makes a server "standalone".
+      server: {
+        flavor: deps.projectControls ? ("editor" as const) : ("standalone" as const),
+        hasProjectLifecycle: Boolean(deps.projectControls),
+        hasLibrary: Boolean(deps.libraryControls),
+        hasRenderQueue: Boolean(deps.renderControls),
+      },
       schemaVersion: COMPOSITION_VERSION,
       easings: [...EASING_NAMES],
       blendModes: [...BLEND_MODES],

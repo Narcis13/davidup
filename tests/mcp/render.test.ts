@@ -11,6 +11,7 @@ import {
   renderPreviewFrame,
   renderThumbnailStrip,
   sampleTimes,
+  THUMBNAIL_STRIP_MAX_COUNT,
 } from "../../src/mcp/render.js";
 import type { Composition } from "../../src/schema/types.js";
 import { FakeContext } from "../engine/fakeContext.js";
@@ -169,5 +170,27 @@ describe("renderThumbnailStrip (fake skia)", () => {
     await expect(
       renderThumbnailStrip(tinyComp(), { count: 0, skiaCanvas: skia as never }),
     ).rejects.toThrow();
+  });
+
+  it("rejects count above THUMBNAIL_STRIP_MAX_COUNT with a structured, hinted error", async () => {
+    const skia = makeFakeSkia();
+    await expect(
+      renderThumbnailStrip(tinyComp(), {
+        count: THUMBNAIL_STRIP_MAX_COUNT + 1,
+        skiaCanvas: skia as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "E_INVALID_VALUE",
+      hint: expect.stringContaining(String(THUMBNAIL_STRIP_MAX_COUNT)),
+    });
+  });
+
+  it("accepts count exactly at THUMBNAIL_STRIP_MAX_COUNT", async () => {
+    const skia = makeFakeSkia();
+    const result = await renderThumbnailStrip(tinyComp(10), {
+      count: THUMBNAIL_STRIP_MAX_COUNT,
+      skiaCanvas: skia as never,
+    });
+    expect(result.images).toHaveLength(THUMBNAIL_STRIP_MAX_COUNT);
   });
 });

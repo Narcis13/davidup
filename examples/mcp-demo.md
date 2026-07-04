@@ -63,10 +63,13 @@ MCP registries.
 
 Every tool returns either:
 
-- a payload object (e.g. `{ compositionId: "comp-1" }`, `{ ok: true }`,
-  `{ image: "<base64>", mimeType: "image/png", width, height }`); or
+- a payload object (e.g. `{ compositionId: "comp-1" }`, `{ ok: true }`); or
 - a structured error envelope `{ error: { code, message, hint? } }` with
   `isError: true` on the MCP `CallToolResult`.
+
+`render_preview_frame` and `render_thumbnail_strip` are the exception: the
+image bytes arrive as real MCP image content blocks (`{ type: "image", data,
+mimeType }`), not base64 stuffed inside the JSON payload — see §3.7.
 
 Error codes are stable strings, one of the 32 in `MCP_ERROR_CODES`
 (`src/engine/errors.ts`) — see §3.10 for the full table with cause and
@@ -294,16 +297,19 @@ todo list.
 ```jsonc
 // → render_preview_frame
 { "time": 0.5, "format": "png" }
-// ← {
-//     "image": "<base64-encoded PNG, ~6KB for hello-world>",
-//     "mimeType": "image/png",
-//     "width": 1280, "height": 720
-//   }
+// ← content: [
+//     { "type": "image", "data": "<base64-encoded PNG, ~6KB for hello-world>", "mimeType": "image/png" },
+//     { "type": "text", "text": "{ \"mimeType\": \"image/png\", \"width\": 1280, \"height\": 720 }" }
+//   ]
 ```
 
-The MCP client renders the base64 inline (Claude Code shows it as an image
-attachment) so the agent — and you watching it — can verify the composition
-visually. The pattern is **preview at the beats that matter**: t=0 (start),
+The image arrives as a real MCP image content block, not base64 buried
+inside a JSON text blob — the MCP client renders it inline (Claude Code shows
+it as an image attachment) so the agent — and you watching it — can verify
+the composition visually. This matters: an agent that can only see base64
+text cannot actually look at what it rendered, which is exactly the gap that
+let two real rendering bugs slip past a previous agent-driven pass unnoticed.
+The pattern is **preview at the beats that matter**: t=0 (start),
 mid-key-tween (here 0.5s), end-of-key-tween (1.5s), end of clip.
 
 ### 3.8 Get a contact-sheet across the timeline
@@ -311,15 +317,16 @@ mid-key-tween (here 0.5s), end-of-key-tween (1.5s), end of clip.
 ```jsonc
 // → render_thumbnail_strip
 { "count": 6, "format": "png" }
-// ← {
-//     "images": ["<b64>", "<b64>", "<b64>", "<b64>", "<b64>", "<b64>"],
-//     "times":  [0, 0.6, 1.2, 1.8, 2.4, 3.0],
-//     "mimeType": "image/png", "width": 1280, "height": 720
-//   }
+// ← content: [
+//     { "type": "image", "data": "<b64>", "mimeType": "image/png" },  // ×6, one per sampled frame
+//     { "type": "text", "text": "{ \"times\": [0, 0.6, 1.2, 1.8, 2.4, 3.0], \"mimeType\": \"image/png\", \"width\": 1280, \"height\": 720 }" }
+//   ]
 ```
 
 `count: 1` returns the midpoint frame. `count: 2+` includes endpoints
-(`linspace(0, duration, count)`).
+(`linspace(0, duration, count)`). `count` is capped at 30 — a higher value
+returns a structured `E_INVALID_VALUE` with a hint instead of flooding the
+response with dozens of images; sample a narrower time range instead.
 
 ### 3.9 Render the final clip
 

@@ -35,7 +35,7 @@ const BIN_PATH = join(REPO_ROOT, "src", "mcp", "bin.ts");
 
 interface ToolCallEnvelope {
   structuredContent?: Record<string, unknown>;
-  content: Array<{ type: string; text?: string }>;
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
   isError?: boolean;
 }
 
@@ -244,35 +244,41 @@ describe("MCP server — end-to-end over stdio", () => {
       expect(validate.valid).toBe(true);
       expect(validate.errors).toEqual([]);
 
-      // 7. render_preview_frame → base64 PNG with magic bytes
-      const preview = structured(
-        (await client.callTool({
-          name: "render_preview_frame",
-          arguments: { time: 0.2 },
-        })) as ToolCallEnvelope,
-      );
-      expect(preview.mimeType).toBe("image/png");
-      expect(typeof preview.image).toBe("string");
-      const previewBytes = Buffer.from(preview.image as string, "base64");
+      // 7. render_preview_frame → a real MCP image content block (R-17), not
+      // base64 buried in a text/JSON blob — plus lean metadata alongside it.
+      const previewResult = (await client.callTool({
+        name: "render_preview_frame",
+        arguments: { time: 0.2 },
+      })) as ToolCallEnvelope;
+      expect(previewResult.isError).not.toBe(true);
+      const previewImageBlock = previewResult.content.find((c) => c.type === "image");
+      expect(previewImageBlock).toBeDefined();
+      expect(previewImageBlock?.mimeType).toBe("image/png");
+      const previewBytes = Buffer.from(previewImageBlock?.data ?? "", "base64");
       expect(previewBytes.length).toBeGreaterThan(8);
       expect(previewBytes.subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true);
+      const preview = structured(previewResult);
+      expect(preview).not.toHaveProperty("image");
+      expect(preview.mimeType).toBe("image/png");
       expect(preview.width).toBe(120);
       expect(preview.height).toBe(80);
 
-      // 8. render_thumbnail_strip — 3 uniformly-sampled frames
-      const strip = structured(
-        (await client.callTool({
-          name: "render_thumbnail_strip",
-          arguments: { count: 3 },
-        })) as ToolCallEnvelope,
-      );
-      const images = strip.images as string[];
-      expect(Array.isArray(images)).toBe(true);
-      expect(images).toHaveLength(3);
-      for (const img of images) {
-        const bytes = Buffer.from(img, "base64");
+      // 8. render_thumbnail_strip — 3 uniformly-sampled frames, each its own
+      // MCP image content block.
+      const stripResult = (await client.callTool({
+        name: "render_thumbnail_strip",
+        arguments: { count: 3 },
+      })) as ToolCallEnvelope;
+      expect(stripResult.isError).not.toBe(true);
+      const stripImageBlocks = stripResult.content.filter((c) => c.type === "image");
+      expect(stripImageBlocks).toHaveLength(3);
+      for (const block of stripImageBlocks) {
+        expect(block.mimeType).toBe("image/png");
+        const bytes = Buffer.from(block.data ?? "", "base64");
         expect(bytes.subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true);
       }
+      const strip = structured(stripResult);
+      expect(strip).not.toHaveProperty("images");
       const times = strip.times as number[];
       expect(times).toEqual([0, 0.25, 0.5]);
 

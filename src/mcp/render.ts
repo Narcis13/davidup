@@ -49,6 +49,14 @@ export interface ThumbnailStripOptions extends RenderPreviewOptions {
   count: number;
 }
 
+// R-18 — an agent (or a bad prompt) requesting `count: 500` would render 500
+// frames serially and flood the tool response channel with base64 payloads.
+// Cap it to a sane strip size; anything above this is almost certainly a
+// mistake (a real contact sheet rarely needs more than a couple dozen
+// frames) and callers who genuinely need finer coverage should page across
+// multiple calls with different time ranges instead.
+export const THUMBNAIL_STRIP_MAX_COUNT = 30;
+
 export interface ThumbnailStripResult {
   images: string[]; // base64 frames, length === count
   times: number[]; // sample times in seconds, parallel to images
@@ -102,6 +110,14 @@ export async function renderThumbnailStrip(
     throw new MCPToolError(
       "E_INVALID_VALUE",
       "thumbnail count must be a positive integer.",
+    );
+  }
+  if (options.count > THUMBNAIL_STRIP_MAX_COUNT) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `thumbnail count ${options.count} exceeds the maximum of ${THUMBNAIL_STRIP_MAX_COUNT}.`,
+      `Request at most ${THUMBNAIL_STRIP_MAX_COUNT} thumbnails per call — sample a narrower ` +
+        "time range, or call render_thumbnail_strip again for the remaining span.",
     );
   }
   const format: PreviewFormat = options.format ?? "png";
