@@ -207,6 +207,13 @@ export function buildMuxArgs(input: BuildMuxArgsInput): string[] {
     MUX_AUDIO_BITRATE,
     "-ar",
     String(MUX_SAMPLE_RATE),
+    // R-16: same bitexact rationale as the stage-1 encode (buildFfmpegArgs)
+    // — strip container timestamps and the aac encoder tag so the final
+    // muxed MP4 is reproducible too.
+    "-fflags",
+    "+bitexact",
+    "-flags:a",
+    "+bitexact",
   );
   if (input.movflagsFaststart) args.push("-movflags", "+faststart");
   args.push(input.outputPath);

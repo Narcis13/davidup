@@ -7,6 +7,10 @@
 # Two independent jobs: `root` (bun) and `editor` (pnpm — the editor tree is
 # pnpm-installed; apps/editor/package-lock.json is stale and has no davidup
 # entry, so npm ci would fail there).
+#
+# The root suite includes the Session 23 determinism harness (golden frame
+# hashes, MP4 bitexact reproducibility, node↔browser pixel parity) — the
+# last of those needs a real headless Chromium, installed below.
 name: CI
 
 on:
@@ -53,6 +57,19 @@ jobs:
       # the bundled ffmpeg-static.
       - name: Generate video fixtures
         run: bash tests/drivers/fixtures/video/generate.sh
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+
+      # The node↔browser parity test (tests/determinism/) launches a real
+      # headless Chromium; --with-deps pulls in the system libs Ubuntu's
+      # base image lacks (the test itself degrades to a skip if this step
+      # is ever unavailable, but CI should exercise it for real).
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
 
       - name: Root typecheck
         run: bun run typecheck

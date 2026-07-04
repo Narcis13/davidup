@@ -72,6 +72,10 @@ describe("buildFfmpegArgs", () => {
       "18",
       "-pix_fmt",
       "yuv420p",
+      "-fflags",
+      "+bitexact",
+      "-flags:v",
+      "+bitexact",
       "/tmp/out.mp4",
     ]);
   });

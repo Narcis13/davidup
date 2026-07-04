@@ -368,6 +368,18 @@ export function buildFfmpegArgs(
     String(opts.crf ?? 18),
     "-pix_fmt",
     opts.pixFmt ?? "yuv420p",
+    // R-16: `+bitexact` on both the muxer (`-fflags`) and the video encoder
+    // (`-flags:v`) strips wall-clock-derived container fields
+    // (`creation_time`/`modification_time` in `mvhd`/`mdhd`) and the
+    // libx264-version tag string that otherwise vary between two encodes of
+    // identical input — output-file options so they bind to the mp4 muxer,
+    // per ffmpeg's documented bitexact idiom. Scopes the "byte-identical
+    // MP4" claim to what's actually reproducible; see
+    // bitexact.integration.test.ts.
+    "-fflags",
+    "+bitexact",
+    "-flags:v",
+    "+bitexact",
   ];
   if (opts.movflagsFaststart) {
     args.push("-movflags", "+faststart");
