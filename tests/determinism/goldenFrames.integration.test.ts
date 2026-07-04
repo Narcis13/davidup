@@ -22,15 +22,17 @@
 // deterministic) from libx264/container reproducibility, which is a
 // different claim covered by bitexact.integration.test.ts.
 //
-// Font-registration caveat (BUGS.md R-32): re-rendering a composition whose
-// custom font family is already registered in this process (skia-canvas's
-// `FontLibrary` is a process-global registry) can shift pixel output. Two of
-// these examples ("comprehensive" and "video-bg-text") share the
-// "DavidupDisplay" family, so this file's hashes are only stable because (a)
-// each example renders exactly once per `vitest run`, and (b) `GOLDEN_EXAMPLES`
-// is iterated in the same fixed order every time — first-registration order
-// is therefore repeatable. Don't reorder `GOLDEN_EXAMPLES` or add a second
-// render of a font-bearing example to this file without accounting for that.
+// Font-registration note (BUGS.md R-32, fixed Session 28): re-rendering a
+// composition whose custom font family was already registered in this process
+// (skia-canvas's `FontLibrary` is a process-global registry) used to shift
+// pixel output, because `NodeAssetLoader` called `FontLibrary.use()` again
+// every time regardless. Two of these examples ("comprehensive" and
+// "video-bg-text") share the "DavidupDisplay" family and exercise exactly that
+// path. `src/assets/node.ts` now skips re-registering an already-claimed
+// (family, path) pair, so `GOLDEN_EXAMPLES`'s order (and rendering a
+// font-bearing example more than once per process) no longer matters for
+// hash stability — see the R-13/R-32 tests in `tests/assets/node.test.ts` and
+// the same-process reproducibility test in `bitexact.integration.test.ts`.
 
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

@@ -149,6 +149,8 @@ Five-region CSS grid (top bar / library / stage / inspector / timeline / status 
 
 Items: `sprite`, `text`, `shape` (rect / circle / polygon), `group`. Every item has a `transform` ({ x, y, scaleX, scaleY, rotation, anchorX, anchorY, opacity }) plus type-specific properties.
 
+Group opacity is multiplicative alpha, not isolated/offscreen compositing (R-20, decided v1.0): a group's `transform.opacity` multiplies into each descendant's own alpha rather than flattening the group to one layer and applying opacity once. Overlapping semi-transparent children inside the same group therefore blend against each other at full strength before the group's opacity is applied on top, so a 50%-opacity group with two overlapping 50%-alpha children is *not* visually equivalent to compositing the whole group as a single flattened layer at 50%. This is an intentional trade-off, not a bug: true isolated group compositing needs a canvas-sized scratch surface plus a way to copy the current transform matrix onto it, which the engine's minimal Canvas2D contract doesn't expose today. Revisit if a real project needs isolated group blending.
+
 Layers: positive `z` (higher = on top). Stable-sorted with declaration order as tiebreaker. Engine support for layer `opacity` and `blendMode`.
 
 Tweens: a single property animated from `from` to `to` over `[start, start+duration]` with an easing. Bucket-indexed by `(target, property)` and binary-walked at sample time — no per-frame sort. Overlap on the same `(target, property)` is rejected by `validate` with `E_TWEEN_OVERLAP`.

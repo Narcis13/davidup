@@ -306,12 +306,16 @@ export interface ListTweensFilter {
 }
 
 // Audio track inputs (v0.2 §S3). `start`/`end` are composition seconds (`end`
-// omitted ⇒ play out to the asset's natural duration at mux time); `volume` is
-// a linear gain in [0, 2]; `fadeIn`/`fadeOut` are ramp lengths in seconds.
+// omitted ⇒ play out to the asset's natural duration at mux time); `trimIn`
+// (R-11, Session 28) is the in-source offset in seconds — independent of
+// `start`/`end`, which only place the (possibly offset) clip on the timeline;
+// `volume` is a linear gain in [0, 2]; `fadeIn`/`fadeOut` are ramp lengths in
+// seconds.
 export interface AddAudioTrackInput {
   asset: string;
   start: number;
   end?: number;
+  trimIn?: number;
   volume?: number;
   fadeIn?: number;
   fadeOut?: number;
@@ -322,6 +326,7 @@ export interface UpdateAudioTrackProps {
   asset?: string;
   start?: number;
   end?: number;
+  trimIn?: number;
   volume?: number;
   fadeIn?: number;
   fadeOut?: number;
@@ -1366,6 +1371,7 @@ export class CompositionStore {
       asset: input.asset,
       start: input.start,
       ...(input.end !== undefined ? { end: input.end } : {}),
+      ...(input.trimIn !== undefined ? { trimIn: input.trimIn } : {}),
       ...(input.volume !== undefined ? { volume: input.volume } : {}),
       ...(input.fadeIn !== undefined ? { fadeIn: input.fadeIn } : {}),
       ...(input.fadeOut !== undefined ? { fadeOut: input.fadeOut } : {}),
@@ -1395,6 +1401,7 @@ export class CompositionStore {
       asset: assetId,
       start: props.start ?? existing.start,
       end: props.end ?? existing.end,
+      trimIn: props.trimIn ?? existing.trimIn,
       volume: props.volume ?? existing.volume,
       fadeIn: props.fadeIn ?? existing.fadeIn,
       fadeOut: props.fadeOut ?? existing.fadeOut,
@@ -1406,6 +1413,7 @@ export class CompositionStore {
       asset: merged.asset,
       start: merged.start,
       ...(merged.end !== undefined ? { end: merged.end } : {}),
+      ...(merged.trimIn !== undefined ? { trimIn: merged.trimIn } : {}),
       ...(merged.volume !== undefined ? { volume: merged.volume } : {}),
       ...(merged.fadeIn !== undefined ? { fadeIn: merged.fadeIn } : {}),
       ...(merged.fadeOut !== undefined ? { fadeOut: merged.fadeOut } : {}),
@@ -2085,6 +2093,7 @@ function pushUnique(arr: string[], value: string): void {
 function validateAudioFields(t: {
   start: number;
   end?: number | undefined;
+  trimIn?: number | undefined;
   volume?: number | undefined;
   fadeIn?: number | undefined;
   fadeOut?: number | undefined;
@@ -2097,6 +2106,7 @@ function validateAudioFields(t: {
       "Omit `end` to play the asset out to its natural duration.",
     );
   }
+  if (t.trimIn !== undefined) ensureNonNegative("Audio track trimIn", t.trimIn);
   if (t.volume !== undefined && (!Number.isFinite(t.volume) || t.volume < 0 || t.volume > 2)) {
     throw new MCPToolError(
       "E_INVALID_VALUE",
@@ -2133,9 +2143,15 @@ function audioPlacementWarnings(
 
   const assetDuration =
     asset.type === "audio" ? asset.duration : undefined;
+  // Remaining playable source after `trimIn` (R-11) — the clip can only run
+  // out to what's left of the file past the in-source seek point.
+  const remainingAssetDuration =
+    assetDuration !== undefined ? assetDuration - (track.trimIn ?? 0) : undefined;
   const effectiveEnd =
     track.end ??
-    (assetDuration !== undefined ? track.start + assetDuration : undefined);
+    (remainingAssetDuration !== undefined
+      ? track.start + remainingAssetDuration
+      : undefined);
   if (effectiveEnd !== undefined && effectiveEnd > compDuration + AUDIO_DURATION_EPS) {
     warnings.push(
       `${label} ends at ${effectiveEnd}s, past the composition end (${compDuration}s); it will be truncated at mux time.`,
@@ -2361,6 +2377,7 @@ function cloneAudioTrack(track: AudioTrack): AudioTrack {
     asset: track.asset,
     start: track.start,
     ...(track.end !== undefined ? { end: track.end } : {}),
+    ...(track.trimIn !== undefined ? { trimIn: track.trimIn } : {}),
     ...(track.volume !== undefined ? { volume: track.volume } : {}),
     ...(track.fadeIn !== undefined ? { fadeIn: track.fadeIn } : {}),
     ...(track.fadeOut !== undefined ? { fadeOut: track.fadeOut } : {}),

@@ -1070,6 +1070,7 @@ type AudioTrackLike = {
   asset: string
   start: number
   end?: number
+  trimIn?: number
   volume?: number
   fadeIn?: number
   fadeOut?: number
@@ -1105,7 +1106,14 @@ const audioTrackExceedsComposition = computed<boolean>(() => {
   return compositionDuration.value > 0 && track.end > compositionDuration.value
 })
 
-type AudioTrackEditableKey = 'asset' | 'start' | 'end' | 'volume' | 'fadeIn' | 'fadeOut'
+type AudioTrackEditableKey =
+  | 'asset'
+  | 'start'
+  | 'end'
+  | 'trimIn'
+  | 'volume'
+  | 'fadeIn'
+  | 'fadeOut'
 
 function dispatchAudioTrackEdit(key: AudioTrackEditableKey, value: unknown): void {
   const track = selectedAudioTrack.value
@@ -1230,6 +1238,14 @@ function deleteSelectedAudioTrack(): void {
           label="end"
           :disabled="pending"
           @update:model-value="(v: number) => dispatchAudioTrackEdit('end', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.trimIn ?? 0"
+          label="trimIn"
+          :max="audioTrackAssetDuration ?? undefined"
+          :disabled="pending"
+          title="Seconds into the source file to start reading from — independent of start/end (timeline placement)"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('trimIn', v)"
         />
         <PercentInput
           :model-value="selectedAudioTrack.volume ?? 1"

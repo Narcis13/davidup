@@ -297,13 +297,13 @@ Per U8 spec (add-video/add-audio entry points, empty states, polish). **Verify:*
 | 11 | S9 MCP video tools | — | ☐ |
 | 12 | S10 samples + docs | — | ☐ |
 | 13–20 | U1–U8 editor audio/video UI | §6.14 | ☐ |
-| 21 | render CLI | R-8 | ☐ |
+| 21 | render CLI | R-8 | ☑ |
 | 22 | npx packaging | R-9 | ☐ |
 | 23 | Determinism harness | R-14, R-16 | ☐ |
 | 24 | vue-tsc + Playwright | §6.18 | ☐ |
-| 25 | MCP ergonomics batch | R-17, R-18, R-28–R-30 | ☐ |
+| 25 | MCP ergonomics batch | R-17, R-18, R-28–R-30 | ☑ (R-29/R-30 only partially — see BUGS.md) |
 | 26 | Compose lint | §6.20 | ☐ |
 | 27 | Agent eval harness | §6.21 | ☐ |
-| 28 | P1 residuals | R-11, R-13, R-20 | ☐ |
+| 28 | P1 residuals | R-11, R-13, R-20 | ☑ |
 | 29 | Launch video + v1.0 tag | §5 gate 6 | ☐ |
 | 30 | v1.1 design docs (optional) | §6.22–23 | ☐ |

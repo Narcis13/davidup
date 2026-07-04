@@ -119,15 +119,17 @@ const SOURCE = z.enum(['ui', 'mcp']).default('ui')
 // schemas can diverge per the dual-schema contract, but any new AudioTrack
 // field MUST be mirrored here too or it is silently stripped from UI payloads.
 // `[start, end)` seconds on the composition timeline; `end` omitted ⇒ play to
-// the asset's natural duration. `volume` is a linear gain in [0, 2];
-// `fadeIn` / `fadeOut` are ramp lengths in seconds. `id` is the addressing key
-// used by the S3 MCP tools; optional in hand-authored JSON.
+// the asset's natural duration. `trimIn` (R-11, Session 28) is the in-source
+// offset in seconds, independent of timeline placement. `volume` is a linear
+// gain in [0, 2]; `fadeIn` / `fadeOut` are ramp lengths in seconds. `id` is the
+// addressing key used by the S3 MCP tools; optional in hand-authored JSON.
 export const AudioTrackSchema = z
   .object({
     id: ID.optional(),
     asset: ID,
     start: NON_NEG,
     end: z.number().optional(),
+    trimIn: NON_NEG.optional(),
     volume: z.number().min(0).max(2).optional(),
     fadeIn: NON_NEG.optional(),
     fadeOut: NON_NEG.optional(),
@@ -500,6 +502,7 @@ const addAudioTrack = z.object({
     asset: ID,
     start: NON_NEG,
     end: z.number().optional(),
+    trimIn: NON_NEG.optional(),
     volume: z.number().min(0).max(2).optional(),
     fadeIn: NON_NEG.optional(),
     fadeOut: NON_NEG.optional(),
@@ -518,6 +521,7 @@ const updateAudioTrack = z.object({
         asset: ID,
         start: NON_NEG,
         end: z.number(),
+        trimIn: NON_NEG,
         volume: z.number().min(0).max(2),
         fadeIn: NON_NEG,
         fadeOut: NON_NEG,

@@ -10,6 +10,20 @@
 // scale, multiply opacity, then translate by anchor offset before delegating
 // to the type-specific draw function. Groups recurse — Canvas2D's save/restore
 // stack handles transform matrix composition for free (per §5.4).
+//
+// Group opacity is multiplicative alpha, not isolated/offscreen compositing
+// (R-20, decided Session 28 — see BUGS.md): a group's own `transform.opacity`
+// multiplies `ctx.globalAlpha` exactly like any other item, then its children
+// draw straight onto the shared canvas. Overlapping semi-transparent children
+// inside the same group therefore blend against each other at full strength
+// first, and that combined result gets alpha-multiplied again by the group's
+// opacity — i.e. it is NOT equivalent to flattening the group to one layer
+// and then applying opacity once. This is intentional for v1.0: true isolated
+// group compositing needs a canvas-sized scratch surface plus a way to copy
+// the current transform matrix onto it, which the minimal `Canvas2DContext`
+// contract deliberately doesn't expose (see `OffscreenSurface`, used today
+// only for same-size, identity-transform sprite tinting). Revisit if a real
+// project needs isolated group blending.
 
 import type {
   BlendMode,
@@ -138,6 +152,9 @@ export function drawItem(
   ctx.translate(tr.x, tr.y);
   if (tr.rotation !== 0) ctx.rotate(tr.rotation);
   if (tr.scaleX !== 1 || tr.scaleY !== 1) ctx.scale(tr.scaleX, tr.scaleY);
+  // For a group, this multiplies into every descendant's own alpha rather
+  // than isolating the group and applying opacity once — see the R-20 note
+  // in the module header for why that's an intentional v1.0 trade-off.
   ctx.globalAlpha = ctx.globalAlpha * tr.opacity;
 
   const w = anchorWidth(item);

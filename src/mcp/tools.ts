@@ -1146,11 +1146,14 @@ const addAudioTrack = defineTool({
   name: "add_audio_track",
   title: "Add audio track",
   description:
-    "Add an external audio track to the composition timeline. `asset` must be a registered audio asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't audio). `end` is optional — omit it to play the asset out to its natural duration. Returns the assigned `audioTrackId`, plus a `warnings` array when the track extends past the composition end (it is trimmed at mux time, never rejected).",
+    "Add an external audio track to the composition timeline. `asset` must be a registered audio asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't audio). `end` is optional — omit it to play the asset out to its natural duration. `trimIn` seeks into the source file before playback starts, independent of timeline placement — e.g. `{ start: 2, trimIn: 10 }` places the clip at composition second 2 but begins reading the source file at its 10s mark. Returns the assigned `audioTrackId`, plus a `warnings` array when the track extends past the composition end (it is trimmed at mux time, never rejected).",
   inputSchema: {
     asset: z.string().min(1),
     start: z.number().nonnegative(),
     end: z.number().optional(),
+    trimIn: z.number().nonnegative().optional().describe(
+      "Seconds into the source file to start reading from (in-source offset — a track can start mid-file). Independent of `start`/`end`, which place the clip on the composition timeline.",
+    ),
     volume: AUDIO_VOLUME.optional(),
     fadeIn: AUDIO_FADE.optional(),
     fadeOut: AUDIO_FADE.optional(),
@@ -1163,6 +1166,7 @@ const addAudioTrack = defineTool({
         asset: args.asset,
         start: args.start,
         ...(args.end !== undefined ? { end: args.end } : {}),
+        ...(args.trimIn !== undefined ? { trimIn: args.trimIn } : {}),
         ...(args.volume !== undefined ? { volume: args.volume } : {}),
         ...(args.fadeIn !== undefined ? { fadeIn: args.fadeIn } : {}),
         ...(args.fadeOut !== undefined ? { fadeOut: args.fadeOut } : {}),
@@ -1188,6 +1192,7 @@ const updateAudioTrack = defineTool({
         asset: z.string().min(1),
         start: z.number().nonnegative(),
         end: z.number(),
+        trimIn: z.number().nonnegative(),
         volume: AUDIO_VOLUME,
         fadeIn: AUDIO_FADE,
         fadeOut: AUDIO_FADE,

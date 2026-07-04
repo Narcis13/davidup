@@ -322,8 +322,13 @@ export const TweenSchema = z.object({
 // derived from video — every track here is an explicitly declared external
 // asset. Placement is `[start, end)` seconds on the composition timeline; an
 // omitted `end` means "play the asset out to its natural duration" (resolved at
-// mux time, S4). `volume` is a linear gain multiplier in [0, 2] (1 = unchanged,
-// 2 = +6dB); `fadeIn` / `fadeOut` are ramp lengths in seconds at each edge.
+// mux time, S4). `trimIn` (R-11, Session 28) is the offset in seconds *into the
+// source file* to start reading from — the timeline placement and the
+// in-source read point are independent, so a track can both start mid-file and
+// land anywhere on the timeline. Mirrors `VideoItemSchema.trimIn` for the same
+// idea on the video side. `volume` is a linear gain multiplier in [0, 2]
+// (1 = unchanged, 2 = +6dB); `fadeIn` / `fadeOut` are ramp lengths in seconds
+// at each edge, measured from the (possibly trimmed) clip's own start/end.
 //
 // `id` is optional in hand-authored JSON but is the addressing key used by the
 // S3 MCP tools (update_audio_track / remove_audio_track); the store assigns one
@@ -336,6 +341,7 @@ export const AudioTrackSchema = z
     asset: z.string().min(1),
     start: z.number().nonnegative(),
     end: z.number().optional(),
+    trimIn: z.number().nonnegative().optional(),
     volume: z.number().min(0).max(2).optional(),
     fadeIn: z.number().nonnegative().optional(),
     fadeOut: z.number().nonnegative().optional(),

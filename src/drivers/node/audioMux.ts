@@ -14,10 +14,11 @@
 //          output.mp4
 //
 // Per track the filter graph applies, in order: 48kHz resample, a uniform
-// stereo layout (so `amix` never sees mismatched inputs), an optional trim to
-// the track's `[start, end)` window, volume gain, fade in/out, then `adelay`
-// to position the clip on the composition timeline. The mixed result is capped
-// to the video's duration so the audio can never outrun the copied video.
+// stereo layout (so `amix` never sees mismatched inputs), an optional seek
+// into the source (`trimIn`, R-11) and/or trim to the track's `[start, end)`
+// timeline window, volume gain, fade in/out, then `adelay` to position the
+// clip on the composition timeline. The mixed result is capped to the video's
+// duration so the audio can never outrun the copied video.
 //
 // The filter / arg builders are pure and exported for unit testing; only
 // `muxAudioTracks` touches the filesystem / spawns ffmpeg.
@@ -121,13 +122,25 @@ export function buildAudioFilterComplex(
     //    voiceovers get upmixed to stereo here).
     parts.push("aformat=channel_layouts=stereo");
 
-    // 3. Bound the clip to its [start, end) window when `end` is explicit.
-    //    Resetting PTS afterwards puts the clip back at t=0 so fades and the
-    //    delay below are computed relative to the clip's own start.
+    // 3. Seek into the source (R-11: `trimIn`, independent of timeline
+    //    placement) and/or bound the clip to its [start, end) timeline window
+    //    when `end` is explicit. `atrim`'s positional args are (start, end)
+    //    seconds *into the source* — omitting the second bound plays out to
+    //    the source's natural end. Resetting PTS afterwards puts the clip
+    //    back at t=0 so fades and the delay below are computed relative to
+    //    the clip's own start regardless of where in the source it began.
+    const trimIn = track.trimIn ?? 0;
+    const timelineDuration =
+      track.end !== undefined ? track.end - track.start : undefined;
     const clipDuration =
-      track.end !== undefined ? track.end - track.start : assetDuration;
-    if (track.end !== undefined) {
-      parts.push(`atrim=0:${secs(track.end - track.start)}`);
+      timelineDuration ??
+      (assetDuration !== undefined ? assetDuration - trimIn : undefined);
+    if (trimIn > 0 || timelineDuration !== undefined) {
+      parts.push(
+        timelineDuration !== undefined
+          ? `atrim=${secs(trimIn)}:${secs(trimIn + timelineDuration)}`
+          : `atrim=${secs(trimIn)}`,
+      );
       parts.push("asetpts=PTS-STARTPTS");
     }
 

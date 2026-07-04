@@ -109,6 +109,45 @@ describe("buildAudioFilterComplex", () => {
     );
   });
 
+  it("seeks into the source with `trimIn`, independent of timeline placement (R-11)", () => {
+    const filter = buildAudioFilterComplex(
+      [resolved({ asset: "vo", start: 2, trimIn: 10, end: 3 })],
+      4,
+    );
+    expect(filter).toBe(
+      "[1:a]aresample=48000,aformat=channel_layouts=stereo," +
+        "atrim=10:11,asetpts=PTS-STARTPTS," +
+        "adelay=2000:all=1[a0];" +
+        "[a0]apad,atrim=0:4[aout]",
+    );
+  });
+
+  it("applies `trimIn` alone (no `end`) as an open-ended source seek", () => {
+    const filter = buildAudioFilterComplex(
+      [resolved({ asset: "music", start: 0, trimIn: 5 })],
+      2,
+    );
+    expect(filter).toContain("atrim=5,asetpts=PTS-STARTPTS");
+  });
+
+  it("omits the per-clip atrim entirely when neither `trimIn` nor `end` is set", () => {
+    const filter = buildAudioFilterComplex([resolved({ asset: "music", start: 0 })], 2);
+    expect(filter).toBe(
+      "[1:a]aresample=48000,aformat=channel_layouts=stereo[a0];" +
+        "[a0]apad,atrim=0:2[aout]",
+    );
+  });
+
+  it("places a fade-out relative to the trimmed clip using the probed asset duration minus `trimIn`", () => {
+    const filter = buildAudioFilterComplex(
+      [resolved({ asset: "music", start: 0, trimIn: 1, fadeOut: 1 }, 4)],
+      4,
+    );
+    // Remaining source after trimIn(1) out of assetDuration(4) is 3s; fade-out
+    // starts at 3 - 1 = 2.
+    expect(filter).toContain("afade=t=out:st=2:d=1");
+  });
+
   it("uses the probed asset duration to place a fade-out when `end` is omitted", () => {
     const filter = buildAudioFilterComplex(
       [resolved({ asset: "music", start: 0, fadeOut: 1 }, 4)],

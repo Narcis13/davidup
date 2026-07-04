@@ -11,19 +11,22 @@
 // pipeline and once through the two-stage (audio mux) pipeline — and asserts
 // the output files are byte-for-byte identical.
 //
-// Deliberately font-free and image-free: repeatedly registering the same
-// custom font family into skia-canvas's process-global `FontLibrary` across
-// renders in one process is itself a source of non-determinism (discovered
-// while building this harness — see BUGS.md's font-family-reregistration
-// entry, tracked alongside R-13). Real compositions that use custom fonts are
-// still covered by the pixel-level golden-frame hashes
-// (goldenFrames.integration.test.ts), which hash the pre-encode buffer once
-// per example rather than re-rendering the same fonts repeatedly.
+// The base cases here are deliberately font-free and image-free: repeatedly
+// registering the same custom font family into skia-canvas's process-global
+// `FontLibrary` across renders in one process was itself a source of
+// non-determinism (R-32 — a font-bearing example rendered twice in one
+// process produced different-sized MP4s). That's now fixed alongside R-13
+// (Session 28, `src/assets/node.ts`): `NodeAssetLoader` skips re-registering a
+// (family, path) pair the process already has, instead of calling
+// `FontLibrary.use()` again every time. The font-bearing case below exercises
+// exactly the scenario that used to fail — see also the pixel-level
+// golden-frame hashes (goldenFrames.integration.test.ts), which no longer need
+// to avoid a second same-process render of a font-bearing example either.
 
 import { readFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -32,6 +35,7 @@ import type { Composition } from "../../src/schema/types.js";
 
 const FIXTURES = join(__dirname, "..", "drivers", "fixtures", "audio");
 const MUSIC = join(FIXTURES, "tone-stereo.mp3");
+const FONT = resolve(__dirname, "..", "..", "examples", "fonts", "BebasNeue-Regular.ttf");
 
 function shapesOnlyComposition(): Composition {
   return {
@@ -110,6 +114,41 @@ function shapesWithAudioComposition(): Composition {
   };
 }
 
+// R-32 repro: a custom-font text item, rendered twice in one process via two
+// independent `renderToFile` calls (each spins up its own fresh
+// `NodeAssetLoader` — the exact scenario that used to re-register the family
+// and perturb pixel output the second time).
+function shapesWithFontComposition(): Composition {
+  return {
+    ...shapesOnlyComposition(),
+    assets: [{ id: "display-font", type: "font", src: FONT, family: "BitexactDisplay" }],
+    items: {
+      ...shapesOnlyComposition().items,
+      label: {
+        type: "text",
+        text: "davidup",
+        font: "display-font",
+        fontSize: 18,
+        color: "#ffffff",
+        transform: {
+          x: 8,
+          y: 40,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      },
+    },
+    layers: [
+      ...shapesOnlyComposition().layers,
+      { id: "text", z: 2, opacity: 1, blendMode: "normal", items: ["label"] },
+    ],
+  };
+}
+
 describe("determinism — MP4 container bitexact reproducibility", () => {
   let dir: string | undefined;
 
@@ -138,6 +177,24 @@ describe("determinism — MP4 container bitexact reproducibility", () => {
 
     await renderToFile(shapesWithAudioComposition(), outA);
     await renderToFile(shapesWithAudioComposition(), outB);
+
+    const [a, b] = await Promise.all([readFile(outA), readFile(outB)]);
+    expect(a.length).toBe(b.length);
+    expect(a.equals(b)).toBe(true);
+  });
+
+  // R-13 / R-32 (Session 28): each `renderToFile` call below spins up its own
+  // fresh `NodeAssetLoader`, so before the fix the second render re-registered
+  // "BitexactDisplay" into skia's process-global `FontLibrary` and produced a
+  // different-sized MP4 than the first. Skipping the redundant registration
+  // makes this reproducible.
+  it("produces byte-identical output across two renders — custom font, same process", async () => {
+    dir = await mkdtemp(join(tmpdir(), "davidup-bitexact-font-"));
+    const outA = join(dir, "a.mp4");
+    const outB = join(dir, "b.mp4");
+
+    await renderToFile(shapesWithFontComposition(), outA);
+    await renderToFile(shapesWithFontComposition(), outB);
 
     const [a, b] = await Promise.all([readFile(outA), readFile(outB)]);
     expect(a.length).toBe(b.length);

@@ -8,6 +8,7 @@ export {
   NodeAssetLoader,
   resolveGlobalSrc,
   defaultGlobalLibraryRoot,
+  __resetFontClaimsForTests,
   type NodeAssetLoaderOptions,
   type SkiaCanvasModule,
 } from "./node.js";

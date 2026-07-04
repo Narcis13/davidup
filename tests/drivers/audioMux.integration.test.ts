@@ -57,6 +57,50 @@ beforeAll(async () => {
   if (ffprobeStatic?.path) ffprobePath = ffprobeStatic.path;
 });
 
+// R-11: the voiceover asset (tone-mono.wav) is 0.5s long. Placed at timeline
+// `start: 0` with `trimIn: 0.25`, the mux should seek 0.25s into the source
+// before playing, leaving only 0.25s of remaining audio — audible over
+// [0, 0.25) then silent for the rest of the 1s composition. Critically, if
+// `trimIn` were ignored (the pre-fix behaviour — `atrim` always from 0), the
+// clip would instead play its full 0.5s and still be audible at t=0.35.
+function trimInComposition(): Composition {
+  return {
+    version: "0.1",
+    composition: {
+      width: 64,
+      height: 48,
+      fps: 12,
+      duration: 1,
+      background: "#000010",
+    },
+    assets: [
+      { id: "vo", type: "audio", src: VOICEOVER, duration: 0.5, sampleRate: 48000, channels: 1 },
+    ],
+    layers: [{ id: "bg", z: 0, opacity: 1, blendMode: "normal", items: ["box"] }],
+    items: {
+      box: {
+        type: "shape",
+        kind: "rect",
+        width: 20,
+        height: 20,
+        fillColor: "#ff2266",
+        transform: {
+          x: 32,
+          y: 24,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
+          opacity: 1,
+        },
+      },
+    },
+    tweens: [],
+    audio: [{ id: "vo-trimmed", asset: "vo", start: 0, trimIn: 0.25 }],
+  };
+}
+
 // music bed [0, ~1]s at 0.5 gain; voiceover [0.5, 1.0]s with a short fade-in.
 // Composition runs 2s so there's a clear post-roll silence window.
 function voiceoverPlusMusicComposition(): Composition {
@@ -204,5 +248,40 @@ describe("renderToFile — voiceover + music mux (integration)", () => {
     expect(postRoll).toBeLessThan(-60);
     expect(postRoll).toBeLessThan(musicOnly - 10);
     expect(postRoll).toBeLessThan(overlap - 10);
+  });
+});
+
+describe("renderToFile — audio `trimIn` in-source offset (R-11, integration)", () => {
+  let workDir: string;
+  let outPath: string;
+  let haveBins = false;
+
+  beforeAll(async () => {
+    haveBins =
+      ffmpegPath !== undefined && ffprobePath !== undefined && existsSync(VOICEOVER);
+    if (!haveBins) return;
+    workDir = mkdtempSync(join(tmpdir(), "davidup-s4-trimin-"));
+    outPath = join(workDir, "out.mp4");
+    await renderToFile(trimInComposition(), outPath, {
+      ffmpegPath,
+      preset: "ultrafast",
+      crf: 28,
+    });
+  }, 60_000);
+
+  afterAll(() => {
+    if (workDir) rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("waveform comparison on 3 time points: audible, cut short by trimIn, silent post-roll", () => {
+    if (!haveBins) return;
+    const audible = meanVolumeDb(outPath, 0.05, 0.15); //  [0.05,0.2]: within the 0.25s remaining after trimIn
+    const shouldBeCutShort = meanVolumeDb(outPath, 0.3, 0.1); // [0.3,0.4]: would still be audible at the untrimmed source's 0.5s length, but trimIn leaves only [0,0.25) — must be silent
+    const postRoll = meanVolumeDb(outPath, 0.6, 0.3); //    [0.6,0.9]: long past the clip either way
+
+    expect(audible).toBeGreaterThan(-50);
+    expect(shouldBeCutShort).toBeLessThan(-60);
+    expect(postRoll).toBeLessThan(-60);
+    expect(shouldBeCutShort).toBeLessThan(audible - 10);
   });
 });
