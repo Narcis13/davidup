@@ -23,6 +23,7 @@ coverage/
 
 # render outputs
 output/
+eval-results/
 *.mp4
 *.mov
 *.webm

@@ -27,7 +27,8 @@
     "mcp": "bun run src/mcp/bin.ts",
     "cli": "bun run src/cli/bin.ts",
     "seed:library": "bun run scripts/seed-global-library.ts",
-    "regenerate:goldens": "bun run scripts/regenerate-goldens.ts"
+    "regenerate:goldens": "bun run scripts/regenerate-goldens.ts",
+    "eval:agents": "bun run scripts/eval-agents/runner.ts"
   },
   "bin": {
     "davidup-mcp": "./dist/mcp/bin.js",
@@ -95,6 +96,7 @@
     "bun": ">=1.1.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@types/bun": "latest",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.1",

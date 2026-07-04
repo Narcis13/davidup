@@ -1,0 +1,63 @@
+# Agent eval harness — nightly authoring-success benchmark (v1 plan Session 27,
+# §6 item 21 of DAVIDUP_V1_REVIEW.md — "agent-authoring success rate becomes
+# the product's north-star metric"). Runs `bun run eval:agents`: ~10 briefs,
+# each driven end-to-end by a real Claude Opus 4.8 authoring agent against a
+# fresh standalone MCP server, scored on validate-clean / render-success /
+# frame-inspection, written to eval-results/scorecard.json.
+#
+# Deliberately separate from ci.yml: this job calls the real Anthropic API
+# (costs money) and its pass rate is the metric being tracked over time, not
+# a merge gate — a brief regressing shouldn't block unrelated PRs. The job
+# itself stays green as long as the harness *ran*; see scripts/eval-agents/runner.ts
+# for why brief failures don't fail the job.
+name: Agent Eval (nightly)
+
+on:
+  schedule:
+    # 07:00 UTC nightly.
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  eval-agents:
+    name: Agent authoring-success benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Cache bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # render_to_video shells out to ffmpeg; the eval harness's frame
+      # inspection does too (ffmpeg-static/ffprobe-static are bundled
+      # dependencies, but PATH ffmpeg is the fallback the same way it is in
+      # ci.yml's root job).
+      - name: Install ffmpeg (PATH fallback)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run agent eval harness
+        run: bun run eval:agents
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Upload scorecard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-scorecard
+          path: eval-results/scorecard.json
+          retention-days: 90
+          if-no-files-found: warn
