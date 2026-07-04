@@ -506,12 +506,6 @@ function pickActiveCornersFor(id: string): Array<[number, number]> | null {
   return bounds.corners.map(([x, y]) => [x + dx, y + dy] as [number, number])
 }
 
-function pickActiveCorners(): Array<[number, number]> | null {
-  const id = selection.selectedItemId.value
-  if (!id) return null
-  return pickActiveCornersFor(id)
-}
-
 // Project composition pixel → wrap-relative CSS pixel using the overlay's
 // current synced rect (syncOverlayRect already wrote left/top/width/height
 // styles, so they're authoritative for the on-screen mapping).

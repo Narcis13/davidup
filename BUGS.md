@@ -95,3 +95,37 @@ can never touch the base layer. Same audit applies to
 `unregisterTemplate` / `unregisterScene` if built-ins exist for those.
 
 **Status:** OPEN.
+
+### 2.2 `davidup edit`'s dev-mode server leaks an orphaned `bin/server.js` per session
+
+**Where:** `src/cli/edit.ts` (`defaultSpawnServer` dev-source branch,
+`terminate()`).
+
+**What happens:** in the dev-source path (`apps/editor` has `adonisrc.ts`),
+`defaultSpawnServer` spawns `node ace serve --hmr`. That process is itself a
+supervisor — @adonisjs/assembler's HMR dev loop forks its own long-lived
+`node ... bin/server.js` child to run the actual app, and restarts it on file
+changes. `terminate()` sends SIGTERM (then SIGKILL after 3s) to the `ace
+serve` PID only; killing that supervisor does not cascade to the
+`bin/server.js` grandchild, which is left running indefinitely, still bound
+to its port.
+
+**How it surfaced:** discovered while building the Session 24 Playwright
+smoke test (`tests/e2e/editorSmoke.integration.test.ts`), which calls the
+real `runEdit()` (dev source path) once per test run. Every clean run left
+one orphaned `bin/server.js` process behind — confirmed by `ps aux` showing
+the count grow by exactly one per invocation even though `handle.close()`
+ran without error each time. Harmless for a single CI job (the container
+dies with the job), but on a long-lived dev machine repeated `davidup edit`
+sessions (or repeated test runs) accumulate zombie servers indefinitely —
+same family as R-9's already-fixed `migration:run`-never-exits issue, but
+for the dev-mode HMR path instead of the packaged path.
+
+**Suggested direction:** spawn with `detached: true` and kill the process
+*group* (`process.kill(-child.pid, signal)`) instead of just the child PID —
+same fix shape already applied to the packaged path's migration timeout.
+Needs care: `stdio: "inherit"` plus `detached: true` changes how the child's
+own signal handling and terminal attachment behave, so verify `Ctrl+C` on
+the CLI itself still tears the whole tree down cleanly.
+
+**Status:** OPEN.

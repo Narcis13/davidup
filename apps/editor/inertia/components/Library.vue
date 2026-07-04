@@ -24,6 +24,7 @@ import {
   LIBRARY_TABS,
   LIBRARY_SCOPES,
   type LibraryItem,
+  type LibraryItemKind,
   type LibraryTab,
   type LibraryScopeFilter,
 } from '~/composables/useLibrary'
@@ -210,7 +211,12 @@ function onDefinitionSaved(payload: {
   void lib.refresh()
 }
 
-const tabLabels: Record<LibraryTab, string> = {
+// `LibraryTab` also allows 'all' (used elsewhere as "no kind filter"), but
+// `visibleTabs`/`LIBRARY_TABS` — the only thing this map is ever indexed by
+// (see the `v-for` below) — is always exactly the 5 concrete kinds, never
+// 'all'. `Record<LibraryItemKind, string>` matches that actual domain
+// instead of the wider `LibraryTab` union.
+const tabLabels: Record<LibraryItemKind, string> = {
   template: 'Templates',
   behavior: 'Behaviors',
   scene: 'Scenes',
@@ -218,7 +224,10 @@ const tabLabels: Record<LibraryTab, string> = {
   font: 'Fonts',
 }
 
-const visibleTabs = computed<LibraryTab[]>(() => LIBRARY_TABS as LibraryTab[])
+// LIBRARY_TABS's static type is `LibraryTab[]` (shared with the wider
+// 'all'-inclusive union elsewhere), but its actual literal contents are
+// always the 5 concrete kinds — narrow the cast to match `tabLabels` above.
+const visibleTabs = computed<LibraryItemKind[]>(() => LIBRARY_TABS as LibraryItemKind[])
 
 // ─── U1: asset media-type sub-filter (All / Images / Audio / Video) ─────
 //

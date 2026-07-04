@@ -44,8 +44,14 @@ export interface CommandErrorReport {
 export type CommandSource = 'ui' | 'mcp'
 
 type Composition = {
-  composition: { width: number; height: number; duration: number; background?: string }
-  assets: ReadonlyArray<{ src?: unknown; [k: string]: unknown }>
+  composition: { width: number; height: number; fps: number; duration: number; background?: string }
+  // `id`/`type` are named explicitly (not just covered by the index
+  // signature) so structural targets like Library.vue's `CompositionLike`
+  // that only declare `id`/`type` don't fail TS's weak-type-detection check
+  // (a type where every member is optional needs at least one *named*
+  // property in common with the source — an index signature alone doesn't
+  // count).
+  assets: ReadonlyArray<{ id?: unknown; type?: unknown; src?: unknown; [k: string]: unknown }>
   items: Record<string, { type: string; [k: string]: unknown }>
   layers: ReadonlyArray<{ id: string; items: ReadonlyArray<string> }>
   tweens: ReadonlyArray<{ id: string; [k: string]: unknown }>

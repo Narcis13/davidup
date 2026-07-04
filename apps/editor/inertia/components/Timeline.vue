@@ -666,7 +666,6 @@ function onRulerClick(event: MouseEvent): void {
 //   - new-track gutter at the bottom of the tracks list: drops a template
 //     or scene as a fresh instance on the first layer.
 const libraryDrag = useLibraryDrag()
-const tracksHostEl: Ref<HTMLDivElement | null> = ref(null)
 const layerForDropId = computed<string | null>(() => {
   const comp = props.composition
   if (!comp || !Array.isArray(comp.layers)) return null

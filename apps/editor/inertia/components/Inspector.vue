@@ -1330,7 +1330,18 @@ function deleteSelectedAudioTrack(): void {
       </div>
     </section>
 
-    <template v-else>
+    <!--
+      This branch is only reachable once the empty/audio-track/tween branches
+      above have all failed, which — given the empty-state check at the top
+      covers "none of the three are set" — means `selectedItem` must be set.
+      That's true by construction, but a plain `v-else` doesn't let vue-tsc
+      narrow `selectedItem` from `ItemLike | null` to `ItemLike` inside this
+      block (it only narrows on the condition actually written), so every
+      `selectedItem.foo` access below was a possibly-null type error. Spelling
+      the (equivalent) condition out as `v-else-if="selectedItem"` fixes the
+      narrowing with no behavior change.
+    -->
+    <template v-else-if="selectedItem">
       <div
         v-if="selectedItemLocked && !isMultiSelect"
         class="locked-banner"

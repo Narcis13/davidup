@@ -27,7 +27,6 @@ const emit = defineEmits<{
   (event: 'update:modelValue', value: number): void
 }>()
 
-const step = computed(() => props.step ?? 0.05)
 // Locale-independent display — see Number.vue for context. When modelValue
 // is undefined (optional field that hasn't been set), render empty so the
 // placeholder shows instead of a misleading "0".

@@ -11,7 +11,7 @@
     "test": "node ace test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit -p inertia/tsconfig.json"
   },
   "imports": {
     "#controllers/*": "./app/controllers/*.js",
@@ -50,10 +50,10 @@
     "prettier": "^3.5.3",
     "ts-node-maintained": "^10.9.5",
     "typescript": "~5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vue-tsc": "^3.3.6"
   },
   "dependencies": {
-    "davidup": "file:../..",
     "@adonisjs/auth": "^9.4.0",
     "@adonisjs/core": "^6.18.0",
     "@adonisjs/cors": "^2.2.1",
@@ -68,6 +68,7 @@
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/server-renderer": "^3.5.34",
     "better-sqlite3": "^12.10.0",
+    "davidup": "file:../..",
     "edge.js": "^6.2.1",
     "ffmpeg-static": "^5.3.0",
     "luxon": "^3.7.2",

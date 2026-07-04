@@ -9,8 +9,14 @@
 # entry, so npm ci would fail there).
 #
 # The root suite includes the Session 23 determinism harness (golden frame
-# hashes, MP4 bitexact reproducibility, node↔browser pixel parity) — the
-# last of those needs a real headless Chromium, installed below.
+# hashes, MP4 bitexact reproducibility, node↔browser pixel parity) and the
+# Session 24 editor E2E smoke test (tests/e2e/editorSmoke.integration.test.ts
+# — boots the real editor via `runEdit`, drives it with the same headless
+# Chromium through a real add-shape → animate → render loop) — both need a
+# real headless Chromium, installed below. Session 24 also adds `vue-tsc`
+# to the editor's `typecheck` script (`apps/editor/package.json`), so the
+# `editor` job's typecheck step below now covers the ~5k previously-unchecked
+# SFC `<script>` lines under `apps/editor/inertia/` too.
 name: CI
 
 on:
