@@ -4,10 +4,17 @@
 // effects (spawning, watching, opening a browser) are factored into the
 // `EditDeps` interface so tests can drive runEdit with stubs.
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { promises as fs, watch as fsWatch, type FSWatcher } from "node:fs";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  promises as fs,
+  existsSync,
+  mkdirSync,
+  watch as fsWatch,
+  type FSWatcher,
+} from "node:fs";
 import { join, resolve } from "node:path";
-import { platform } from "node:os";
+import { platform, homedir } from "node:os";
+import { randomBytes } from "node:crypto";
 import { request } from "node:http";
 
 export type EditErrorCode =
@@ -238,15 +245,93 @@ function defaultEditDeps(): EditDeps {
   };
 }
 
+/**
+ * `apps/editor` in the monorepo is the AdonisJS *source* tree (has
+ * `ace.js` + `adonisrc.ts`, run via `node ace serve --hmr`). A packaged
+ * install ships only the prebuilt `editor-dist/` (see
+ * `scripts/build-editor.mjs`) — no `adonisrc.ts`, no `--hmr`, started via
+ * `node bin/server.js` in production mode instead.
+ */
+function isDevEditorSource(editorAppDir: string): boolean {
+  return existsSync(join(editorAppDir, "adonisrc.ts"));
+}
+
 function defaultSpawnServer(input: SpawnServerInput): ChildProcess {
+  if (isDevEditorSource(input.editorAppDir)) {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      DAVIDUP_PROJECT: input.projectDir,
+      PORT: String(input.port),
+      HOST: input.host,
+      NODE_ENV: process.env.NODE_ENV ?? "development",
+    };
+    return spawn("node", ["ace", "serve", "--hmr"], {
+      cwd: input.editorAppDir,
+      env,
+      stdio: "inherit",
+    });
+  }
+  return spawnPackagedServer(input);
+}
+
+/**
+ * Boot the prebuilt (`editor-dist/`) editor in production mode. Unlike the
+ * dev path, this needs a couple of things AdonisJS's env schema requires but
+ * `node ace serve` fills in for you: an `APP_KEY` (regenerated per launch —
+ * this is a local single-user tool, so cookie/session invalidation across
+ * restarts is a non-issue) and a writable sqlite path outside the installed
+ * package directory (`~/.davidup/editor.sqlite3` via `DAVIDUP_DB_PATH`, see
+ * `apps/editor/config/database.ts`). Runs pending migrations synchronously
+ * before starting the long-lived server process — best-effort: a migration
+ * failure is logged to stderr but doesn't block boot, matching how the dev
+ * path already tolerates preload failures.
+ */
+function spawnPackagedServer(input: SpawnServerInput): ChildProcess {
+  const dbDir = join(homedir(), ".davidup");
+  try {
+    mkdirSync(dbDir, { recursive: true });
+  } catch {
+    /* best-effort — migration/db-open below will surface a real error */
+  }
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     DAVIDUP_PROJECT: input.projectDir,
     PORT: String(input.port),
     HOST: input.host,
-    NODE_ENV: process.env.NODE_ENV ?? "development",
+    NODE_ENV: "production",
+    APP_KEY: process.env.APP_KEY ?? randomBytes(24).toString("base64"),
+    LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
+    SESSION_DRIVER: process.env.SESSION_DRIVER ?? "cookie",
+    DAVIDUP_DB_PATH: process.env.DAVIDUP_DB_PATH ?? join(dbDir, "editor.sqlite3"),
   };
-  return spawn("node", ["ace", "serve", "--hmr"], {
+
+  // `node ace.js migration:run --force` runs the migration to completion
+  // (observed at ~30-50ms for this app's one migration) but never exits the
+  // process afterward — the ace kernel/lucid connection pool keeps the event
+  // loop alive, and it doesn't even respond to SIGTERM (verified: still alive
+  // 3s after a plain SIGTERM). So every `davidup edit` boot pays the full
+  // `timeout` below as fixed latency; keep it as small as safely possible
+  // (3s comfortably covers the observed sub-100ms real work) and use SIGKILL
+  // so the bound is actually enforced. A timeout kill (status null, signal
+  // set) is treated as success, not a warning — only a genuine nonzero exit
+  // (no signal — the command actually ran and failed) is surfaced, matching
+  // the "best-effort, non-fatal" tolerance the rest of the boot sequence
+  // (preloads) already has.
+  const migration = spawnSync("node", ["ace.js", "migration:run", "--force"], {
+    cwd: input.editorAppDir,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 3_000,
+    killSignal: "SIGKILL",
+  });
+  if (migration.status !== 0 && migration.signal === null) {
+    process.stderr.write(
+      `davidup edit · warning: migration:run exited ${migration.status} — ` +
+        `${(migration.stderr?.toString() ?? "").trim() || (migration.stdout?.toString() ?? "").trim()}\n`,
+    );
+  }
+
+  return spawn("node", ["bin/server.js"], {
     cwd: input.editorAppDir,
     env,
     stdio: "inherit",

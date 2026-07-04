@@ -15,6 +15,7 @@
 //   davidup --version      print version
 
 import { promises as fs } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,9 +35,21 @@ import {
 import { VERSION } from "../index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// `src/cli/cli.ts` → up three levels = repo root in the workspace layout.
+// `src/cli/cli.ts` (or its compiled `dist/cli/cli.js`) → up two levels =
+// package root, in both the monorepo workspace layout and an installed
+// (npm/npx) package layout.
 const REPO_ROOT = resolve(__dirname, "..", "..");
-const DEFAULT_EDITOR_APP_DIR = join(REPO_ROOT, "apps", "editor");
+// In the monorepo checkout, `apps/editor` is the AdonisJS source tree (has
+// `ace.js` + `adonisrc.ts`) and is run via `node ace serve --hmr`. In a
+// packaged install, `apps/editor` doesn't exist — only the prebuilt
+// `editor-dist/` (see `scripts/build-editor.mjs`), run via
+// `node bin/server.js`. `runEdit`/`edit.ts` inspect the resolved dir to pick
+// the right spawn command (R-9).
+const DEV_EDITOR_APP_DIR = join(REPO_ROOT, "apps", "editor");
+const PACKAGED_EDITOR_APP_DIR = join(REPO_ROOT, "editor-dist");
+const DEFAULT_EDITOR_APP_DIR = existsSync(join(DEV_EDITOR_APP_DIR, "ace.js"))
+  ? DEV_EDITOR_APP_DIR
+  : PACKAGED_EDITOR_APP_DIR;
 
 export interface ConsoleIo {
   log(msg: string): void;

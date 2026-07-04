@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Entry point invoked by MCP clients (Claude Desktop, Claude Code, etc.) via
 // the `command` field in their config. Stays as thin as possible: instantiate
 // the server, attach stdio transport, run.

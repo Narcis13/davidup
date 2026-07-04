@@ -3,7 +3,9 @@ node_modules/
 
 # build
 dist/
+editor-dist/
 *.tsbuildinfo
+davidup-*.tgz
 
 # bun
 bun.lockb

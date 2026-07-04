@@ -8,7 +8,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-templates.mjs",
+    "build:editor": "node scripts/build-editor.mjs",
+    "prepack": "npm run build && npm run build:editor",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -27,39 +29,104 @@
     "seed:library": "bun run scripts/seed-global-library.ts"
   },
   "bin": {
-    "davidup-mcp": "./src/mcp/bin.ts",
-    "davidup": "./src/cli/bin.ts"
+    "davidup-mcp": "./dist/mcp/bin.js",
+    "davidup": "./dist/cli/bin.js"
   },
+  "files": [
+    "dist",
+    "editor-dist",
+    "README.md"
+  ],
   "exports": {
-    ".": "./src/index.ts",
-    "./engine": "./src/engine/index.ts",
-    "./schema": "./src/schema/index.ts",
-    "./easings": "./src/easings/index.ts",
-    "./assets": "./src/assets/index.ts",
-    "./node": "./src/drivers/node/index.ts",
-    "./browser": "./src/drivers/browser/index.ts",
-    "./mcp": "./src/mcp/index.ts",
-    "./compose": "./src/compose/index.ts",
-    "./cli/scaffold": "./src/cli/scaffold.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./engine": {
+      "types": "./dist/engine/index.d.ts",
+      "bun": "./src/engine/index.ts",
+      "default": "./dist/engine/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "bun": "./src/schema/index.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./easings": {
+      "types": "./dist/easings/index.d.ts",
+      "bun": "./src/easings/index.ts",
+      "default": "./dist/easings/index.js"
+    },
+    "./assets": {
+      "types": "./dist/assets/index.d.ts",
+      "bun": "./src/assets/index.ts",
+      "default": "./dist/assets/index.js"
+    },
+    "./node": {
+      "types": "./dist/drivers/node/index.d.ts",
+      "bun": "./src/drivers/node/index.ts",
+      "default": "./dist/drivers/node/index.js"
+    },
+    "./browser": {
+      "types": "./dist/drivers/browser/index.d.ts",
+      "bun": "./src/drivers/browser/index.ts",
+      "default": "./dist/drivers/browser/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "bun": "./src/mcp/index.ts",
+      "default": "./dist/mcp/index.js"
+    },
+    "./compose": {
+      "types": "./dist/compose/index.d.ts",
+      "bun": "./src/compose/index.ts",
+      "default": "./dist/compose/index.js"
+    },
+    "./cli/scaffold": {
+      "types": "./dist/cli/scaffold.d.ts",
+      "bun": "./src/cli/scaffold.ts",
+      "default": "./dist/cli/scaffold.js"
+    }
   },
   "engines": {
+    "node": ">=20.6.0",
     "bun": ">=1.1.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^22.0.0",
-    "ffmpeg-static": "^5.3.0",
-    "ffprobe-static": "^3.1.0",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@adonisjs/auth": "^9.4.0",
+    "@adonisjs/core": "^6.18.0",
+    "@adonisjs/cors": "^2.2.1",
+    "@adonisjs/inertia": "^3.1.1",
+    "@adonisjs/lucid": "^21.6.1",
+    "@adonisjs/session": "^7.5.1",
+    "@adonisjs/shield": "^8.2.0",
+    "@adonisjs/static": "^1.1.1",
+    "@adonisjs/vite": "^4.0.0",
+    "@inertiajs/vue3": "^3.1.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vinejs/vine": "^3.0.1",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/server-renderer": "^3.5.34",
+    "better-sqlite3": "^12.10.0",
+    "edge.js": "^6.2.1",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "luxon": "^3.7.2",
+    "reflect-metadata": "^0.2.2",
     "skia-canvas": "^3.0.8",
+    "vue": "^3.5.34",
     "zod": "^3.23.0"
   },
   "trustedDependencies": [
     "ffmpeg-static",
-    "skia-canvas"
+    "skia-canvas",
+    "better-sqlite3"
   ]
 }
