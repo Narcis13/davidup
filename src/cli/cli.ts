@@ -8,6 +8,7 @@
 // Supported commands:
 //   davidup edit <dir>     boot the editor against a project dir
 //   davidup new  <dir>     scaffold a fresh project
+//   davidup render <path>  headless render to a video file (R-8)
 //   davidup list           print recents.json as a table
 //   davidup recent         alias of list
 //   davidup --help         usage
@@ -18,6 +19,13 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEdit, type EditDeps, type EditHandle } from "./edit.js";
+import {
+  renderComposition,
+  RenderError,
+  type RenderDeps,
+  type RenderOptions,
+} from "./render.js";
+import type { RenderToFileResult } from "../drivers/node/index.js";
 import {
   scaffoldProject,
   ScaffoldError,
@@ -51,10 +59,25 @@ export interface CliDeps {
   recentsPath?: string;
   /** Clock for date formatting in `list` / `recent` (tests). */
   now?: () => Date;
+  /** Inject the render pipeline (tests skip the real ffmpeg/skia path). */
+  renderFn?: (
+    opts: RenderOptions,
+    deps?: RenderDeps,
+  ) => Promise<RenderToFileResult>;
+  /** Monotonic-ish clock (ms) for `render`'s progress fps calc (tests). */
+  clock?: () => number;
 }
 
 export interface ParsedCommand {
-  kind: "help" | "version" | "edit" | "new" | "list" | "recent" | "error";
+  kind:
+    | "help"
+    | "version"
+    | "edit"
+    | "new"
+    | "render"
+    | "list"
+    | "recent"
+    | "error";
   /** For edit / new. */
   positional?: string;
   flags?: Record<string, string | boolean>;
@@ -68,6 +91,7 @@ davidup ${VERSION}
 USAGE
   davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
   davidup new  <dir> [--template=<name>] [--force]
+  davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>]
   davidup list
   davidup recent
   davidup --help
@@ -78,6 +102,10 @@ COMMANDS
           composition.json. Opens the browser and watches the project.
   new     Scaffold a fresh davidup project at <dir>. Refuses non-empty
           directories unless --force is passed.
+  render  Headlessly render a project directory or a raw composition JSON
+          file to a video file. Streams frame/fps progress to stderr; exits
+          nonzero (with a diagnostic on stderr) on invalid input or a failed
+          render.
   list    Print recently-opened projects (from ~/.davidup/recents.json) as a
           table, most-recent first.
   recent  Alias of \`list\`.
@@ -88,11 +116,18 @@ FLAGS
   --no-open           Do not open the browser automatically.
   --template=<name>   Project template (default "basic").
   --force             Allow scaffolding into a non-empty directory.
+  -o, --output=<f>    Output video file path (required for render).
+  --codec=<c>         Video codec: libx264 (default) or libx265.
+  --crf=<n>           Constant rate factor, 0-51 (default 18; lower = higher quality).
+  --fps=<n>           Override the composition's frame rate.
+  --preset=<p>        ffmpeg encoder preset (default "medium").
 
 EXAMPLES
   davidup new ./my-clip
   davidup edit ./my-clip
   davidup edit examples/comprehensive-browser
+  davidup render ./my-clip -o out.mp4
+  davidup render examples/comprehensive-composition.json -o /tmp/out.mp4 --crf=20 --fps=30
   davidup list
 `;
 
@@ -154,6 +189,62 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       flags,
     };
   }
+  if (head === "render") {
+    const rest = argv.slice(1);
+    const positional: string[] = [];
+    const flags: Record<string, string | boolean> = {};
+    for (let i = 0; i < rest.length; i++) {
+      const tok = rest[i]!;
+      if (tok === "-o" || tok === "--output") {
+        const val = rest[i + 1];
+        if (val === undefined || val.startsWith("-")) {
+          return {
+            kind: "error",
+            error: `\`--output\` requires a value (e.g. -o out.mp4)`,
+          };
+        }
+        flags.output = val;
+        i += 1;
+      } else if (tok.startsWith("--")) {
+        const eq = tok.indexOf("=");
+        if (eq === -1) {
+          const name = tok.slice(2);
+          const next = rest[i + 1];
+          if (next !== undefined && !next.startsWith("-")) {
+            flags[name] = next;
+            i += 1;
+          } else {
+            flags[name] = true;
+          }
+        } else {
+          flags[tok.slice(2, eq)] = tok.slice(eq + 1);
+        }
+      } else if (tok.startsWith("-") && tok.length > 1) {
+        flags[tok.slice(1)] = true;
+      } else {
+        positional.push(tok);
+      }
+    }
+    if (positional.length === 0) {
+      return {
+        kind: "error",
+        error: `\`davidup render\` requires a project or composition JSON argument`,
+      };
+    }
+    if (positional.length > 1) {
+      return {
+        kind: "error",
+        error: `\`davidup render\` takes exactly one input argument (got ${positional.length})`,
+      };
+    }
+    if (typeof flags.output !== "string") {
+      return {
+        kind: "error",
+        error: `\`davidup render\` requires -o/--output <file>`,
+      };
+    }
+    return { kind: "render", positional: positional[0]!, flags };
+  }
   return { kind: "error", error: `Unknown command: ${head}` };
 }
 
@@ -182,6 +273,9 @@ export async function runCli(
 
     case "edit":
       return await runEditCommand(parsed, deps);
+
+    case "render":
+      return await runRenderCommand(parsed, deps);
 
     case "list":
     case "recent":
@@ -418,6 +512,97 @@ async function runEditCommand(
     deps.io.error(`davidup: ${msg}`);
     return 1;
   }
+}
+
+const VALID_CODECS = ["libx264", "libx265"] as const;
+type Codec = (typeof VALID_CODECS)[number];
+
+async function runRenderCommand(
+  parsed: ParsedCommand,
+  deps: CliDeps,
+): Promise<number> {
+  const input = resolveDir(deps.cwd, parsed.positional!);
+  const outputRaw = stringFlag(parsed.flags, "output")!;
+  const outputPath = resolveDir(deps.cwd, outputRaw);
+
+  const codecRaw = stringFlag(parsed.flags, "codec");
+  if (codecRaw !== undefined && !VALID_CODECS.includes(codecRaw as Codec)) {
+    deps.io.error(
+      `davidup: invalid --codec "${codecRaw}" (expected ${VALID_CODECS.join(" or ")})`,
+    );
+    return 2;
+  }
+
+  const crf = numberFlag(parsed.flags, "crf", deps.io, 0, 51);
+  if (crf === INVALID_FLAG) return 2;
+  const fps = numberFlag(parsed.flags, "fps", deps.io, Number.EPSILON, Infinity);
+  if (fps === INVALID_FLAG) return 2;
+  const preset = stringFlag(parsed.flags, "preset");
+
+  const clock = deps.clock ?? Date.now;
+  const startedAt = clock();
+  let lastLogAt = startedAt;
+  const onProgress = (info: { frame: number; total: number }) => {
+    const now = clock();
+    // Throttle to ~4 updates/sec so fast renders don't flood stderr; always
+    // flush the final frame so the progress line ends at 100%.
+    if (info.frame !== info.total && now - lastLogAt < 250) return;
+    lastLogAt = now;
+    const elapsedMs = Math.max(1, now - startedAt);
+    const fps2 = (info.frame / elapsedMs) * 1000;
+    deps.io.error(
+      `davidup render · frame ${info.frame}/${info.total} (${fps2.toFixed(1)} fps)`,
+    );
+  };
+
+  const render = deps.renderFn ?? renderComposition;
+  try {
+    const result = await render(
+      {
+        input,
+        outputPath,
+        ...(codecRaw !== undefined ? { codec: codecRaw as Codec } : {}),
+        ...(crf !== undefined ? { crf } : {}),
+        ...(fps !== undefined ? { fps } : {}),
+        ...(preset !== undefined ? { preset } : {}),
+      },
+      { onProgress },
+    );
+    deps.io.log(
+      `davidup render · wrote ${result.outputPath} (${result.frameCount} frames, ${(result.durationMs / 1000).toFixed(1)}s)`,
+    );
+    return 0;
+  } catch (err) {
+    if (err instanceof RenderError) {
+      deps.io.error(`davidup: ${err.message}`);
+      return 1;
+    }
+    deps.io.error(`davidup: render failed — ${(err as Error).message}`);
+    return 1;
+  }
+}
+
+const INVALID_FLAG = Symbol("invalid-flag");
+
+function numberFlag(
+  flags: Record<string, string | boolean> | undefined,
+  name: string,
+  io: ConsoleIo,
+  min: number,
+  max: number,
+): number | undefined | typeof INVALID_FLAG {
+  const raw = stringFlag(flags, name);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    io.error(
+      `davidup: invalid --${name} "${raw}" (expected a number${
+        Number.isFinite(max) ? ` between ${min} and ${max}` : ` >= ${min}`
+      })`,
+    );
+    return INVALID_FLAG;
+  }
+  return n;
 }
 
 function resolveDir(cwd: string, p: string): string {

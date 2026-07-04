@@ -141,6 +141,88 @@ describe("cli · runCli", () => {
 
     await stubHandle.close();
   });
+
+  it("`render <input> -o <out>` invokes the injected renderFn and exits 0", async () => {
+    const root = await mkdtemp(join(tmpdir(), "davidup-cli-render-"));
+    tmps.push(root);
+    await writeFile(
+      join(root, "composition.json"),
+      JSON.stringify({
+        version: "0.1",
+        composition: { width: 16, height: 9, fps: 30, duration: 1, background: "#000" },
+        assets: [],
+        layers: [],
+        items: {},
+        tweens: [],
+      }),
+      "utf8",
+    );
+    const cap = captureIo();
+    const outPath = join(root, "out.mp4");
+
+    let received: Parameters<
+      NonNullable<Parameters<typeof runCli>[1]["renderFn"]>
+    >[0] | null = null;
+    const code = await runCli(["render", root, "-o", "out.mp4", "--crf=20"], {
+      io: cap.io,
+      cwd: root,
+      renderFn: async (opts) => {
+        received = opts;
+        return { outputPath: opts.outputPath, durationMs: 42, frameCount: 30 };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(received).not.toBeNull();
+    expect(received!.input).toBe(root);
+    expect(received!.outputPath).toBe(outPath);
+    expect(received!.crf).toBe(20);
+    expect(cap.out.join("\n")).toMatch(/wrote .*out\.mp4.*30 frames/);
+  });
+
+  it("`render` exits 2 on invalid --crf", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--crf=999"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --crf/);
+  });
+
+  it("`render` exits 2 on invalid --codec", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--codec=vp9"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --codec/);
+  });
+
+  it("`render` exits 1 and surfaces the message when renderFn throws a RenderError", async () => {
+    const cap = captureIo();
+    const { RenderError } = await import("../../src/cli/render.js");
+    const code = await runCli(["render", "./missing-project", "-o", "out.mp4"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async () => {
+        throw new RenderError("E_INPUT_NOT_FOUND", "Input not found: ./missing-project");
+      },
+    });
+    expect(code).toBe(1);
+    expect(cap.err.join("\n")).toMatch(/Input not found/);
+  });
+
+  it("`render` exits 2 when -o/--output is missing", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/requires -o\/--output/);
+  });
 });
 
 // Sanity wiring check: parseArgs is exported from the same module.
