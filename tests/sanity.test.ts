@@ -3,6 +3,6 @@ import { VERSION } from "../src/index.js";
 
 describe("scaffold sanity", () => {
   it("exports a version string", () => {
-    expect(VERSION).toBe("0.2.0");
+    expect(VERSION).toBe("1.0.0");
   });
 });

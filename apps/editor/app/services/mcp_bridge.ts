@@ -138,7 +138,7 @@ export function createEditorMcpServer(
 
   return createServer({
     name: opts.name ?? 'davidup-editor',
-    version: opts.version ?? '0.2.0',
+    version: opts.version ?? '1.0.0',
     depsFactory: () => buildDeps(store, library),
     router: buildRouter(bus, store),
   })

@@ -94,7 +94,9 @@ the registry two-layered (built-ins + overlay) so removal of an overlay entry
 can never touch the base layer. Same audit applies to
 `unregisterTemplate` / `unregisterScene` if built-ins exist for those.
 
-**Status:** OPEN.
+**Status:** OPEN — P2, deferred to v1.1 (requires a deliberately shadowed
+built-in in `~/.davidup/library` plus a live reload; no impact on normal
+authoring or rendering paths).
 
 ### 2.2 `davidup edit`'s dev-mode server leaks an orphaned `bin/server.js` per session
 
@@ -128,4 +130,6 @@ Needs care: `stdio: "inherit"` plus `detached: true` changes how the child's
 own signal handling and terminal attachment behave, so verify `Ctrl+C` on
 the CLI itself still tears the whole tree down cleanly.
 
-**Status:** OPEN.
+**Status:** OPEN — P2, deferred to v1.1 (dev-source `davidup edit` only; the
+packaged/npx path is unaffected, and CI containers reap the orphan with the
+job).

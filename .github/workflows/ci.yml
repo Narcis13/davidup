@@ -4,19 +4,28 @@
 #   bunx vitest run            # root suite (manifest sync test called out separately)
 #   cd apps/editor && npm run typecheck && node ace test
 #
-# Two independent jobs: `root` (bun) and `editor` (pnpm — the editor tree is
-# pnpm-installed; apps/editor/package-lock.json is stale and has no davidup
-# entry, so npm ci would fail there).
+# Two independent jobs, both installed via the bun workspace (`workspaces:
+# ["apps/*"]` in the root package.json — the same layout local dev uses;
+# apps/editor/node_modules is a bun symlink into the root install). The
+# editor job previously used pnpm, which *packs* the `file:../..` davidup
+# dependency at install time — a copy that is empty of `dist/` unless the
+# root build ran first, which is why the editor job went red the moment the
+# R-9 packaging work pointed the package's node-facing `default` exports at
+# `dist/*.js`. The bun workspace symlinks the root directory instead, so one
+# `bun run build` serves every consumer.
+#
+# Both jobs build `dist/` explicitly: anything that loads davidup under
+# plain node — the editor's typecheck/`ace test`, and the root suite's
+# Session 24 editor E2E smoke test (tests/e2e/editorSmoke.integration.test.ts,
+# which boots the real editor via `node ace serve`) — resolves the package
+# through its `default` → `dist/` export condition, not the bun-only `src/`
+# condition.
 #
 # The root suite includes the Session 23 determinism harness (golden frame
-# hashes, MP4 bitexact reproducibility, node↔browser pixel parity) and the
-# Session 24 editor E2E smoke test (tests/e2e/editorSmoke.integration.test.ts
-# — boots the real editor via `runEdit`, drives it with the same headless
-# Chromium through a real add-shape → animate → render loop) — both need a
-# real headless Chromium, installed below. Session 24 also adds `vue-tsc`
-# to the editor's `typecheck` script (`apps/editor/package.json`), so the
-# `editor` job's typecheck step below now covers the ~5k previously-unchecked
-# SFC `<script>` lines under `apps/editor/inertia/` too.
+# hashes, MP4 bitexact reproducibility, node↔browser pixel parity). Golden
+# hashes are platform-keyed (`linux-x64` entries captured from this very
+# workflow's runners — see tests/determinism/goldenFrames.json); the parity
+# and smoke tests need a real headless Chromium, installed below.
 name: CI
 
 on:
@@ -58,6 +67,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The editor smoke test boots the real editor app with `node ace serve`,
+      # and node resolves `davidup/*` through the package's `default` → dist/
+      # exports — vitest itself runs the suite through bun's `src/` condition,
+      # but the spawned editor server does not.
+      - name: Build davidup dist (for the editor smoke test's node server)
+        run: bun run build
+
+      # Same smoke test: the editor app validates its env at boot; the
+      # checked-in example is sufficient (APP_KEY included).
+      - name: Create editor .env from example
+        run: cp apps/editor/.env.example apps/editor/.env
+
       # alpha.webm is git-ignored (WebM alpha lives in a stream tag that must
       # be produced by a real encoder); the script rebuilds all fixtures with
       # the bundled ffmpeg-static.
@@ -90,36 +111,49 @@ jobs:
     name: Editor (typecheck, ace test)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: apps/editor
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 11
+          bun-version: 1.3.8
 
+      # `node ace test` and vue-tsc run under node, pinned to the same major
+      # local dev uses.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: apps/editor/pnpm-lock.yaml
+
+      - name: Cache bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       # The editor engine falls back to PATH ffmpeg/ffprobe: ffmpeg-static and
-      # ffprobe-static are devDependencies of davidup, so pnpm does not install
-      # them for the file:../.. dependency.
+      # ffprobe-static are devDependencies of the root package, not of the
+      # editor app.
       - name: Install ffmpeg (provides PATH ffmpeg + ffprobe)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install dependencies (bun workspace — root + apps/editor)
+        run: bun install --frozen-lockfile
+
+      # tsc/vue-tsc and the ace test suite resolve `davidup/*` under node via
+      # the package's `types`/`default` → dist/ export conditions.
+      - name: Build davidup dist
+        run: bun run build
 
       - name: Create .env from example
         run: cp .env.example .env
+        working-directory: apps/editor
 
       - name: Editor typecheck
         run: npm run typecheck
+        working-directory: apps/editor
 
       - name: Editor test suite (ace test)
         run: node ace test
+        working-directory: apps/editor

@@ -684,6 +684,7 @@ exact catalog or to add your own.
 | `examples/four-scenes-browser/` | Four scenes time-mapped into 60s reel | `bun run dev:four-scenes` |
 | `examples/time-mapping-mcp/` | MCP-driven time-mapping demo | `bun run examples/time-mapping-mcp/render.ts` |
 | `examples/editor-demo/` | Scaffolded project for editor onboarding | `davidup edit examples/editor-demo` |
+| `examples/launch-video/` | **The v1.0 launch video** — authored entirely by an AI agent over MCP; a video about davidup, made in davidup | `davidup render examples/launch-video/composition.json -o launch.mp4` |
 
 ---
 

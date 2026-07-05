@@ -46,9 +46,21 @@ import { GOLDEN_FRACTIONS, renderFractionalFrameHashes } from "./support/renderS
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_PATH = resolve(HERE, "goldenFrames.json");
 
+// skia-canvas ships a prebuilt native binary per platform, and rasterization
+// details (antialiasing coverage, font hinting) legitimately differ between
+// them — so goldens are keyed by `${platform}-${arch}`. Determinism is a
+// *per-platform* claim: the same platform must always produce the same
+// pixels. A platform with no committed entry skips the hash comparison
+// (add one via `bun run scripts/regenerate-goldens.ts` on that platform).
+const PLATFORM_KEY = `${process.platform}-${process.arch}`;
+
+interface GoldenPlatform {
+  examples: Record<string, string[]>;
+}
+
 interface GoldenFile {
   fractions: readonly number[];
-  examples: Record<string, string[]>;
+  platforms: Record<string, GoldenPlatform>;
 }
 
 async function loadGolden(): Promise<GoldenFile> {
@@ -60,25 +72,41 @@ describe("determinism — golden frame hashes", () => {
   it("golden fixture covers exactly the registered examples at the expected fractions", async () => {
     const golden = await loadGolden();
     expect(golden.fractions).toEqual(GOLDEN_FRACTIONS as unknown as number[]);
-    expect(Object.keys(golden.examples).sort()).toEqual(
-      GOLDEN_EXAMPLES.map((e) => e.name).sort(),
-    );
+    expect(Object.keys(golden.platforms).length).toBeGreaterThan(0);
+    for (const [key, platform] of Object.entries(golden.platforms)) {
+      expect(
+        Object.keys(platform.examples).sort(),
+        `platform "${key}" must cover exactly the registered examples`,
+      ).toEqual(GOLDEN_EXAMPLES.map((e) => e.name).sort());
+    }
   });
 
   for (const example of GOLDEN_EXAMPLES) {
-    it(`matches the stored golden hashes — ${example.name}`, async () => {
+    it(`matches the stored golden hashes — ${example.name}`, async (ctx) => {
       const golden = await loadGolden();
-      const expected = golden.examples[example.name];
-      expect(expected, `no golden entry for "${example.name}"`).toBeDefined();
+      const platform = golden.platforms[PLATFORM_KEY];
+      if (!platform) {
+        console.warn(
+          `[goldenFrames] no goldens for platform "${PLATFORM_KEY}" — ` +
+            `run \`bun run scripts/regenerate-goldens.ts\` here to add them`,
+        );
+        ctx.skip();
+        return;
+      }
+      const expected = platform.examples[example.name];
+      expect(
+        expected,
+        `no golden entry for "${example.name}" on ${PLATFORM_KEY}`,
+      ).toBeDefined();
 
       const comp = await example.build();
       const hashes = await renderFractionalFrameHashes(comp, GOLDEN_FRACTIONS);
 
       expect(
         hashes,
-        `frame hashes changed for "${example.name}" — if this is an intentional ` +
-          `pixel change, run \`bun run scripts/regenerate-goldens.ts\` and say so ` +
-          `in the commit message`,
+        `frame hashes changed for "${example.name}" on ${PLATFORM_KEY} — if this ` +
+          `is an intentional pixel change, run \`bun run scripts/regenerate-goldens.ts\` ` +
+          `and say so in the commit message`,
       ).toEqual(expected);
     });
   }
