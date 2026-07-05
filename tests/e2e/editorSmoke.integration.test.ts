@@ -125,12 +125,23 @@ describe.skipIf(!chromiumAvailable)(
         // Dismiss the first-run onboarding overlay if it's showing. Its
         // dismissal persists machine-wide in ~/.davidup/state.json, so a
         // fresh CI runner sees it on the very first boot but a dev machine
-        // that's already used the editor won't — handle both.
-        const onboardingClose = page.locator(
-          '[data-testid="onboarding-close"]',
+        // that's already used the editor won't — handle both. A point-in-time
+        // `isVisible()` probe is NOT enough: in dev mode the overlay's SFC
+        // module loads as its own request, so it can mount (and start
+        // intercepting pointer events on the whole page) *after* the toolbar
+        // CSS is ready — observed on a fresh CI runner, where a later click
+        // timed out against `onboarding-overlay … intercepts pointer events`.
+        // Wait a real grace period for it to appear; if it does, dismiss it
+        // and wait for it to actually leave.
+        const onboardingOverlay = page.locator(
+          '[data-testid="onboarding-overlay"]',
         );
-        if (await onboardingClose.isVisible().catch(() => false)) {
-          await onboardingClose.click();
+        try {
+          await onboardingOverlay.waitFor({ state: "visible", timeout: 5_000 });
+          await page.locator('[data-testid="onboarding-close"]').click();
+          await onboardingOverlay.waitFor({ state: "hidden", timeout: 5_000 });
+        } catch {
+          /* never appeared within the grace period — already dismissed */
         }
 
         // ── Add a shape ──────────────────────────────────────────────────
