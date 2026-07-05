@@ -74,6 +74,14 @@ jobs:
       - name: Build davidup dist (for the editor smoke test's node server)
         run: bun run build
 
+      # bun materializes the editor's `file:../..` davidup dependency as a
+      # COPY snapshotted at install time (node_modules/.bun/davidup@root/…),
+      # not a live symlink — the first install ran before `dist/` existed, so
+      # the copy has no dist. Re-running install refreshes the snapshot.
+      # (Same gotcha as local dev: re-`bun install` after engine changes.)
+      - name: Refresh workspace davidup snapshot (now includes dist)
+        run: bun install --frozen-lockfile
+
       # Same smoke test: the editor app validates its env at boot; the
       # checked-in example is sufficient (APP_KEY included).
       - name: Create editor .env from example
@@ -145,6 +153,14 @@ jobs:
       # the package's `types`/`default` → dist/ export conditions.
       - name: Build davidup dist
         run: bun run build
+
+      # bun materializes the editor's `file:../..` davidup dependency as a
+      # COPY snapshotted at install time — the first install ran before
+      # `dist/` existed, so the copy has no dist. Re-running install
+      # refreshes the snapshot. (Same gotcha as local dev: re-`bun install`
+      # after engine changes.)
+      - name: Refresh workspace davidup snapshot (now includes dist)
+        run: bun install --frozen-lockfile
 
       - name: Create .env from example
         run: cp .env.example .env
