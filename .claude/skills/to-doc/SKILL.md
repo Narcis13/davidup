@@ -16,7 +16,10 @@ Every doc has two layers in the same `.html` file:
 1. **Visible layer (humans)** — dark + blue-accent + minimalist HTML, rendered
    using inline `<style>`, inline `<svg>`, and inline `<canvas>` + `<script>`
    only where dynamic visuals earn their cost. No external CSS/JS dependencies
-   beyond Google Fonts.
+   beyond Google Fonts — and if the user asks for an offline/archival doc,
+   drop the Google Fonts links too (the fallback stacks are the design in
+   that mode; see `design.md` § 2). Dark is for screens only: every doc
+   carries the `@media print` block from `design.md` § 7 so it prints light.
 
 2. **AI-frontmatter layer (agents)** — a
    `<script type="text/markdown" id="ai-frontmatter">` block at the end of
@@ -43,7 +46,9 @@ Pull from the conversation, files the user has referenced, and the codebase.
 Decide:
 
 - **Genre** — PRD, vision, retro, analysis, proposal, design doc, status
-  update, postmortem, decision record, lightning talk?
+  update, postmortem, decision record, lightning talk, implementation
+  journal (a /flow task's plan → decisions → review → outcome, sourced from
+  its `.flow/<slug>.md` state file)?
 - **Format** — long-form scrolling doc (default) or slide deck? See
   [Format choice](#format-choice).
 - **Audience** — solo founder reading it tomorrow vs. an investor reading it
@@ -87,7 +92,7 @@ meaningful piece into the script block. Format:
 ```html
 <script type="text/markdown" id="ai-frontmatter">
 ---
-doc_type: <prd | proposal | retro | vision | analysis | design | decision | slides | other>
+doc_type: <prd | proposal | retro | vision | analysis | design | decision | journal | slides | other>
 doc_title: <full title>
 version: <semver or omit>
 date: <YYYY-MM-DD>
@@ -126,6 +131,8 @@ using only the frontmatter.
 
 Default save location, in priority order:
 
+0. `docs/flow/<slug>.html` for implementation journals from `/flow ship`
+   (create the directory if needed).
 1. `vision/<slug>.html` if `vision/` exists in the repo.
 2. `docs/<slug>.html` if `docs/` exists.
 3. Same directory as the file the user is currently working on.
@@ -153,10 +160,48 @@ Pick **long-form** (default) when:
 
 When in doubt, pick long-form.
 
+## Genre recipe: implementation journal (from /flow ship)
+
+Journals are always **long-form**. The task's `.flow/<slug>.md` state file is
+the complete content source — the AI-frontmatter body is a lightly edited
+mirror of it (`doc_type: journal`, `companion_to: .flow/<slug>.md`). Tone:
+past tense, factual, zero marketing — this is an engineering record. Map the
+state file onto the existing components:
+
+1. **Hero** — the task as headline; one-line outcome as subhead. Hero-meta:
+   size, created → shipped dates, files touched.
+2. **TL;DR callout** — label "Shipped": what exists now, in two sentences.
+3. **Plan, as built** — intent, then the approach with amendments folded in
+   and marked (`.pill` "amended"); touchpoints as a table.
+4. **Decisions** — one card per Build-log entry: heading, the call, **Why**,
+   **Alternative** if present. This section is the doc's reason to exist;
+   give it room.
+5. **Review** — findings as a matrix table; severity uses state colors with
+   text labels (`BLOCKER` → `--bad`, `SHOULD` → `--warn`, `NIT` → `--mute`)
+   plus a resolution column (`fixed` / `waived`). Close with the verdict as
+   a callout. Zero findings → render the attack-angle list that earned it.
+6. **Outcome** — acceptance checks with their evidence in the `.ac`
+   definition-list style (command + result, verbatim); a stats row only if
+   the numbers earn it (checks passed, findings fixed, files touched);
+   follow-ups as a plain list.
+
+Natural visual punctuation for journals: a phase strip (plan → build →
+review → ship with dates) and the findings matrix. Skip the architecture
+diagram unless the task actually changed architecture.
+
 ## Quality bar (verify before declaring done)
 
 - [ ] Visible doc opens cleanly at 1440×900, 1024×768, and 768×1024.
-- [ ] No external CSS/JS beyond Google Fonts. No CDN script tags.
+- [ ] No external CSS/JS beyond Google Fonts. No CDN script tags. Every
+      `font-family` carries its full system fallback stack — the doc must
+      stay readable with the network blocked. Offline/archival request →
+      no Google Fonts links at all.
+- [ ] Data tables are real `<table>` markup (`thead`, `th scope="col"`)
+      inside a `.tbl-wrap` scroll wrapper — no div grids posing as tables,
+      and the page itself never scrolls horizontally.
+- [ ] `@media print` block present (token flip to light, decoration hidden,
+      break hygiene per `design.md` § 7) — spot-check the print preview:
+      no dark full-bleed ink fields, headings not orphaned.
 - [ ] All visible colors come from CSS variables in `:root`. No hex literals
       outside `:root`.
 - [ ] All typography uses the three families declared in `design.md`.

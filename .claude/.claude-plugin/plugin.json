@@ -1,0 +1,10 @@
+{
+  "name": "kit",
+  "displayName": "Kit",
+  "version": "1.0.0",
+  "description": "Lightweight dev workflow: /flow (plan → build → review → ship with persistent per-task state and HTML journey docs), /to-doc rich HTML rendering, /extract-md.",
+  "author": {
+    "name": "Narcis Brindusescu",
+    "email": "narcis75@gmail.com"
+  }
+}

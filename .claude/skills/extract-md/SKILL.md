@@ -1,5 +1,10 @@
 ---
-description: Extract markdown from <script type="text/markdown" id="ai-frontmatter"> in an HTML file and save it as a .md file next to the source
+name: extract-md
+description: >-
+  Extract the markdown embedded in a to-doc HTML file's
+  <script type="text/markdown" id="ai-frontmatter"> block and save it as a
+  .md file next to the source. Use when the user types /extract-md or asks to
+  get the markdown/text back out of a generated HTML doc.
 argument-hint: <path-to-html-file>
 allowed-tools: Bash(python3:*), Bash(test:*), Bash(ls:*)
 ---

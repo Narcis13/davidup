@@ -12,6 +12,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>TODO — slides</title>
+<!-- OFFLINE / ARCHIVAL MODE: delete the three font <link> tags below. Every
+     font-family declares a full system fallback stack, so the deck stays
+     correct and readable with zero network access. -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -173,6 +176,28 @@
   @media (prefers-reduced-motion: reduce) {
     .slide { transition: none; }
     .progress .fill { transition: none; }
+  }
+
+  /* === PRINT (light, one slide per page; screen stays dark by design) === */
+  @media print {
+    :root {
+      --bg: #FFFFFF; --bg-2: #F3F5F8; --bg-3: #E9EDF2;
+      --ink: #141A22; --ink-2: #333B47; --mute: #5B6472;
+      --line: rgba(0,0,0,0.10); --line-2: rgba(0,0,0,0.18);
+      --accent: #1D4ED8; --accent-2: #1E40AF;
+      --accent-dim: rgba(29,78,216,0.08); --accent-line: rgba(29,78,216,0.35);
+    }
+    html, body { overflow: visible; height: auto; background: #FFFFFF; }
+    .deck { height: auto; width: auto; }
+    .slide {
+      position: static; inset: auto;
+      opacity: 1; transform: none; pointer-events: auto;
+      min-height: 95vh;
+      break-after: page;
+    }
+    .progress, .meta { display: none; }
+    pre { background: #F3F5F8; color: #141A22; white-space: pre-wrap; }
+    .tok-s { color: #1E7A46; }
   }
 </style>
 
