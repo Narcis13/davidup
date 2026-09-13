@@ -14,6 +14,8 @@
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import type { AttachHandle, ItemBounds, PickHit } from 'davidup/browser'
 import type { Item } from 'davidup/schema'
+import { useToasts } from './useToasts'
+import { VideoFrameCache, type FrameImage } from './videoFrameCache'
 
 export type StageStatus =
   | 'idle'
@@ -109,7 +111,62 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   // the start of the comp.
   let lastAttachStartMs = 0
   let lastAttachStartAt = 0
+  // Bumped by every `start()`. `attach()` is async, so overlapping starts
+  // (mount + an early composition/canvas watcher) used to race: the slower
+  // attach overwrote `handle.value` and the other handle leaked, its RAF loop
+  // still painting a stale composition over the live one. Only the newest
+  // start may install its handle; superseded ones are stopped.
+  let startGen = 0
   const tickSubscribers = new Set<() => void>()
+
+  // v1.1 S5 — video items draw from the server's extraction cache. Created
+  // on mount (client only) and kept across re-attaches so decoded frames
+  // survive Inspector edits.
+  let videoFrames: VideoFrameCache | null = null
+  let repaintRaf: number | null = null
+
+  // A frame (or clip metadata) arrived. While playing the driver's own loop
+  // picks it up next frame; otherwise repaint the latched playhead once.
+  function scheduleVideoRepaint(): void {
+    if (repaintRaf !== null || typeof requestAnimationFrame === 'undefined') return
+    repaintRaf = requestAnimationFrame(() => {
+      repaintRaf = null
+      const h = handle.value
+      if (!h || cancelled || status.value === 'playing' || status.value === 'loading') return
+      h.seek(playhead.value)
+    })
+  }
+
+  function createVideoFrames(): VideoFrameCache {
+    const toasts = useToasts()
+    return new VideoFrameCache({
+      async fetchClips() {
+        const res = await fetch('/api/video-clips', { credentials: 'same-origin' })
+        if (!res.ok) throw new Error(`GET /api/video-clips → ${res.status}`)
+        return res.json()
+      },
+      async loadFrame(url: string): Promise<FrameImage> {
+        const res = await fetch(url, { credentials: 'same-origin' })
+        if (!res.ok) throw new Error(`${url} → ${res.status}`)
+        return createImageBitmap(await res.blob())
+      },
+      onFrameReady: scheduleVideoRepaint,
+      onClipsPending() {
+        toasts.info('Extracting video frames…', {
+          message: 'The stage shows the clip once its frames are cached.',
+          lingerMs: 0,
+          dedupeKey: 'stage:video-frames',
+        })
+      },
+      onClipsSettled({ warnings, announced }) {
+        if (warnings.length > 0) {
+          toasts.warning(warnings[0]!, { dedupeKey: 'stage:video-frames' })
+        } else if (announced) {
+          toasts.success('Video frames ready', { dedupeKey: 'stage:video-frames' })
+        }
+      },
+    })
+  }
 
   function cancelRaf(): void {
     if (rafId !== null && typeof cancelAnimationFrame !== 'undefined') {
@@ -173,6 +230,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   }
 
   async function start(opts: { resume?: boolean; resumeAt?: number; keepPaused?: boolean } = {}): Promise<void> {
+    const gen = ++startGen
     const canvasEl = options.canvas.value
     const comp = readComposition()
     // `resumeAt` is the explicit (paused-playhead, etc) path; `resume` is the
@@ -205,9 +263,12 @@ export function useStage(options: UseStageOptions): UseStageReturn {
     try {
       // Dynamic import keeps the DOM-only browser driver out of the SSR bundle.
       const mod = await import('davidup/browser')
-      if (cancelled) return
+      if (cancelled || gen !== startGen) return
       const duration = readDuration(comp)
       const startAt = duration > 0 ? Math.min(resumeAt, Math.max(0, duration - 0.001)) : resumeAt
+      // Not awaited: extraction can take seconds on a cache miss. Video items
+      // draw nothing until metadata + frames land, then repaint.
+      void videoFrames?.refresh(comp)
       // HTMLCanvasElement's getContext returns CanvasRenderingContext2D, whose
       // setters (fillStyle, strokeStyle, font) accept gradients/patterns too.
       // The engine's `Canvas2DContext` narrows those to `string` because that's
@@ -219,9 +280,13 @@ export function useStage(options: UseStageOptions): UseStageReturn {
         // emitSourceMap unlocks pickItemAt's source-map output. The cost is
         // a second precompile pass under the hood (the resolved JSON itself
         // is byte-identical, see precompile.ts §"R1 mitigation").
-        { startAt, emitSourceMap: true },
+        {
+          startAt,
+          emitSourceMap: true,
+          ...(videoFrames ? { video: videoFrames } : {}),
+        },
       )
-      if (cancelled) {
+      if (cancelled || gen !== startGen) {
         h.stop()
         return
       }
@@ -260,7 +325,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
         }, remaining * 1000 + 50)
       }
     } catch (err) {
-      if (cancelled) return
+      if (cancelled || gen !== startGen) return
       status.value = 'error'
       error.value = (err as Error).message ?? String(err)
       handle.value = null
@@ -349,6 +414,7 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   }
 
   onMounted(() => {
+    videoFrames = createVideoFrames()
     void start()
   })
 
@@ -397,6 +463,12 @@ export function useStage(options: UseStageOptions): UseStageReturn {
   onBeforeUnmount(() => {
     cancelled = true
     stopInternal()
+    if (repaintRaf !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(repaintRaf)
+      repaintRaf = null
+    }
+    videoFrames?.dispose()
+    videoFrames = null
   })
 
   return {

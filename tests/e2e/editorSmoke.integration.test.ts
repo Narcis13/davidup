@@ -16,7 +16,14 @@
 // chromium`) for the root job, which this test also runs under.
 
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import {
+  copyFile,
+  cp,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -28,6 +35,7 @@ const HERE = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const EDITOR_APP_DIR = join(REPO_ROOT, "apps", "editor");
 const DEMO_PROJECT_DIR = join(REPO_ROOT, "examples", "editor-demo");
+const SMALL_MP4 = join(REPO_ROOT, "tests", "drivers", "fixtures", "video", "small.mp4");
 
 // Mirrors tests/determinism/nodeBrowserParity's probe: `chromium.launch()`
 // itself throws if the browser binary was never installed (the common
@@ -185,5 +193,153 @@ describe.skipIf(!chromiumAvailable)(
       },
       120_000,
     );
+
+    // v1.1 S5 — the stage draws video frames from the extraction cache.
+    it(
+      "adds a video clip and the stage paints its frames at the playhead",
+      async () => {
+        const projectDir = await mkdtemp(
+          join(tmpdir(), "davidup-editor-smoke-video-"),
+        );
+        cleanups.push(() => rm(projectDir, { recursive: true, force: true }));
+        await cp(DEMO_PROJECT_DIR, projectDir, { recursive: true });
+        await copyFile(SMALL_MP4, join(projectDir, "assets", "clip.mp4"));
+        const compPath = join(projectDir, "composition.json");
+        const comp = JSON.parse(await readFile(compPath, "utf8")) as {
+          assets: unknown[];
+        };
+        comp.assets.push({
+          id: "clip",
+          type: "video",
+          src: "./assets/clip.mp4",
+          duration: 1,
+          width: 320,
+          height: 240,
+          fps: 30,
+        });
+        await writeFile(compPath, JSON.stringify(comp, null, 2), "utf8");
+
+        // Isolate the frame cache; the editor child inherits the env.
+        const cacheDir = await mkdtemp(join(tmpdir(), "davidup-smoke-cache-"));
+        const prevCache = process.env.DAVIDUP_CACHE;
+        process.env.DAVIDUP_CACHE = cacheDir;
+        cleanups.push(async () => {
+          if (prevCache === undefined) delete process.env.DAVIDUP_CACHE;
+          else process.env.DAVIDUP_CACHE = prevCache;
+          await rm(cacheDir, { recursive: true, force: true });
+        });
+
+        const port = await getFreePort();
+        const handle: EditHandle = await runEdit({
+          projectDir,
+          editorAppDir: EDITOR_APP_DIR,
+          port,
+          host: "127.0.0.1",
+          noOpen: true,
+          noWatch: true,
+          readyTimeoutMs: 30_000,
+        });
+        cleanups.push(() => handle.close());
+
+        const page = await browser!.newPage({
+          viewport: { width: 1440, height: 900 },
+        });
+        cleanups.push(() => page.close());
+        await openEditor(page, handle.url);
+
+        // Seek to 1 s (ruler spans the 6 s comp), then pause there.
+        const ruler = page.locator(".ruler");
+        const box = await ruler.boundingBox();
+        expect(box).toBeTruthy();
+        await ruler.click({ position: { x: box!.width / 6, y: box!.height / 2 } });
+        await page.locator('[data-testid="transport-toggle-play"]').click();
+
+        // The clip lands at stage centre with fit=contain: a 320×240 source in
+        // the 1280×720 default box letterboxes to x∈[160,1120], y∈[0,720].
+        const sample = () =>
+          page.evaluate(() => {
+            const c = document.querySelector(
+              '[data-testid="stage-canvas"]',
+            ) as HTMLCanvasElement;
+            const ctx = c.getContext("2d")!;
+            const out: number[] = [];
+            for (let gy = 0; gy < 8; gy++) {
+              for (let gx = 0; gx < 12; gx++) {
+                const x = Math.round(200 + (gx * 880) / 11);
+                const y = Math.round(40 + (gy * 640) / 7);
+                const d = ctx.getImageData(x, y, 1, 1).data;
+                out.push(d[0]!, d[1]!, d[2]!);
+              }
+            }
+            return out;
+          });
+        // Let the paused frame settle before taking the baseline.
+        await page.waitForTimeout(500);
+        const baseline = await sample();
+
+        await page.locator('[data-testid="item-toolbar-video"]').click();
+        await page.locator('[data-testid="item-toolbar-video-clip"]').click();
+
+        await page.waitForFunction(
+          (base) => {
+            const c = document.querySelector(
+              '[data-testid="stage-canvas"]',
+            ) as HTMLCanvasElement | null;
+            if (!c) return false;
+            const ctx = c.getContext("2d")!;
+            let changed = 0;
+            let i = 0;
+            for (let gy = 0; gy < 8; gy++) {
+              for (let gx = 0; gx < 12; gx++) {
+                const x = Math.round(200 + (gx * 880) / 11);
+                const y = Math.round(40 + (gy * 640) / 7);
+                const d = ctx.getImageData(x, y, 1, 1).data;
+                const diff = Math.max(
+                  Math.abs(d[0]! - base[i]!),
+                  Math.abs(d[1]! - base[i + 1]!),
+                  Math.abs(d[2]! - base[i + 2]!),
+                );
+                if (diff > 40) changed++;
+                i += 3;
+              }
+            }
+            // testsrc2 is a busy colour pattern: most samples must differ.
+            return changed >= 24; // ≥25% of the 96 samples
+          },
+          baseline,
+          { timeout: 60_000, polling: 250 },
+        );
+
+        await page.screenshot({
+          path: join(projectDir, "stage-video.png"),
+        });
+      },
+      120_000,
+    );
   },
 );
+
+// Boot sequence shared by the smoke cases: navigate, wait for the dev-mode
+// component tree to be styled, and dismiss the first-run onboarding overlay.
+async function openEditor(
+  page: import("playwright").Page,
+  url: string,
+): Promise<void> {
+  await page.goto(`${url}/editor`, { waitUntil: "load" });
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector('[data-testid="item-toolbar"]');
+      return !!el && getComputedStyle(el).position === "absolute";
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+  const onboardingOverlay = page.locator('[data-testid="onboarding-overlay"]');
+  try {
+    await onboardingOverlay.waitFor({ state: "visible", timeout: 5_000 });
+    await page.locator('[data-testid="onboarding-close"]').click();
+    await onboardingOverlay.waitFor({ state: "hidden", timeout: 5_000 });
+  } catch {
+    /* never appeared within the grace period — already dismissed */
+  }
+}

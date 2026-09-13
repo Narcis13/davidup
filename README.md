@@ -915,7 +915,8 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 **Video items (b-roll)**
 
-- Video items are **not drawn** in the browser preview or the editor stage;
+- Video items are **not drawn** by a bare browser `attach()` unless the host
+  passes a `video` frame provider (the editor stage does; see below).
   `render_preview_frame` / `render_thumbnail_strip` and full renders
   composite them.
 - All extracted frames are decoded into memory before encoding; a 30 s
@@ -953,7 +954,9 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 **Editor**
 
-- Video items show a static thumbnail in the Inspector but not on the stage.
+- The stage draws video frames from the render extraction cache: exact when
+  paused or scrubbing, best-effort while playing (frames can lag or blink in
+  until cached). The first view of a new clip waits on extraction.
 - No keyframe curve editor, no timeline zoom, no arrow-key nudge, no
   polygon tool; the source drawer is read-only.
 - External edits to `composition.json` are not watched.
@@ -974,7 +977,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 |---|---|---|
 | `E_RENDER_FAILED` with `height not divisible by 2` in `stderrTail` | Odd composition dimensions with `yuv420p` | Use even `width` / `height` |
 | Footage looks stretched | Video item box aspect ≠ source aspect (see Known limitations) | Match the box to the source aspect ratio |
-| Video item invisible in the editor stage | The browser stage has no video frame provider | Use `render_preview_frame` or render to MP4 to see it |
+| Video item invisible in the editor stage | Frames still extracting, or extraction failed (a warning toast names the cause) | Wait for "Video frames ready"; otherwise fix the asset `src` / ffmpeg |
 | Video item missing from a preview PNG, with `Video frames unavailable` in `warnings` | Source file missing/unreadable, or ffmpeg failed to extract | Fix the asset `src`; the message carries the cause |
 | `dyld: Library not loaded: libx265…` when ffmpeg starts | Broken Homebrew ffmpeg being used as `ffmpegPath` | Drop `ffmpegPath` to use bundled `ffmpeg-static`, or `brew reinstall ffmpeg x265` |
 | `EPIPE: broken pipe, send` from `renderToFile` | ffmpeg crashed | Inspect the thrown error's `message` for the stderr tail |

@@ -50,6 +50,7 @@ import type {
   OffscreenSurface,
   SourceLocation,
   SourceMap,
+  VideoFrameProvider,
 } from "../../engine/types.js";
 import type {
   Composition,
@@ -109,6 +110,14 @@ export interface AttachOptions {
    * the legacy zero-allocation precompile fast path.
    */
   emitSourceMap?: boolean;
+  /**
+   * Resolves decoded frames for video items (v1.1 S5). Threaded into every
+   * paint. The engine calls it synchronously, so a host that fetches frames
+   * asynchronously returns `undefined` on a miss (the item draws nothing) and
+   * repaints via `seek(t)` once the frame lands. Absent ⇒ video items draw
+   * nothing, as before.
+   */
+  video?: VideoFrameProvider;
 }
 
 export interface PickHit {
@@ -247,6 +256,7 @@ export async function attach(
       assets: loader,
       index: tweenIndex,
       createOffscreen,
+      ...(options.video !== undefined ? { video: options.video } : {}),
     });
     lastRenderedT = clamped;
   };
