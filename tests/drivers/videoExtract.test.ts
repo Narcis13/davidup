@@ -23,6 +23,7 @@ import {
   computeSpecHash,
   preExtractVideoFrames,
   pruneCache,
+  resolveExtractDimensions,
   type FileStat,
   type FrameExtractProgress,
   type VideoExtractSpec,
@@ -252,6 +253,82 @@ describe("collectVideoExtractSpecs", () => {
   });
 });
 
+describe("resolveExtractDimensions (B-1)", () => {
+  function item(width: number, height: number, scaleX = 1, scaleY = 1) {
+    return {
+      type: "video" as const,
+      asset: "vid",
+      width,
+      height,
+      start: 0,
+      fit: "contain" as const,
+      loop: false,
+      transform: { ...transform(), scaleX, scaleY },
+    };
+  }
+  function asset(width?: number, height?: number) {
+    return {
+      id: "vid",
+      type: "video" as const,
+      src: "/abs/clip.mp4",
+      ...(width !== undefined ? { width } : {}),
+      ...(height !== undefined ? { height } : {}),
+    };
+  }
+
+  it("extracts native size when the source is under the box cap (no upscale)", () => {
+    expect(resolveExtractDimensions(item(640, 320), asset(320, 240), "v")).toEqual({
+      width: 320,
+      height: 240,
+      scale: "",
+    });
+  });
+
+  it("preserves source aspect when capping a landscape source (W:-2)", () => {
+    const d = resolveExtractDimensions(item(320, 240), asset(3840, 2160), "v");
+    expect(d).toEqual({ width: 320, height: 180, scale: "scale=320:-2" });
+    expect(d.width / d.height).toBeCloseTo(3840 / 2160, 1);
+  });
+
+  it("caps a portrait source on its height (-2:H)", () => {
+    expect(resolveExtractDimensions(item(400, 300), asset(1080, 1920), "v")).toEqual({
+      width: 226,
+      height: 400,
+      scale: "scale=-2:400",
+    });
+  });
+
+  it("caps against the box's longest side regardless of box aspect", () => {
+    // A 4:3 source in a tall 100×500 box caps at 500 on the source's long side.
+    expect(resolveExtractDimensions(item(100, 500), asset(1600, 1200), "v")).toEqual({
+      width: 500,
+      height: 376,
+      scale: "scale=500:-2",
+    });
+  });
+
+  it("scales the cap by max(|scaleX|, |scaleY|), rounded up", () => {
+    const d = resolveExtractDimensions(item(320, 180, 1.5, -2.001), asset(3840, 2160), "v");
+    expect(d.width).toBe(641);
+    expect(d.scale).toBe("scale=641:-2");
+  });
+
+  it("uses an ffmpeg expression cap when the asset was never probed", () => {
+    const d = resolveExtractDimensions(item(320, 240), asset(), "v");
+    expect(d.scale).toBe(
+      "scale=w='if(gte(iw,ih),min(iw,320),-2)':h='if(gte(iw,ih),-2,min(ih,320))'",
+    );
+    expect(d.scale).not.toMatch(/scale=\d+:\d+/);
+  });
+
+  it("extracts native for a degenerate box, and throws when dims are unknown too", () => {
+    expect(resolveExtractDimensions(item(0, 0), asset(640, 360), "v").scale).toBe("");
+    expect(() => resolveExtractDimensions(item(0, 0), asset(), "v")).toThrow(
+      /degenerate box/,
+    );
+  });
+});
+
 describe("computeSpecHash", () => {
   const base = {
     src: "/a.mp4",
@@ -262,6 +339,7 @@ describe("computeSpecHash", () => {
     fps: 30,
     width: 320,
     height: 240,
+    scale: "scale=320:-2",
   };
 
   it("is stable for identical inputs", () => {
@@ -285,10 +363,11 @@ describe("computeSpecHash", () => {
       { trimOut: 3 },
       { size: 3 },
       { src: "/b.mp4" },
+      { scale: "" },
     ]) {
       seen.add(computeSpecHash({ ...base, ...patch }));
     }
-    expect(seen.size).toBe(8);
+    expect(seen.size).toBe(9);
   });
 });
 
@@ -303,17 +382,23 @@ describe("buildExtractArgs", () => {
     duration: 2,
     fps: 30,
     width: 320,
-    height: 240,
+    height: 180,
+    scale: "scale=320:-2",
   };
 
-  it("seeks, trims, and scales with the fps filter", () => {
+  it("seeks, trims, and scales (aspect-preserving) with the fps filter", () => {
     const args = buildExtractArgs(spec, "/cache/out/%05d.png");
     const joined = args.join(" ");
     expect(joined).toContain("-ss 1.5");
     expect(joined).toContain("-i /abs/clip.mp4");
     expect(joined).toContain("-t 2");
-    expect(joined).toContain("-vf fps=30,scale=320:240");
+    expect(joined).toContain("-vf fps=30,scale=320:-2");
     expect(args[args.length - 1]).toBe("/cache/out/%05d.png");
+  });
+
+  it("emits only the fps filter when extracting at native size", () => {
+    const args = buildExtractArgs({ ...spec, scale: "" }, "/c/%05d.png");
+    expect(args[args.indexOf("-vf") + 1]).toBe("fps=30");
   });
 
   it("omits -t when the duration is unknown (extract to EOF)", () => {

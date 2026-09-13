@@ -7,7 +7,10 @@
 // composition, a directory of numbered PNGs ffmpeg produced with:
 //
 //   ffmpeg -ss <trimIn> -i <asset> -t <trimOut-trimIn>
-//          -vf "fps=<compFps>,scale=<W>:<H>" cache/<hash>/%05d.png
+//          -vf "fps=<compFps>,scale=<W>:-2" cache/<hash>/%05d.png
+//
+// (Frames keep the source aspect ratio — see resolveExtractDimensions; the
+// item's `fit` is applied at draw time.)
 //
 // (The plan writes `-to <trimOut>`; we use `-t <duration>` instead — after an
 // input `-ss` it is the version-stable way to express the same [trimIn,trimOut)
@@ -53,6 +56,14 @@ import type { Composition, VideoAsset, VideoItem } from "../../schema/types.js";
 import { resolveFfmpeg, sweepOrphanExtractDirs } from "./ffmpeg.js";
 import type { FfmpegSpawn } from "./index.js";
 
+/**
+ * Version of the extraction resolution policy, folded into every cache hash.
+ * Bump when extracted pixels change for identical inputs.
+ *   1 — frames stretched to the item box (`scale=W:H`); `fit` was a no-op.
+ *   2 — frames keep the source aspect, capped by the box (B-1). ⚠ pixel-changing
+ */
+export const VIDEO_EXTRACTION_VERSION = 2;
+
 /** Default LRU byte budget for the frame cache: 5 GB. Overridable per call. */
 export const DEFAULT_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 
@@ -85,10 +96,12 @@ export interface VideoExtractSpec {
   duration: number | undefined;
   /** Target output frame rate (the composition fps). */
   fps: number;
-  /** Target frame width in pixels. */
+  /** Expected frame width in pixels (source aspect; see {@link resolveExtractDimensions}). */
   width: number;
-  /** Target frame height in pixels. */
+  /** Expected frame height in pixels. */
   height: number;
+  /** Aspect-preserving ffmpeg scale filter, or `""` for native size. */
+  scale: string;
 }
 
 /** Minimal `fs.stat` shape the hash needs; injectable so tests skip real files. */
@@ -168,7 +181,7 @@ export function collectVideoExtractSpecs(
     const duration =
       trimOut !== undefined ? Math.max(0, trimOut - trimIn) : undefined;
 
-    const { width, height } = resolveExtractDimensions(video, videoAsset, id);
+    const { width, height, scale } = resolveExtractDimensions(video, videoAsset, id);
 
     const hash = computeSpecHash({
       src: srcPath,
@@ -179,6 +192,7 @@ export function collectVideoExtractSpecs(
       fps,
       width,
       height,
+      scale,
     });
 
     const existing = byHash.get(hash);
@@ -198,6 +212,7 @@ export function collectVideoExtractSpecs(
       fps,
       width,
       height,
+      scale,
     });
   }
 
@@ -206,28 +221,85 @@ export function collectVideoExtractSpecs(
   );
 }
 
-// The frame box to extract at. Default: the item's authored width/height
-// (rounded), matching the plan's literal `scale=<W>:<H>`. A degenerate box
-// (zero/negative) falls back to the asset's native dimensions when known.
-// Note: we extract at the BASE box size; width/height tweens are not factored
-// in here (the cache is per static resolution). S8 owns the fit math, and can
-// revisit the resolution policy — a different choice just yields fresh cache
-// entries, no migration needed, because resolution is part of the hash.
-function resolveExtractDimensions(
+/** Resolved extraction resolution for one video item (see {@link resolveExtractDimensions}). */
+export interface ExtractDimensions {
+  /** Expected frame width. Exact when the asset's dimensions are known. */
+  width: number;
+  /** Expected frame height. Exact when the asset's dimensions are known. */
+  height: number;
+  /**
+   * The ffmpeg `scale` filter (without the leading comma), or `""` when frames
+   * are extracted at native size. Always aspect-preserving — never `W:H`.
+   */
+  scale: string;
+}
+
+/**
+ * The resolution to extract a video item's frames at (B-1). Frames keep the
+ * SOURCE aspect ratio so the draw-time `fit` (`computeFitRects`) has something
+ * to letterbox / crop; a stretched `W:H` extraction made every `fit` identical.
+ *
+ * Policy: native size, capped so the longest side does not exceed the box's
+ * longest side × `max(|scaleX|, |scaleY|)` (rounded up) — a 4K source placed
+ * as a 320px inset extracts at 320px, not 3840px. Sources already under the cap
+ * are never upscaled. The capped side is fixed and the other uses ffmpeg's
+ * `-2` (aspect-preserving, rounded to even), predicted here with the same
+ * nearest-even rounding. When the asset was never probed (no width/height) the
+ * cap is expressed as an ffmpeg expression on `iw`/`ih` and `width`/`height`
+ * are the cap only — the true size is read back from the extracted PNG.
+ *
+ * Width/height tweens are not factored in (the cache is per static resolution).
+ *
+ * Pure and exported for unit testing.
+ */
+export function resolveExtractDimensions(
   item: VideoItem,
   asset: VideoAsset,
   itemId: string,
-): { width: number; height: number } {
-  const w = Math.round(item.width);
-  const h = Math.round(item.height);
-  if (w >= 1 && h >= 1) return { width: w, height: h };
-  if (asset.width && asset.height) {
-    return { width: asset.width, height: asset.height };
-  }
-  throw new Error(
-    `Video item "${itemId}" has a degenerate box (${item.width}x${item.height}) ` +
-      `and asset "${asset.id}" has unknown dimensions; cannot determine extract resolution.`,
+): ExtractDimensions {
+  const scaleFactor = Math.max(
+    Math.abs(item.transform.scaleX),
+    Math.abs(item.transform.scaleY),
   );
+  const boxLongest = Math.max(item.width, item.height) * scaleFactor;
+  // A degenerate box (zero area or zero scale) imposes no cap: extract native.
+  const cap =
+    item.width > 0 && item.height > 0 && boxLongest > 0
+      ? Math.max(2, Math.ceil(boxLongest - 1e-9))
+      : undefined;
+
+  const iw = asset.width;
+  const ih = asset.height;
+  if (iw && ih) {
+    const longest = Math.max(iw, ih);
+    if (cap === undefined || longest <= cap) {
+      return { width: iw, height: ih, scale: "" };
+    }
+    if (iw >= ih) {
+      return { width: cap, height: evenRescale(cap, ih, iw), scale: `scale=${cap}:-2` };
+    }
+    return { width: evenRescale(cap, iw, ih), height: cap, scale: `scale=-2:${cap}` };
+  }
+
+  if (cap === undefined) {
+    throw new Error(
+      `Video item "${itemId}" has a degenerate box (${item.width}x${item.height}) ` +
+        `and asset "${asset.id}" has unknown dimensions; cannot determine extract resolution.`,
+    );
+  }
+  return {
+    width: cap,
+    height: cap,
+    scale:
+      `scale=w='if(gte(iw,ih),min(iw,${cap}),-2)'` +
+      `:h='if(gte(iw,ih),-2,min(ih,${cap}))'`,
+  };
+}
+
+// ffmpeg's `-2` side: av_rescale (round-to-nearest) of the fixed side into the
+// source aspect, in units of 2. Mirrors libavfilter/scale_eval.c.
+function evenRescale(fixed: number, other: number, fixedIn: number): number {
+  return Math.max(2, Math.round((fixed * other) / (fixedIn * 2)) * 2);
 }
 
 interface SpecHashInput {
@@ -239,6 +311,8 @@ interface SpecHashInput {
   fps: number;
   width: number;
   height: number;
+  /** ffmpeg scale filter; see {@link ExtractDimensions.scale}. */
+  scale: string;
 }
 
 /**
@@ -248,6 +322,7 @@ interface SpecHashInput {
  */
 export function computeSpecHash(input: SpecHashInput): string {
   const canonical = JSON.stringify({
+    v: VIDEO_EXTRACTION_VERSION,
     src: input.src,
     mtimeMs: input.mtimeMs,
     size: input.size,
@@ -256,6 +331,7 @@ export function computeSpecHash(input: SpecHashInput): string {
     fps: input.fps,
     width: input.width,
     height: input.height,
+    scale: input.scale,
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -290,11 +366,9 @@ export function buildExtractArgs(
   if (spec.duration !== undefined) {
     args.push("-t", fmtSeconds(spec.duration));
   }
-  args.push(
-    "-vf",
-    `fps=${fmtSeconds(spec.fps)},scale=${spec.width}:${spec.height}`,
-    outputPattern,
-  );
+  const filters = [`fps=${fmtSeconds(spec.fps)}`];
+  if (spec.scale) filters.push(spec.scale);
+  args.push("-vf", filters.join(","), outputPattern);
   return args;
 }
 
@@ -469,6 +543,12 @@ export async function preExtractVideoFrames(
         );
       }
       const bytes = await sumFrameBytes(tmpDir, frames);
+      // The true frame size (drives `fit`): ffmpeg's `-2` rounding, or an
+      // unprobed asset, can leave the spec's prediction off — trust the PNG.
+      const dims = (await readPngSize(join(tmpDir, frames[0]!))) ?? {
+        width: spec.width,
+        height: spec.height,
+      };
       const now = Date.now();
       const meta: CacheMeta = {
         hash: spec.hash,
@@ -476,8 +556,8 @@ export async function preExtractVideoFrames(
         trimIn: spec.trimIn,
         trimOut: spec.trimOut ?? null,
         fps: spec.fps,
-        width: spec.width,
-        height: spec.height,
+        width: dims.width,
+        height: dims.height,
         frameCount: frames.length,
         bytes,
         createdAt: now,
@@ -494,8 +574,8 @@ export async function preExtractVideoFrames(
         hash: spec.hash,
         dir,
         frameCount: frames.length,
-        width: spec.width,
-        height: spec.height,
+        width: dims.width,
+        height: dims.height,
         bytes,
         itemIds: spec.itemIds,
         cached: false,
@@ -713,6 +793,31 @@ async function touchAccessed(metaPath: string, meta: CacheMeta): Promise<void> {
 async function listPngFrames(dir: string): Promise<string[]> {
   const names = await readdir(dir);
   return names.filter((n) => n.toLowerCase().endsWith(".png")).sort();
+}
+
+/**
+ * Width/height from a PNG's IHDR chunk (bytes 16–23, big-endian), or undefined
+ * when the file is not a readable PNG. Avoids decoding the image.
+ */
+export async function readPngSize(
+  path: string,
+): Promise<{ width: number; height: number } | undefined> {
+  let buf: Buffer;
+  try {
+    buf = await readFile(path);
+  } catch {
+    return undefined;
+  }
+  if (
+    buf.length < 24 ||
+    buf.readUInt32BE(0) !== 0x89504e47 ||
+    buf.toString("latin1", 12, 16) !== "IHDR"
+  ) {
+    return undefined;
+  }
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
 async function sumFrameBytes(dir: string, frames: string[]): Promise<number> {

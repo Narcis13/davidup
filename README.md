@@ -910,10 +910,6 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 **Video items (b-roll)**
 
-- **Frames are pre-scaled to the item box, so `fit` has no effect.** A clip
-  whose aspect ratio differs from its `width × height` box is stretched,
-  even with `fit: "contain"` or `"cover"`. Keep the box at the source's
-  aspect ratio until this is fixed.
 - Video items are **not drawn** in the browser preview, the editor stage, or
   `render_preview_frame` / `render_thumbnail_strip`; only a full render
   composites them.

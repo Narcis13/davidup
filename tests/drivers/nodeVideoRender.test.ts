@@ -160,13 +160,13 @@ describe("renderToFile — draws pre-extracted video frames", () => {
     expect(srcs[1]!.endsWith("00002.png")).toBe(true);
     expect(srcs[2]!.endsWith("00003.png")).toBe(true);
 
-    // fill into the 32×32 box via the 9-arg form. §S7 extracts frames at the
-    // item's box size, so the intrinsic (source) frame is 32×32 too — fit is a
-    // no-op at the base box, and the source rect spans the whole frame.
+    // fill into the 32×32 box via the 9-arg form. Frames keep the source aspect
+    // (B-1): the 320×240 asset caps at the box's 32px longest side → 32×24, so
+    // `fill` stretches the whole 32×24 frame over the 32×32 box.
     const first = frameDraws[0]!;
     if (first.op === "drawImage") {
       expect({ dw: first.dw, dh: first.dh }).toEqual({ dw: 32, dh: 32 });
-      expect({ sw: first.sw, sh: first.sh }).toEqual({ sw: 32, sh: 32 });
+      expect({ sw: first.sw, sh: first.sh }).toEqual({ sw: 32, sh: 24 });
     }
   });
 

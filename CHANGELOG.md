@@ -7,6 +7,21 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### ⚠ Video extraction v2 — video items honour `fit` (B-1)
+
+- **`fit` now works.** Frames were pre-extracted stretched to the item's
+  `width × height` box (`scale=W:H`), so `contain`, `cover`, `fill` and `none`
+  all rendered the same stretched image. Frames are now extracted at the
+  source's aspect ratio (native size, capped so the longest side does not
+  exceed the box's longest side × `max(|scaleX|, |scaleY|)`; never upscaled),
+  and the draw-time fit letterboxes (`contain`), crops (`cover`), stretches
+  (`fill`) or centres 1:1 (`none`).
+- Any composition whose video box aspect differs from its source renders
+  differently. Matching-aspect boxes change only by resampling (skia scales at
+  draw time instead of ffmpeg at extract time). Old frame-cache entries miss
+  and re-extract — no migration. Driver-level marker
+  `VIDEO_EXTRACTION_VERSION` (`src/drivers/node/videoExtract.ts`) `1 → 2`.
+
 ## 1.0.0 — 2026-07-05
 
 - **`davidup render` CLI** — headless MP4 render from a project directory, no MCP or JS required (Session 21, R-8).

@@ -82,9 +82,13 @@ export {
   defaultFrameCacheRoot,
   preExtractVideoFrames,
   pruneCache,
+  readPngSize,
+  resolveExtractDimensions,
   DEFAULT_CACHE_MAX_BYTES,
+  VIDEO_EXTRACTION_VERSION,
   type CacheUsage,
   type CollectSpecsOptions,
+  type ExtractDimensions,
   type FileStat,
   type FrameCacheEntry,
   type FrameExtractProgress,
@@ -417,10 +421,13 @@ export async function buildVideoFrameProvider(
       const file = join(entry.dir, `${String(i).padStart(5, "0")}.png`);
       frames[i - 1] = await skia.loadImage(file);
     }
+    // `fit` needs the frame's true intrinsic size: prefer the decoded bitmap's
+    // own dimensions over the cache entry's (B-1).
+    const size = imageSize(frames[0]);
     const clip: VideoClip = {
       frameCount: entry.frameCount,
-      width: entry.width,
-      height: entry.height,
+      width: size?.width ?? entry.width,
+      height: size?.height ?? entry.height,
       getFrame(frameIndex: number): unknown | undefined {
         if (frameIndex < 1 || frameIndex > frames.length) return undefined;
         return frames[frameIndex - 1];
@@ -433,6 +440,14 @@ export async function buildVideoFrameProvider(
       return byItemId.get(itemId);
     },
   };
+}
+
+function imageSize(image: unknown): { width: number; height: number } | undefined {
+  if (typeof image !== "object" || image === null) return undefined;
+  const { width, height } = image as { width?: unknown; height?: unknown };
+  return typeof width === "number" && typeof height === "number" && width > 0 && height > 0
+    ? { width, height }
+    : undefined;
 }
 
 function defaultSpawn(cmd: string, args: ReadonlyArray<string>): ChildProcess {

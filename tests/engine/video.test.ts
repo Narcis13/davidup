@@ -312,6 +312,30 @@ describe("renderFrame — video fit issues a 9-arg drawImage", () => {
       });
     }
   });
+
+  // B-1: the clip's intrinsic size (source aspect), not the item box, drives
+  // fit — a 4:3 frame in a 2:1 box letterboxes under contain.
+  it("letterboxes a 4:3 clip in a 2:1 box under contain", () => {
+    const ctx = new FakeContext();
+    const comp = compWith(
+      { v: videoItem({ fit: "contain", width: 200, height: 100 }) },
+      oneVideoLayer,
+    );
+    renderFrame(comp, 0, ctx, {
+      video: fakeProvider({ v: { frameCount: 1, width: 320, height: 240 } }),
+    });
+    const d = frameDraw(ctx);
+    expect(d).toBeDefined();
+    if (d && d.op === "drawImage") {
+      expect({ sx: d.sx, sy: d.sy, sw: d.sw, sh: d.sh }).toEqual({
+        sx: 0, sy: 0, sw: 320, sh: 240,
+      });
+      expect(d.dh).toBe(100);
+      expect(d.dw).toBeCloseTo(400 / 3, 9);
+      expect(d.dx).toBeCloseTo((200 - 400 / 3) / 2, 9);
+      expect(d.dy).toBe(0);
+    }
+  });
 });
 
 // ─────────────────────────────── tween parity ──────────────────────────────

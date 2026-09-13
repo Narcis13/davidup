@@ -152,7 +152,9 @@ byte-identical.
 `-2:H`, capped by the box size) and let the draw-time fit do the work —
 v1.1 Session 2.
 
-**Status:** OPEN — **P1**, scheduled for v1.1 Session 2 (pixel-changing).
+**Status:** FIXED — v1.1 Session 2. Frames extract at the source aspect
+(native, capped by the box's longest side × scale); the draw-time fit does the
+rest. ⚠ pixel-changing, `VIDEO_EXTRACTION_VERSION` 2.
 
 ### 2.4 B-2: odd composition dimensions fail inside ffmpeg
 
