@@ -7,6 +7,17 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+## 1.0.0 — 2026-07-05
+
+- **`davidup render` CLI** — headless MP4 render from a project directory, no MCP or JS required (Session 21, R-8).
+- **npx packaging** — `tsc`-built `dist/` with node-shebang bins, dual `bun`/`default` exports, editor shipped prebuilt as `editor-dist/` (Session 22, R-9).
+- **Video items** — `type: "video"` with `trimIn`/`trimOut`, `fit`, `loop`; ffprobe-backed `register_asset`, `add_video`/`update_video`, editor timeline trim handles.
+- **Audio `trimIn`** — audio tracks seek mid-file independently of timeline `start`/`end` (R-11).
+- **Compose lint** — validator warnings `W_ITEM_INVISIBLE_OPACITY`, `W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES` (§6.20).
+- **Determinism harness** — golden frame hashes, `+bitexact` byte-identical MP4s, node↔browser pixel parity test (R-14, R-16).
+- **Agent eval** — `bun run eval:agents` nightly authoring-success benchmark against a real MCP server (§6.21).
+- **Launch video** — `examples/launch-video/`, a 26 s film authored entirely by an agent over MCP.
+
 ### ⚠ Expansion v2 — kenburns dual-axis zoom, declaration-order scene painting (R-4, R-24)
 
 - **`kenburns` / `kenburnsImage` now zoom on both axes.** The `kenburns`

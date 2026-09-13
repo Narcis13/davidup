@@ -1,4 +1,4 @@
-# Davidup — Design Document v0.1
+# Davidup — Design Document (schema 0.1, engine 1.x)
 
 > **Status:** WIP / live document
 > **Ultima actualizare:** 2026-05-05

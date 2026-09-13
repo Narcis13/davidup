@@ -246,7 +246,8 @@ describe("register_asset (video) — real fixtures via ffprobe-static", () => {
       pixelFormat: "yuv420p",
     });
     expect((asset as { fps?: number }).fps).toBeCloseTo(30, 5);
-  });
+    // Real ffprobe: <300 ms alone, but can exceed 5 s when the full suite saturates the CPU.
+  }, 20_000);
 
   it("warns on a 4K clip", async () => {
     const deps = freshDeps();

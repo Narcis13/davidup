@@ -169,5 +169,6 @@ describe("register_asset (audio) — real fixtures via ffprobe-static", () => {
       expect(typeof asset.duration).toBe("number");
       expect(asset.duration as number).toBeGreaterThan(0);
     }
-  });
+    // Real ffprobe: <300 ms alone, but can exceed 5 s when the full suite saturates the CPU.
+  }, 20_000);
 });

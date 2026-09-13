@@ -35,7 +35,7 @@
     - 8.3 [JSON pointer & imports](#83-json-pointer--imports-ref)
     - 8.4 [Params](#84-params-token-substitution)
     - 8.5 [Templates](#85-templates)
-    - 8.6 [Scenes (v0.4)](#86-scenes-v04)
+    - 8.6 [Scenes](#86-scenes)
     - 8.7 [Behaviors](#87-behaviors)
 9. [The MCP layer (`src/mcp`)](#9-the-mcp-layer)
 10. [End-to-end data flow](#10-end-to-end-data-flow)
@@ -744,7 +744,7 @@ Each emits items at rest with `opacity: 0` and applies entry tweens. Arithmetic
 on params (e.g., `y + 80`) is **resolved by the caller**, not in placeholder
 strings — keeps templates declarative.
 
-### 8.6 Scenes (v0.4)
+### 8.6 Scenes
 
 A scene is a **self-contained mini-composition**: own duration, own
 items, own tweens, own assets, own parameters. Conceptually equivalent
@@ -802,11 +802,22 @@ recursion (`drawGroupChildren`) handles transform composition
 automatically — moving, scaling, or fading the wrapper group cascades to
 every inner item without any new engine code.
 
-#### Time mapping: identity only (v0.4)
+#### Time mapping
 
-Scene-local `t = 0` plays at parent `instance.start`. Every scene tween
-shifts by the same delta. There is **no** clipping, looping, time-scaling,
-or reversing in v0.4 — those are reserved for v0.5.
+`SceneInstance.time` selects one of four shipped modes (validated and
+applied in `src/compose/scenes.ts`):
+
+- `identity` (default) — scene-local `t = 0` plays at `instance.start`;
+  every scene tween shifts by the same delta.
+- `clip { fromTime, toTime }` — plays the half-open scene-local window;
+  tweens fully outside are dropped, tweens straddling an edge are rejected.
+- `loop { count }` — plays the scene `count` times back-to-back, each
+  iteration with deterministic `__loop${i}` id suffixes.
+- `timeScale { scale }` — plays the scene at `scale×` speed (`scale > 0`).
+
+`reverse` is reserved and not implemented. The wrapper group's default
+`enter`/`exit` spans the mode's effective duration (see CHANGELOG
+"Expansion v3").
 
 #### Sealed instances (§8.7)
 
@@ -1027,7 +1038,7 @@ substring-matching `message`.
 | `list_templates`        | no       | Enumerate built-in + user-defined                          |
 | `define_user_template`  | yes      | Register custom template (global registry, last-write-wins)|
 
-#### Scenes (composability, v0.4)
+#### Scenes (composability)
 
 | Tool                     | Mutates? | Purpose                                                                |
 |--------------------------|----------|------------------------------------------------------------------------|

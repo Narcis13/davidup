@@ -284,26 +284,26 @@ Per U8 spec (add-video/add-audio entry points, empty states, polish). **Verify:*
 
 | # | Session | Findings | Status |
 |---|---------|----------|--------|
-| 1 | Suite green + editor tests | R-1, R-2 | ☐ |
-| 2 | Editor typecheck | R-10 | ☐ |
-| 3 | CI pipeline | §6.4 | ☐ |
-| 4 | Schema/validator hardening | R-3, R-15, R-21 | ☐ |
+| 1 | Suite green + editor tests | R-1, R-2 | ☑ |
+| 2 | Editor typecheck | R-10 | ☑ |
+| 3 | CI pipeline | §6.4 | ☑ |
+| 4 | Schema/validator hardening | R-3, R-15, R-21 | ☑ |
 | 5 | ffmpeg resolver + tmp sweep | R-6, R-7, R-12 | ☑ |
-| 6 | Expansion v2 (kenburns + order) | R-4, R-24 | ☐ |
-| 7 | MCP epsilon + tween ids | R-25, R-31 | ☐ |
-| 8 | Scene-instance lifetime | R-26, R-27 | ☐ |
-| 9 | Doc truth pass | R-19 | ☐ |
-| 10 | S8 video draw case | R-5 | ☐ |
-| 11 | S9 MCP video tools | — | ☐ |
-| 12 | S10 samples + docs | — | ☐ |
+| 6 | Expansion v2 (kenburns + order) | R-4, R-24 | ☑ |
+| 7 | MCP epsilon + tween ids | R-25, R-31 | ☑ |
+| 8 | Scene-instance lifetime | R-26, R-27 | ☑ |
+| 9 | Doc truth pass | R-19 | ☑ |
+| 10 | S8 video draw case | R-5 | ☑ |
+| 11 | S9 MCP video tools | — | ☑ |
+| 12 | S10 samples + docs | — | ☑ |
 | 13–20 | U1–U8 editor audio/video UI | §6.14 | ☐ |
 | 21 | render CLI | R-8 | ☑ |
-| 22 | npx packaging | R-9 | ☐ |
-| 23 | Determinism harness | R-14, R-16 | ☐ |
-| 24 | vue-tsc + Playwright | §6.18 | ☐ |
+| 22 | npx packaging | R-9 | ☑ |
+| 23 | Determinism harness | R-14, R-16 | ☑ |
+| 24 | vue-tsc + Playwright | §6.18 | ☑ |
 | 25 | MCP ergonomics batch | R-17, R-18, R-28–R-30 | ☑ (R-29/R-30 only partially — see BUGS.md) |
-| 26 | Compose lint | §6.20 | ☐ |
-| 27 | Agent eval harness | §6.21 | ☐ |
+| 26 | Compose lint | §6.20 | ☑ |
+| 27 | Agent eval harness | §6.21 | ☑ |
 | 28 | P1 residuals | R-11, R-13, R-20 | ☑ |
-| 29 | Launch video + v1.0 tag | §5 gate 6 | ☐ |
-| 30 | v1.1 design docs (optional) | §6.22–23 | ☐ |
+| 29 | Launch video + v1.0 tag | §5 gate 6 | ☑ |
+| 30 | v1.1 design docs (optional) | §6.22–23 | ☑ |

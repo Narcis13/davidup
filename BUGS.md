@@ -28,7 +28,7 @@ review's finding numbers stable as cross-reference anchors).
 | R-6 | P1 | ffmpeg resolution inconsistent across extraction/encode/mux pipelines | **CLOSED** — Session 5 (`3f84001`) | `src/drivers/node/ffmpeg.ts` (new shared resolver) |
 | R-7 | P1 | Signal-killed ffmpeg could yield "success" + garbage file | **CLOSED** — Session 5 (`3f84001`) | `src/drivers/node/render.ts` |
 | R-8 | P1 | No `davidup render` CLI — headless render requires MCP or writing JS | **CLOSED** — Session 21 (`7940236`); this ledger wasn't updated at the time — caught and corrected during the Session 28 sweep | `src/cli/render.ts`, `src/cli/cli.ts` |
-| R-9 | P1 | Published `bin` entries point at `.ts` sources with a bun shebang; `npm install -g davidup` on a node-only machine can't work | **CLOSED** — Session 22 (uncommitted at time of writing — see `git log`): `tsc`-built `dist/`, node-shebang bin shims, dual `bun`/`default` package exports, editor shipped as a prebuilt `editor-dist/` (via `scripts/build-editor.mjs`) with a vendored `davidup` copy, migration + `APP_KEY`/db-path bootstrapping for the packaged editor. Verified via `npm pack` + `npm install` into a clean dir on plain Node (no bun): `davidup new`/`render` produce a real MP4; `davidup edit` boots, serves `/`, `/editor` (SSR-rendered), and `/api/project` with HTTP 200. Also fixed two bugs found only by this end-to-end test: `node ace.js migration:run` never exits its process even after finishing (worked around with a bounded `SIGKILL` timeout in `edit.ts`), and `resources/views/inertia_layout.edge`'s non-standard per-page `@vite()` reference 500'd for any page whose Rollup chunk gets renamed (`editor.vue`, which cycles with `davidup/browser`) — fixed by matching the documented AdonisJS+Inertia layout pattern (app entrypoint only). | `package.json`, `src/cli/{bin,cli,edit}.ts`, `src/mcp/bin.ts`, `scripts/build-editor.mjs`, `scripts/copy-templates.mjs`, `apps/editor/config/database.ts`, `apps/editor/resources/views/inertia_layout.edge` |
+| R-9 | P1 | Published `bin` entries point at `.ts` sources with a bun shebang; `npm install -g davidup` on a node-only machine can't work | **CLOSED** — Session 22 (`b1d045d`): `tsc`-built `dist/`, node-shebang bin shims, dual `bun`/`default` package exports, editor shipped as a prebuilt `editor-dist/` (via `scripts/build-editor.mjs`) with a vendored `davidup` copy, migration + `APP_KEY`/db-path bootstrapping for the packaged editor. Verified via `npm pack` + `npm install` into a clean dir on plain Node (no bun): `davidup new`/`render` produce a real MP4; `davidup edit` boots, serves `/`, `/editor` (SSR-rendered), and `/api/project` with HTTP 200. Also fixed two bugs found only by this end-to-end test: `node ace.js migration:run` never exits its process even after finishing (worked around with a bounded `SIGKILL` timeout in `edit.ts`), and `resources/views/inertia_layout.edge`'s non-standard per-page `@vite()` reference 500'd for any page whose Rollup chunk gets renamed (`editor.vue`, which cycles with `davidup/browser`) — fixed by matching the documented AdonisJS+Inertia layout pattern (app entrypoint only). | `package.json`, `src/cli/{bin,cli,edit}.ts`, `src/mcp/bin.ts`, `scripts/build-editor.mjs`, `scripts/copy-templates.mjs`, `apps/editor/config/database.ts`, `apps/editor/resources/views/inertia_layout.edge` |
 | R-10 | P1 | Editor typecheck: 34 errors, no vue-tsc | **CLOSED** — Session 2 (`7e52951`) | `apps/editor` tsconfig |
 | R-11 | P1 | Audio tracks can't start mid-file (`atrim` always from 0) — timeline placement only, no in-source offset | **CLOSED** — Session 28: added `trimIn` (in-source seek, independent of timeline `start`/`end`) to `AudioTrackSchema`, `buildAudioFilterComplex`, `add_audio_track`/`update_audio_track`, the editor's dual command schema, and the Inspector's audio-track editor. | `src/schema/zod.ts`, `src/drivers/node/audioMux.ts`, `src/mcp/{tools,store}.ts`, `apps/editor/app/types/commands.ts`, `apps/editor/inertia/components/Inspector.vue` |
 | R-12 | P1 | Orphan `.tmp-*` extraction dirs skipped by LRU prune, never swept | **CLOSED** — Session 5 (`3f84001`) | `src/drivers/node/videoExtract.ts` |
@@ -41,7 +41,7 @@ review's finding numbers stable as cross-reference anchors).
 | R-19 | P2 | Doc drift, systemic: stale "not implemented" claim, README roadmap contradiction, version strings stuck at 0.1.0, `KNOWN_BUGS.md` misnamed, incomplete error-code list | **CLOSED** — Session 9 (this session) | cited per-file in the finding |
 | R-20 | P2 | Group opacity multiplies alpha instead of offscreen compositing — overlapping semi-transparent children double-blend | **CLOSED** — Session 28: decided intentional (see the code comment in `render.ts` and the manual). True isolated compositing needs a canvas-sized scratch surface plus transform-matrix capture the minimal `Canvas2DContext` contract doesn't expose; revisit only if a real project hits it. Deferred to v1.1+ if ever. | `src/engine/render.ts`, `vision/davidup-v1.0-manual.md`, `BUGS.md` |
 | R-21 | P2 | Scene/template `color` params accepted any non-empty string (`rgb(999,0,0)` parsed unclamped); polygons with <3 points validated | **CLOSED** — Session 4 (`ee90fea`) | `src/compose/scenes.ts`, `src/color/index.ts` |
-| R-22 | P2 | Editor HMR websocket port not derived from `--port`; editor package still named `adonisjs-inertia-starter-kit@0.0.0`; three lockfile ecosystems in one app dir | **OPEN** — deferred to v1.1 (cosmetic/dev-ergonomics, no user-facing correctness impact) | `apps/editor` config |
+| R-22 | P2 | Editor HMR websocket port not derived from `--port`; editor package still named `adonisjs-inertia-starter-kit@0.0.0`; three lockfile ecosystems in one app dir | **OPEN** — deferred to v1.1 (cosmetic/dev-ergonomics, no user-facing correctness impact). Package rename to `@davidup/editor@1.0.0` landed in v1.1 Session 1; HMR port + lockfiles remain (v1.1 Session 31) | `apps/editor` config |
 | R-23 | P2 | Composition schema is not `.strict()` — typo'd keys silently stripped, agents never learn they misspelled a property | **OPEN** — deferred to v1.1 (the strict-vs-forward-compatible trade-off needs a real design decision, not a quick fix — see `DAVIDUP_V1_REVIEW.md` §4 for the debate) | `src/schema/zod.ts` |
 | R-24 | P0 (live-drive) | Scene expansion silently alphabetized paint order (`Object.keys(def.items).sort()`), discarding declaration order | **CLOSED** — Session 6 (`c3d13f2`) | `src/compose/scenes.ts` |
 | R-25 | P1 (live-drive) | MCP-layer tween overlap check had no epsilon — abutting tweens rejected, `colorCycle` could self-collide | **CLOSED** — Session 7 (`4889ed8`) | `src/mcp/store.ts` |
@@ -133,3 +133,37 @@ the CLI itself still tears the whole tree down cleanly.
 **Status:** OPEN — P2, deferred to v1.1 (dev-source `davidup edit` only; the
 packaged/npx path is unaffected, and CI containers reap the orphan with the
 job).
+
+### 2.3 B-1: video `fit` is a no-op — every value stretches
+
+**Where:** `src/drivers/node/videoExtract.ts` (`resolveExtractDimensions`,
+`buildExtractArgs`) + `src/engine/render.ts` (`computeFitRects`).
+
+**What happens:** frame extraction scales every source frame to the item box
+with a bare `scale=W:H`. By the time `drawVideo` runs, the bitmap already
+matches the box, so `computeFitRects` is an identity and `contain` / `cover` /
+`fill` / `none` all render the same stretched output.
+
+**Repro (verified 2026-09-12):** place the 320×240 `small.mp4` fixture in a
+640×320 video item and render once per `fit` value — the four MP4s are
+byte-identical.
+
+**Suggested direction:** extract at the source aspect (`scale=W:-2` /
+`-2:H`, capped by the box size) and let the draw-time fit do the work —
+v1.1 Session 2.
+
+**Status:** OPEN — **P1**, scheduled for v1.1 Session 2 (pixel-changing).
+
+### 2.4 B-2: odd composition dimensions fail inside ffmpeg
+
+**Where:** `src/schema/validator.ts`, `src/schema/zod.ts`.
+
+**What happens:** libx264 + `yuv420p` requires even width and height. A
+composition such as 1001×501 passes `validate`, then the render dies with an
+ffmpeg stderr tail instead of a structured validation error.
+
+**Suggested direction:** `E_DIMENSION_ODD` validator error (plus a
+`W_DIMENSION_LARGE` warning above 4096), surfaced eagerly by
+`create_composition` / `set_composition_property` — v1.1 Session 3.
+
+**Status:** OPEN — **P2**, scheduled for v1.1 Session 3.
