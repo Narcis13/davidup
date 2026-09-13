@@ -2229,7 +2229,9 @@ const renderPreviewFrameTool = defineTool({
     "Render a single frame at time t and return it as a real MCP image content block (PNG/JPEG) " +
     "so vision-capable clients (and you, watching the agent work) can see it directly — not just " +
     "base64 text an agent can't view. `mimeType`/`width`/`height` are also returned as metadata " +
-    "alongside the image block. Validates first.",
+    "alongside the image block. Video items are composited from the shared frame-extraction cache; " +
+    "the first preview of an uncached clip extracts its frames (slower) and says so in `warnings`. " +
+    "Validates first.",
   inputSchema: {
     time: z.number().nonnegative(),
     format: z.enum(["png", "jpeg"]).optional(),
@@ -2258,7 +2260,8 @@ const renderThumbnailStripTool = defineTool({
     "image content block (not base64 buried in JSON), alongside the parallel `times` sample array " +
     `and mimeType/width/height metadata. \`count\` is capped at ${THUMBNAIL_STRIP_MAX_COUNT} per ` +
     "call — a higher value returns a structured E_INVALID_VALUE with a hint instead of flooding " +
-    "the response with dozens of images; sample a narrower time range or call again for the rest.",
+    "the response with dozens of images; sample a narrower time range or call again for the rest. " +
+    "Video items are composited (frames extracted once per strip, cached across calls; see `warnings`).",
   inputSchema: {
     count: z.number().int().positive(),
     format: z.enum(["png", "jpeg"]).optional(),

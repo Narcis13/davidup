@@ -627,9 +627,11 @@ hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
 
 `render_preview_frame` and `render_thumbnail_strip` return real MCP image
-content blocks, so a multimodal agent sees the frame directly. **They do not
-draw video items** (no frame provider in the preview path) — only a full
-`render_to_video` composites b-roll.
+content blocks, so a multimodal agent sees the frame directly. Video items are
+composited from the same frame-extraction cache `render_to_video` uses; the
+first preview of an uncached clip runs ffmpeg once and reports it in
+`warnings[]`, and later previews / strips of the same clips reuse the decoded
+frames in-process.
 
 Editor-hosted tools (and `get_render` / `list_renders` / `cancel_render`)
 require the editor or another host injecting `ProjectControls` /
@@ -913,9 +915,9 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 **Video items (b-roll)**
 
-- Video items are **not drawn** in the browser preview, the editor stage, or
-  `render_preview_frame` / `render_thumbnail_strip`; only a full render
-  composites them.
+- Video items are **not drawn** in the browser preview or the editor stage;
+  `render_preview_frame` / `render_thumbnail_strip` and full renders
+  composite them.
 - All extracted frames are decoded into memory before encoding; a 30 s
   full-frame 1080p clip is ~900 bitmaps. Watch RAM on small machines.
 - A video item's own audio is always dropped. Register the sound separately
@@ -972,7 +974,8 @@ Things v1.0 does not do. Each is either an open ledger item in
 |---|---|---|
 | `E_RENDER_FAILED` with `height not divisible by 2` in `stderrTail` | Odd composition dimensions with `yuv420p` | Use even `width` / `height` |
 | Footage looks stretched | Video item box aspect ≠ source aspect (see Known limitations) | Match the box to the source aspect ratio |
-| Video item invisible in the editor / preview PNG | Preview paths have no video frame provider | Render to MP4 to see it |
+| Video item invisible in the editor stage | The browser stage has no video frame provider | Use `render_preview_frame` or render to MP4 to see it |
+| Video item missing from a preview PNG, with `Video frames unavailable` in `warnings` | Source file missing/unreadable, or ffmpeg failed to extract | Fix the asset `src`; the message carries the cause |
 | `dyld: Library not loaded: libx265…` when ffmpeg starts | Broken Homebrew ffmpeg being used as `ffmpegPath` | Drop `ffmpegPath` to use bundled `ffmpeg-static`, or `brew reinstall ffmpeg x265` |
 | `EPIPE: broken pipe, send` from `renderToFile` | ffmpeg crashed | Inspect the thrown error's `message` for the stderr tail |
 | MP4 doesn't play in the browser inline | Missing faststart atom (node API default is off) | Pass `movflagsFaststart: true` to `renderToFile` |

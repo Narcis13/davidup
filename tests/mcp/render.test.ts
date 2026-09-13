@@ -3,9 +3,15 @@
 //   - sampleTimes() linspace + edge cases
 //   - renderPreviewFrame returns a base64 string + correct mimeType
 //   - renderThumbnailStrip returns `count` images and the parallel `times` array
-// without needing the native skia binary.
+// without needing the native skia binary. The S4 video block at the bottom is
+// the exception: it uses real skia + bundled ffmpeg to pixel-probe footage.
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   renderPreviewFrame,
@@ -192,5 +198,142 @@ describe("renderThumbnailStrip (fake skia)", () => {
       skiaCanvas: skia as never,
     });
     expect(result.images).toHaveLength(THUMBNAIL_STRIP_MAX_COUNT);
+  });
+});
+
+// ── v1.1 S4: video items in previews ───────────────────────────────────────
+
+const VIDEO_FIXTURE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "drivers",
+  "fixtures",
+  "video",
+  "small.mp4",
+);
+
+// 640×360 pure-blue stage with the 320×240 fixture in the top-left 320×240 box.
+function videoComp(src = VIDEO_FIXTURE): Composition {
+  return {
+    version: "0.1",
+    composition: { width: 640, height: 360, fps: 30, duration: 1, background: "#0000ff" },
+    assets: [
+      { id: "clip", type: "video", src, duration: 1, width: 320, height: 240, fps: 30 },
+    ],
+    layers: [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["v"] }],
+    items: {
+      v: {
+        type: "video",
+        asset: "clip",
+        width: 320,
+        height: 240,
+        start: 0,
+        trimIn: 0,
+        trimOut: 1,
+        fit: "contain",
+        loop: false,
+        transform: {
+          x: 0,
+          y: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      },
+    },
+    tweens: [],
+  };
+}
+
+describe("video items in previews (fake skia)", () => {
+  it("renders the rest of the frame and warns when the video source is missing", async () => {
+    const skia = makeFakeSkia();
+    const result = await renderPreviewFrame(videoComp("/nonexistent/clip.mp4"), 0.5, {
+      skiaCanvas: skia as never,
+    });
+    expect(result.image.startsWith("iVBORw")).toBe(true);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("Video frames unavailable"),
+    ]);
+  });
+
+  it("omits `warnings` for compositions without video", async () => {
+    const skia = makeFakeSkia();
+    const result = await renderPreviewFrame(tinyComp(), 0, { skiaCanvas: skia as never });
+    expect(result).not.toHaveProperty("warnings");
+  });
+});
+
+describe("video items in previews — real skia + ffmpeg (S4)", () => {
+  // Real skia module (loaded once — the provider cache is keyed by its identity).
+  let skia: {
+    Canvas: new (w: number, h: number) => {
+      getContext(k: "2d"): {
+        drawImage(img: unknown, x: number, y: number): void;
+        getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray };
+      };
+    };
+    loadImage(src: Buffer | string): Promise<unknown>;
+  };
+  let ffmpegPath: string | undefined;
+  let cacheRoot: string;
+
+  beforeAll(async () => {
+    skia = (await import("skia-canvas")) as unknown as typeof skia;
+    ffmpegPath =
+      ((await import("ffmpeg-static")).default as unknown as string | null) ?? undefined;
+    cacheRoot = mkdtempSync(join(tmpdir(), "davidup-s4-preview-cache-"));
+  });
+
+  afterAll(() => {
+    rmSync(cacheRoot, { recursive: true, force: true });
+  });
+
+  async function pixel(base64: string, x: number, y: number): Promise<number[]> {
+    const img = await skia.loadImage(Buffer.from(base64, "base64"));
+    const canvas = new skia.Canvas(640, 360);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    return [...ctx.getImageData(x, y, 1, 1).data.slice(0, 3)];
+  }
+
+  const isBlue = (px: number[]) => px[0]! < 10 && px[1]! < 10 && px[2]! > 245;
+
+  it("preview inside the video span shows footage where the clip is", async () => {
+    const result = await renderPreviewFrame(videoComp(), 0.5, {
+      skiaCanvas: skia as never,
+      preExtract: { cacheRoot, ffmpegPath },
+    });
+    // First call had to extract → latency hint.
+    expect(result.warnings).toEqual([expect.stringContaining("Extracted")]);
+
+    // Inside the clip box: not background. Every probe in the box must differ
+    // from blue somewhere, so sample a few points and require all non-blue.
+    for (const [x, y] of [[40, 40], [160, 120], [280, 200]] as const) {
+      expect(isBlue(await pixel(result.image, x, y))).toBe(false);
+    }
+    // Outside the clip box: background.
+    expect(isBlue(await pixel(result.image, 500, 300))).toBe(true);
+  }, 30_000);
+
+  it("thumbnail strip reuses the cached provider (no re-extraction) and composites video", async () => {
+    const result = await renderThumbnailStrip(videoComp(), {
+      count: 3,
+      skiaCanvas: skia as never,
+      preExtract: { cacheRoot, ffmpegPath },
+    });
+    expect(result).not.toHaveProperty("warnings");
+    expect(isBlue(await pixel(result.images[1]!, 160, 120))).toBe(false);
+  }, 30_000);
+
+  it("preExtract: false leaves the clip box empty", async () => {
+    const result = await renderPreviewFrame(videoComp(), 0.5, {
+      skiaCanvas: skia as never,
+      preExtract: false,
+    });
+    expect(isBlue(await pixel(result.image, 160, 120))).toBe(true);
   });
 });
