@@ -22,6 +22,9 @@
 //      (tween ids are the MCP addressing key — a duplicate makes
 //      update_tween/remove_tween ambiguous about which tween they touch)
 //  11. Polygon shape with < 3 points          → E_POLYGON_INVALID
+//  12. Odd composition width/height          → E_DIMENSION_ODD
+//      Either axis above 4096                → W_DIMENSION_LARGE (warning)
+//      (encoder preconditions — libx264 + yuv420p; v1.1 Session 3, B-2)
 //
 // Compose lint (§6.20, Session 26) — warnings for outcomes that are invisible
 // to an agent reading the JSON but obvious once rendered:
@@ -54,9 +57,11 @@ export type ValidationErrorCode =
   | "E_VIDEO_RANGE"
   | "E_DUPLICATE_LAYER_ID"
   | "E_DUPLICATE_TWEEN_ID"
-  | "E_POLYGON_INVALID";
+  | "E_POLYGON_INVALID"
+  | "E_DIMENSION_ODD";
 
 export type ValidationWarningCode =
+  | "W_DIMENSION_LARGE"
   | "W_TWEEN_TRUNCATED"
   | "W_ITEM_INVISIBLE_OPACITY"
   | "W_ITEM_OFF_CANVAS"
@@ -109,6 +114,9 @@ export function validate(input: unknown): ValidationResult {
   const assetMap = new Map(comp.assets.map((a) => [a.id, a]));
   const itemIds = new Set(Object.keys(comp.items));
 
+  const dims = checkDimensions(comp.composition.width, comp.composition.height);
+  errors.push(...dims.errors);
+  warnings.push(...dims.warnings);
   validateLayerRefs(comp, itemIds, errors);
   validateItemRefs(comp, assetMap, itemIds, errors);
   validateTweens(comp, itemIds, errors, warnings);
@@ -127,6 +135,49 @@ export function validate(input: unknown): ValidationResult {
   validateSceneInstanceLifespans(comp, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Largest axis, in px, below which W_DIMENSION_LARGE stays quiet. Above it
+// libx264 still encodes, but per-frame canvas + raw-frame memory and encode
+// time grow quadratically and most players/levels choke.
+export const MAX_RECOMMENDED_DIMENSION = 4096;
+
+// Encoder preconditions on the composition canvas (B-2). The default MP4
+// pipeline is libx264 + yuv420p, whose 2×2 chroma subsampling rejects odd
+// width/height — without this check a 1001×501 composition passes validation
+// and then dies inside ffmpeg with only a stderr tail. Exported so the MCP
+// store can surface the same issues eagerly from create_composition /
+// set_composition_property, before anything is rendered.
+export function checkDimensions(
+  width: number,
+  height: number,
+): { errors: ValidationError[]; warnings: ValidationWarning[] } {
+  const errors: ValidationError[] = [];
+  const warnings: ValidationWarning[] = [];
+  for (const [axis, value] of [
+    ["width", width],
+    ["height", height],
+  ] as const) {
+    if (value % 2 !== 0) {
+      errors.push({
+        code: "E_DIMENSION_ODD",
+        message:
+          `composition.${axis} (${value}) is odd; the H.264/yuv420p encoder requires even dimensions. ` +
+          `Use ${value - 1} or ${value + 1}.`,
+        path: `composition.${axis}`,
+      });
+    }
+    if (value > MAX_RECOMMENDED_DIMENSION) {
+      warnings.push({
+        code: "W_DIMENSION_LARGE",
+        message:
+          `composition.${axis} (${value}) exceeds ${MAX_RECOMMENDED_DIMENSION}px; rendering will be slow and ` +
+          "memory-hungry, and many players/encoder levels reject frames this large.",
+        path: `composition.${axis}`,
+      });
+    }
+  }
+  return { errors, warnings };
 }
 
 // Layer ids are addressed directly by update_layer/remove_layer; tween ids are

@@ -168,4 +168,7 @@ ffmpeg stderr tail instead of a structured validation error.
 `W_DIMENSION_LARGE` warning above 4096), surfaced eagerly by
 `create_composition` / `set_composition_property` — v1.1 Session 3.
 
-**Status:** OPEN — **P2**, scheduled for v1.1 Session 3.
+**Status:** FIXED — v1.1 Session 3. `validate` reports `E_DIMENSION_ODD` per
+odd axis and `W_DIMENSION_LARGE` above 4096; `create_composition` /
+`set_composition_property` return the same issues eagerly; `davidup render`
+exits 1 with `E_VALIDATION_FAILED` listing them.

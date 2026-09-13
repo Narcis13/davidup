@@ -28,7 +28,8 @@ async function makeTmp(prefix: string): Promise<string> {
 function basicComposition(): Record<string, unknown> {
   return {
     version: "0.1",
-    composition: { width: 16, height: 9, fps: 30, duration: 1, background: "#000000" },
+    // Even dimensions — odd ones now fail validate with E_DIMENSION_ODD (B-2).
+    composition: { width: 16, height: 10, fps: 30, duration: 1, background: "#000000" },
     assets: [],
     layers: [{ id: "fg", z: 0, opacity: 1, blendMode: "normal", items: ["box"] }],
     items: {

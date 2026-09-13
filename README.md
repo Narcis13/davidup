@@ -666,9 +666,12 @@ handle:
 `E_SCHEMA`, `E_ASSET_MISSING`, `E_ITEM_MISSING`, `E_PROPERTY_INVALID`,
 `E_VALUE_KIND`, `E_COLOR_INVALID`, `E_TWEEN_OVERLAP`, `E_GROUP_CYCLE`,
 `E_VIDEO_RANGE`, `E_DUPLICATE_LAYER_ID`, `E_DUPLICATE_TWEEN_ID`,
-`E_POLYGON_INVALID`; warnings `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
+`E_POLYGON_INVALID`, `E_DIMENSION_ODD` (odd composition width/height — the
+H.264/yuv420p encoder needs even sizes); warnings `W_DIMENSION_LARGE` (either
+axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 `W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES`.
-Warnings never fail a call.
+Warnings never fail a call. `create_composition` and `set_composition_property`
+return the dimension codes eagerly as `issues[]` / `warnings[]` on their result.
 
 ### Render lifecycle
 

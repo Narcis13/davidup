@@ -24,7 +24,7 @@ export function buildVideoBgTextComposition(): Composition {
     version: "0.1",
     composition: {
       // libx264 requires even dimensions for yuv420p — 224, not the exact
-      // 16:9 225, keeps the encoder happy.
+      // 16:9 225. `validate` rejects odd sizes with E_DIMENSION_ODD (B-2).
       width: 400,
       height: 224,
       fps: 10,

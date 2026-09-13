@@ -1204,6 +1204,8 @@ is bit-deterministic.
 | `E_VALUE_KIND`                    | validator           | from/to type mismatch (number vs color)                    |
 | `E_TWEEN_OVERLAP`                 | validator / store   | two tweens on same (target,property) overlap               |
 | `E_GROUP_CYCLE`                   | validator           | cycle in group containment                                 |
+| `E_DIMENSION_ODD`                 | validator / MCP     | composition width or height is odd (libx264 + yuv420p needs even) |
+| `W_DIMENSION_LARGE`               | validator (warning) | composition width or height exceeds 4096px                 |
 | `W_TWEEN_TRUNCATED`               | validator (warning) | tween extends past composition.duration                    |
 | `W_ITEM_INVISIBLE_OPACITY`        | validator (warning) | item/ancestor group/layer opacity is 0 for the whole run, untweened |
 | `W_ITEM_OFF_CANVAS`               | validator (warning) | item's full range of motion never overlaps the canvas rect  |

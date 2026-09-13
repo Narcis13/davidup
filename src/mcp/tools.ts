@@ -59,6 +59,11 @@ import {
 } from "../drivers/node/index.js";
 import { EASING_NAMES } from "../easings/index.js";
 import { listTweenable } from "../schema/tweenable.js";
+import {
+  checkDimensions,
+  type ValidationError,
+  type ValidationWarning,
+} from "../schema/validator.js";
 import type { FontAsset, Tween } from "../schema/types.js";
 import {
   AUDIO_ASSET_EXTENSIONS,
@@ -413,10 +418,13 @@ const createComposition = defineTool({
     "On the standalone engine server, composition state lives in the long-running server process, not per MCP " +
     "client connection — a new conversation attached to an already-running server can inherit compositions left " +
     "over from a previous conversation. If this call fails with E_DUPLICATE_ID against an `id` you haven't used " +
-    "yet, that's almost certainly why: call `reset` (or pass a fresh `id`) to start clean.",
+    "yet, that's almost certainly why: call `reset` (or pass a fresh `id`) to start clean. " +
+    "width and height must be EVEN (the H.264/yuv420p encoder rejects odd sizes); an odd or >4096px size still " +
+    "creates the composition but the response carries `issues` (E_DIMENSION_ODD) / `warnings` (W_DIMENSION_LARGE) " +
+    "— the same codes `validate` reports, and E_DIMENSION_ODD blocks rendering.",
   inputSchema: {
-    width: z.number().int().positive(),
-    height: z.number().int().positive(),
+    width: z.number().int().positive().describe("Canvas width in px. Must be even."),
+    height: z.number().int().positive().describe("Canvas height in px. Must be even."),
     fps: z.number().positive(),
     duration: z.number().nonnegative(),
     background: z.string().optional(),
@@ -431,9 +439,22 @@ const createComposition = defineTool({
       ...(args.background !== undefined ? { background: args.background } : {}),
       ...(args.id !== undefined ? { id: args.id } : {}),
     });
-    return { compositionId };
+    return { compositionId, ...dimensionIssues(args.width, args.height) };
   },
 });
+
+// Eager B-2 feedback: the dimension subset of `validate`, attached to the
+// create/set response only when non-empty so a clean call's shape is unchanged.
+function dimensionIssues(
+  width: number,
+  height: number,
+): { issues?: ValidationError[]; warnings?: ValidationWarning[] } {
+  const { errors, warnings } = checkDimensions(width, height);
+  return {
+    ...(errors.length > 0 ? { issues: errors } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
+}
 
 const getComposition = defineTool({
   name: "get_composition",
@@ -452,7 +473,9 @@ const setCompositionProperty = defineTool({
   name: "set_composition_property",
   title: "Set composition meta property",
   description:
-    "Update one of width/height/fps/duration/background on the composition.",
+    "Update one of width/height/fps/duration/background on the composition. width and height must be EVEN " +
+    "(H.264/yuv420p); after a width/height change that leaves an odd or >4096px canvas the response carries " +
+    "`issues` (E_DIMENSION_ODD, blocks rendering) / `warnings` (W_DIMENSION_LARGE).",
   inputSchema: {
     property: z.enum(["width", "height", "fps", "duration", "background"]),
     value: z.union([z.number(), z.string()]),
@@ -464,7 +487,11 @@ const setCompositionProperty = defineTool({
       args.value,
       args.compositionId,
     );
-    return { ok: true as const };
+    if (args.property !== "width" && args.property !== "height") {
+      return { ok: true as const };
+    }
+    const { width, height } = store.toJSON(args.compositionId).composition;
+    return { ok: true as const, ...dimensionIssues(width, height) };
   },
 });
 

@@ -59,6 +59,10 @@ export function idSchema(label: string) {
   });
 }
 
+// Shape only. Encoder preconditions (even width/height for libx264+yuv420p,
+// the >4096 size warning) are semantic checks in `validator.ts`
+// (`checkDimensions` → E_DIMENSION_ODD / W_DIMENSION_LARGE) so they surface
+// with their own code rather than a generic E_SCHEMA.
 export const CompositionMetaSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),

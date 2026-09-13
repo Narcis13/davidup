@@ -7,6 +7,16 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Even composition dimensions are validated (B-2)
+
+- `validate` reports **`E_DIMENSION_ODD`** for an odd composition `width` or
+  `height` (libx264 + yuv420p rejects them), so `davidup render` / `render_*`
+  fail with `E_VALIDATION_FAILED` up front instead of an ffmpeg stderr tail.
+  Previously-"valid" odd-sized compositions now fail validation.
+- New warning **`W_DIMENSION_LARGE`** when either axis exceeds 4096px.
+- `create_composition` / `set_composition_property` return the same codes
+  eagerly as `issues[]` / `warnings[]` on their result (omitted when clean).
+
 ### ⚠ Video extraction v2 — video items honour `fit` (B-1)
 
 - **`fit` now works.** Frames were pre-extracted stretched to the item's
