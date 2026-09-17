@@ -7,6 +7,29 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Alpha export (ProRes 4444 `.mov`, VP9 `.webm`)
+
+- `composition.background: "transparent"` now clears instead of filling, so
+  pixels no item draws stay alpha 0 (the rawvideo input was already RGBA).
+  Opaque backgrounds render exactly as before; no pixel or expansion marker
+  moved.
+- The codec union gains `prores_ks` (ProRes 4444, `yuva444p10le`, `.mov`) and
+  `libvpx-vp9` (constant-quality, `yuva420p`, `.webm`) on `renderToFile`,
+  `davidup render --codec=…`, `render_to_video`'s `codec` param and the editor
+  render queue. ProRes ignores `crf`/`preset`; VP9 ignores `preset`.
+- Container/codec mismatches (ProRes not in `.mov`, VP9 not in `.webm`,
+  H.264/H.265 in `.webm`) are rejected before any work with
+  `E_CONTAINER_CODEC` — a `RenderOptionsError` from `renderToFile`, a
+  `RenderError` from `renderComposition`, exit 2 from the CLI, and a new MCP
+  error code.
+- Audio mux keeps `-c:v copy`: the silent temp video now shares the output's
+  container, audio is Opus in `.webm` (AAC elsewhere), and `-movflags` is
+  never passed to the WebM muxer. The editor defaults an extension-less output
+  to the codec's container and lists `.mov` / `.webm` renders.
+- New exports: `VIDEO_CODECS`, `ALPHA_CODECS`, type `VideoCodec`,
+  `checkContainerCodec`, `defaultContainerExtension`, `defaultPixFmt`,
+  `RenderOptionsError`.
+
 ### Colour-space tagging on output — **⚠ pixel-changing**
 
 - Rendered MP4s are now converted RGB→YUV with the **BT.709** matrix at TV

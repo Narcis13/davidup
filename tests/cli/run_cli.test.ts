@@ -211,6 +211,34 @@ describe("cli · runCli", () => {
     expect(cap.err.join("\n")).toMatch(/invalid --codec/);
   });
 
+  it("`render` forwards an alpha codec (v1.1 S9)", async () => {
+    const cap = captureIo();
+    let codec: string | undefined;
+    const code = await runCli(["render", "./x", "-o", "lt.mov", "--codec=prores_ks"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async (opts) => {
+        codec = opts.codec;
+        return { outputPath: opts.outputPath, durationMs: 1, frameCount: 1 };
+      },
+    });
+    expect(code).toBe(0);
+    expect(codec).toBe("prores_ks");
+  });
+
+  it("`render` exits 2 on a container/codec mismatch (v1.1 S9)", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--codec=libvpx-vp9"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async () => {
+        throw new Error("must not render");
+      },
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/libvpx-vp9 cannot be written to a \.mp4 file \(use \.webm\)/);
+  });
+
   it("`render` exits 1 and surfaces the message when renderFn throws a RenderError", async () => {
     const cap = captureIo();
     const { RenderError } = await import("../../src/cli/render.js");

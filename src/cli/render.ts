@@ -15,8 +15,10 @@ import { promises as fs } from "node:fs";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { precompile } from "../compose/index.js";
 import {
+  checkContainerCodec,
   renderToFile,
   type ColorProfile,
+  type VideoCodec,
   type RenderToFileOptions,
   type RenderToFileResult,
 } from "../drivers/node/index.js";
@@ -25,6 +27,7 @@ import type { Composition } from "../schema/types.js";
 
 export type RenderErrorCode =
   | "E_INPUT_NOT_FOUND"
+  | "E_CONTAINER_CODEC"
   | "E_INPUT_INVALID"
   | "E_VALIDATION_FAILED"
   | "E_RENDER_FAILED";
@@ -45,7 +48,8 @@ export interface RenderOptions {
   input: string;
   /** Absolute output file path. */
   outputPath: string;
-  codec?: "libx264" | "libx265";
+  /** Alpha codecs (`prores_ks`, `libvpx-vp9`) need `.mov` / `.webm` (v1.1 S9). */
+  codec?: VideoCodec;
   crf?: number;
   preset?: string;
   /** Overrides `composition.fps` from the source JSON when set. */
@@ -112,6 +116,11 @@ export async function renderComposition(
 ): Promise<RenderToFileResult> {
   const readFile = deps.readFile ?? ((p: string) => fs.readFile(p, "utf8"));
   const renderFn = deps.renderFn ?? renderToFile;
+
+  const containerError = checkContainerCodec(opts.outputPath, opts.codec);
+  if (containerError !== undefined) {
+    throw new RenderError("E_CONTAINER_CODEC", containerError);
+  }
 
   const inputStat = await fs.stat(opts.input).catch(() => null);
   if (!inputStat) {

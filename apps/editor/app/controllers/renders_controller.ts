@@ -26,7 +26,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 
 import projectStore from '#services/project_store'
-import renderJobs, { RenderJob, type RenderEvent } from '../workers/render_worker.js'
+import renderJobs, {
+  containerExtensionFor,
+  RenderJob,
+  type RenderEvent,
+} from '../workers/render_worker.js'
 
 function timestampStamp(now = new Date()): string {
   // Compact, sortable, filesystem-safe: 20260517-141512-123
@@ -51,7 +55,9 @@ interface CreateRenderBody {
   renderOptions?: unknown
 }
 
-const ALLOWED_CODECS = new Set(['libx264', 'libx265'])
+type RenderCodec = 'libx264' | 'libx265' | 'prores_ks' | 'libvpx-vp9'
+const ALLOWED_CODECS = new Set<string>(['libx264', 'libx265', 'prores_ks', 'libvpx-vp9'])
+const RENDER_FILE_EXTENSIONS = ['.mp4', '.mov', '.webm']
 const ALLOWED_PRESETS = new Set([
   'ultrafast',
   'superfast',
@@ -63,11 +69,18 @@ const ALLOWED_PRESETS = new Set([
   'slower',
   'veryslow',
 ])
-const ALLOWED_PIX_FMTS = new Set(['yuv420p', 'yuv422p', 'yuv444p', 'yuv420p10le'])
+const ALLOWED_PIX_FMTS = new Set([
+  'yuv420p',
+  'yuv422p',
+  'yuv444p',
+  'yuv420p10le',
+  'yuva444p10le',
+  'yuva420p',
+])
 const ALLOWED_COLOR_PROFILES = new Set(['bt709', 'untagged'])
 
 function parseRenderOptions(raw: unknown): {
-  codec?: 'libx264' | 'libx265'
+  codec?: RenderCodec
   crf?: number
   preset?: string
   pixFmt?: string
@@ -76,14 +89,14 @@ function parseRenderOptions(raw: unknown): {
   if (!raw || typeof raw !== 'object') return null
   const src = raw as Record<string, unknown>
   const out: {
-    codec?: 'libx264' | 'libx265'
+    codec?: RenderCodec
     crf?: number
     preset?: string
     pixFmt?: string
     colorProfile?: 'bt709' | 'untagged'
   } = {}
   if (typeof src.codec === 'string' && ALLOWED_CODECS.has(src.codec)) {
-    out.codec = src.codec as 'libx264' | 'libx265'
+    out.codec = src.codec as RenderCodec
   }
   if (typeof src.crf === 'number' && Number.isFinite(src.crf) && src.crf >= 0 && src.crf <= 51) {
     out.crf = Math.round(src.crf)
@@ -144,21 +157,21 @@ export default class RendersController {
         ? body.filename.trim()
         : null
 
+    const renderOptions = parseRenderOptions(body.renderOptions)
+    const ext = containerExtensionFor(renderOptions?.codec)
     const stamp = timestampStamp()
-    const baseName = userFilename ?? `${stamp}.mp4`
+    const baseName = userFilename ?? `${stamp}${ext}`
     if (baseName.includes('..') || baseName.startsWith('/')) {
       return response.badRequest({
         error: { code: 'E_BAD_REQUEST', message: 'filename must be a simple basename' },
       })
     }
-    const safeName = extname(baseName) ? baseName : `${baseName}.mp4`
+    const safeName = extname(baseName) ? baseName : `${baseName}${ext}`
 
     const rendersDir = join(project.root, 'renders')
     await mkdir(rendersDir, { recursive: true })
     const outputPath = join(rendersDir, safeName)
     const relativeOutputPath = relative(project.root, outputPath)
-
-    const renderOptions = parseRenderOptions(body.renderOptions)
 
     const jobId = randomUUID()
     const job = new RenderJob({
@@ -329,7 +342,7 @@ export default class RendersController {
   }
 
   /**
-   * GET /api/renders/files — list .mp4 files in the loaded project's
+   * GET /api/renders/files — list rendered .mp4 / .mov / .webm files in the loaded project's
    * `renders/` directory. Newest first by mtime. Used by the editor's
    * RenderHistory panel (polish_plan §20.28) — entries persist across
    * sessions, unlike the in-memory `useRender.history`.
@@ -357,7 +370,7 @@ export default class RendersController {
       modifiedAt: number
     }> = []
     for (const name of entries) {
-      if (!name.toLowerCase().endsWith('.mp4')) continue
+      if (!RENDER_FILE_EXTENSIONS.includes(extname(name).toLowerCase())) continue
       const full = join(rendersDir, name)
       try {
         const s = await stat(full)
@@ -517,8 +530,8 @@ export default class RendersController {
         error: { code: 'E_BAD_REQUEST', message: 'Invalid destination filename' },
       })
     }
-    // Preserve `.mp4` if the user dropped it.
-    const dest = extname(to) ? to : `${to}.mp4`
+    // Preserve the source's extension (.mp4 / .mov / .webm) if the user dropped it.
+    const dest = extname(to) ? to : `${to}${extname(from) || '.mp4'}`
     if (dest === from) {
       return response.ok({ ok: true, filename: from, renamed: false })
     }

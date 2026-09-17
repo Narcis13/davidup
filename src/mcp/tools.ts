@@ -51,8 +51,11 @@ import {
 import { RefResolutionError } from "../compose/imports.js";
 import {
   renderToFile,
+  checkContainerCodec,
   COLOR_PROFILES,
+  VIDEO_CODECS,
   type ColorProfile,
+  type VideoCodec,
   probeAudio as defaultProbeAudio,
   probeVideo as defaultProbeVideo,
   FfprobeUnavailableError,
@@ -246,7 +249,7 @@ export interface MCPRenderJobSnapshot {
 
 export interface MCPRenderStartArgs {
   outputPath: string;
-  codec?: "libx264" | "libx265";
+  codec?: VideoCodec;
   crf?: number;
   preset?: string;
   pixFmt?: string;
@@ -2310,6 +2313,8 @@ const renderToVideo = defineTool({
   title: "Render to video file",
   description:
     "Render the composition to an MP4 (or other ffmpeg-supported container). " +
+    "For transparent overlays set `composition.background` to `\"transparent\"` and pick an alpha codec: " +
+    "`prores_ks` (ProRes 4444, `.mov`) or `libvpx-vp9` (`.webm`); a mismatched extension fails with E_CONTAINER_CODEC. " +
     "Always returns the same shape: " +
     "`{ jobId, status, outputPath, relativeOutputPath, totalFrames, startedAt, eventsUrl?, result }`. " +
     "`result` is `null` until the job completes; on success it carries `{ outputPath, relativeOutputPath, durationMs, frameCount }`. " +
@@ -2319,7 +2324,12 @@ const renderToVideo = defineTool({
     "On render failure the handler throws `E_RENDER_FAILED` rather than resolving with `status: \"error\"`.",
   inputSchema: {
     outputPath: z.string().min(1),
-    codec: z.enum(["libx264", "libx265"]).optional(),
+    codec: z
+      .enum(VIDEO_CODECS as [VideoCodec, ...VideoCodec[]])
+      .optional()
+      .describe(
+        "Video encoder. `libx264` (default) / `libx265` → .mp4. Alpha: `prores_ks` (ProRes 4444, yuva444p10le) → .mov, `libvpx-vp9` (yuva420p) → .webm. Omitting the extension picks the codec's container in the editor.",
+      ),
     // libx264 / libx265 both top out at 51; values above silently bork the
     // encoder. Clamp at the codec ceiling so a stray crf:60 surfaces as a
     // clean E_INVALID_VALUE up front instead of an opaque E_RENDER_FAILED.
@@ -2348,6 +2358,14 @@ const renderToVideo = defineTool({
   },
   handler: async (args, deps): Promise<RenderToVideoResult> => {
     const { store, renderControls } = deps;
+    const containerError = checkContainerCodec(args.outputPath, args.codec);
+    if (containerError !== undefined) {
+      throw new MCPToolError(
+        "E_CONTAINER_CODEC",
+        containerError,
+        "Use .mov for prores_ks, .webm for libvpx-vp9, and .mp4 for libx264/libx265.",
+      );
+    }
     ensureValidForRender(store, args.compositionId);
 
     // Editor-hosted: route through the render queue. Default is async — return

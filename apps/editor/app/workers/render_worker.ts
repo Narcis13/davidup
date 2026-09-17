@@ -116,8 +116,16 @@ export interface RenderErrorEvent {
 
 export type RenderEvent = RenderProgressEvent | RenderDoneEvent | RenderErrorEvent
 
+/** Container per codec (v1.1 S9): ProRes 4444 → .mov, VP9 alpha → .webm. */
+export function containerExtensionFor(codec: string | undefined): string {
+  if (codec === 'prores_ks') return '.mov'
+  if (codec === 'libvpx-vp9') return '.webm'
+  return '.mp4'
+}
+
 export interface RenderJobRenderOptions {
-  codec?: 'libx264' | 'libx265'
+  /** `prores_ks` / `libvpx-vp9` keep alpha (v1.1 S9) and need .mov / .webm. */
+  codec?: 'libx264' | 'libx265' | 'prores_ks' | 'libvpx-vp9'
   crf?: number
   preset?: string
   pixFmt?: string

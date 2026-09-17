@@ -244,6 +244,14 @@ function drawBackground(
   width: number,
   height: number,
 ): void {
+  // `"transparent"` (v1.1 S9) paints nothing: the frame keeps alpha 0 where
+  // no item draws, which alpha codecs (ProRes 4444 / VP9) carry through.
+  // Clearing rather than skipping keeps drivers that don't clear between
+  // frames (the browser loop) from smearing.
+  if (color.trim().toLowerCase() === "transparent") {
+    ctx.clearRect(0, 0, width, height);
+    return;
+  }
   ctx.save();
   ctx.globalCompositeOperation = COMPOSITE_NORMAL;
   ctx.globalAlpha = 1;

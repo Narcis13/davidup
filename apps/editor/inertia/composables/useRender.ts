@@ -163,7 +163,7 @@ function pushHistory(job: RenderJobInternal): void {
 }
 
 export interface RenderOverrides {
-  codec?: 'libx264' | 'libx265'
+  codec?: 'libx264' | 'libx265' | 'prores_ks' | 'libvpx-vp9'
   crf?: number
   preset?: string
   pixFmt?: string

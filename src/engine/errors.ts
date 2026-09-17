@@ -21,6 +21,9 @@ export const MCP_ERROR_CODES = [
   "E_ASSET_TYPE_MISMATCH",
   "E_INVALID_VALUE",
   "E_RENDER_FAILED",
+  // Output extension can't hold the requested codec (v1.1 S9), e.g.
+  // prores_ks → out.mp4. Raised before any frame is rendered.
+  "E_CONTAINER_CODEC",
   "E_BEHAVIOR_UNKNOWN",
   "E_BEHAVIOR_PARAM_MISSING",
   "E_BEHAVIOR_PARAM_TYPE",

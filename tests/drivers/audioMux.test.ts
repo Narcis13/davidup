@@ -244,6 +244,19 @@ describe("buildMuxArgs", () => {
     expect(args).not.toContain("-movflags");
     expect(args[args.length - 1]).toBe("/tmp/o.mp4");
   });
+
+  it("muxes Opus (not AAC) into WebM and never passes -movflags (v1.1 S9)", () => {
+    const args = buildMuxArgs({
+      tempVideoPath: "/tmp/t.webm",
+      inputs: ["/a/x.wav"],
+      filterComplex: "[aout]",
+      outputPath: "/tmp/o.webm",
+      movflagsFaststart: true,
+    });
+    expect(args.join(" ")).toContain("-c:v copy -c:a libopus");
+    expect(args).not.toContain("aac");
+    expect(args).not.toContain("-movflags");
+  });
 });
 
 describe("resolveAudioInputs", () => {

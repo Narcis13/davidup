@@ -75,6 +75,7 @@ import {
 import { scaffoldProject, ScaffoldError } from 'davidup/cli/scaffold'
 
 import renderJobs, {
+  containerExtensionFor,
   RenderJob,
   type RenderJobRenderOptions,
 } from '../workers/render_worker.js'
@@ -408,6 +409,7 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
   function resolveOutputPath(
     projectRoot: string,
     requested: string,
+    codec: string | undefined,
   ): { absolute: string; relative: string } {
     if (requested.length === 0) {
       throw new MCPToolError(
@@ -435,9 +437,10 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
         '`outputPath` must resolve inside the active project directory.',
       )
     }
-    // Default to `.mp4` if the caller omitted an extension — same UX as the
-    // HTTP controller's filename handling.
-    const withExt = extname(absolute) ? absolute : `${absolute}.mp4`
+    // Default to the codec's container (.mp4, or .mov / .webm for the alpha
+    // codecs) if the caller omitted an extension — same UX as the HTTP
+    // controller's filename handling.
+    const withExt = extname(absolute) ? absolute : `${absolute}${containerExtensionFor(codec)}`
     return { absolute: withExt, relative: relative(projectRoot, withExt) }
   }
 
@@ -486,7 +489,7 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
           'No composition is loaded for the active project.',
         )
       }
-      const paths = resolveOutputPath(project.root, args.outputPath)
+      const paths = resolveOutputPath(project.root, args.outputPath, args.codec)
       await mkdir(resolvePath(paths.absolute, '..'), { recursive: true })
 
       const renderOptions: RenderJobRenderOptions = {}

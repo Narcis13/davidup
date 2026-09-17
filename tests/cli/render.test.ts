@@ -129,6 +129,20 @@ describe("cli · render · renderComposition", () => {
     expect(calls[0]!.opts).toMatchObject({ colorProfile: "untagged" });
   });
 
+  it("throws E_CONTAINER_CODEC for prores_ks → .mp4 before rendering (v1.1 S9)", async () => {
+    const dir = await makeTmp("davidup-render-container-");
+    await writeFile(join(dir, "composition.json"), JSON.stringify(basicComposition()));
+    const { renderFn, calls } = fakeRenderFn();
+
+    await expect(
+      renderComposition(
+        { input: dir, outputPath: join(dir, "out.mp4"), codec: "prores_ks" },
+        { renderFn },
+      ),
+    ).rejects.toMatchObject({ code: "E_CONTAINER_CODEC" });
+    expect(calls).toHaveLength(0);
+  });
+
   it("resolves relative asset src against the source file's directory", async () => {
     const dir = await makeTmp("davidup-render-assets-");
     await mkdir(join(dir, "fonts"), { recursive: true });

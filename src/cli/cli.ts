@@ -27,9 +27,12 @@ import {
   type RenderOptions,
 } from "./render.js";
 import {
+  checkContainerCodec,
   COLOR_PROFILES,
+  VIDEO_CODECS,
   type ColorProfile,
   type RenderToFileResult,
+  type VideoCodec,
 } from "../drivers/node/index.js";
 import {
   scaffoldProject,
@@ -109,7 +112,7 @@ davidup ${VERSION}
 USAGE
   davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
   davidup new  <dir> [--template=<name>] [--force]
-  davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
+  davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
   davidup list
   davidup recent
   davidup --help
@@ -135,8 +138,11 @@ FLAGS
   --template=<name>   Project template (default "basic").
   --force             Allow scaffolding into a non-empty directory.
   -o, --output=<f>    Output video file path (required for render).
-  --codec=<c>         Video codec: libx264 (default) or libx265.
-  --crf=<n>           Constant rate factor, 0-51 (default 18; lower = higher quality).
+  --codec=<c>         Video codec: libx264 (default) or libx265 (.mp4), or with
+                      alpha: prores_ks (ProRes 4444, .mov) or libvpx-vp9
+                      (.webm). Alpha needs composition.background "transparent".
+  --crf=<n>           Constant rate factor, 0-51 (default 18; lower = higher
+                      quality). Ignored by prores_ks.
   --fps=<n>           Override the composition's frame rate (number or "N/D",
                       e.g. 30000/1001 for NTSC 29.97).
   --preset=<p>        ffmpeg encoder preset (default "medium").
@@ -149,6 +155,7 @@ EXAMPLES
   davidup edit examples/comprehensive-browser
   davidup render ./my-clip -o out.mp4
   davidup render examples/comprehensive-composition.json -o /tmp/out.mp4 --crf=20 --fps=30
+  davidup render ./lower-third -o lower-third.mov --codec=prores_ks
   davidup list
 `;
 
@@ -535,9 +542,6 @@ async function runEditCommand(
   }
 }
 
-const VALID_CODECS = ["libx264", "libx265"] as const;
-type Codec = (typeof VALID_CODECS)[number];
-
 async function runRenderCommand(
   parsed: ParsedCommand,
   deps: CliDeps,
@@ -547,10 +551,15 @@ async function runRenderCommand(
   const outputPath = resolveDir(deps.cwd, outputRaw);
 
   const codecRaw = stringFlag(parsed.flags, "codec");
-  if (codecRaw !== undefined && !VALID_CODECS.includes(codecRaw as Codec)) {
+  if (codecRaw !== undefined && !VIDEO_CODECS.includes(codecRaw as VideoCodec)) {
     deps.io.error(
-      `davidup: invalid --codec "${codecRaw}" (expected ${VALID_CODECS.join(" or ")})`,
+      `davidup: invalid --codec "${codecRaw}" (expected ${VIDEO_CODECS.join(", ")})`,
     );
+    return 2;
+  }
+  const containerError = checkContainerCodec(outputPath, codecRaw as VideoCodec | undefined);
+  if (containerError !== undefined) {
+    deps.io.error(`davidup: ${containerError}`);
     return 2;
   }
 
@@ -592,7 +601,7 @@ async function runRenderCommand(
       {
         input,
         outputPath,
-        ...(codecRaw !== undefined ? { codec: codecRaw as Codec } : {}),
+        ...(codecRaw !== undefined ? { codec: codecRaw as VideoCodec } : {}),
         ...(crf !== undefined ? { crf } : {}),
         ...(fps !== undefined ? { fps } : {}),
         ...(preset !== undefined ? { preset } : {}),

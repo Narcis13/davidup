@@ -621,7 +621,7 @@ hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 | 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` (descriptor only) |
 | 4.5c | Templates | `apply_template`, `list_templates`, `define_user_template`, `remove_user_template` |
 | 4.5d | Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
-| 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30), `render_to_video` (`outputPath`, `codec`, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `wait`), `get_render`, `list_renders`, `cancel_render` |
+| 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30), `render_to_video` (`outputPath`, `codec` libx264\|libx265\|prores_ks\|libvpx-vp9, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `wait`), `get_render`, `list_renders`, `cancel_render` |
 | 4.7 | Project lifecycle *(editor-hosted)* | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 | Library *(editor-hosted)* | `list_library`, `get_library_thumbnail` |
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
@@ -663,6 +663,7 @@ handle:
 | `E_REF_CYCLE` / `E_REF_MISSING` / `E_REF_PARSE` / `E_REF_POINTER` / `E_REF_INVALID` | `$ref` resolution failures |
 | `E_FEATURE_UNAVAILABLE` | Standalone-mode tool that needs the editor host |
 | `E_RENDER_FAILED` | ffmpeg or the render pipeline failed — see `details.stderrTail` |
+| `E_CONTAINER_CODEC` | `render_to_video` output extension can't hold `codec` (ProRes → `.mov`, VP9 → `.webm`, no H.264/H.265 in `.webm`) |
 
 `validate` reports its own codes inside `issues[]` / `warnings[]`: errors
 `E_SCHEMA`, `E_ASSET_MISSING`, `E_ITEM_MISSING`, `E_PROPERTY_INVALID`,
@@ -736,10 +737,10 @@ Subpath exports declared in [`package.json`](./package.json). Each has a
 import { renderToFile } from "davidup/node";
 
 await renderToFile(comp, "out.mp4", {
-  codec: "libx264",         // "libx264" | "libx265"
-  crf: 18,                  // 0–51
-  preset: "medium",         // any ffmpeg preset
-  pixFmt: "yuv420p",
+  codec: "libx264",         // "libx264" | "libx265" | alpha: "prores_ks" (.mov) | "libvpx-vp9" (.webm)
+  crf: 18,                  // 0–51 (VP9 0–63; ignored by ProRes)
+  preset: "medium",         // x264/x265 preset
+  pixFmt: "yuv420p",        // default per codec: yuv420p / yuva444p10le / yuva420p
   colorProfile: "bt709",    // BT.709 matrix + tags, TV range; "untagged" = legacy BT.601, no tags
   movflagsFaststart: true,  // streamable MP4; off by default here, on by default in CLI + MCP
   ffmpegPath: "/usr/local/bin/ffmpeg",   // default: ffmpeg-static, then $PATH
@@ -756,7 +757,20 @@ RGBA, `stdin.write` with `drain` backpressure → close with stderr-tail
 captured → (if `audio[]`) second ffmpeg pass copies the video stream and
 mixes the tracks in. Signal-killed ffmpeg fails loudly. Output container is
 chosen by the `outPath` extension; **MP4 is the tested path** (H.264 /
-H.265, `yuv420p`). WebM is not supported by these codecs.
+H.265, `yuv420p`).
+
+**Alpha export.** Set `composition.background` to `"transparent"` (nothing
+is painted, so untouched pixels stay alpha 0) and pick an alpha codec:
+`prores_ks` writes ProRes 4444 (`yuva444p10le`) to `.mov`, `libvpx-vp9`
+writes VP9 with an alpha plane (`yuva420p`) to `.webm` — for lower thirds and
+titles composited in an NLE. The codec must match the container: ProRes →
+`.mov`, VP9 → `.webm`, and H.264/H.265 never go to `.webm`; anything else is
+rejected up front with `E_CONTAINER_CODEC` (`RenderOptionsError`). With audio,
+the mux stage copies the video stream into the same container (AAC in `.mov`,
+Opus in `.webm`); `-movflags +faststart` is skipped for WebM. Rendering a
+transparent background with H.264/H.265 flattens it to black. Helpers:
+`VIDEO_CODECS`, `ALPHA_CODECS`, `checkContainerCodec`,
+`defaultContainerExtension`, `defaultPixFmt`.
 
 Frame timing is `t = i / fps` for `ceil(duration × fps)` frames.
 `fps` is passed to ffmpeg as a decimal, so `29.97` means exactly 29.97, not
@@ -799,7 +813,7 @@ played in the browser.
 ```
 davidup new <dir> [--template=<name>] [--force]
 davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
-davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
+davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
 davidup list                          # or: davidup recent
 davidup --version | --help
 ```
@@ -811,8 +825,9 @@ davidup --version | --help
 - `edit` validates `composition.json`, boots the editor in `<dir>` (default
   port 3333), opens the browser, and watches the project's library.
 - `render` renders a project directory or a raw composition file headlessly.
-  `-o` is required. `--codec` is `libx264` (default) or `libx265`, `--crf`
-  0–51 (default 18), `--fps` overrides the composition's frame rate,
+  `-o` is required. `--codec` is `libx264` (default) or `libx265`, or
+  `prores_ks` (`.mov`) / `libvpx-vp9` (`.webm`) for alpha export; a
+  mismatched `-o` extension exits 2. `--crf` 0–51 (default 18), `--fps` overrides the composition's frame rate,
   `--preset` is any ffmpeg preset (default `medium`), `--color` is `bt709`
   (default) or `untagged`. Faststart is always on.
   Progress goes to stderr; exit code 2 for bad arguments, 1 for invalid input
@@ -928,8 +943,8 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 **Output**
 
-- MP4 only in practice (H.264 / H.265, `yuv420p`). No alpha / transparent
-  export, no ProRes, no WebM, no PNG-sequence export, no time-range render.
+- H.264 / H.265 MP4, plus alpha export to ProRes 4444 `.mov` and VP9
+  `.webm`. No PNG-sequence export, no time-range render.
 - Fractional frame rates are decimal (`29.97`), not rational (`30000/1001`).
 - Odd `width`/`height` fail inside ffmpeg (`E_RENDER_FAILED`) rather than at
   validation. Use even dimensions.
@@ -1078,7 +1093,7 @@ Planned for v1.1 (designs written, no code yet):
   (R-30), editable source drawer, template round-trip edits.
 
 Still open beyond that: cubic-bezier easings, frame-range parallelization,
-visual effects (blur, glow, drop shadow), alpha / ProRes export, video
+visual effects (blur, glow, drop shadow), video
 frames in the live preview. Full discussion: [`design-doc.md` §8](./design-doc.md).
 
 ---

@@ -78,6 +78,8 @@ export const CompositionMetaSchema = z.object({
   height: z.number().int().positive(),
   fps: FpsSchema,
   duration: z.number().nonnegative(),
+  // Any CSS colour, or "transparent" (v1.1 S9): nothing is painted, so alpha
+  // codecs (ProRes 4444 / VP9) export the empty canvas as alpha 0.
   background: z.string(),
 });
 

@@ -75,6 +75,16 @@ describe("renderFrame — background", () => {
       expect(firstFill.composite).toBe("source-over");
     }
   });
+
+  it('"transparent" clears instead of filling (v1.1 S9 alpha export)', () => {
+    const ctx = new FakeContext();
+    const comp = compWith({}, []);
+    comp.composition.background = "transparent";
+    renderFrame(comp, 0, ctx);
+    expect(ctx.calls.some((c) => c.op === "fillRect")).toBe(false);
+    const clear = ctx.calls.find((c) => c.op === "clearRect");
+    expect(clear).toMatchObject({ x: 0, y: 0, w: 200, h: 100 });
+  });
 });
 
 describe("renderFrame — layer ordering", () => {

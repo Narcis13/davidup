@@ -20,7 +20,7 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -123,9 +123,18 @@ export interface SkiaDriverModule extends SkiaCanvasModule {
 export type FfmpegSpawn = (cmd: string, args: ReadonlyArray<string>) => ChildProcess;
 
 export interface RenderToFileOptions {
-  codec?: "libx264" | "libx265";
+  /**
+   * Video encoder. `libx264` (default) / `libx265` are opaque; `prores_ks`
+   * (ProRes 4444, `yuva444p10le`, `.mov`) and `libvpx-vp9` (`yuva420p`,
+   * `.webm`) carry the canvas alpha channel (v1.1 S9). The output extension
+   * must suit the codec — see {@link checkContainerCodec}.
+   */
+  codec?: VideoCodec;
+  /** Quality for x264 / x265 / VP9. ProRes is profile-driven and ignores it. */
   crf?: number;
+  /** x264 / x265 preset. Ignored by ProRes and VP9. */
   preset?: string;
+  /** Output pixel format. Default depends on the codec (see {@link defaultPixFmt}). */
   pixFmt?: string;
   ffmpegPath?: string;
   movflagsFaststart?: boolean;
@@ -172,6 +181,60 @@ export interface RenderToFileOptions {
   preExtract?: false | PreExtractRenderOptions;
 }
 
+export type VideoCodec = "libx264" | "libx265" | "prores_ks" | "libvpx-vp9";
+export const VIDEO_CODECS: readonly VideoCodec[] = [
+  "libx264",
+  "libx265",
+  "prores_ks",
+  "libvpx-vp9",
+];
+/** Codecs whose output keeps the canvas alpha channel (v1.1 S9). */
+export const ALPHA_CODECS: readonly VideoCodec[] = ["prores_ks", "libvpx-vp9"];
+
+/** Container extension a codec is written to when the caller names none. */
+export function defaultContainerExtension(codec: VideoCodec = "libx264"): string {
+  if (codec === "prores_ks") return ".mov";
+  if (codec === "libvpx-vp9") return ".webm";
+  return ".mp4";
+}
+
+/** Pixel format used when `pixFmt` is not given. */
+export function defaultPixFmt(codec: VideoCodec = "libx264"): string {
+  if (codec === "prores_ks") return "yuva444p10le";
+  if (codec === "libvpx-vp9") return "yuva420p";
+  return "yuv420p";
+}
+
+/**
+ * Container/codec compatibility (v1.1 S9, `E_CONTAINER_CODEC`). ProRes 4444
+ * must go to `.mov` and VP9-with-alpha to `.webm`; WebM cannot hold H.264 /
+ * H.265. Returns an error message, or `undefined` when the pairing is fine.
+ * A path without an extension is not checked (callers that append one use
+ * {@link defaultContainerExtension}).
+ */
+export function checkContainerCodec(
+  outPath: string,
+  codec: VideoCodec = "libx264",
+): string | undefined {
+  const ext = extname(outPath).toLowerCase();
+  if (ext === "") return undefined;
+  const want = defaultContainerExtension(codec);
+  const mismatch = ALPHA_CODECS.includes(codec) ? ext !== want : ext === ".webm";
+  if (mismatch) {
+    return `codec ${codec} cannot be written to a ${ext} file (use ${want})`;
+  }
+  return undefined;
+}
+
+/** Thrown by {@link renderToFile} for invalid render options, before any work. */
+export class RenderOptionsError extends Error {
+  readonly code = "E_CONTAINER_CODEC" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "RenderOptionsError";
+  }
+}
+
 export type ColorProfile = "bt709" | "untagged";
 export const COLOR_PROFILES: readonly ColorProfile[] = ["bt709", "untagged"];
 
@@ -203,6 +266,8 @@ export async function renderToFile(
   opts: RenderToFileOptions = {},
 ): Promise<RenderToFileResult> {
   const startedAt = nowMs();
+  const containerError = checkContainerCodec(outPath, opts.codec);
+  if (containerError !== undefined) throw new RenderOptionsError(containerError);
   const compiled = (await precompile(comp, {
     ...(opts.sourcePath !== undefined ? { sourcePath: opts.sourcePath } : {}),
     ...(opts.readFile !== undefined ? { readFile: opts.readFile } : {}),
@@ -258,8 +323,13 @@ export async function renderToFile(
   await sweepOrphanTempVideos(dirname(outPath)).catch(() => undefined);
 
   const hasAudio = compositionHasAudio(compiled);
+  // The silent temp video shares the final container so `-c:v copy` into it
+  // is always legal (ProRes → .mov, VP9 → .webm).
   const tempVideoPath = hasAudio
-    ? join(dirname(outPath), `.davidup-tmpvideo-${randomUUID()}.mp4`)
+    ? join(
+        dirname(outPath),
+        `.davidup-tmpvideo-${randomUUID()}${extname(outPath) || defaultContainerExtension(opts.codec)}`,
+      )
     : outPath;
 
   // faststart on the silent temp video is wasted work — it's re-muxed away.
@@ -406,15 +476,22 @@ export function buildFfmpegArgs(
       "tv",
     );
   }
+  const codec = opts.codec ?? "libx264";
+  args.push("-c:v", codec);
+  if (codec === "prores_ks") {
+    // v1.1 S9: ProRes 4444 with a 16-bit alpha plane. `apl0` vendor tag so
+    // Apple tools treat it as native ProRes.
+    args.push("-profile:v", "4444", "-vendor", "apl0");
+  } else if (codec === "libvpx-vp9") {
+    // Constant-quality VP9 (`-b:v 0` makes `-crf` the only rate control);
+    // yuva420p makes libvpx write the alpha plane as a WebM side channel.
+    args.push("-crf", String(opts.crf ?? 18), "-b:v", "0");
+  } else {
+    args.push("-preset", opts.preset ?? "medium", "-crf", String(opts.crf ?? 18));
+  }
   args.push(
-    "-c:v",
-    opts.codec ?? "libx264",
-    "-preset",
-    opts.preset ?? "medium",
-    "-crf",
-    String(opts.crf ?? 18),
     "-pix_fmt",
-    opts.pixFmt ?? "yuv420p",
+    opts.pixFmt ?? defaultPixFmt(codec),
     // R-16: `+bitexact` on both the muxer (`-fflags`) and the video encoder
     // (`-flags:v`) strips wall-clock-derived container fields
     // (`creation_time`/`modification_time` in `mvhd`/`mdhd`) and the
@@ -428,7 +505,8 @@ export function buildFfmpegArgs(
     "-flags:v",
     "+bitexact",
   );
-  if (opts.movflagsFaststart) {
+  // `-movflags` is an mp4/mov muxer option; the WebM muxer rejects it.
+  if (opts.movflagsFaststart && extname(outPath).toLowerCase() !== ".webm") {
     args.push("-movflags", "+faststart");
   }
   args.push(outPath);

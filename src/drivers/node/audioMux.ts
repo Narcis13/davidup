@@ -26,6 +26,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { extname } from "node:path";
 
 import { resolveGlobalSrc } from "../../assets/node.js";
 import type { AudioAsset, AudioTrack, Composition } from "../../schema/types.js";
@@ -34,7 +35,7 @@ import type { FfmpegSpawn } from "./index.js";
 
 /** Every source and the final output are forced to this sample rate (§S4). */
 export const MUX_SAMPLE_RATE = 48_000;
-/** AAC bitrate for the muxed audio stream. */
+/** Bitrate for the muxed audio stream (AAC, or Opus in WebM). */
 export const MUX_AUDIO_BITRATE = "192k";
 
 const STDERR_TAIL_BYTES = 4096;
@@ -203,6 +204,7 @@ export interface BuildMuxArgsInput {
 
 /** Assemble the ffmpeg argv for the mux stage. */
 export function buildMuxArgs(input: BuildMuxArgsInput): string[] {
+  const webm = extname(input.outputPath).toLowerCase() === ".webm";
   const args = ["-y", "-i", input.tempVideoPath];
   for (const src of input.inputs) args.push("-i", src);
   args.push(
@@ -214,8 +216,9 @@ export function buildMuxArgs(input: BuildMuxArgsInput): string[] {
     "[aout]",
     "-c:v",
     "copy",
+    // WebM only carries Opus/Vorbis (v1.1 S9 VP9 alpha export).
     "-c:a",
-    "aac",
+    webm ? "libopus" : "aac",
     "-b:a",
     MUX_AUDIO_BITRATE,
     "-ar",
@@ -228,7 +231,7 @@ export function buildMuxArgs(input: BuildMuxArgsInput): string[] {
     "-flags:a",
     "+bitexact",
   );
-  if (input.movflagsFaststart) args.push("-movflags", "+faststart");
+  if (input.movflagsFaststart && !webm) args.push("-movflags", "+faststart");
   args.push(input.outputPath);
   return args;
 }
