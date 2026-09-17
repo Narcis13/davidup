@@ -46,7 +46,7 @@ import TimelineAudioTrack, {
   type TimelineAudioRow,
 } from '~/components/TimelineAudioTrack.vue'
 
-type OriginKind = 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+type OriginKind = 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background' | 'repeat'
 
 interface SourceLocation {
   file: string
@@ -247,6 +247,7 @@ function originKindToTweenSource(kind: OriginKind): TweenSource {
       return 'scene'
     case 'literal':
     case 'ref':
+    case 'repeat':
       return 'plain'
   }
 }

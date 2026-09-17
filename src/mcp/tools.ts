@@ -2888,7 +2888,7 @@ const getSourceMap = defineTool({
   title: "Get composition source map",
   description:
     "Return the precompiled composition plus its source map: an authorship trail keyed by resolved item / tween id. " +
-    "For each id, the map carries `{ file, jsonPointer, originKind }` where `originKind` ∈ \"literal\" | \"ref\" | \"template\" | \"behavior\" | \"scene\" | \"background\". " +
+    "For each id, the map carries `{ file, jsonPointer, originKind }` where `originKind` ∈ \"literal\" | \"ref\" | \"template\" | \"behavior\" | \"scene\" | \"background\" | \"repeat\". " +
     "Compositions built imperatively through the MCP tools have no `$ref` / `$template` / `$behavior` markers, so every entry's `originKind` is `literal` and `file` is the literal string `\"<root>\"`. " +
     "Errors with `E_REF_*` if the comp ever does carry $refs that can't be resolved.",
   inputSchema: {

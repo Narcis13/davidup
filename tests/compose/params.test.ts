@@ -382,3 +382,37 @@ describe("templates and scenes share the evaluator", () => {
     expect(item.transform.x).toBe(40);
   });
 });
+
+describe("$repeat locals and computed param names (v1.1 S16)", () => {
+  const ctx = {
+    params: { y1: 10, y2: 20, bullet2: "two", name: "n" },
+    paramTypes: { y1: "number", y2: "number", bullet2: "string", name: "string" },
+    locals: { i: 1 },
+  };
+
+  it("resolves loop variables as bare identifiers", () => {
+    expect(substitute("${i}", ctx)).toBe(1);
+    expect(substitute("b${i + 1}", ctx)).toBe("b2");
+    expect(evaluateExpression("i * 2", ctx)).toBe(2);
+  });
+
+  it("looks params up by computed name, joining numbers inside the brackets", () => {
+    expect(substitute("${params['y' + (i + 1)]}", ctx)).toBe(20);
+    expect(substitute("${params['bullet' + (i + 1)]}", ctx)).toBe("two");
+    expect(substitute("${params[params.name + 'ame']}", { ...ctx, params: { ...ctx.params, name: "n", n: 1, name2: 0 } })).toBe("n");
+  });
+
+  it("keeps string + number an error outside params[…]", () => {
+    expect(() => evaluateExpression("'y' + i", ctx)).toThrow(/needs numbers/);
+  });
+
+  it("rejects a non-string computed name and nested access", () => {
+    expect(() => evaluateExpression("params[i]", ctx)).toThrow(/needs a string name/);
+    expect(() => evaluateExpression("params['y1'].x", ctx)).toThrow(/nested property access/);
+  });
+
+  it("leaves segments without params, $ or a loop variable untouched", () => {
+    expect(substitute("costs ${price} #${i}", ctx)).toBe("costs ${price} #1");
+    expect(substitute("${index}", ctx)).toBe("${index}");
+  });
+});

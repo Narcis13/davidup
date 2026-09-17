@@ -55,7 +55,7 @@ interface CompositionSource {
 interface SourceLocation {
   file: string
   jsonPointer: string
-  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background' | 'repeat'
 }
 
 interface SourceMap {

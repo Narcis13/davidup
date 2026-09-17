@@ -21,9 +21,17 @@
 // `$behavior` blocks inside a template's `tweens` array survive expansion
 // unchanged shape-wise — the §10 pipeline runs `expandBehaviors` next, so
 // they get expanded to literal tweens after templates have done their work.
+// `$repeat` blocks in `items` / `tweens` expand first, with the instance's
+// params bound (repeat.ts); their products count as local items.
 
 import { MCPToolError } from "../engine/errors.js";
 import { substitute, type SubstitutionContext } from "./params.js";
+import {
+  expandRepeatItems,
+  expandRepeatTweens,
+  describeItemIds,
+  replaceGroupRepeatRefs,
+} from "./repeat.js";
 
 // ──────────────── Public types ────────────────
 
@@ -157,24 +165,28 @@ export function expandTemplate(
     meta: { start },
     paramTypes: Object.fromEntries(def.params.map((p) => [p.name, p.type])),
   };
-  const localIds = new Set(Object.keys(def.items));
+  const defItems = expandRepeatItems(def.items, ctx, `templates.${def.id}.items`);
+  const localIds = new Set(Object.keys(defItems.items));
 
   const items: Record<string, unknown> = {};
   // Sorted iteration for §10.2 determinism.
-  for (const localId of Object.keys(def.items).sort()) {
-    const itemRaw = def.items[localId];
-    const substituted = substitute(
-      itemRaw,
-      ctx,
-      `templates.${def.id}.items.${localId}`,
+  for (const localId of Object.keys(defItems.items).sort()) {
+    const itemRaw = defItems.items[localId];
+    const substituted = defItems.generated.has(localId)
+      ? itemRaw
+      : substitute(itemRaw, ctx, `templates.${def.id}.items.${localId}`);
+    const rewritten = rewriteItemRefs(
+      replaceGroupRepeatRefs(substituted, defItems.expanded),
+      instanceId,
+      localIds,
     );
-    const rewritten = rewriteItemRefs(substituted, instanceId, localIds);
     items[`${instanceId}__${localId}`] = rewritten;
   }
 
   const tweens: unknown[] = [];
-  for (let i = 0; i < def.tweens.length; i += 1) {
-    const tweenRaw = def.tweens[i];
+  const defTweens = expandRepeatTweens(def.tweens, ctx, `templates.${def.id}.tweens`);
+  for (let i = 0; i < defTweens.length; i += 1) {
+    const { value: tweenRaw, generated } = defTweens[i] as (typeof defTweens)[number];
     if (!isPlainObject(tweenRaw)) {
       throw new MCPToolError(
         "E_INVALID_VALUE",
@@ -182,7 +194,9 @@ export function expandTemplate(
       );
     }
     const path = `templates.${def.id}.tweens[${i}]`;
-    const substituted = substitute(tweenRaw, ctx, path) as Record<string, unknown>;
+    const substituted = generated
+      ? tweenRaw
+      : (substitute(tweenRaw, ctx, path) as Record<string, unknown>);
     tweens.push(rewriteTween(substituted, instanceId, localIds, start, i));
   }
 
@@ -705,7 +719,7 @@ function toDescriptor(def: TemplateDefinition): TemplateDescriptor {
   const out: TemplateDescriptor = {
     id: def.id,
     params: def.params.map((p) => ({ ...p })),
-    emits: Object.keys(def.items).sort(),
+    emits: describeItemIds(def.items),
   };
   if (def.description !== undefined) out.description = def.description;
   return out;

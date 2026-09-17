@@ -538,7 +538,7 @@ Parameterised authoring patterns. Engine built-ins (auto-registered):
 - `titleCard` — centered headline pop-in + subtitle fade-in.
 - `lowerThird` — broadcast lower-third with sweeping accent bar.
 - `captionBurst` — single emphatic caption pops in scaled.
-- `bulletList` — three staggered fade-in bullets (fixed at three).
+- `bulletList` — 1–6 staggered fade-in bullets (`count`, default 3).
 - `kenburnsImage` — sprite with fade-in + Ken Burns slow zoom/pan.
 
 Library extras (installed by `bun run seed:library`): `endCard`, `quoteCard`,
@@ -546,9 +546,34 @@ Library extras (installed by `bun run seed:library`): `endCard`, `quoteCard`,
 `countdown321`, `logoBadge`, `subtitleBar`, `compareSplit`.
 
 Use via `apply_template` (MCP) / `expandTemplate` (JS) / drag-from-Library
-(editor). Param substitution is **whole-string only**: a field may be exactly
-`"${params.name}"` or `"${$.start}"`; there is no arithmetic and no inline
-interpolation (see `REPEAT_EXPRESSIONS_DESIGN.md` for the v1.1 plan).
+(editor). Template and scene bodies take `${…}` expressions — `params.X`,
+`$.X`, numbers, `'strings'`, `+ - * / %`, `min` / `max` / `round` — either as
+a whole field (`"${params.stagger * 2}"` stays a number) or interpolated
+(`"Hello ${params.name}!"`).
+
+`$repeat` generates entries from one block, in `items` or `tweens` of the
+root composition, a template or a scene:
+
+```json
+"items": {
+  "dot": { "$repeat": { "count": "${params.count}", "as": "i", "id": "dot${i}" },
+           "item": { "type": "shape", "kind": "circle", "radius": 8,
+                     "transform": { "x": "${i * 40}", "y": 0, … } } }
+},
+"tweens": [
+  { "$repeat": { "count": "${params.count}" },
+    "item": { "$behavior": "fadeIn", "target": "dot${i}", "start": "${i * 0.1}", "duration": 0.3 } }
+]
+```
+
+The loop variable (`as`, default `i`) is in scope for every expression in the
+body; `params['label' + (i + 1)]` looks a param up by computed name. Item ids
+default to `${key}__r${i}` (or the `id` pattern); layer and group references to
+the key expand to the produced ids. A constant tween `id` gets `__r${i}`
+appended. Blocks nest up to 4 deep (distinct `as` names), `count` is 0–500 and
+one list may produce at most 2000 entries (`E_REPEAT_INVALID`). A `$repeat`
+inside a scene can't produce `$template` instances. Source maps attribute the
+products to the block with `originKind: "repeat"`.
 
 ### Level 4 — Scenes + scene instances
 
@@ -693,6 +718,7 @@ handle:
 | `E_BEHAVIOR_UNKNOWN` / `E_BEHAVIOR_PARAM_MISSING` / `E_BEHAVIOR_PARAM_TYPE` | Bad behavior name / missing or mistyped param |
 | `E_TEMPLATE_UNKNOWN` / `E_TEMPLATE_PARAM_MISSING` / `E_TEMPLATE_PARAM_TYPE` | Same for templates |
 | `E_TEMPLATE_EXPR` | A `${…}` expression in a template or scene is malformed or mistyped — `details` has `path`, `expression`, `position` |
+| `E_REPEAT_INVALID` | A `$repeat` block is malformed — bad `count` / `as` / `id`, nested too deep, or produces too many entries — `details` has `path`, `reason` |
 | `E_SCENE_UNKNOWN` / `E_SCENE_RECURSION` / `E_SCENE_INSTANCE_DEEP_TARGET` | Scene placement failures |
 | `E_TIME_MAPPING_INVALID` / `E_TIME_MAPPING_TWEEN_SPLIT` | Bad `time` block / a `clip` boundary cut through a tween |
 | `E_ASSET_CONFLICT` | Two assets with the same id but different content |
@@ -1137,7 +1163,6 @@ Shipped in v1.0:
 
 Planned for v1.1 (designs written, no code yet):
 
-- `$repeat` + expressions in templates (`REPEAT_EXPRESSIONS_DESIGN.md`).
 - Strict schema (R-23), per-session MCP state (R-29), bundled starter font
   (R-30), editable source drawer, template round-trip edits.
 

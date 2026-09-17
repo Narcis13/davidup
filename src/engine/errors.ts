@@ -33,6 +33,9 @@ export const MCP_ERROR_CODES = [
   // Malformed or mistyped `${…}` expression in a template / scene body
   // (v1.1 S15). `details` carries { path, expression, position }.
   "E_TEMPLATE_EXPR",
+  // Malformed `$repeat` block — bad count / `as` / `id`, too deep, or too many
+  // produced entries (v1.1 S16). `details` carries { path, reason }.
+  "E_REPEAT_INVALID",
   "E_SCENE_UNKNOWN",
   "E_SCENE_PARAM_MISSING",
   "E_SCENE_PARAM_TYPE",

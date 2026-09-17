@@ -173,6 +173,8 @@ export interface RenderOptions {
  *   - `background` — the synthetic background rect that scene expansion
  *                    inserts when the scene declares a non-transparent
  *                    `background` color.
+ *   - `repeat`     — produced by a `$repeat` block (v1.1); points at the
+ *                    authored block.
  */
 export type OriginKind =
   | "literal"
@@ -180,7 +182,8 @@ export type OriginKind =
   | "template"
   | "behavior"
   | "scene"
-  | "background";
+  | "background"
+  | "repeat";
 
 /**
  * Single source-map entry: where in the *authored* JSON this resolved entry

@@ -1,7 +1,9 @@
 // Pre-compile pipeline driver — orchestrates the v0.2/v0.3/v0.4 authoring →
-// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's four
-// passes: resolveImports → expandTemplates → expandSceneInstances →
-// expandBehaviors.
+// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's five
+// passes: resolveImports → expandRepeats (root `$repeat` blocks, v1.1) →
+// expandTemplates → expandSceneInstances → expandBehaviors. `$repeat` blocks
+// inside template / scene definitions expand with their instance, where
+// params are bound.
 //
 // Drivers (`renderToFile`, `attach`) call this transparently so callers can
 // hand authored JSON straight to the engine without thinking about a
@@ -60,6 +62,7 @@
 
 import { expandBehaviors } from "./behaviors.js";
 import { resolveImports, type ReadFile } from "./imports.js";
+import { expandRepeats } from "./repeat.js";
 import { expandSceneInstances } from "./scenes.js";
 import { expandTemplates } from "./templates.js";
 // Side-effect import: registers the v0.3 built-in templates with the global
@@ -108,6 +111,9 @@ export interface PrecompileResult {
 /**
  * Run the authoring → canonical compile pipeline:
  *   1. resolveImports        — inline every `$ref`
+ *   1b. expandRepeats        — lower root-level `$repeat` blocks in `items` /
+ *                              `tweens` (they may produce template / scene
+ *                              instances and `$behavior` blocks)
  *   2. expandTemplates       — replace each `items[*].$template` instance with
  *                              its items + tweens (templates can emit
  *                              `$behavior` blocks which the next passes handle)
@@ -157,6 +163,7 @@ export async function precompile(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
+  current = expandRepeats(current);
   current = expandTemplates(current);
   current = expandSceneInstances(current);
   current = expandBehaviors(current);
@@ -192,6 +199,10 @@ async function precompileWithSourceMap(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
+  current = expandRepeats(current);
+  // Root `$repeat` products carry the block's __source; the instances and
+  // behavior blocks among them need the same prefix lookups as authored ones.
+  collectRepeatProductSources(current, instanceSources, behaviorSources);
   current = expandTemplates(current);
   current = expandSceneInstances(current);
   current = expandBehaviors(current);
@@ -320,12 +331,14 @@ function annotateSceneOrTemplate(
 }
 
 function inferItemOriginKind(item: Record<string, unknown>): OriginKind {
+  if (isPlainObject(item.$repeat)) return "repeat";
   if (typeof item.$template === "string") return "template";
   if (item.type === "scene") return "scene";
   return "literal";
 }
 
 function inferTweenOriginKind(tween: Record<string, unknown>): OriginKind {
+  if (isPlainObject(tween.$repeat)) return "repeat";
   if (typeof tween.$behavior === "string") return "behavior";
   return "literal";
 }
@@ -413,6 +426,46 @@ function collectBehaviorSources(comp: unknown, file: string): BehaviorSources {
     });
   }
   return out;
+}
+
+/**
+ * Register template / scene instances and `$behavior` blocks produced by a
+ * root `$repeat` (recognised by their `originKind: "repeat"` sidecar) so the
+ * post-pass attributes their expansion products to the authored block.
+ */
+function collectRepeatProductSources(
+  comp: unknown,
+  instanceSources: InstanceSources,
+  behaviorSources: BehaviorSources,
+): void {
+  if (!isPlainObject(comp)) return;
+  const fromRepeat = (v: Record<string, unknown>): SourceLocation | undefined => {
+    const s = v[SOURCE_FIELD];
+    return isPlainObject(s) && s.originKind === "repeat"
+      ? (s as unknown as SourceLocation)
+      : undefined;
+  };
+  if (isPlainObject(comp.items)) {
+    for (const [id, v] of Object.entries(comp.items)) {
+      if (!isPlainObject(v)) continue;
+      const source = fromRepeat(v);
+      if (source === undefined) continue;
+      if (typeof v.$template === "string") {
+        instanceSources.set(id, { source, kind: "template" });
+      } else if (v.type === "scene") {
+        instanceSources.set(id, { source, kind: "scene" });
+      }
+    }
+  }
+  if (Array.isArray(comp.tweens)) {
+    for (const t of comp.tweens) {
+      if (!isPlainObject(t) || typeof t.$behavior !== "string") continue;
+      const source = fromRepeat(t);
+      if (source === undefined) continue;
+      const parentId = deriveBehaviorParentIdFromAuthored(t);
+      if (parentId !== undefined) behaviorSources.set(parentId, source);
+    }
+  }
 }
 
 /**

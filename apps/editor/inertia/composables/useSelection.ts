@@ -17,7 +17,7 @@ import { computed, inject, provide, ref, type InjectionKey, type Ref } from 'vue
 export interface PickSourceInfo {
   file: string
   jsonPointer: string
-  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background' | 'repeat'
 }
 
 export interface SelectionApi {

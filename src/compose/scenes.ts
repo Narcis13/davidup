@@ -75,6 +75,12 @@
 import { MCPToolError } from "../engine/errors.js";
 import type { Asset, AudioAsset, VideoAsset } from "../schema/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
+import {
+  expandRepeatItems,
+  expandRepeatTweens,
+  describeItemIds,
+  replaceGroupRepeatRefs,
+} from "./repeat.js";
 
 /**
  * Scene-expansion semantics version. Bumped when the synthetic group's child
@@ -321,7 +327,10 @@ export function expandSceneInstance(
     meta: { start, duration: def.duration },
     paramTypes: Object.fromEntries(def.params.map((p) => [p.name, p.type])),
   };
-  const localIds = new Set(Object.keys(def.items));
+  // `$repeat` blocks expand here, where the instance's params are bound. Their
+  // products are local items like any other (already substituted).
+  const defItems = expandRepeatItems(def.items, ctx, `scenes.${def.id}.items`);
+  const localIds = new Set(Object.keys(defItems.items));
 
   // 1. Build inner items (prefix ids; substitute params; rewire group children).
   //    Recurse into nested scene instances so `expandSceneInstances` can stay
@@ -333,9 +342,20 @@ export function expandSceneInstance(
     chain: [...chain, def.id],
     ...(options.scenes !== undefined ? { scenes: options.scenes } : {}),
   };
-  for (const localId of Object.keys(def.items)) {
-    const itemRaw = def.items[localId];
-    const substituted = substitute(itemRaw, ctx, `scenes.${def.id}.items.${localId}`);
+  for (const localId of Object.keys(defItems.items)) {
+    const itemRaw = defItems.items[localId];
+    const generated = defItems.generated.has(localId);
+    const substituted = generated
+      ? itemRaw
+      : substitute(itemRaw, ctx, `scenes.${def.id}.items.${localId}`);
+    if (generated && isPlainObject(substituted) && typeof substituted.$template === "string") {
+      throw new MCPToolError(
+        "E_REPEAT_INVALID",
+        `Bad $repeat at scenes.${def.id}.items: it produced a $template instance ("${localId}"), but templates inside a scene expand before the scene's params bind.`,
+        "Repeat the template instance at the composition root instead, or repeat the template's items inside the template definition.",
+        { details: { path: `scenes.${def.id}.items`, reason: "template instance inside a scene $repeat" } },
+      );
+    }
     const prefixedId = `${instanceId}__${localId}`;
     if (isSceneInstance(substituted)) {
       const nestedInstance = readSceneInstanceFromItem(prefixedId, substituted);
@@ -368,7 +388,11 @@ export function expandSceneInstance(
         internalIds.push(innerId);
       }
     } else {
-      const rewritten = rewriteItemRefs(substituted, instanceId, localIds);
+      const rewritten = rewriteItemRefs(
+        replaceGroupRepeatRefs(substituted, defItems.expanded),
+        instanceId,
+        localIds,
+      );
       items[prefixedId] = rewritten;
       internalIds.push(prefixedId);
     }
@@ -406,7 +430,7 @@ export function expandSceneInstance(
   //    expanded items are owned by their wrapper group, not by us.
   const groupChildren: string[] = [];
   if (bgChildId !== undefined) groupChildren.push(bgChildId);
-  for (const localId of Object.keys(def.items)) {
+  for (const localId of Object.keys(defItems.items)) {
     groupChildren.push(`${instanceId}__${localId}`);
   }
   const groupItem: Record<string, unknown> = {
@@ -468,8 +492,9 @@ export function expandSceneInstance(
   // expressed in *scene-local* time (start of scene = t=0). Time-mapping is
   // applied uniformly to both own and nested-child tweens afterwards.
   const localTweens: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < def.tweens.length; i += 1) {
-    const tweenRaw = def.tweens[i];
+  const defTweens = expandRepeatTweens(def.tweens, ctx, `scenes.${def.id}.tweens`);
+  for (let i = 0; i < defTweens.length; i += 1) {
+    const { value: tweenRaw, generated } = defTweens[i] as (typeof defTweens)[number];
     if (!isPlainObject(tweenRaw)) {
       throw new MCPToolError(
         "E_INVALID_VALUE",
@@ -477,7 +502,9 @@ export function expandSceneInstance(
       );
     }
     const path = `scenes.${def.id}.tweens[${i}]`;
-    const substituted = substitute(tweenRaw, ctx, path) as Record<string, unknown>;
+    const substituted = generated
+      ? tweenRaw
+      : (substitute(tweenRaw, ctx, path) as Record<string, unknown>);
     localTweens.push(
       rewriteTween(substituted, instanceId, def.id, localIds, 0, i),
     );
@@ -1336,7 +1363,7 @@ function toDescriptor(def: SceneDefinition): SceneDescriptor {
     id: def.id,
     duration: def.duration,
     params: def.params.map((p) => ({ ...p })),
-    emits: Object.keys(def.items).sort(),
+    emits: describeItemIds(def.items),
     assets: def.assets.map((a) => a.id).sort(),
   };
   if (def.description !== undefined) out.description = def.description;

@@ -8,6 +8,38 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### `$repeat` blocks in compositions, templates and scenes
+
+- `{"$repeat": {"count": 3, "as": "i", "id": "dot${i}"}, "item": {…}}` as an
+  `items` entry, or `{"$repeat": {"count": 3, "as": "i"}, "item": {…}}` in a
+  `tweens` array, generates `count` entries. `count` is an integer 0–500,
+  literal or an expression (`"${params.count}"`); `as` (default `i`) names the
+  loop variable, usable in every `${…}` of the body (`"${i * 40}"`,
+  `"dot${i}"`).
+- Ids: items default to `${key}__r${i}`, or the header's `id` pattern. Layer
+  and group `items` lists that name the key get the produced ids in its place.
+  A tween `id` that doesn't interpolate a loop variable gets `__r${i}`
+  appended; `$behavior` blocks without an id derive theirs as before.
+- Blocks nest (grids) up to 4 levels with distinct `as` names; one items map
+  or tweens list may produce at most 2000 entries. Violations throw the new
+  `E_REPEAT_INVALID` with `details: { path, reason }`.
+- Where it expands: root blocks in a new precompile pass before
+  `expandTemplates` (so a root repeat may produce template / scene instances
+  and behavior blocks); template and scene blocks during instance expansion,
+  with the instance's params bound. A repeat inside a scene may not produce a
+  `$template` instance (scene-local templates expand before scene params bind).
+- Expressions gain loop variables as bare identifiers and computed param
+  lookup `params['y' + (i + 1)]`; inside the brackets `+` may join numbers onto
+  strings. Everywhere else string + number stays an error.
+- Source maps: products point at the authored block with the new
+  `originKind: "repeat"` (template / scene instances it produced keep
+  `template` / `scene`).
+- `bulletList` is rewritten on `$repeat` with a `count` param (1–6, default 3),
+  optional `bullet2`..`bullet6` and `y4`..`y6` (defaults 580 / 640 / 700). Item
+  ids stay `b1`..`bN` and every shipped example compiles byte-identically.
+  `list_templates` / `list_scenes` report a repeat entry's id pattern in
+  `emits` (`"b${i + 1}"`, or `"key__r${i}"` without an `id`).
+
 ### Template and scene param expressions
 
 - `${…}` placeholders in template and scene bodies now evaluate expressions:

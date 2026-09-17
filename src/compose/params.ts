@@ -18,8 +18,11 @@
 //
 // The expression language is tiny and total: number and string literals,
 // `params.X` / `$.X` refs, `+ - * / %`, unary minus, parentheses, and the
-// functions `min`, `max`, `round`. No other calls, no property access beyond
-// one level, no `eval`. `+` adds numbers or concatenates two strings; mixing
+// functions `min`, `max`, `round`. Inside a `$repeat` body the loop variable
+// (`${i}`, or whatever `as` names) is a bare identifier, and `params[expr]`
+// looks a param up by a computed name (`params['y' + (i + 1)]` — inside the
+// brackets `+` may join numbers onto strings to build the name). No other
+// calls, no property access beyond one level, no `eval`. `+` adds numbers or concatenates two strings; mixing
 // is an error, as is any non-finite result. Failures throw E_TEMPLATE_EXPR
 // with the offending position.
 
@@ -39,6 +42,11 @@ export interface SubstitutionContext {
    * `${params.title * 2}` fails naming the declared type.
    */
   paramTypes?: Record<string, string>;
+  /**
+   * `$repeat` loop variables in scope (`as` name → iteration index),
+   * addressable as bare identifiers: `${i}`, `"dot${i + 1}"`.
+   */
+  locals?: Record<string, number>;
 }
 
 /** Matches a whole-string placeholder of the form `${params.X}` or `${$.X}`. */
@@ -115,7 +123,7 @@ function substituteString(
   ctx: SubstitutionContext,
   path: string,
 ): unknown {
-  const segments = scanSegments(value);
+  const segments = scanSegments(value, ctx);
   if (segments.length === 0) return value;
 
   const only = segments[0] as Segment;
@@ -144,12 +152,13 @@ function substituteString(
 }
 
 /**
- * Find `${…}` segments whose interior references params or meta. The closing
- * brace is the first `}` outside a quoted string literal; an unterminated
- * `${` is left as literal text.
+ * Find `${…}` segments whose interior references params, meta or an in-scope
+ * `$repeat` variable. The closing brace is the first `}` outside a quoted
+ * string literal; an unterminated `${` is left as literal text.
  */
-function scanSegments(value: string): Segment[] {
+function scanSegments(value: string, ctx: SubstitutionContext): Segment[] {
   const segments: Segment[] = [];
+  const localsRe = localsPattern(ctx);
   let i = 0;
   while (i < value.length) {
     const open = value.indexOf("${", i);
@@ -157,7 +166,10 @@ function scanSegments(value: string): Segment[] {
     const close = findClose(value, open + 2);
     if (close === -1) break;
     const interior = value.slice(open + 2, close);
-    if (!REFERENCES_RE.test(interior)) {
+    if (
+      !REFERENCES_RE.test(interior) &&
+      (localsRe === undefined || !localsRe.test(interior))
+    ) {
       i = open + 2;
       continue;
     }
@@ -171,6 +183,13 @@ function scanSegments(value: string): Segment[] {
     i = close + 1;
   }
   return segments;
+}
+
+function localsPattern(ctx: SubstitutionContext): RegExp | undefined {
+  const names = ctx.locals === undefined ? [] : Object.keys(ctx.locals);
+  if (names.length === 0) return undefined;
+  const alt = names.map((n) => n.replace(/\$/g, "\\$")).join("|");
+  return new RegExp(`(?:^|[^A-Za-z0-9_$.])(?:${alt})(?![A-Za-z0-9_$])`);
 }
 
 function findClose(value: string, from: number): number {
@@ -214,7 +233,7 @@ interface Token {
 
 const NUMBER_RE = /(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 const IDENT_RE = /[A-Za-z_$][A-Za-z0-9_$]*/y;
-const PUNCT = new Set(["+", "-", "*", "/", "%", "(", ")", ",", "."]);
+const PUNCT = new Set(["+", "-", "*", "/", "%", "(", ")", ",", ".", "[", "]"]);
 const STRING_ESCAPES: Record<string, string> = {
   "\\": "\\",
   "'": "'",
@@ -296,8 +315,9 @@ function tokenize(source: string, path: string): Token[] {
 //   expr    := term (('+' | '-') term)*
 //   term    := unary (('*' | '/' | '%') unary)*
 //   unary   := '-' unary | primary
-//   primary := NUMBER | STRING | ref | FUNC '(' expr (',' expr)* ')' | '(' expr ')'
-//   ref     := ('params' | '$') '.' IDENT
+//   primary := NUMBER | STRING | ref | LOCAL | FUNC '(' expr (',' expr)* ')' | '(' expr ')'
+//   ref     := ('params' | '$') '.' IDENT | 'params' '[' expr ']'
+//   LOCAL   := a `$repeat` loop variable in scope
 //   FUNC    := 'min' | 'max' | 'round'
 //
 // Parsing and evaluation happen in one recursive-descent walk: expressions
@@ -316,6 +336,8 @@ class Evaluator {
   private readonly tokens: Token[];
   private index = 0;
   private depth = 0;
+  /** > 0 while evaluating a `params[…]` name, where `+` may join a number onto a string. */
+  private nameDepth = 0;
 
   constructor(
     private readonly source: string,
@@ -360,8 +382,14 @@ class Evaluator {
       if (t.kind !== "punct" || (t.text !== "+" && t.text !== "-")) return left;
       this.index += 1;
       const right = this.term();
-      if (t.text === "+" && typeof left.v === "string" && typeof right.v === "string") {
-        left = { v: left.v + right.v, label: "string", pos: left.pos };
+      if (
+        t.text === "+" &&
+        (typeof left.v === "string" || typeof right.v === "string") &&
+        (this.nameDepth > 0
+          ? isNameFragment(left.v) && isNameFragment(right.v)
+          : typeof left.v === "string" && typeof right.v === "string")
+      ) {
+        left = { v: String(left.v) + String(right.v), label: "string", pos: left.pos };
         continue;
       }
       const a = this.number(left, t.text);
@@ -421,8 +449,15 @@ class Evaluator {
       case "ident":
         if (t.text === "params" || t.text === "$") return this.ref(t);
         if (FUNCTIONS.has(t.text)) return this.call(t);
+        if (this.ctx.locals !== undefined && hasOwn(this.ctx.locals, t.text)) {
+          return { v: this.ctx.locals[t.text], label: `${t.text} (number)`, pos: t.pos };
+        }
         throw this.error(
-          `unknown name "${t.text}" (use params.X, $.X, min, max or round)`,
+          `unknown name "${t.text}" (use params.X, $.X, min, max, round` +
+            (this.ctx.locals !== undefined && Object.keys(this.ctx.locals).length > 0
+              ? ` or a $repeat variable: ${Object.keys(this.ctx.locals).join(", ")}`
+              : "") +
+            ")",
           t.pos,
         );
       case "eof":
@@ -432,18 +467,37 @@ class Evaluator {
   }
 
   private ref(ns: Token): Value {
-    this.expect(".");
-    const key = this.next();
-    if (key.kind !== "ident") {
-      throw this.error("expected a name after the dot", key.pos);
+    let keyName: string;
+    const open = this.peek();
+    if (ns.text === "params" && open.kind === "punct" && open.text === "[") {
+      // Computed lookup: params['bullet' + (i + 1)].
+      this.index += 1;
+      this.enter(open.pos);
+      this.nameDepth += 1;
+      const key = this.expr();
+      this.nameDepth -= 1;
+      this.expect("]");
+      this.depth -= 1;
+      if (typeof key.v !== "string") {
+        throw this.error(`params[…] needs a string name, got ${key.label}`, key.pos);
+      }
+      keyName = key.v;
+    } else {
+      this.expect(".");
+      const key = this.next();
+      if (key.kind !== "ident") {
+        throw this.error("expected a name after the dot", key.pos);
+      }
+      keyName = key.text;
     }
-    if (this.peek().kind === "punct" && this.peek().text === ".") {
-      throw this.error("nested property access is not supported", this.peek().pos);
+    const after = this.peek();
+    if (after.kind === "punct" && (after.text === "." || after.text === "[")) {
+      throw this.error("nested property access is not supported", after.pos);
     }
     const nsName = ns.text === "params" ? "params" : "$";
-    const v = lookup(nsName, key.text, this.ctx, this.path);
-    const declared = nsName === "params" ? this.ctx.paramTypes?.[key.text] : undefined;
-    const label = `${ns.text}.${key.text} (${declared ?? describeValue(v)})`;
+    const v = lookup(nsName, keyName, this.ctx, this.path);
+    const declared = nsName === "params" ? this.ctx.paramTypes?.[keyName] : undefined;
+    const label = `${ns.text}.${keyName} (${declared ?? describeValue(v)})`;
     return { v, label, pos: ns.pos };
   }
 
@@ -556,11 +610,15 @@ function exprError(
     `Bad expression at ${at}, position ${position}: ${reason}.\n` +
       `  \${${expression}}\n` +
       `  ${" ".repeat(position + 2)}^`,
-    "Expressions support numbers, 'strings', params.X, $.X, + - * / %, " +
-      "parentheses, min(), max() and round(). + joins two strings; all other " +
-      "operators need numbers.",
+    "Expressions support numbers, 'strings', params.X, params['X'], $.X, " +
+      "$repeat variables, + - * / %, parentheses, min(), max() and round(). " +
+      "+ joins two strings; all other operators need numbers.",
     { details: { path: at, expression, position } },
   );
+}
+
+function isNameFragment(v: unknown): boolean {
+  return typeof v === "string" || typeof v === "number";
 }
 
 function describeValue(v: unknown): string {
