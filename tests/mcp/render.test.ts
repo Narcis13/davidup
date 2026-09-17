@@ -171,6 +171,36 @@ describe("renderThumbnailStrip (fake skia)", () => {
     }
   });
 
+  it("samples inside a from/to window, endpoints included (v1.1 S12)", async () => {
+    const skia = makeFakeSkia();
+    const result = await renderThumbnailStrip(tinyComp(10), {
+      count: 3,
+      from: 2,
+      to: 4,
+      skiaCanvas: skia as never,
+    });
+    expect(result.images).toHaveLength(3);
+    expect(result.times).toEqual([2, 3, 4]);
+    for (const t of result.times) {
+      expect(t).toBeGreaterThanOrEqual(2);
+      expect(t).toBeLessThanOrEqual(4);
+    }
+    // `to` past the end clamps; a lone `from` runs to the duration.
+    const tail = await renderThumbnailStrip(tinyComp(10), {
+      count: 2,
+      from: 8,
+      skiaCanvas: skia as never,
+    });
+    expect(tail.times).toEqual([8, 10]);
+  });
+
+  it("rejects an empty from/to window with E_INVALID_VALUE", async () => {
+    const skia = makeFakeSkia();
+    await expect(
+      renderThumbnailStrip(tinyComp(1), { count: 2, from: 3, to: 5, skiaCanvas: skia as never }),
+    ).rejects.toMatchObject({ code: "E_INVALID_VALUE" });
+  });
+
   it("rejects non-positive count", async () => {
     const skia = makeFakeSkia();
     await expect(

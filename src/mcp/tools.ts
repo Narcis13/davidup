@@ -55,6 +55,7 @@ import {
   COLOR_PROFILES,
   VIDEO_CODECS,
   type ColorProfile,
+  type RenderRange,
   type VideoCodec,
   probeAudio as defaultProbeAudio,
   probeVideo as defaultProbeVideo,
@@ -255,6 +256,8 @@ export interface MCPRenderStartArgs {
   pixFmt?: string;
   movflagsFaststart?: boolean;
   colorProfile?: ColorProfile;
+  /** Render only `[from, to)` seconds of the timeline (v1.1 S12). */
+  range?: RenderRange;
 }
 
 export interface RenderControls {
@@ -2295,10 +2298,13 @@ const renderThumbnailStripTool = defineTool({
     "image content block (not base64 buried in JSON), alongside the parallel `times` sample array " +
     `and mimeType/width/height metadata. \`count\` is capped at ${THUMBNAIL_STRIP_MAX_COUNT} per ` +
     "call — a higher value returns a structured E_INVALID_VALUE with a hint instead of flooding " +
-    "the response with dozens of images; sample a narrower time range or call again for the rest. " +
+    "the response with dozens of images; sample a narrower time range with `from`/`to` or call again for the rest. " +
+    "`from`/`to` (seconds, default the whole timeline) bound the sampled window, endpoints included. " +
     "Video items are composited (frames extracted once per strip, cached across calls; see `warnings`).",
   inputSchema: {
     count: z.number().int().positive(),
+    from: z.number().nonnegative().optional().describe("Start of the sampled window in seconds. Default 0."),
+    to: z.number().positive().optional().describe("End of the sampled window in seconds. Default the composition duration."),
     format: z.enum(["png", "jpeg"]).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -2307,6 +2313,8 @@ const renderThumbnailStripTool = defineTool({
     const comp = store.toJSON(args.compositionId);
     const result = await renderThumbnailStrip(comp, {
       count: args.count,
+      ...(args.from !== undefined ? { from: args.from } : {}),
+      ...(args.to !== undefined ? { to: args.to } : {}),
       ...(args.format !== undefined ? { format: args.format } : {}),
       ...(skiaCanvas !== undefined ? { skiaCanvas } : {}),
     });
@@ -2337,6 +2345,7 @@ const renderToVideo = defineTool({
   title: "Render to video file",
   description:
     "Render the composition to an MP4 (or other ffmpeg-supported container). " +
+    "`from`/`to` (seconds) render only that window of the timeline — frame-aligned, clamped to the duration, audio cut to match. " +
     "For transparent overlays set `composition.background` to `\"transparent\"` and pick an alpha codec: " +
     "`prores_ks` (ProRes 4444, `.mov`) or `libvpx-vp9` (`.webm`); a mismatched extension fails with E_CONTAINER_CODEC. " +
     "Always returns the same shape: " +
@@ -2372,6 +2381,16 @@ const renderToVideo = defineTool({
       .describe(
         "Append `-movflags +faststart` so MP4 metadata is moved to the front of the file (lets browsers begin playback before the whole file downloads). Defaults to true for the standalone engine and editor render queue.",
       ),
+    from: z
+      .number()
+      .nonnegative()
+      .optional()
+      .describe("Render from this time in seconds (frame-aligned down). Default 0."),
+    to: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Render up to this time in seconds (exclusive). Default the composition duration."),
     wait: z
       .boolean()
       .optional()
@@ -2390,6 +2409,20 @@ const renderToVideo = defineTool({
         "Use .mov for prores_ks, .webm for libvpx-vp9, and .mp4 for libx264/libx265.",
       );
     }
+    if (args.from !== undefined && args.to !== undefined && args.to <= args.from) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `render range ${args.from}..${args.to} is empty.`,
+        "Pass `to` greater than `from`.",
+      );
+    }
+    const range: RenderRange | undefined =
+      args.from !== undefined || args.to !== undefined
+        ? {
+            ...(args.from !== undefined ? { from: args.from } : {}),
+            ...(args.to !== undefined ? { to: args.to } : {}),
+          }
+        : undefined;
     ensureValidForRender(store, args.compositionId);
 
     // Editor-hosted: route through the render queue. Default is async — return
@@ -2402,6 +2435,7 @@ const renderToVideo = defineTool({
       if (args.preset !== undefined) startArgs.preset = args.preset;
       if (args.pixFmt !== undefined) startArgs.pixFmt = args.pixFmt;
       if (args.colorProfile !== undefined) startArgs.colorProfile = args.colorProfile;
+      if (range !== undefined) startArgs.range = range;
       if (args.movflagsFaststart !== undefined) {
         startArgs.movflagsFaststart = args.movflagsFaststart;
       }
@@ -2454,6 +2488,7 @@ const renderToVideo = defineTool({
         ...(args.preset !== undefined ? { preset: args.preset } : {}),
         ...(args.pixFmt !== undefined ? { pixFmt: args.pixFmt } : {}),
         ...(args.colorProfile !== undefined ? { colorProfile: args.colorProfile } : {}),
+        ...(range !== undefined ? { range } : {}),
       });
       return {
         jobId,
@@ -2470,6 +2505,13 @@ const renderToVideo = defineTool({
         },
       };
     } catch (err) {
+      if (err instanceof RangeError && range !== undefined) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          err.message,
+          "Pick `from`/`to` inside the composition duration.",
+        );
+      }
       if (err instanceof RefResolutionError) {
         throw new MCPToolError(
           err.code,

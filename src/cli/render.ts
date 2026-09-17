@@ -18,6 +18,8 @@ import {
   checkContainerCodec,
   renderToFile,
   type ColorProfile,
+  type RenderFormat,
+  type RenderRange,
   type VideoCodec,
   type RenderToFileOptions,
   type RenderToFileResult,
@@ -46,8 +48,15 @@ export class RenderError extends Error {
 export interface RenderOptions {
   /** Absolute path to a project directory or a raw composition JSON file. */
   input: string;
-  /** Absolute output file path. */
+  /**
+   * Absolute output file path — or, with `format: "png-sequence"`, the
+   * directory (or `%0Nd.png` pattern) the frames are written to.
+   */
   outputPath: string;
+  /** `"png-sequence"` writes one PNG per frame instead of a video (v1.1 S12). */
+  format?: RenderFormat;
+  /** Render only `[from, to)` seconds of the timeline (v1.1 S12). */
+  range?: RenderRange;
   /** Alpha codecs (`prores_ks`, `libvpx-vp9`) need `.mov` / `.webm` (v1.1 S9). */
   codec?: VideoCodec;
   crf?: number;
@@ -117,7 +126,8 @@ export async function renderComposition(
   const readFile = deps.readFile ?? ((p: string) => fs.readFile(p, "utf8"));
   const renderFn = deps.renderFn ?? renderToFile;
 
-  const containerError = checkContainerCodec(opts.outputPath, opts.codec);
+  const containerError =
+    opts.format === "png-sequence" ? undefined : checkContainerCodec(opts.outputPath, opts.codec);
   if (containerError !== undefined) {
     throw new RenderError("E_CONTAINER_CODEC", containerError);
   }
@@ -184,7 +194,9 @@ export async function renderComposition(
     resolved.composition = { ...resolved.composition, fps: opts.fps };
   }
 
-  await fs.mkdir(dirname(opts.outputPath), { recursive: true });
+  await fs.mkdir(opts.format === "png-sequence" ? opts.outputPath : dirname(opts.outputPath), {
+    recursive: true,
+  });
 
   try {
     return await renderFn(resolved, opts.outputPath, {
@@ -195,6 +207,8 @@ export async function renderComposition(
       ...(opts.crf !== undefined ? { crf: opts.crf } : {}),
       ...(opts.preset !== undefined ? { preset: opts.preset } : {}),
       ...(opts.colorProfile !== undefined ? { colorProfile: opts.colorProfile } : {}),
+      ...(opts.format !== undefined ? { format: opts.format } : {}),
+      ...(opts.range !== undefined ? { range: opts.range } : {}),
       ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
     });
   } catch (err) {

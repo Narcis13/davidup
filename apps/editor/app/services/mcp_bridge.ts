@@ -498,19 +498,29 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
       if (args.preset !== undefined) renderOptions.preset = args.preset
       if (args.pixFmt !== undefined) renderOptions.pixFmt = args.pixFmt
       if (args.colorProfile !== undefined) renderOptions.colorProfile = args.colorProfile
+      if (args.range !== undefined) renderOptions.range = args.range
       if (args.movflagsFaststart !== undefined) {
         renderOptions.movflagsFaststart = args.movflagsFaststart
       }
 
       const jobId = randomUUID()
-      const job = new RenderJob({
-        jobId,
-        composition: composition as never,
-        outputPath: paths.absolute,
-        relativeOutputPath: paths.relative,
-        sourcePath: project.compositionPath,
-        renderOptions,
-      })
+      let job: RenderJob
+      try {
+        job = new RenderJob({
+          jobId,
+          composition: composition as never,
+          outputPath: paths.absolute,
+          relativeOutputPath: paths.relative,
+          sourcePath: project.compositionPath,
+          renderOptions,
+        })
+      } catch (err) {
+        // An empty `from`/`to` window (v1.1 S12) is rejected up front.
+        if (err instanceof RangeError) {
+          throw new MCPToolError('E_INVALID_VALUE', err.message, 'Pick `from`/`to` inside the composition duration.')
+        }
+        throw err
+      }
       renderJobs.add(job)
 
       // Fire-and-forget: callers either poll via `get_render` or pass

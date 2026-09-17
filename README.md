@@ -227,6 +227,8 @@ drawn in the browser preview** (only their hit box); see
 ```bash
 davidup render ./my-clip -o out.mp4                   # project dir
 davidup render composition.json -o out.mp4 --crf=23   # raw composition file
+davidup render ./my-clip -o beat.mp4 --from=12 --to=16 # just one beat
+davidup render ./my-clip --frames ./frames             # PNG sequence
 ```
 
 Progress streams to stderr (`davidup render · frame N/T (x.x fps)`); the
@@ -646,7 +648,7 @@ hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 | 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` (descriptor only) |
 | 4.5c | Templates | `apply_template`, `list_templates`, `define_user_template`, `remove_user_template` |
 | 4.5d | Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
-| 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30), `render_to_video` (`outputPath`, `codec` libx264\|libx265\|prores_ks\|libvpx-vp9, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `wait`), `get_render`, `list_renders`, `cancel_render` |
+| 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30, `from`/`to`), `render_to_video` (`outputPath`, `codec` libx264\|libx265\|prores_ks\|libvpx-vp9, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `from`/`to`, `wait`), `get_render`, `list_renders`, `cancel_render` |
 | 4.7 | Project lifecycle *(editor-hosted)* | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 | Library *(editor-hosted)* | `list_library`, `get_library_thumbnail` |
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
@@ -773,7 +775,11 @@ await renderToFile(comp, "out.mp4", {
   onProgress: ({ frame, total }) => { /* SSE / IPC */ },
   preExtract: { cacheRoot, maxBytes, onExtractProgress },  // video frame cache; false to disable
   sourcePath: "./comp.json",             // base dir for $ref resolution
+  range: { from: 12, to: 16 },           // seconds; clamped, frame-aligned, audio cut to match
 });
+
+// PNG sequence: a `%0Nd.png` outPath (or format: "png-sequence" + a directory).
+await renderToFile(comp, "frames/%05d.png", { range: { from: 2, to: 3 } });
 ```
 
 Pipeline: precompile → preload all assets → (if video items) pre-extract each
@@ -839,7 +845,8 @@ played in the browser.
 ```
 davidup new <dir> [--template=<name>] [--force]
 davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
-davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
+davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>] [--from=<s>] [--to=<s>]
+davidup render <project|comp.json> --frames <dir> [--fps=<n>] [--from=<s>] [--to=<s>]
 davidup list                          # or: davidup recent
 davidup --version | --help
 ```
@@ -855,7 +862,11 @@ davidup --version | --help
   `prores_ks` (`.mov`) / `libvpx-vp9` (`.webm`) for alpha export; a
   mismatched `-o` extension exits 2. `--crf` 0–51 (default 18), `--fps` overrides the composition's frame rate,
   `--preset` is any ffmpeg preset (default `medium`), `--color` is `bt709`
-  (default) or `untagged`. Faststart is always on.
+  (default) or `untagged`. Faststart is always on. `--from` / `--to`
+  (seconds) render only that window: the first frame is the one at or before
+  `--from`, `ceil((to − from) × fps)` frames are written, and the audio is cut
+  to the same window. `--frames <dir>` replaces `-o` and writes
+  `<dir>/00001.png, 00002.png, …` (numbered from 1, no audio).
   Progress goes to stderr; exit code 2 for bad arguments, 1 for invalid input
   or a failed render.
 - `list` / `recent` prints the recents registry as a table (NAME / PATH /
@@ -972,7 +983,9 @@ Things v1.0 does not do. Each is either an open ledger item in
 **Output**
 
 - H.264 / H.265 MP4, plus alpha export to ProRes 4444 `.mov` and VP9
-  `.webm`. No PNG-sequence export, no time-range render.
+  `.webm`, and PNG sequences. Time-range renders (`--from`/`--to`) still
+  decode each video clip's full frame cache, so a short window of long
+  footage pays the whole extraction on first render.
 - Fractional frame rates are decimal (`29.97`), not rational (`30000/1001`).
 - Odd `width`/`height` fail inside ffmpeg (`E_RENDER_FAILED`) rather than at
   validation. Use even dimensions.

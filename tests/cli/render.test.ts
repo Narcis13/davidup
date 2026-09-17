@@ -73,6 +73,33 @@ function fakeRenderFn(): {
 }
 
 describe("cli · render · renderComposition", () => {
+  it("png-sequence: creates the frames dir and forwards format + range (v1.1 S12)", async () => {
+    const dir = await makeTmp("davidup-render-frames-");
+    await writeFile(join(dir, "composition.json"), JSON.stringify(basicComposition()));
+    const { renderFn, calls } = fakeRenderFn();
+    const framesDir = join(dir, "out", "frames");
+
+    await renderComposition(
+      {
+        input: dir,
+        outputPath: framesDir,
+        format: "png-sequence",
+        range: { from: 0.2, to: 0.5 },
+        codec: "prores_ks", // no container to check for a PNG sequence
+      },
+      { renderFn },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.outPath).toBe(framesDir);
+    expect(calls[0]!.opts).toMatchObject({
+      format: "png-sequence",
+      range: { from: 0.2, to: 0.5 },
+    });
+    const { stat } = await import("node:fs/promises");
+    expect((await stat(framesDir)).isDirectory()).toBe(true);
+  });
+
   it("renders a project directory (composition.json)", async () => {
     const dir = await makeTmp("davidup-render-project-");
     await writeFile(join(dir, "composition.json"), JSON.stringify(basicComposition()));

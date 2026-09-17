@@ -122,6 +122,21 @@ describe("cli · parseArgs", () => {
     });
   });
 
+  it("parses `render <input> --frames <dir> --from/--to` without -o (v1.1 S12)", () => {
+    const r = parseArgs(["render", "./my-clip", "--frames", "./frames", "--from", "1.5", "--to=3"]);
+    expect(r.kind).toBe("render");
+    expect(r.flags).toMatchObject({ frames: "./frames", from: "1.5", to: "3" });
+  });
+
+  it("errors when render gets both -o and --frames, or a bare --frames", () => {
+    const both = parseArgs(["render", "./my-clip", "-o", "out.mp4", "--frames=./f"]);
+    expect(both.kind).toBe("error");
+    expect(both.error).toMatch(/not both/);
+    const bare = parseArgs(["render", "./my-clip", "--frames"]);
+    expect(bare.kind).toBe("error");
+    expect(bare.error).toMatch(/requires a directory/);
+  });
+
   it("errors when render has no positional", () => {
     const r = parseArgs(["render", "-o", "out.mp4"]);
     expect(r.kind).toBe("error");

@@ -7,6 +7,25 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Time-range render, PNG sequence export, ranged thumbnail strips
+
+- `renderToFile` gains `range?: { from?, to? }` (seconds). Both ends are
+  clamped to the composition; the first frame is the one at or before `from`
+  and `ceil((to − from) × fps)` frames are rendered. With `audio[]`, the mux
+  mixes on the full timeline and cuts the mix at the window start
+  (`timelineOffset` on `muxAudioTracks` / `buildAudioFilterComplex`), so fades
+  and loops sound as they would in a full render. An empty window throws
+  `RangeError` before any work. Helper: `resolveRenderRange`.
+- PNG sequences: an `outPath` ending in `%0Nd.png`, or `format: "png-sequence"`
+  with a directory (which gets `%05d.png`), writes one skia-encoded PNG per
+  frame, numbered from 1. No ffmpeg, no audio.
+- CLI: `davidup render --from=<s> --to=<s>`, and `--frames <dir>` in place of
+  `-o`.
+- MCP: `render_to_video` takes `from`/`to` (standalone and editor render
+  queue); `render_thumbnail_strip` takes `from`/`to` and samples inside that
+  window, so its "sample a narrower time range" hint can now be followed.
+- Renders without a range are unchanged.
+
 ### Keep a video item's own audio (`keepAudio`)
 
 - Video items gain `keepAudio?: boolean`. At render, `renderToFile` lowers each

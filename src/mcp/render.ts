@@ -73,6 +73,10 @@ export interface PreviewResult {
 
 export interface ThumbnailStripOptions extends RenderPreviewOptions {
   count: number;
+  /** Start of the sampled window in seconds (v1.1 S12). Default 0. */
+  from?: number;
+  /** End of the sampled window in seconds. Default the composition duration. */
+  to?: number;
 }
 
 // R-18 — an agent (or a bad prompt) requesting `count: 500` would render 500
@@ -155,6 +159,7 @@ export async function renderThumbnailStrip(
         "time range, or call render_thumbnail_strip again for the remaining span.",
     );
   }
+  const { from, to } = stripWindow(comp.composition.duration, options);
   const format: PreviewFormat = options.format ?? "png";
   const skia = options.skiaCanvas ?? (await loadSkia());
   // Single loader, single canvas, single asset preload — important for clips
@@ -172,7 +177,7 @@ export async function renderThumbnailStrip(
   const ctx = canvas.getContext("2d");
   const tweenIndex = indexTweens(comp);
 
-  const times = sampleTimes(meta.duration, options.count);
+  const times = sampleTimes(to - from, options.count).map((t) => from + t);
   const images: string[] = [];
   for (const t of times) {
     await prepareVideoFrames(comp, t, video);
@@ -206,6 +211,31 @@ export function sampleTimes(duration: number, count: number): number[] {
   const out: number[] = new Array(count);
   for (let i = 0; i < count; i++) out[i] = i * step;
   return out;
+}
+
+// The [from, to] window a strip samples, clamped to the timeline (v1.1 S12).
+function stripWindow(
+  duration: number,
+  options: { from?: number; to?: number },
+): { from: number; to: number } {
+  const rawFrom = options.from ?? 0;
+  const rawTo = options.to ?? duration;
+  if (!Number.isFinite(rawFrom) || !Number.isFinite(rawTo) || rawFrom < 0) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "from/to must be non-negative finite seconds.",
+    );
+  }
+  const from = Math.min(rawFrom, duration);
+  const to = Math.min(rawTo, duration);
+  if (to <= from) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `thumbnail range ${rawFrom}..${rawTo} is empty within the composition's 0..${duration}s.`,
+      "Pass `to` greater than `from`, both inside the composition duration.",
+    );
+  }
+  return { from, to };
 }
 
 function ensureFiniteTime(t: number): void {

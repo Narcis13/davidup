@@ -38,6 +38,12 @@
 // those into `loudnorm … linear=true` so the whole mix gets one static gain
 // (no pumping) and lands on the target.
 //
+// Ranged renders (v1.1 S12): the tracks are mixed on the full composition
+// timeline, then the mix is cut at `timelineOffset` (`atrim` + PTS reset)
+// before the master bus. Fades, loops and delays stay exactly as they would
+// sound in a full render; only the window [offset, offset + videoDuration)
+// reaches the output. Decoding the audio before the window is cheap.
+//
 // The filter / arg builders are pure and exported for unit testing; only
 // `muxAudioTracks` touches the filesystem / spawns ffmpeg.
 
@@ -84,6 +90,11 @@ export interface MuxAudioOptions {
   movflagsFaststart?: boolean;
   /** Override the global library root for `global:` audio srcs (tests). */
   globalLibraryRoot?: string;
+  /**
+   * Composition time (seconds) of the video's first frame, for a ranged
+   * render (v1.1 S12). Default 0.
+   */
+  timelineOffset?: number;
 }
 
 export interface ResolvedAudioTrack {
@@ -179,16 +190,20 @@ export interface LoudnormMeasurement {
  * `false`). With `targetLufs` set, pass the pass-1 `measurement` for a linear
  * two-pass normalisation; without one `loudnorm` falls back to single-pass
  * dynamic mode.
+ *
+ * `timelineOffset` (v1.1 S12) is the composition time of the video's first
+ * frame: the mix is cut to start there.
  */
 export function buildAudioFilterComplex(
   resolved: ReadonlyArray<ResolvedAudioTrack>,
   videoDuration: number,
   master: AudioMaster = {},
   measurement?: LoudnormMeasurement,
+  timelineOffset = 0,
 ): string {
-  const { chains, mixed } = buildTrackMix(resolved, videoDuration);
+  const { chains, mixed } = buildTrackMix(resolved, videoDuration, timelineOffset);
 
-  const bus: string[] = [];
+  const bus: string[] = [...rangeCut(timelineOffset)];
   if (master.targetLufs !== undefined) {
     bus.push(loudnormFilter(master.targetLufs, measurement));
     // loudnorm upsamples to 192kHz internally; bring the mix back to 48kHz.
@@ -221,10 +236,12 @@ export function buildLoudnormAnalysisFilterComplex(
   resolved: ReadonlyArray<ResolvedAudioTrack>,
   videoDuration: number,
   targetLufs: number,
+  timelineOffset = 0,
 ): string {
-  const { chains, mixed } = buildTrackMix(resolved, videoDuration);
+  const { chains, mixed } = buildTrackMix(resolved, videoDuration, timelineOffset);
   chains.push(
-    `${mixed}atrim=0:${secs(videoDuration)},` +
+    `${mixed}${rangeCut(timelineOffset).map((f) => `${f},`).join("")}` +
+      `atrim=0:${secs(videoDuration)},` +
       `loudnorm=I=${secs(targetLufs)}:TP=${secs(MUX_LOUDNORM_TRUE_PEAK)}:LRA=${secs(MUX_LOUDNORM_LRA)}:print_format=json[aout]`,
   );
   return chains.join(";");
@@ -256,6 +273,13 @@ export function parseLoudnormMeasurement(stderr: string): LoudnormMeasurement | 
   return Object.values(m).every(Number.isFinite) ? m : undefined;
 }
 
+/** Filters that drop the mix before a ranged render's first frame (v1.1 S12). */
+function rangeCut(timelineOffset: number): string[] {
+  return timelineOffset > 0
+    ? [`atrim=start=${secs(timelineOffset)}`, "asetpts=PTS-STARTPTS"]
+    : [];
+}
+
 function loudnormFilter(targetLufs: number, m: LoudnormMeasurement | undefined): string {
   const base = `loudnorm=I=${secs(targetLufs)}:TP=${secs(MUX_LOUDNORM_TRUE_PEAK)}:LRA=${secs(MUX_LOUDNORM_LRA)}`;
   if (!m) return base;
@@ -280,7 +304,10 @@ function loudnormFilter(targetLufs: number, m: LoudnormMeasurement | undefined):
 function buildTrackMix(
   resolved: ReadonlyArray<ResolvedAudioTrack>,
   videoDuration: number,
+  timelineOffset = 0,
 ): { chains: string[]; mixed: string } {
+  // Loops without an explicit `end` run to the end of the rendered window.
+  const timelineEnd = timelineOffset + videoDuration;
   const chains: string[] = [];
   const mixLabels: string[] = [];
 
@@ -302,7 +329,7 @@ function buildTrackMix(
     //    back at t=0 so fades and the delay below are computed relative to
     //    the clip's own start regardless of where in the source it began.
     const trimIn = track.trimIn ?? 0;
-    const clipEnd = track.end ?? (track.loop ? videoDuration : undefined);
+    const clipEnd = track.end ?? (track.loop ? timelineEnd : undefined);
     const timelineDuration =
       clipEnd !== undefined ? Math.max(0, clipEnd - track.start) : undefined;
     const clipDuration =
@@ -437,6 +464,7 @@ export async function muxAudioTracks(
     throw new Error("muxAudioTracks called with no audio tracks.");
   }
   const master = comp.composition.audioMaster ?? {};
+  const offset = opts.timelineOffset ?? 0;
   const inputs = resolved.map((r) => r.src);
   const spawnFn = opts.spawn ?? defaultSpawn;
   const ffmpegPath = opts.ffmpegPath ?? (await resolveFfmpeg());
@@ -450,6 +478,7 @@ export async function muxAudioTracks(
         resolved,
         videoDuration,
         master.targetLufs,
+        offset,
       ),
     });
     const stderr = await runFfmpeg(spawnFn, ffmpegPath, analysisArgs, "loudness analysis");
@@ -470,6 +499,7 @@ export async function muxAudioTracks(
       videoDuration,
       effectiveMaster,
       measurement,
+      offset,
     ),
     outputPath,
     ...(opts.movflagsFaststart !== undefined

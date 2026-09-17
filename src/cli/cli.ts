@@ -112,7 +112,8 @@ davidup ${VERSION}
 USAGE
   davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
   davidup new  <dir> [--template=<name>] [--force]
-  davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
+  davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>] [--from=<s>] [--to=<s>]
+  davidup render <project|comp.json> --frames <dir> [--fps=<n>] [--from=<s>] [--to=<s>]
   davidup list
   davidup recent
   davidup --help
@@ -124,7 +125,7 @@ COMMANDS
   new     Scaffold a fresh davidup project at <dir>. Refuses non-empty
           directories unless --force is passed.
   render  Headlessly render a project directory or a raw composition JSON
-          file to a video file. Streams frame/fps progress to stderr; exits
+          file to a video file (or a PNG sequence with --frames). Streams frame/fps progress to stderr; exits
           nonzero (with a diagnostic on stderr) on invalid input or a failed
           render.
   list    Print recently-opened projects (from ~/.davidup/recents.json) as a
@@ -148,6 +149,11 @@ FLAGS
   --preset=<p>        ffmpeg encoder preset (default "medium").
   --color=<c>         Output colour profile: bt709 (default; BT.709 matrix,
                       TV range, tagged) or untagged (legacy, no colour tags).
+  --from=<s>          Render from this time in seconds (frame-aligned down).
+  --to=<s>            Render up to this time in seconds (exclusive). Audio is
+                      cut to the same window.
+  --frames=<dir>      Write a PNG per frame (<dir>/00001.png, ...) instead of a
+                      video; no audio. Replaces -o.
 
 EXAMPLES
   davidup new ./my-clip
@@ -156,6 +162,8 @@ EXAMPLES
   davidup render ./my-clip -o out.mp4
   davidup render examples/comprehensive-composition.json -o /tmp/out.mp4 --crf=20 --fps=30
   davidup render ./lower-third -o lower-third.mov --codec=prores_ks
+  davidup render ./my-clip -o beat.mp4 --from=12 --to=16
+  davidup render ./my-clip --frames ./frames --from=2 --to=3
   davidup list
 `;
 
@@ -265,10 +273,19 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
         error: `\`davidup render\` takes exactly one input argument (got ${positional.length})`,
       };
     }
-    if (typeof flags.output !== "string") {
+    if (flags.frames === true) {
+      return { kind: "error", error: `\`--frames\` requires a directory (e.g. --frames ./frames)` };
+    }
+    if (typeof flags.output === "string" && typeof flags.frames === "string") {
       return {
         kind: "error",
-        error: `\`davidup render\` requires -o/--output <file>`,
+        error: `\`davidup render\` takes -o/--output or --frames, not both`,
+      };
+    }
+    if (typeof flags.output !== "string" && typeof flags.frames !== "string") {
+      return {
+        kind: "error",
+        error: `\`davidup render\` requires -o/--output <file> or --frames <dir>`,
       };
     }
     return { kind: "render", positional: positional[0]!, flags };
@@ -547,7 +564,8 @@ async function runRenderCommand(
   deps: CliDeps,
 ): Promise<number> {
   const input = resolveDir(deps.cwd, parsed.positional!);
-  const outputRaw = stringFlag(parsed.flags, "output")!;
+  const framesRaw = stringFlag(parsed.flags, "frames");
+  const outputRaw = framesRaw ?? stringFlag(parsed.flags, "output")!;
   const outputPath = resolveDir(deps.cwd, outputRaw);
 
   const codecRaw = stringFlag(parsed.flags, "codec");
@@ -557,7 +575,10 @@ async function runRenderCommand(
     );
     return 2;
   }
-  const containerError = checkContainerCodec(outputPath, codecRaw as VideoCodec | undefined);
+  const containerError =
+    framesRaw !== undefined
+      ? undefined
+      : checkContainerCodec(outputPath, codecRaw as VideoCodec | undefined);
   if (containerError !== undefined) {
     deps.io.error(`davidup: ${containerError}`);
     return 2;
@@ -576,6 +597,15 @@ async function runRenderCommand(
     deps.io.error(
       `davidup: invalid --color "${colorRaw}" (expected ${COLOR_PROFILES.join(" or ")})`,
     );
+    return 2;
+  }
+
+  const from = numberFlag(parsed.flags, "from", deps.io, 0, Infinity);
+  if (from === INVALID_FLAG) return 2;
+  const to = numberFlag(parsed.flags, "to", deps.io, 0, Infinity);
+  if (to === INVALID_FLAG) return 2;
+  if (from !== undefined && to !== undefined && to <= from) {
+    deps.io.error(`davidup: --to (${to}) must be greater than --from (${from})`);
     return 2;
   }
 
@@ -606,6 +636,15 @@ async function runRenderCommand(
         ...(fps !== undefined ? { fps } : {}),
         ...(preset !== undefined ? { preset } : {}),
         ...(colorRaw !== undefined ? { colorProfile: colorRaw as ColorProfile } : {}),
+        ...(framesRaw !== undefined ? { format: "png-sequence" as const } : {}),
+        ...(from !== undefined || to !== undefined
+          ? {
+              range: {
+                ...(from !== undefined ? { from } : {}),
+                ...(to !== undefined ? { to } : {}),
+              },
+            }
+          : {}),
       },
       { onProgress },
     );

@@ -24,7 +24,7 @@ import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
-import { frameCount, renderToFile } from 'davidup/node'
+import { renderToFile, resolveRenderRange } from 'davidup/node'
 import type { Composition } from 'davidup/schema'
 
 /**
@@ -137,6 +137,8 @@ export interface RenderJobRenderOptions {
    * +faststart` and aborts the render.
    */
   movflagsFaststart?: boolean
+  /** Render only `[from, to)` seconds of the timeline (v1.1 S12). */
+  range?: { from?: number; to?: number }
 }
 
 export interface RenderJobOptions {
@@ -189,7 +191,7 @@ export class RenderJob extends EventEmitter {
     this.sourcePath = opts.sourcePath
     this.startedAt = Date.now()
     this.renderOptions = opts.renderOptions ?? {}
-    this.totalFrames = frameCount(opts.composition)
+    this.totalFrames = resolveRenderRange(opts.composition, this.renderOptions.range).frameCount
 
     this.#donePromise = new Promise((resolve) => {
       this.#resolveDone = resolve
@@ -247,6 +249,7 @@ export class RenderJob extends EventEmitter {
         ...(ro.preset !== undefined ? { preset: ro.preset } : {}),
         ...(ro.pixFmt !== undefined ? { pixFmt: ro.pixFmt } : {}),
         ...(ro.colorProfile !== undefined ? { colorProfile: ro.colorProfile } : {}),
+        ...(ro.range !== undefined ? { range: ro.range } : {}),
         onProgress: ({ frame, total }) => {
           lastFrame = frame
           const ev: RenderProgressEvent = {

@@ -19,7 +19,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import type { Writable } from "node:stream";
 
@@ -38,7 +38,7 @@ import type {
   VideoFrameProvider,
   VideoFrameRequest,
 } from "../../engine/types.js";
-import { fpsArg, frameTime, framesForDuration } from "../../schema/fps.js";
+import { fpsArg, fpsRational, frameTime, framesForDuration } from "../../schema/fps.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
 import { resolveFfmpeg, sweepOrphanTempVideos } from "./ffmpeg.js";
@@ -120,7 +120,7 @@ export {
 
 export interface SkiaCanvasInstance {
   getContext(kind: "2d"): Canvas2DContext;
-  toBuffer(format: "raw"): Promise<Uint8Array> | Uint8Array;
+  toBuffer(format: "raw" | "png"): Promise<Uint8Array> | Uint8Array;
 }
 
 export interface SkiaDriverModule extends SkiaCanvasModule {
@@ -186,6 +186,78 @@ export interface RenderToFileOptions {
    * spawn are inherited from the top-level options.
    */
   preExtract?: false | PreExtractRenderOptions;
+
+  /**
+   * Render only `[from, to)` of the timeline, in seconds (v1.1 S12). Both ends
+   * are clamped to `[0, duration]`; the first frame is the one at or before
+   * `from` and `ceil((to − from) × fps)` frames are written. Audio tracks are
+   * cut to the same window. Omitted = the whole composition.
+   */
+  range?: RenderRange;
+  /**
+   * `"video"` (default) encodes through ffmpeg. `"png-sequence"` writes one
+   * PNG per frame instead (no ffmpeg, no audio): `outPath` is either a
+   * printf-style pattern ending in `%0Nd.png` or a directory, which gets
+   * `%05d.png`. Frames are numbered from 1. An `outPath` ending in
+   * `%0Nd.png` selects the sequence even without this option.
+   */
+  format?: RenderFormat;
+}
+
+export interface RenderRange {
+  /** Start of the window in seconds (inclusive). Default 0. */
+  from?: number;
+  /** End of the window in seconds (exclusive). Default the composition duration. */
+  to?: number;
+}
+
+export type RenderFormat = "video" | "png-sequence";
+
+const PNG_SEQUENCE_RE = /%(?:0(\d+))?d\.png$/i;
+
+/** True when `outPath` is a PNG-sequence pattern such as `frames/%05d.png`. */
+export function isPngSequencePath(outPath: string): boolean {
+  return PNG_SEQUENCE_RE.test(outPath);
+}
+
+/** File name of 1-based frame `n` in a `%0Nd.png` pattern. */
+export function pngSequenceFramePath(pattern: string, n: number): string {
+  return pattern.replace(PNG_SEQUENCE_RE, (_m, width: string | undefined) =>
+    `${String(n).padStart(width !== undefined ? Number(width) : 0, "0")}.png`,
+  );
+}
+
+/**
+ * Frame window a {@link RenderRange} covers: `startFrame` (0-based index into
+ * the full timeline) and `frameCount` frames. Throws `RangeError` for a
+ * non-finite bound or a window that is empty after clamping.
+ */
+export function resolveRenderRange(
+  comp: Composition,
+  range: RenderRange | undefined,
+): { startFrame: number; frameCount: number } {
+  const total = frameCount(comp);
+  if (range === undefined) return { startFrame: 0, frameCount: total };
+  const { duration, fps } = comp.composition;
+  const from = range.from ?? 0;
+  const to = range.to ?? duration;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    throw new RangeError(`render range must be finite seconds (got ${from}..${to})`);
+  }
+  const lo = Math.min(Math.max(from, 0), duration);
+  const hi = Math.min(Math.max(to, 0), duration);
+  if (hi <= lo) {
+    throw new RangeError(
+      `render range ${from}..${to} is empty within the composition's 0..${duration}s`,
+    );
+  }
+  const { num, den } = fpsRational(fps);
+  // Frame-align down: the first frame shown at `from`. The 1e-9 absorbs float
+  // noise so 1.0 s @ 30 fps is frame 30, not 29.
+  const startFrame = Math.min(total - 1, Math.floor((lo * num) / den + 1e-9));
+  // Same epsilon on the length: (1.6 − 1) × 5 is 3.0000000000000004, not 4 frames.
+  const count = Math.max(1, Math.ceil(((hi - lo) * num) / den - 1e-9));
+  return { startFrame, frameCount: Math.min(count, total - startFrame) };
 }
 
 export type VideoCodec = "libx264" | "libx265" | "prores_ks" | "libvpx-vp9";
@@ -273,8 +345,11 @@ export async function renderToFile(
   opts: RenderToFileOptions = {},
 ): Promise<RenderToFileResult> {
   const startedAt = nowMs();
-  const containerError = checkContainerCodec(outPath, opts.codec);
-  if (containerError !== undefined) throw new RenderOptionsError(containerError);
+  const pngSequence = opts.format === "png-sequence" || isPngSequencePath(outPath);
+  if (!pngSequence) {
+    const containerError = checkContainerCodec(outPath, opts.codec);
+    if (containerError !== undefined) throw new RenderOptionsError(containerError);
+  }
   // v1.1 S11: `keepAudio` video items become ordinary `audio[]` tracks here,
   // after precompile, so the mux below picks them up (see compose/videoAudio.ts
   // for why this isn't a precompile pass).
@@ -284,6 +359,8 @@ export async function renderToFile(
       ...(opts.readFile !== undefined ? { readFile: opts.readFile } : {}),
     }),
   ) as Composition;
+  // Resolve the frame window before any expensive work so a bad range fails fast.
+  const { startFrame, frameCount: totalFrames } = resolveRenderRange(compiled, opts.range);
   const skia = opts.skiaCanvas ?? (await importSkiaCanvas());
   const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
 
@@ -322,7 +399,49 @@ export async function renderToFile(
     return { context: off.getContext("2d"), source: off };
   };
 
-  const totalFrames = frameCount(compiled);
+  const paintFrame = async (i: number): Promise<void> => {
+    const t = frameTime(startFrame + i, meta.fps);
+    await prepareVideoFrames(compiled, t, videoProvider);
+    ctx.clearRect(0, 0, meta.width, meta.height);
+    renderFrame(compiled, t, ctx, {
+      assets: loader,
+      index: tweenIndex,
+      createOffscreen,
+      ...(videoProvider !== undefined ? { video: videoProvider } : {}),
+    });
+  };
+  const reportProgress = async (frame: number): Promise<void> => {
+    if (!opts.onProgress) return;
+    try {
+      opts.onProgress({ frame, total: totalFrames });
+    } catch {
+      // A throwing progress callback must not kill the render.
+    }
+    // Yield to the libuv loop so SSE / IPC writes posted by the
+    // progress callback actually flush before we start painting the
+    // next frame. Without this, on small/fast renders the entire loop
+    // serialises in one microtask burst and observers only see the
+    // terminal state. Cost: one macrotask per frame.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  // PNG sequence (v1.1 S12): encode each frame with skia and write it straight
+  // to disk — no ffmpeg, no audio.
+  if (pngSequence) {
+    const pattern = isPngSequencePath(outPath) ? outPath : join(outPath, "%05d.png");
+    await mkdir(dirname(pattern), { recursive: true });
+    for (let i = 0; i < totalFrames; i++) {
+      await paintFrame(i);
+      const png = await Promise.resolve(canvas.toBuffer("png"));
+      await writeFile(pngSequenceFramePath(pattern, i + 1), toNodeBuffer(png));
+      await reportProgress(i + 1);
+    }
+    return {
+      outputPath: pattern,
+      durationMs: nowMs() - startedAt,
+      frameCount: totalFrames,
+    };
+  }
 
   // Two-stage pipeline (v0.2 §S4): when the composition declares audio tracks,
   // stage 1 encodes the silent video to a temp file and stage 2 muxes the audio
@@ -381,32 +500,12 @@ export async function renderToFile(
   try {
     for (let i = 0; i < totalFrames; i++) {
       if (stdinErrored) throw stdinErrored;
-      const t = frameTime(i, meta.fps);
-      await prepareVideoFrames(compiled, t, videoProvider);
-      ctx.clearRect(0, 0, meta.width, meta.height);
-      renderFrame(compiled, t, ctx, {
-        assets: loader,
-        index: tweenIndex,
-        createOffscreen,
-        ...(videoProvider !== undefined ? { video: videoProvider } : {}),
-      });
+      await paintFrame(i);
       const raw = await Promise.resolve(canvas.toBuffer("raw"));
       const buf = toNodeBuffer(raw);
       const ok = stdin.write(buf);
       if (!ok) await waitForDrain(stdin);
-      if (opts.onProgress) {
-        try {
-          opts.onProgress({ frame: i + 1, total: totalFrames });
-        } catch {
-          // A throwing progress callback must not kill the render.
-        }
-        // Yield to the libuv loop so SSE / IPC writes posted by the
-        // progress callback actually flush before we start painting the
-        // next frame. Without this, on small/fast renders the entire loop
-        // serialises in one microtask burst and observers only see the
-        // terminal state. Cost: one macrotask per frame.
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
+      await reportProgress(i + 1);
     }
   } catch (err) {
     safeKill(ffmpeg);
@@ -435,6 +534,8 @@ export async function renderToFile(
       await muxAudioTracks(compiled, tempVideoPath, outPath, frameTime(totalFrames, meta.fps), {
         // Default faststart on the final MP4 unless the caller opted out.
         movflagsFaststart: opts.movflagsFaststart ?? true,
+        // A ranged render hears the timeline from its first frame (v1.1 S12).
+        ...(startFrame > 0 ? { timelineOffset: frameTime(startFrame, meta.fps) } : {}),
         ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
         ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
       });

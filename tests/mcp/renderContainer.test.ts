@@ -78,3 +78,34 @@ describe("render_to_video — alpha codecs (v1.1 S9)", () => {
     expect(started).toEqual([{ outputPath: "overlay.mov", codec: "prores_ks" }]);
   });
 });
+
+describe("render_to_video — from/to range (v1.1 S12)", () => {
+  it("forwards the window to the render queue", async () => {
+    const started: MCPRenderStartArgs[] = [];
+    const out = await dispatchTool(
+      getTool("render_to_video"),
+      { outputPath: "beat.mp4", from: 0.02, to: 0.08 },
+      depsWithQueue(started),
+    );
+    expect(out.ok).toBe(true);
+    expect(started).toEqual([{ outputPath: "beat.mp4", range: { from: 0.02, to: 0.08 } }]);
+  });
+
+  it("rejects to <= from with E_INVALID_VALUE before starting a job", async () => {
+    const started: MCPRenderStartArgs[] = [];
+    const out = await dispatchTool(
+      getTool("render_to_video"),
+      { outputPath: "beat.mp4", from: 2, to: 1 },
+      depsWithQueue(started),
+    );
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe("E_INVALID_VALUE");
+    expect(started).toHaveLength(0);
+  });
+
+  it("render_thumbnail_strip advertises from/to", () => {
+    const tool = getTool("render_thumbnail_strip");
+    expect(Object.keys(tool.inputSchema)).toEqual(expect.arrayContaining(["from", "to"]));
+  });
+});

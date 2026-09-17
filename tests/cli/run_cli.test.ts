@@ -226,6 +226,41 @@ describe("cli · runCli", () => {
     expect(codec).toBe("prores_ks");
   });
 
+  it("`render --frames <dir> --from/--to` forwards a PNG sequence and range (v1.1 S12)", async () => {
+    const cap = captureIo();
+    let received: Parameters<NonNullable<Parameters<typeof runCli>[1]["renderFn"]>>[0] | null =
+      null;
+    const cwd = process.cwd();
+    const code = await runCli(
+      ["render", "./x", "--frames", "frames", "--from=1.5", "--to", "3", "--codec=prores_ks"],
+      {
+        io: cap.io,
+        cwd,
+        renderFn: async (opts) => {
+          received = opts;
+          return { outputPath: opts.outputPath, durationMs: 1, frameCount: 45 };
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(received!.outputPath).toBe(join(cwd, "frames"));
+    expect(received!.format).toBe("png-sequence");
+    expect(received!.range).toEqual({ from: 1.5, to: 3 });
+  });
+
+  it("`render` exits 2 when --to is not after --from", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--from=3", "--to=2"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async () => {
+        throw new Error("must not render");
+      },
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/--to \(2\) must be greater than --from \(3\)/);
+  });
+
   it("`render` exits 2 on a container/codec mismatch (v1.1 S9)", async () => {
     const cap = captureIo();
     const code = await runCli(["render", "./x", "-o", "out.mp4", "--codec=libvpx-vp9"], {
