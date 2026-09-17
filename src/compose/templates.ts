@@ -152,7 +152,11 @@ export function expandTemplate(
     );
   }
   const params = resolveParams(def, instance);
-  const ctx: SubstitutionContext = { params, meta: { start } };
+  const ctx: SubstitutionContext = {
+    params,
+    meta: { start },
+    paramTypes: Object.fromEntries(def.params.map((p) => [p.name, p.type])),
+  };
   const localIds = new Set(Object.keys(def.items));
 
   const items: Record<string, unknown> = {};

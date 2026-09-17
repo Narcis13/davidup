@@ -330,7 +330,7 @@ const captionBurst: TemplateDefinition = {
 const bulletList: TemplateDefinition = {
   id: "bulletList",
   description:
-    "Three bullets revealed with a staggered fade-in. Fixed at three to keep param substitution literal in v0.3.",
+    "Three bullets revealed with a staggered fade-in.",
   params: [
     { name: "bullet1", type: "string", required: true },
     { name: "bullet2", type: "string", required: true },
@@ -358,13 +358,6 @@ const bulletList: TemplateDefinition = {
       default: 0.15,
       description:
         "Seconds between successive bullet reveals. Bullet N starts at (N-1)*stagger.",
-    },
-    {
-      name: "stagger2",
-      type: "number",
-      default: 0.3,
-      description:
-        "Start time for the third bullet. Compute as 2*stagger — placeholders don't do arithmetic in v0.3.",
     },
   ],
   items: {
@@ -435,7 +428,7 @@ const bulletList: TemplateDefinition = {
     {
       $behavior: "fadeIn",
       target: "b3",
-      start: "${params.stagger2}",
+      start: "${params.stagger * 2}",
       duration: 0.4,
       easing: "easeOutQuad",
     },

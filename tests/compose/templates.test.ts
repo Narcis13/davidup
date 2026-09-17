@@ -95,7 +95,7 @@ const lowerThird: TemplateDefinition = {
 
 // ──────────────── substitute (params engine) ────────────────
 
-describe("substitute — whole-string placeholders only", () => {
+describe("substitute — placeholders", () => {
   it("replaces ${params.X} with the param value, preserving type", () => {
     const out = substitute(
       { x: "${params.x}", label: "${params.name}", flag: "${params.flag}" },
@@ -104,9 +104,9 @@ describe("substitute — whole-string placeholders only", () => {
     expect(out).toEqual({ x: 42, label: "title", flag: false });
   });
 
-  it("leaves partial-match strings unchanged (no string-template mode)", () => {
+  it("interpolates embedded placeholders into longer strings", () => {
     const out = substitute("hello ${params.name}", { params: { name: "x" } });
-    expect(out).toBe("hello ${params.name}");
+    expect(out).toBe("hello x");
   });
 
   it("recurses into arrays and objects", () => {

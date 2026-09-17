@@ -8,6 +8,33 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Template and scene param expressions
+
+- `${…}` placeholders in template and scene bodies now evaluate expressions:
+  number and `'string'` literals, `params.X` / `$.X`, `+ - * / %`, unary
+  minus, parentheses, `min()`, `max()`, `round()`. `+` adds numbers or joins
+  two strings; anything else needs numbers. No other function calls, no
+  nested property access, no JS evaluation. Limits: 256 characters, 64
+  tokens, 16 nesting levels.
+- Interpolation: `"Hello ${params.name}!"` splices the value into the string
+  (`$${` escapes a literal `${`). A string that is exactly one `${expr}`
+  returns the raw result, so `"${params.stagger * 2}"` stays a number.
+- Compatibility: a bare `${params.X}` / `${$.X}` still returns the value
+  unchanged (any JSON type), and a `${…}` that references neither `params.`
+  nor `$.` (e.g. `"costs ${price}"`) passes through untouched. Every shipped
+  example compiles byte-identically. **Behavior change:** strings that
+  embedded `${params.X}` mid-text used to pass through literally; they now
+  interpolate.
+- New error code `E_TEMPLATE_EXPR` for malformed or mistyped expressions,
+  with `details: { path, expression, position }` and a caret in the message.
+  Type errors name the declared param type (`params.title (string)`).
+  Division or modulo by zero and non-finite results are errors.
+- `bulletList` drops its `stagger2` param: the third bullet starts at
+  `${params.stagger * 2}`. Passing `stagger2` is ignored (unknown params
+  always were), and the default timing is bit-identical.
+- Exported from `src/compose/params.ts`: `evaluateExpression`,
+  `EXPR_MAX_LENGTH`, `EXPR_MAX_TOKENS`, `EXPR_MAX_DEPTH`.
+
 ### Text v2: wrapping, multiline, anchors on text, stroke, shadow ⚠ pixel-changing
 
 - **BREAKING (`TEXT_LAYOUT_VERSION` 1 → 2):** anchors now act on text. A text

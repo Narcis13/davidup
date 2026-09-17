@@ -692,6 +692,7 @@ handle:
 | `E_ASSET_IN_USE` / `E_ASSET_TYPE_MISMATCH` | Removing a referenced asset / wrong asset kind for the item |
 | `E_BEHAVIOR_UNKNOWN` / `E_BEHAVIOR_PARAM_MISSING` / `E_BEHAVIOR_PARAM_TYPE` | Bad behavior name / missing or mistyped param |
 | `E_TEMPLATE_UNKNOWN` / `E_TEMPLATE_PARAM_MISSING` / `E_TEMPLATE_PARAM_TYPE` | Same for templates |
+| `E_TEMPLATE_EXPR` | A `${…}` expression in a template or scene is malformed or mistyped — `details` has `path`, `expression`, `position` |
 | `E_SCENE_UNKNOWN` / `E_SCENE_RECURSION` / `E_SCENE_INSTANCE_DEEP_TARGET` | Scene placement failures |
 | `E_TIME_MAPPING_INVALID` / `E_TIME_MAPPING_TWEEN_SPLIT` | Bad `time` block / a `clip` boundary cut through a tween |
 | `E_ASSET_CONFLICT` | Two assets with the same id but different content |

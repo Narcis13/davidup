@@ -30,6 +30,9 @@ export const MCP_ERROR_CODES = [
   "E_TEMPLATE_UNKNOWN",
   "E_TEMPLATE_PARAM_MISSING",
   "E_TEMPLATE_PARAM_TYPE",
+  // Malformed or mistyped `${…}` expression in a template / scene body
+  // (v1.1 S15). `details` carries { path, expression, position }.
+  "E_TEMPLATE_EXPR",
   "E_SCENE_UNKNOWN",
   "E_SCENE_PARAM_MISSING",
   "E_SCENE_PARAM_TYPE",

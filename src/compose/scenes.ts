@@ -319,6 +319,7 @@ export function expandSceneInstance(
   const ctx: SubstitutionContext = {
     params,
     meta: { start, duration: def.duration },
+    paramTypes: Object.fromEntries(def.params.map((p) => [p.name, p.type])),
   };
   const localIds = new Set(Object.keys(def.items));
 
