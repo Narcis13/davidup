@@ -286,3 +286,64 @@ describe("audio track tools — field + id validation", () => {
     expect(up.error.code).toBe("E_NOT_FOUND");
   });
 });
+
+describe("audio track tools — `loop` and the master bus (v1.1 S10)", () => {
+  it("add/update carry `loop` through to toJSON", async () => {
+    const deps = freshDeps(30);
+    withAudioAsset(deps, "bed", { duration: 4 });
+    const added = await call("add_audio_track", { asset: "bed", start: 0, loop: true, id: "b" }, deps);
+    expect(added.ok).toBe(true);
+    // Looping without `end` runs to the composition end — no overrun warning
+    // even though the 4s asset is far shorter than the 30s composition.
+    if (added.ok) expect(added.result).toEqual({ audioTrackId: "b" });
+    expect(deps.store.toJSON().audio).toEqual([{ id: "b", asset: "bed", start: 0, loop: true }]);
+
+    await call("update_audio_track", { id: "b", props: { loop: false, volume: 0.5 } }, deps);
+    expect(deps.store.toJSON().audio).toEqual([
+      { id: "b", asset: "bed", start: 0, volume: 0.5, loop: false },
+    ]);
+  });
+
+  it("a looping track with an `end` past the composition still warns", async () => {
+    const deps = freshDeps(10);
+    withAudioAsset(deps, "bed", { duration: 4 });
+    const out = await call("add_audio_track", { asset: "bed", start: 0, end: 12, loop: true }, deps);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect((out.result as { warnings?: string[] }).warnings![0]).toMatch(/past the composition end/i);
+  });
+
+  it("set_composition_property audioMaster sets, validates and resets", async () => {
+    const deps = freshDeps();
+    const set = await call(
+      "set_composition_property",
+      { property: "audioMaster", value: { limiter: false, targetLufs: -16 } },
+      deps,
+    );
+    expect(set.ok).toBe(true);
+    expect(deps.store.toJSON().composition.audioMaster).toEqual({ limiter: false, targetLufs: -16 });
+    expect(deps.store.validate().valid).toBe(true);
+
+    const bad = await call(
+      "set_composition_property",
+      { property: "audioMaster", value: { targetLufs: 0 } },
+      deps,
+    );
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.code).toBe("E_INVALID_VALUE");
+
+    // Scalars are rejected by the store for this property.
+    const scalar = await call("set_composition_property", { property: "audioMaster", value: 3 }, deps);
+    expect(scalar.ok).toBe(false);
+
+    const reset = await call("set_composition_property", { property: "audioMaster", value: null }, deps);
+    expect(reset.ok).toBe(true);
+    expect("audioMaster" in deps.store.toJSON().composition).toBe(false);
+  });
+
+  it("createComposition accepts audioMaster directly", () => {
+    const store = new CompositionStore();
+    store.createComposition({ width: 64, height: 64, fps: 30, duration: 1, audioMaster: { limiter: true } });
+    expect(store.toJSON().composition.audioMaster).toEqual({ limiter: true });
+  });
+});

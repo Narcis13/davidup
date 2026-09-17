@@ -2,7 +2,7 @@
 // CompositionSettingsDialog — UX_GAPS §D.
 //
 // Exposes `composition.composition` (width / height / fps / duration /
-// background) to humans. Dispatches one `set_composition_property` per
+// background, and the v1.1 S10 `audioMaster` bus) to humans. Dispatches one `set_composition_property` per
 // changed field — the command accepts a single property/value pair, so
 // the batching is purely UI-side. Mirrors styling from
 // SaveDefinitionDialog.vue so dialogs feel uniform.
@@ -17,6 +17,7 @@ interface CompositionMeta {
   fps: number | string
   duration: number
   background: string
+  audioMaster?: { limiter?: boolean; targetLufs?: number }
 }
 
 const props = defineProps<{
@@ -48,6 +49,9 @@ const height = ref(720)
 const fps = ref('60')
 const duration = ref(1)
 const background = ref('#000000')
+// Audio master bus (v1.1 S10). `targetLufs` null ⇒ no loudness target.
+const limiter = ref(true)
+const targetLufs = ref<number | null>(null)
 const errorMsg = ref<string | null>(null)
 const widthInput = ref<HTMLInputElement | null>(null)
 
@@ -65,6 +69,8 @@ function syncFromComposition(): void {
   fps.value = String(m.fps)
   duration.value = m.duration
   background.value = normalizeColor(m.background ?? '#000000')
+  limiter.value = m.audioMaster?.limiter !== false
+  targetLufs.value = m.audioMaster?.targetLufs ?? null
   errorMsg.value = null
 }
 
@@ -110,6 +116,18 @@ function fpsFromKey(key: string): number | string {
   return /^\d+\/\d+$/.test(key) ? key : Number(key)
 }
 
+// Empty input → v-model.number yields '' (or null after sync); both mean "no
+// target". Otherwise the engine accepts [-70, -5] LUFS.
+function normalizedTargetLufs(): number | null {
+  const v = targetLufs.value as number | string | null
+  return v === null || v === '' ? null : Number(v)
+}
+
+const targetLufsValid = computed(() => {
+  const v = normalizedTargetLufs()
+  return v === null || (Number.isFinite(v) && v >= -70 && v <= -5)
+})
+
 const canSubmit = computed(() => {
   if (!meta.value) return false
   return (
@@ -122,7 +140,8 @@ const canSubmit = computed(() => {
     fps.value.length > 0 &&
     Number.isFinite(duration.value) &&
     duration.value >= 0 &&
-    background.value.length > 0
+    background.value.length > 0 &&
+    targetLufsValid.value
   )
 })
 
@@ -135,20 +154,35 @@ function submit(): void {
   }
   if (!canSubmit.value) {
     errorMsg.value =
-      'Width / height must be positive integers; duration must be ≥ 0.'
+      'Width / height must be positive integers; duration must be ≥ 0; target loudness must be in [-70, -5] LUFS.'
     return
   }
   // Emit one command per changed property — `set_composition_property`
   // takes a single property/value pair per call (see commands.ts:107).
   // The bus serialises them; the server applies in order; each lands as
   // an undo entry. Keeps every field independently revertable.
-  const changes: Array<{ property: CompositionMeta extends infer T ? keyof T : never; value: number | string }> = []
+  const changes: Array<{
+    property: CompositionMeta extends infer T ? keyof T : never
+    value: number | string | { limiter?: boolean; targetLufs?: number } | null
+  }> = []
   if (width.value !== m.width) changes.push({ property: 'width', value: width.value })
   if (height.value !== m.height) changes.push({ property: 'height', value: height.value })
   if (fps.value !== String(m.fps)) changes.push({ property: 'fps', value: fpsFromKey(fps.value) })
   if (duration.value !== m.duration) changes.push({ property: 'duration', value: duration.value })
   if (normalizeColor(m.background ?? '') !== background.value)
     changes.push({ property: 'background', value: background.value })
+  const lufs = normalizedTargetLufs()
+  const prevLimiter = m.audioMaster?.limiter !== false
+  const prevLufs = m.audioMaster?.targetLufs ?? null
+  if (limiter.value !== prevLimiter || lufs !== prevLufs) {
+    // Defaults (limiter on, no target) clear the key so untouched projects
+    // keep serialising without it.
+    const value =
+      limiter.value && lufs === null
+        ? null
+        : { ...(limiter.value ? {} : { limiter: false }), ...(lufs !== null ? { targetLufs: lufs } : {}) }
+    changes.push({ property: 'audioMaster', value })
+  }
 
   for (const c of changes) {
     emit('apply', {
@@ -270,6 +304,37 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <code>rgb(10,10,10)</code>). The picker only writes 6-digit hex.
           </span>
         </div>
+
+        <div class="row two">
+          <label class="field">
+            <span class="label">Audio limiter</span>
+            <span class="bg-row">
+              <input
+                v-model="limiter"
+                type="checkbox"
+                data-testid="comp-settings-audio-limiter"
+              />
+              <span class="hint">-1 dBFS ceiling on the mix</span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="label">Target loudness (LUFS)</span>
+            <input
+              v-model.number="targetLufs"
+              class="input"
+              type="number"
+              min="-70"
+              max="-5"
+              step="1"
+              placeholder="off"
+              data-testid="comp-settings-audio-target-lufs"
+            />
+          </label>
+        </div>
+        <span class="hint">
+          Applied at render after all audio tracks are mixed. A loudness target (e.g. -14 streaming,
+          -16 web, -23 broadcast) adds one ffmpeg analysis pass.
+        </span>
 
         <p v-if="errorMsg" class="error" role="alert" data-testid="comp-settings-error">
           {{ errorMsg }}

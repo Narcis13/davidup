@@ -303,7 +303,8 @@ const assetDurationById = computed<ReadonlyMap<string, number>>(() => {
 // left-to-right like the item tracks above. `end` always resolves to a
 // concrete number here (the schema allows an absent `end` meaning "play to
 // the asset's natural duration" — we fall back to the registered asset
-// duration, then the composition duration, so the bar is never zero-width).
+// duration, then the composition duration, so the bar is never zero-width;
+// a looping track without `end` spans to the composition end).
 const audioRows = computed<TimelineAudioRow[]>(() => {
   const comp = props.composition
   const list = (comp as { audio?: unknown } | null)?.audio
@@ -313,10 +314,15 @@ const audioRows = computed<TimelineAudioRow[]>(() => {
     if (typeof t?.id !== 'string' || typeof t.asset !== 'string') continue
     const start = typeof t.start === 'number' ? t.start : 0
     const assetDur = assetDurationById.value.get(t.asset) ?? null
+    const loop = t.loop === true
+    // v1.1 S10: a looping track without `end` repeats to the composition end.
     const end =
       typeof t.end === 'number'
         ? t.end
-        : start + (assetDur ?? Math.max(0, duration.value - start))
+        : loop
+          ? Math.max(start, duration.value)
+          : start + (assetDur ?? Math.max(0, duration.value - start))
+    const trimIn = typeof t.trimIn === 'number' ? t.trimIn : 0
     out.push({
       id: t.id,
       asset: t.asset,
@@ -325,6 +331,8 @@ const audioRows = computed<TimelineAudioRow[]>(() => {
       volume: typeof t.volume === 'number' ? t.volume : 1,
       fadeIn: typeof t.fadeIn === 'number' ? t.fadeIn : 0,
       fadeOut: typeof t.fadeOut === 'number' ? t.fadeOut : 0,
+      loop,
+      loopPeriod: loop && assetDur !== null && assetDur - trimIn > 0 ? assetDur - trimIn : null,
     })
   }
   out.sort((a, b) => a.start - b.start)

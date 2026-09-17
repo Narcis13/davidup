@@ -483,13 +483,26 @@ const setCompositionProperty = defineTool({
   name: "set_composition_property",
   title: "Set composition meta property",
   description:
-    "Update one of width/height/fps/duration/background on the composition. fps takes a positive number or an " +
-    'exact rational string "N/D" (e.g. "30000/1001"). width and height must be EVEN ' +
+    "Update one of width/height/fps/duration/background/audioMaster on the composition. fps takes a positive number or an " +
+    'exact rational string "N/D" (e.g. "30000/1001"). audioMaster takes `{ limiter?: boolean, targetLufs?: number }` ' +
+    "(or null to reset): the master bus after all audio tracks are mixed — a -1 dBFS limiter, ON unless `limiter: false`, " +
+    "and an optional two-pass loudness normalisation to `targetLufs` in [-70, -5] (e.g. -14 streaming, -16 web, -23 broadcast; " +
+    "costs one extra ffmpeg analysis pass at render). width and height must be EVEN " +
     "(H.264/yuv420p); after a width/height change that leaves an odd or >4096px canvas the response carries " +
     "`issues` (E_DIMENSION_ODD, blocks rendering) / `warnings` (W_DIMENSION_LARGE).",
   inputSchema: {
-    property: z.enum(["width", "height", "fps", "duration", "background"]),
-    value: z.union([z.number(), z.string()]),
+    property: z.enum(["width", "height", "fps", "duration", "background", "audioMaster"]),
+    value: z.union([
+      z.number(),
+      z.string(),
+      z
+        .object({
+          limiter: z.boolean().optional(),
+          targetLufs: z.number().min(-70).max(-5).optional(),
+        })
+        .strict(),
+      z.null(),
+    ]),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {
@@ -1179,12 +1192,17 @@ const AUDIO_FADE = z
   .number()
   .nonnegative()
   .describe("Fade ramp length in seconds.");
+const AUDIO_LOOP = z
+  .boolean()
+  .describe(
+    "Repeat the source (from `trimIn`) until `end`, or until the composition end when `end` is omitted — for music beds under a longer clip.",
+  );
 
 const addAudioTrack = defineTool({
   name: "add_audio_track",
   title: "Add audio track",
   description:
-    "Add an external audio track to the composition timeline. `asset` must be a registered audio asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't audio). `end` is optional — omit it to play the asset out to its natural duration. `trimIn` seeks into the source file before playback starts, independent of timeline placement — e.g. `{ start: 2, trimIn: 10 }` places the clip at composition second 2 but begins reading the source file at its 10s mark. Returns the assigned `audioTrackId`, plus a `warnings` array when the track extends past the composition end (it is trimmed at mux time, never rejected).",
+    "Add an external audio track to the composition timeline. `asset` must be a registered audio asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't audio). `end` is optional — omit it to play the asset out to its natural duration. `trimIn` seeks into the source file before playback starts, independent of timeline placement — e.g. `{ start: 2, trimIn: 10 }` places the clip at composition second 2 but begins reading the source file at its 10s mark. `loop: true` repeats the source until `end` (or the composition end). All tracks are summed through a master limiter so overlaps can't clip — see set_composition_property `audioMaster`. Returns the assigned `audioTrackId`, plus a `warnings` array when the track extends past the composition end (it is trimmed at mux time, never rejected).",
   inputSchema: {
     asset: z.string().min(1),
     start: z.number().nonnegative(),
@@ -1195,6 +1213,7 @@ const addAudioTrack = defineTool({
     volume: AUDIO_VOLUME.optional(),
     fadeIn: AUDIO_FADE.optional(),
     fadeOut: AUDIO_FADE.optional(),
+    loop: AUDIO_LOOP.optional(),
     id: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -1208,6 +1227,7 @@ const addAudioTrack = defineTool({
         ...(args.volume !== undefined ? { volume: args.volume } : {}),
         ...(args.fadeIn !== undefined ? { fadeIn: args.fadeIn } : {}),
         ...(args.fadeOut !== undefined ? { fadeOut: args.fadeOut } : {}),
+        ...(args.loop !== undefined ? { loop: args.loop } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
       },
       args.compositionId,
@@ -1234,6 +1254,7 @@ const updateAudioTrack = defineTool({
         volume: AUDIO_VOLUME,
         fadeIn: AUDIO_FADE,
         fadeOut: AUDIO_FADE,
+        loop: AUDIO_LOOP,
       })
       .partial(),
     compositionId: COMPOSITION_ID,

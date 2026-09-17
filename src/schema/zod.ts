@@ -81,6 +81,17 @@ export const CompositionMetaSchema = z.object({
   // Any CSS colour, or "transparent" (v1.1 S9): nothing is painted, so alpha
   // codecs (ProRes 4444 / VP9) export the empty canvas as alpha 0.
   background: z.string(),
+  // Master bus applied after all audio tracks are mixed (v1.1 S10). Omitted ⇒
+  // `{ limiter: true }`: a -1 dBFS lookahead limiter so overlapping music +
+  // voiceover can't clip. `targetLufs` adds a two-pass EBU R128 loudness
+  // normalisation (an extra ffmpeg analysis pass over the mix) before the
+  // limiter. Ignored when the composition has no `audio[]`.
+  audioMaster: z
+    .object({
+      limiter: z.boolean().optional(),
+      targetLufs: z.number().min(-70).max(-5).optional(),
+    })
+    .optional(),
 });
 
 export const ImageAssetSchema = z.object({
@@ -345,6 +356,9 @@ export const TweenSchema = z.object({
 // idea on the video side. `volume` is a linear gain multiplier in [0, 2]
 // (1 = unchanged, 2 = +6dB); `fadeIn` / `fadeOut` are ramp lengths in seconds
 // at each edge, measured from the (possibly trimmed) clip's own start/end.
+// `loop` (v1.1 S10) repeats the (trimIn-seeked) source until `end` — or the
+// composition end when `end` is omitted — so a short music bed can run under a
+// longer clip.
 //
 // `id` is optional in hand-authored JSON but is the addressing key used by the
 // S3 MCP tools (update_audio_track / remove_audio_track); the store assigns one
@@ -361,6 +375,7 @@ export const AudioTrackSchema = z
     volume: z.number().min(0).max(2).optional(),
     fadeIn: z.number().nonnegative().optional(),
     fadeOut: z.number().nonnegative().optional(),
+    loop: z.boolean().optional(),
   })
   .refine((t) => t.end === undefined || t.end > t.start, {
     message: "Audio track `end` must be greater than `start`.",

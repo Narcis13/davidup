@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/schema/validator.js";
-import { AudioTrackSchema } from "../../src/schema/zod.js";
+import { AudioTrackSchema, CompositionMetaSchema } from "../../src/schema/zod.js";
 import { baseComposition } from "./fixtures.js";
 
 // Audio tracks — schema + parser coverage for v0.2 §S1.
@@ -109,5 +109,42 @@ describe("AudioTrackSchema — field rules", () => {
     expect(AudioTrackSchema.safeParse({ ...base, fadeOut: 1.5 }).success).toBe(true);
     expect(AudioTrackSchema.safeParse({ ...base, fadeIn: -0.1 }).success).toBe(false);
     expect(AudioTrackSchema.safeParse({ ...base, fadeOut: -1 }).success).toBe(false);
+  });
+
+  it("accepts an optional boolean `loop` (v1.1 S10)", () => {
+    expect(AudioTrackSchema.safeParse({ ...base, loop: true }).success).toBe(true);
+    expect(AudioTrackSchema.safeParse({ ...base, loop: false, end: 9 }).success).toBe(true);
+    expect(AudioTrackSchema.safeParse({ ...base, loop: "yes" }).success).toBe(false);
+  });
+});
+
+describe("composition.audioMaster (v1.1 S10)", () => {
+  const meta = { width: 64, height: 64, fps: 30, duration: 1, background: "#000" };
+
+  it("is optional and accepts limiter / targetLufs", () => {
+    expect(CompositionMetaSchema.safeParse(meta).success).toBe(true);
+    expect(CompositionMetaSchema.safeParse({ ...meta, audioMaster: {} }).success).toBe(true);
+    expect(
+      CompositionMetaSchema.safeParse({ ...meta, audioMaster: { limiter: false, targetLufs: -23 } })
+        .success,
+    ).toBe(true);
+  });
+
+  it("bounds targetLufs to [-70, -5] and types limiter", () => {
+    const at = (audioMaster: unknown) =>
+      CompositionMetaSchema.safeParse({ ...meta, audioMaster }).success;
+    expect(at({ targetLufs: -70 })).toBe(true);
+    expect(at({ targetLufs: -5 })).toBe(true);
+    expect(at({ targetLufs: -4 })).toBe(false);
+    expect(at({ targetLufs: -71 })).toBe(false);
+    expect(at({ limiter: "on" })).toBe(false);
+  });
+
+  it("surfaces an invalid audioMaster from validate() as E_SCHEMA", () => {
+    const comp = baseComposition() as { composition: Record<string, unknown> };
+    comp.composition.audioMaster = { targetLufs: 3 };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
   });
 });

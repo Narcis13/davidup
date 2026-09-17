@@ -126,6 +126,9 @@ export function hydrateStore(
     fps: meta.fps,
     duration: meta.duration,
     ...(meta.background !== undefined ? { background: meta.background } : {}),
+    // v1.1 S10 master audio bus — dropped here, it would vanish on the first
+    // UI edit after load.
+    ...(meta.audioMaster !== undefined ? { audioMaster: meta.audioMaster } : {}),
   })
 
   for (const asset of composition.assets as ReadonlyArray<Asset>) {

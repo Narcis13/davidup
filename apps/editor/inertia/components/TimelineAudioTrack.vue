@@ -10,7 +10,8 @@
 //
 // Mute (volume === 0) renders a striped/grey fill; fadeIn/fadeOut render as
 // gradient ramps at the bar's edges sized proportionally to the bar's
-// duration. Right-click opens a small context menu (Mute/Delete/Reset
+// duration. A looping track (v1.1 S10) gets a "loop" chip and faint seams
+// where each repetition of the source starts. Right-click opens a small context menu (Mute/Delete/Reset
 // volume) — see `useContextMenu`.
 
 import { computed } from 'vue'
@@ -24,6 +25,9 @@ export interface TimelineAudioRow {
   volume: number
   fadeIn: number
   fadeOut: number
+  loop: boolean
+  /** Seconds per repetition (asset duration − trimIn) when known. */
+  loopPeriod: number | null
 }
 
 export interface AudioBarPointerDownPayload {
@@ -84,6 +88,21 @@ const fadeOutPct = computed(() => {
   return `${Math.min(100, (props.row.fadeOut / span) * 100)}%`
 })
 
+// Seam positions (as % of the bar) where each loop repetition begins.
+const loopSeams = computed<string[]>(() => {
+  const period = props.row.loopPeriod
+  if (!props.row.loop || period === null || period <= 0) return []
+  const { start, end } = effective()
+  const span = end - start
+  if (span <= period) return []
+  const out: string[] = []
+  // Cap the count so a tiny source under a long clip can't flood the DOM.
+  for (let t = period; t < span && out.length < 200; t += period) {
+    out.push(`${(t / span) * 100}%`)
+  }
+  return out
+})
+
 function onRowClick(): void {
   emit('select', props.row.id)
 }
@@ -105,7 +124,8 @@ function onContextMenu(event: MouseEvent): void {
 function barTitle(): string {
   const { start, end } = effective()
   const muteNote = isMuted.value ? ' · muted' : ` · vol ${Math.round(props.row.volume * 100)}%`
-  return `${props.row.id}\n${props.row.asset}\n${start.toFixed(2)}s → ${end.toFixed(2)}s${muteNote}`
+  const loopNote = props.row.loop ? ' · loop' : ''
+  return `${props.row.id}\n${props.row.asset}\n${start.toFixed(2)}s → ${end.toFixed(2)}s${muteNote}${loopNote}`
 }
 </script>
 
@@ -120,6 +140,7 @@ function barTitle(): string {
       <span class="audio-glyph" aria-hidden="true">♪</span>
       <span class="label-id">{{ row.id }}</span>
       <span v-if="isMuted" class="mute-chip">muted</span>
+      <span v-if="row.loop" class="mute-chip loop-chip" data-testid="timeline-audio-loop-chip">loop</span>
     </div>
     <div class="audio-track-lane">
       <button
@@ -134,6 +155,13 @@ function barTitle(): string {
         @contextmenu="onContextMenu"
       >
         <span class="fade-ramp fade-in" :style="{ width: fadeInPct }" aria-hidden="true" />
+        <span
+          v-for="(left, i) in loopSeams"
+          :key="i"
+          class="loop-seam"
+          :style="{ left }"
+          aria-hidden="true"
+        />
         <span class="audio-bar-label">{{ row.asset }}</span>
         <span class="fade-ramp fade-out" :style="{ width: fadeOutPct }" aria-hidden="true" />
         <span
@@ -200,6 +228,20 @@ function barTitle(): string {
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 5px;
   border-radius: 999px;
+}
+
+.loop-chip {
+  color: #9fd8ff;
+  background: rgba(96, 180, 255, 0.12);
+}
+
+.loop-seam {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 0;
+  border-left: 1px dashed rgba(255, 255, 255, 0.35);
+  pointer-events: none;
 }
 
 .audio-track-lane {

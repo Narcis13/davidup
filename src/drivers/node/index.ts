@@ -65,14 +65,21 @@ export {
 
 export {
   buildAudioFilterComplex,
+  buildLoudnormAnalysisArgs,
+  buildLoudnormAnalysisFilterComplex,
   buildMuxArgs,
   compositionHasAudio,
   muxAudioTracks,
+  parseLoudnormMeasurement,
   resolveAudioInputs,
   secs as formatFilterSeconds,
   MUX_SAMPLE_RATE,
   MUX_AUDIO_BITRATE,
+  MUX_LIMITER_CEILING_DB,
+  MUX_LOUDNORM_LRA,
+  MUX_LOUDNORM_TRUE_PEAK,
   type BuildMuxArgsInput,
+  type LoudnormMeasurement,
   type MuxAudioOptions,
   type ResolvedAudioTrack,
 } from "./audioMux.js";

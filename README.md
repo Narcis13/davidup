@@ -448,10 +448,29 @@ URLs that resolve out of `~/.davidup/library` (or the project-local pool).
 
 ### Audio tracks (`audio[]`)
 
-`{ id?, asset, start, end?, trimIn?, volume? (0–2), fadeIn?, fadeOut? }`.
+`{ id?, asset, start, end?, trimIn?, volume? (0–2), fadeIn?, fadeOut?, loop? }`.
 `start`/`end` place the track on the composition timeline; `trimIn` seeks
-into the source file. Output is always stereo AAC-LC, 48 kHz, 192 kb/s;
-multiple tracks are mixed without normalisation.
+into the source file. `loop: true` repeats the source (from `trimIn`) until
+`end`, or until the composition end when `end` is omitted — a 20 s music bed
+runs under a 60 s clip. Output is stereo AAC-LC, 48 kHz, 192 kb/s (Opus in
+`.webm`).
+
+Tracks are summed at their authored gain, then run through the master bus,
+set with `composition.audioMaster` (or `set_composition_property` /
+Composition settings in the editor):
+
+```jsonc
+"composition": { /* … */ "audioMaster": { "limiter": true, "targetLufs": -16 } }
+```
+
+- `limiter` (default **on**): a lookahead limiter with a −1 dBFS ceiling, so
+  overlapping music + voiceover cannot clip. `false` sums raw.
+- `targetLufs` (optional, −70…−5): EBU R128 loudness normalisation of the
+  whole mix — −14 for streaming, −16 for web/podcast, −23 for broadcast. It
+  costs **one extra ffmpeg pass** at render: pass 1 decodes and mixes the
+  tracks through `loudnorm` to measure integrated loudness, true peak and
+  range; pass 2 applies one linear gain from those numbers before the
+  limiter. A silent mix skips normalisation.
 
 ---
 
@@ -948,8 +967,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 - Fractional frame rates are decimal (`29.97`), not rational (`30000/1001`).
 - Odd `width`/`height` fail inside ffmpeg (`E_RENDER_FAILED`) rather than at
   validation. Use even dimensions.
-- Audio is always stereo AAC-LC 48 kHz 192 kb/s; overlapping tracks are
-  summed without a limiter.
+- Audio is always stereo, 48 kHz, 192 kb/s (AAC-LC, or Opus in `.webm`).
 
 **Authoring**
 
@@ -1075,7 +1093,8 @@ Shipped in v1.0:
 - Video items (`add_video` / `update_video`): trim, fit, loop,
   freeze-on-last-frame, picture-in-picture, cached frame extraction.
 - Audio tracks (`add_audio_track` …): timeline placement, in-source
-  `trimIn`, volume, fades, mixed to AAC.
+  `trimIn`, volume, fades, `loop`, mixed to AAC through a master limiter with
+  an optional loudness target (`audioMaster`).
 - Scene primitives (definition, instances, `identity` / `clip` / `loop` /
   `timeScale`), templates (5 built-in + 11 library), behaviors (11 built-in).
 - `$ref` imports + JSON-pointer evaluation; source-map emission.

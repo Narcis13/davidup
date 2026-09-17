@@ -1074,6 +1074,7 @@ type AudioTrackLike = {
   volume?: number
   fadeIn?: number
   fadeOut?: number
+  loop?: boolean
 }
 
 const selectedAudioTrack = computed<AudioTrackLike | null>(() => {
@@ -1114,6 +1115,7 @@ type AudioTrackEditableKey =
   | 'volume'
   | 'fadeIn'
   | 'fadeOut'
+  | 'loop'
 
 function dispatchAudioTrackEdit(key: AudioTrackEditableKey, value: unknown): void {
   const track = selectedAudioTrack.value
@@ -1234,7 +1236,7 @@ function deleteSelectedAudioTrack(): void {
           @update:model-value="(v: number) => dispatchAudioTrackEdit('start', v)"
         />
         <TimeInput
-          :model-value="selectedAudioTrack.end ?? (audioTrackAssetDuration ?? 0) + selectedAudioTrack.start"
+          :model-value="selectedAudioTrack.end ?? (selectedAudioTrack.loop ? compositionDuration : (audioTrackAssetDuration ?? 0) + selectedAudioTrack.start)"
           label="end"
           :disabled="pending"
           @update:model-value="(v: number) => dispatchAudioTrackEdit('end', v)"
@@ -1266,6 +1268,19 @@ function deleteSelectedAudioTrack(): void {
           :disabled="pending"
           @update:model-value="(v: number) => dispatchAudioTrackEdit('fadeOut', v)"
         />
+        <label
+          class="audio-loop"
+          title="Repeat the source (from trimIn) until end — or the composition end when end is unset"
+        >
+          <input
+            type="checkbox"
+            :checked="selectedAudioTrack.loop === true"
+            :disabled="pending"
+            data-testid="inspector-audio-track-loop"
+            @change="(e: Event) => dispatchAudioTrackEdit('loop', (e.target as HTMLInputElement).checked)"
+          />
+          <span>loop</span>
+        </label>
         <button
           type="button"
           class="animate-btn"
@@ -2078,6 +2093,15 @@ function deleteSelectedAudioTrack(): void {
 
 .multi-chip-label {
   letter-spacing: 0.04em;
+}
+
+.audio-loop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #cfcfcf;
+  cursor: pointer;
 }
 
 .multi-note {

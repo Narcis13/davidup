@@ -11,7 +11,7 @@ import commandBus, {
   CommandValidationError,
   PostValidationError,
 } from '#services/command_bus'
-import type { Command } from '#types/commands'
+import { CommandSchema, type Command } from '#types/commands'
 
 const BASE_COMP = {
   version: '0.1',
@@ -316,6 +316,81 @@ test.group('applyCommand · audio tracks (U2)', () => {
     })
     const cAudio = (c as { audio?: ReadonlyArray<unknown> }).audio
     assert.lengthOf(cAudio ?? [], 0)
+  })
+})
+
+test.group('applyCommand · audio loop + master bus (v1.1 S10)', () => {
+  // Parse through the dual schema first, exactly as the command bus does — a
+  // field missing from commands.ts would be stripped here.
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  test('`loop` survives the dual schema on add and update', async ({ assert }) => {
+    const a = await applyCommand(
+      compWithMedia(),
+      parsed({
+        kind: 'add_audio_track',
+        payload: { asset: 'voice', start: 0, id: 'bed', loop: true },
+        source: 'ui',
+      })
+    )
+    const aAudio = (a as { audio?: ReadonlyArray<{ loop?: boolean }> }).audio
+    assert.equal(aAudio![0]!.loop, true)
+
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'update_audio_track',
+        payload: { id: 'bed', props: { loop: false } },
+        source: 'ui',
+      })
+    )
+    const bAudio = (b as { audio?: ReadonlyArray<{ loop?: boolean }> }).audio
+    assert.equal(bAudio![0]!.loop, false)
+  })
+
+  test('audioMaster set via set_composition_property persists across hydration', async ({
+    assert,
+  }) => {
+    const a = await applyCommand(
+      compWithMedia(),
+      parsed({
+        kind: 'set_composition_property',
+        payload: { property: 'audioMaster', value: { limiter: false, targetLufs: -16 } },
+        source: 'ui',
+      })
+    )
+    assert.deepEqual(a.composition.audioMaster, { limiter: false, targetLufs: -16 })
+
+    // Any later command rehydrates from JSON — audioMaster must not be dropped.
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'set_composition_property',
+        payload: { property: 'duration', value: 4 },
+        source: 'ui',
+      })
+    )
+    assert.deepEqual(b.composition.audioMaster, { limiter: false, targetLufs: -16 })
+
+    const c = await applyCommand(
+      b,
+      parsed({
+        kind: 'set_composition_property',
+        payload: { property: 'audioMaster', value: null },
+        source: 'ui',
+      })
+    )
+    assert.notProperty(c.composition, 'audioMaster')
+  })
+
+  test('dual schema rejects an out-of-range targetLufs', async ({ assert }) => {
+    assert.isFalse(
+      CommandSchema.safeParse({
+        kind: 'set_composition_property',
+        payload: { property: 'audioMaster', value: { targetLufs: 2 } },
+        source: 'ui',
+      }).success
+    )
   })
 })
 

@@ -7,6 +7,31 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Audio limiter, loudness target, per-track loop
+
+- **Output-changing (audio only):** every muxed render now runs the mix
+  through a lookahead limiter (`alimiter`, −1 dBFS ceiling, no auto-gain,
+  latency-compensated), so overlapping music + voiceover can no longer clip.
+  Mixes that never came near 0 dBFS are unaffected in level, but the audio
+  bytes of every render with `audio[]` change. Video pixels and the
+  expansion markers are untouched. Opt out per composition with
+  `composition.audioMaster: { limiter: false }`.
+- `composition.audioMaster.targetLufs` (−70…−5) normalises the mix to an
+  integrated loudness with two-pass `loudnorm`: an extra ffmpeg analysis pass
+  measures the mix, the mux pass applies one linear gain. Settable via
+  `set_composition_property` (`property: "audioMaster"`, object value, `null`
+  to reset) and the editor's Composition settings dialog.
+- Audio tracks gain `loop?: boolean`: the source repeats (from `trimIn`) until
+  `end`, or the composition end when `end` is omitted. Accepted by
+  `add_audio_track` / `update_audio_track`, the editor Inspector (checkbox) and
+  timeline (loop chip + repetition seams). A looping track without `end` no
+  longer warns about running past the composition.
+- New exports: `buildLoudnormAnalysisArgs`,
+  `buildLoudnormAnalysisFilterComplex`, `parseLoudnormMeasurement`,
+  `MUX_LIMITER_CEILING_DB`, `MUX_LOUDNORM_TRUE_PEAK`, `MUX_LOUDNORM_LRA`, types
+  `LoudnormMeasurement` and `AudioMaster`. `buildAudioFilterComplex` takes
+  optional `master` and `measurement` arguments.
+
 ### Alpha export (ProRes 4444 `.mov`, VP9 `.webm`)
 
 - `composition.background: "transparent"` now clears instead of filling, so

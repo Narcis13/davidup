@@ -15,6 +15,7 @@ import type { EasingName } from "../easings/index.js";
 import { validate, OVERLAP_EPS, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
+  AudioMaster,
   AudioTrack,
   BlendMode,
   Composition,
@@ -116,6 +117,8 @@ export interface CreateCompositionInput {
   fps: Fps;
   duration: number;
   background?: string;
+  /** Master audio bus (v1.1 S10); omitted ⇒ limiter on, no loudness target. */
+  audioMaster?: AudioMaster;
   id?: string;
 }
 
@@ -124,7 +127,8 @@ export type SetMetaPropertyName =
   | "height"
   | "fps"
   | "duration"
-  | "background";
+  | "background"
+  | "audioMaster";
 
 export interface RegisterAssetInput {
   id: string;
@@ -321,6 +325,7 @@ export interface AddAudioTrackInput {
   volume?: number;
   fadeIn?: number;
   fadeOut?: number;
+  loop?: boolean;
   id?: string;
 }
 
@@ -332,6 +337,7 @@ export interface UpdateAudioTrackProps {
   volume?: number;
   fadeIn?: number;
   fadeOut?: number;
+  loop?: boolean;
 }
 
 export interface ListAudioTracksFilter {
@@ -453,6 +459,9 @@ export class CompositionStore {
       fps: input.fps,
       duration: input.duration,
       background: input.background ?? DEFAULT_BACKGROUND,
+      ...(input.audioMaster !== undefined
+        ? { audioMaster: normalizeAudioMaster(input.audioMaster) }
+        : {}),
     };
     const comp: MutableComposition = {
       id,
@@ -523,6 +532,17 @@ export class CompositionStore {
         }
         comp.meta = { ...comp.meta, background: value };
         return;
+      case "audioMaster": {
+        // `null` clears it back to the default (limiter on, no target).
+        if (value === null) {
+          const { audioMaster: _dropped, ...rest } = comp.meta;
+          void _dropped;
+          comp.meta = rest;
+          return;
+        }
+        comp.meta = { ...comp.meta, audioMaster: normalizeAudioMaster(value) };
+        return;
+      }
       default: {
         const _exhaustive: never = property;
         void _exhaustive;
@@ -1377,6 +1397,7 @@ export class CompositionStore {
       ...(input.volume !== undefined ? { volume: input.volume } : {}),
       ...(input.fadeIn !== undefined ? { fadeIn: input.fadeIn } : {}),
       ...(input.fadeOut !== undefined ? { fadeOut: input.fadeOut } : {}),
+      ...(input.loop !== undefined ? { loop: input.loop } : {}),
     };
     comp.audio.set(id, track);
     return { id, warnings: audioPlacementWarnings(comp, track, asset) };
@@ -1407,6 +1428,7 @@ export class CompositionStore {
       volume: props.volume ?? existing.volume,
       fadeIn: props.fadeIn ?? existing.fadeIn,
       fadeOut: props.fadeOut ?? existing.fadeOut,
+      loop: props.loop ?? existing.loop,
     };
     validateAudioFields(merged);
 
@@ -1419,6 +1441,7 @@ export class CompositionStore {
       ...(merged.volume !== undefined ? { volume: merged.volume } : {}),
       ...(merged.fadeIn !== undefined ? { fadeIn: merged.fadeIn } : {}),
       ...(merged.fadeOut !== undefined ? { fadeOut: merged.fadeOut } : {}),
+      ...(merged.loop !== undefined ? { loop: merged.loop } : {}),
     };
     comp.audio.set(id, updated);
     return { warnings: audioPlacementWarnings(comp, updated, asset) };
@@ -2092,6 +2115,51 @@ function pushUnique(arr: string[], value: string): void {
 // Audio-track field rules (v0.2 §S1, enforced here at the store boundary too so
 // direct callers and editor-hydrated updates get the same guarantees the Zod
 // tool schema gives MCP clients). Shape-level rejection → E_INVALID_VALUE.
+// `audioMaster` (v1.1 S10): `{ limiter?: boolean, targetLufs?: number }`.
+// Mirrors the CompositionMetaSchema bounds; returns a clean copy with only the
+// keys that were set.
+function normalizeAudioMaster(value: unknown): AudioMaster {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "composition.audioMaster must be an object.",
+      'e.g. { "limiter": true, "targetLufs": -16 }; pass null to reset to the default.',
+    );
+  }
+  const { limiter, targetLufs, ...unknownKeys } = value as Record<string, unknown>;
+  const extra = Object.keys(unknownKeys);
+  if (extra.length > 0) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `composition.audioMaster has unknown key(s): ${extra.join(", ")}.`,
+      "Allowed keys: limiter (boolean), targetLufs (number in [-70, -5]).",
+    );
+  }
+  if (limiter !== undefined && typeof limiter !== "boolean") {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "composition.audioMaster.limiter must be a boolean.",
+    );
+  }
+  if (
+    targetLufs !== undefined &&
+    (typeof targetLufs !== "number" ||
+      !Number.isFinite(targetLufs) ||
+      targetLufs < -70 ||
+      targetLufs > -5)
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "composition.audioMaster.targetLufs must be a number in [-70, -5].",
+      "Common targets: -14 (streaming), -16 (podcast/web), -23 (EBU R128 broadcast).",
+    );
+  }
+  return {
+    ...(limiter !== undefined ? { limiter } : {}),
+    ...(targetLufs !== undefined ? { targetLufs } : {}),
+  };
+}
+
 function validateAudioFields(t: {
   start: number;
   end?: number | undefined;
@@ -2149,6 +2217,9 @@ function audioPlacementWarnings(
   // out to what's left of the file past the in-source seek point.
   const remainingAssetDuration =
     assetDuration !== undefined ? assetDuration - (track.trimIn ?? 0) : undefined;
+  // A looping track without `end` repeats up to the composition end — by
+  // construction it can't overrun it.
+  if (track.loop && track.end === undefined) return warnings;
   const effectiveEnd =
     track.end ??
     (remainingAssetDuration !== undefined
@@ -2383,6 +2454,7 @@ function cloneAudioTrack(track: AudioTrack): AudioTrack {
     ...(track.volume !== undefined ? { volume: track.volume } : {}),
     ...(track.fadeIn !== undefined ? { fadeIn: track.fadeIn } : {}),
     ...(track.fadeOut !== undefined ? { fadeOut: track.fadeOut } : {}),
+    ...(track.loop !== undefined ? { loop: track.loop } : {}),
   };
 }
 

@@ -290,3 +290,185 @@ describe("renderToFile — audio `trimIn` in-source offset (R-11, integration)",
     expect(shouldBeCutShort).toBeLessThan(audible - 10);
   });
 });
+
+// ──────────────── v1.1 S10: limiter, loop, loudness target ────────────────
+
+// Minimal composition around a given audio setup: one small shape so the video
+// stage has something to encode.
+function audioOnlyComposition(
+  duration: number,
+  assets: Composition["assets"],
+  audio: NonNullable<Composition["audio"]>,
+  audioMaster?: Composition["composition"]["audioMaster"],
+): Composition {
+  return {
+    version: "0.1",
+    composition: {
+      width: 64,
+      height: 48,
+      fps: 12,
+      duration,
+      background: "#000010",
+      ...(audioMaster !== undefined ? { audioMaster } : {}),
+    },
+    assets,
+    layers: [{ id: "bg", z: 0, opacity: 1, blendMode: "normal", items: ["box"] }],
+    items: {
+      box: {
+        type: "shape",
+        kind: "rect",
+        width: 10,
+        height: 10,
+        fillColor: "#ffffff",
+        transform: {
+          x: 32, y: 24, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1,
+        },
+      },
+    },
+    tweens: [],
+    audio,
+  };
+}
+
+// Sample peak (dBFS) of the output's decoded audio. astats reads the float
+// decode, so unlike volumedetect it reports overs above 0 dBFS.
+function peakDb(path: string): number {
+  if (!ffmpegPath) throw new Error("ffmpeg-static path missing");
+  const r = spawnSync(
+    ffmpegPath,
+    ["-v", "info", "-i", path, "-map", "0:a:0", "-af", "astats=metadata=0", "-f", "null", "-"],
+    { encoding: "utf8" },
+  );
+  const m = /Overall[\s\S]*?Peak level dB:\s*(-?inf|-?[\d.]+)/i.exec(r.stderr);
+  if (!m) throw new Error(`could not parse peak level from:\n${r.stderr}`);
+  return /inf/i.test(m[1]!) ? -Infinity : Number(m[1]);
+}
+
+// Integrated loudness (LUFS) of the output's audio via ebur128.
+function integratedLufs(path: string): number {
+  if (!ffmpegPath) throw new Error("ffmpeg-static path missing");
+  const r = spawnSync(
+    ffmpegPath,
+    ["-v", "info", "-nostats", "-i", path, "-map", "0:a:0", "-af", "ebur128", "-f", "null", "-"],
+    { encoding: "utf8" },
+  );
+  const m = /Integrated loudness:\s*I:\s*(-?[\d.]+)\s*LUFS/.exec(r.stderr);
+  if (!m) throw new Error(`could not parse integrated loudness from:\n${r.stderr}`);
+  return Number(m[1]);
+}
+
+describe("renderToFile — master limiter on overlapping full-scale tracks (v1.1 S10, integration)", () => {
+  let workDir: string;
+  let haveBins = false;
+  let limitedPeak = 0;
+  let unlimitedPeak = 0;
+
+  beforeAll(async () => {
+    haveBins = ffmpegPath !== undefined && ffprobePath !== undefined;
+    if (!haveBins) return;
+    workDir = mkdtempSync(join(tmpdir(), "davidup-s10-limiter-"));
+    // Two identical full-scale (0 dBFS peak) 440Hz tones: summed in phase they
+    // peak at +6 dBFS without a limiter.
+    const tone = join(workDir, "full.wav");
+    const gen = spawnSync(ffmpegPath!, [
+      "-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=sin(2*PI*440*t):s=48000:d=1.5", tone,
+    ]);
+    if (gen.status !== 0) throw new Error(`tone generation failed: ${gen.stderr}`);
+
+    const assets: Composition["assets"] = [
+      { id: "a", type: "audio", src: tone, duration: 1.5, sampleRate: 48000, channels: 1 },
+      { id: "b", type: "audio", src: tone, duration: 1.5, sampleRate: 48000, channels: 1 },
+    ];
+    const tracks = [
+      { id: "t1", asset: "a", start: 0 },
+      { id: "t2", asset: "b", start: 0 },
+    ];
+    const limited = join(workDir, "limited.mp4");
+    const unlimited = join(workDir, "unlimited.mp4");
+    const opts = { ffmpegPath, preset: "ultrafast" as const, crf: 28 };
+    await renderToFile(audioOnlyComposition(1.5, assets, tracks), limited, opts);
+    await renderToFile(
+      audioOnlyComposition(1.5, assets, tracks, { limiter: false }),
+      unlimited,
+      opts,
+    );
+    limitedPeak = peakDb(limited);
+    unlimitedPeak = peakDb(unlimited);
+  }, 60_000);
+
+  afterAll(() => {
+    if (workDir) rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("the summed tones stay at or below 0 dBFS with the default limiter", () => {
+    if (!haveBins) return;
+    expect(limitedPeak).toBeLessThanOrEqual(0);
+  });
+
+  it("control: `limiter: false` lets the overlap clip past 0 dBFS", () => {
+    if (!haveBins) return;
+    expect(unlimitedPeak).toBeGreaterThan(1);
+  });
+});
+
+describe("renderToFile — `loop` audio track and loudness target (v1.1 S10, integration)", () => {
+  let workDir: string;
+  let loopOut: string;
+  let loudOut: string;
+  let haveBins = false;
+
+  beforeAll(async () => {
+    haveBins = ffmpegPath !== undefined && ffprobePath !== undefined && existsSync(MUSIC);
+    if (!haveBins) return;
+    workDir = mkdtempSync(join(tmpdir(), "davidup-s10-loop-"));
+    const assets: Composition["assets"] = [
+      { id: "music", type: "audio", src: MUSIC, duration: 1, sampleRate: 44100, channels: 2 },
+    ];
+    const opts = { ffmpegPath, preset: "ultrafast" as const, crf: 28 };
+
+    // ~1s bed looped from 0.5s to the end of a 4s composition (no `end`).
+    loopOut = join(workDir, "loop.mp4");
+    await renderToFile(
+      audioOnlyComposition(4, assets, [{ id: "bed", asset: "music", start: 0.5, loop: true }]),
+      loopOut,
+      opts,
+    );
+
+    // Same bed looped under a 6s composition, normalised to -16 LUFS.
+    loudOut = join(workDir, "loud.mp4");
+    await renderToFile(
+      audioOnlyComposition(
+        6,
+        assets,
+        [{ id: "bed", asset: "music", start: 0, loop: true, volume: 0.3 }],
+        { targetLufs: -16 },
+      ),
+      loudOut,
+      opts,
+    );
+  }, 60_000);
+
+  afterAll(() => {
+    if (workDir) rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("loop produces continuous audio from `start` to the composition end", () => {
+    if (!haveBins) return;
+    const before = meanVolumeDb(loopOut, 0.1, 0.3); // [0.1,0.4]: before start → silent
+    // Windows in the 1st, 2nd, 3rd and 4th repetition of the ~1s source.
+    const windows = [0.7, 1.7, 2.7, 3.6].map((t) => meanVolumeDb(loopOut, t, 0.2));
+
+    expect(before).toBeLessThan(-60);
+    for (const w of windows) expect(w).toBeGreaterThan(-50);
+    // Each repetition is the same tone at the same level.
+    expect(Math.max(...windows) - Math.min(...windows)).toBeLessThan(3);
+
+    const probe = ffprobe(loopOut);
+    expect(Number(probe.format.duration)).toBeGreaterThan(3.9);
+  });
+
+  it("targetLufs normalises the mix to the target (two-pass loudnorm)", () => {
+    if (!haveBins) return;
+    expect(Math.abs(integratedLufs(loudOut) - -16)).toBeLessThan(1.5);
+  });
+});

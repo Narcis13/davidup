@@ -121,8 +121,9 @@ const SOURCE = z.enum(['ui', 'mcp']).default('ui')
 // `[start, end)` seconds on the composition timeline; `end` omitted ⇒ play to
 // the asset's natural duration. `trimIn` (R-11, Session 28) is the in-source
 // offset in seconds, independent of timeline placement. `volume` is a linear
-// gain in [0, 2]; `fadeIn` / `fadeOut` are ramp lengths in seconds. `id` is the
-// addressing key used by the S3 MCP tools; optional in hand-authored JSON.
+// gain in [0, 2]; `fadeIn` / `fadeOut` are ramp lengths in seconds. `loop`
+// (v1.1 S10) repeats the source until `end` (or the composition end). `id` is
+// the addressing key used by the S3 MCP tools; optional in hand-authored JSON.
 export const AudioTrackSchema = z
   .object({
     id: ID.optional(),
@@ -133,6 +134,7 @@ export const AudioTrackSchema = z
     volume: z.number().min(0).max(2).optional(),
     fadeIn: NON_NEG.optional(),
     fadeOut: NON_NEG.optional(),
+    loop: z.boolean().optional(),
   })
   .refine((t) => t.end === undefined || t.end > t.start, {
     message: 'Audio track `end` must be greater than `start`.',
@@ -194,9 +196,21 @@ export type VideoItem = z.infer<typeof VideoItemSchema>
 const setCompositionProperty = z.object({
   kind: z.literal('set_composition_property'),
   payload: z.object({
-    property: z.enum(['width', 'height', 'fps', 'duration', 'background']),
+    property: z.enum(['width', 'height', 'fps', 'duration', 'background', 'audioMaster']),
     // String covers `background` and a rational fps ("30000/1001", v1.1 S7).
-    value: z.union([z.number(), z.string()]),
+    // The object / null forms are `audioMaster` (v1.1 S10) — DUAL of the
+    // engine tool's value union; null resets it to the default.
+    value: z.union([
+      z.number(),
+      z.string(),
+      z
+        .object({
+          limiter: z.boolean().optional(),
+          targetLufs: z.number().min(-70).max(-5).optional(),
+        })
+        .strict(),
+      z.null(),
+    ]),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -507,6 +521,7 @@ const addAudioTrack = z.object({
     volume: z.number().min(0).max(2).optional(),
     fadeIn: NON_NEG.optional(),
     fadeOut: NON_NEG.optional(),
+    loop: z.boolean().optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),
@@ -526,6 +541,7 @@ const updateAudioTrack = z.object({
         volume: z.number().min(0).max(2),
         fadeIn: NON_NEG,
         fadeOut: NON_NEG,
+        loop: z.boolean(),
       })
       .partial(),
     compositionId: COMPOSITION_ID,
