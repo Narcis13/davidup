@@ -3,7 +3,9 @@
 //
 // Renders typed inputs for the currently selected item. The schema for the
 // item type drives which fields are visible: sprite shows asset/width/height/
-// tint, text shows text/font/fontSize/color/align, shape shows kind-specific
+// tint, text shows text/font/fontSize/color/align plus the text v2 layout and
+// paint fields (maxWidth, lineHeight, letterSpacing, weight/style, stroke,
+// shadow — v1.1 S14), shape shows kind-specific
 // geometry + colours, and every item type shows its 8 transform params.
 //
 // Each edit dispatches a single `update_item` command via `useCommandBus`.
@@ -44,6 +46,7 @@ import BooleanInput from '~/components/inputs/Boolean.vue'
 import PercentInput from '~/components/inputs/Percent.vue'
 import RawJsonInput from '~/components/inputs/RawJson.vue'
 import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
+import ShadowInput from '~/components/inputs/Shadow.vue'
 
 type ItemLike = {
   type: 'sprite' | 'text' | 'shape' | 'group' | 'video'
@@ -372,6 +375,7 @@ type FieldKind =
   | 'percent'
   | 'json'
   | 'asset'
+  | 'shadow'
 
 interface FieldDef {
   key: string
@@ -386,6 +390,10 @@ interface FieldDef {
   placeholder?: string
   /** Used with `kind: 'asset'` to filter the picker by asset type. */
   assetType?: 'image' | 'font' | 'audio' | 'video'
+  /** Stored value → what the input displays (default: unchanged). */
+  toInput?: (value: unknown) => unknown
+  /** Input's emitted value → `update_item` wire value (default: unchanged). */
+  toWire?: (value: unknown) => unknown
 }
 
 const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
@@ -438,6 +446,46 @@ const TEXT_FIELDS: ReadonlyArray<FieldDef> = [
     path: 'align',
     options: ['left', 'center', 'right'],
   },
+  // Text v2 (v1.1 S14). maxWidth 0 means "no wrap": it sends `null`, which
+  // drops the field and returns the item to point mode.
+  {
+    key: 'maxWidth',
+    label: 'maxWidth (0 = none)',
+    kind: 'number',
+    path: 'maxWidth',
+    min: 0,
+    step: 1,
+    toWire: (v) => (typeof v === 'number' && v <= 0 ? null : v),
+  },
+  {
+    key: 'lineHeight',
+    label: 'lineHeight (× size)',
+    kind: 'number',
+    path: 'lineHeight',
+    step: 0.05,
+    toInput: (v) => v ?? 1.2,
+  },
+  { key: 'letterSpacing', label: 'letterSpacing', kind: 'number', path: 'letterSpacing', step: 0.5 },
+  {
+    key: 'fontWeight',
+    label: 'fontWeight',
+    kind: 'enum',
+    path: 'fontWeight',
+    options: ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900'],
+    toInput: (v) => (v === undefined ? 'normal' : String(v)),
+    toWire: (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v),
+  },
+  {
+    key: 'fontStyle',
+    label: 'fontStyle',
+    kind: 'enum',
+    path: 'fontStyle',
+    options: ['normal', 'italic', 'oblique'],
+    toInput: (v) => v ?? 'normal',
+  },
+  { key: 'strokeColor', label: 'strokeColor', kind: 'color', path: 'strokeColor' },
+  { key: 'strokeWidth', label: 'strokeWidth', kind: 'number', path: 'strokeWidth', min: 0, step: 0.5 },
+  { key: 'shadow', label: 'shadow', kind: 'shadow', path: 'shadow' },
 ]
 
 const SHAPE_FIELDS: ReadonlyArray<FieldDef> = [
@@ -582,6 +630,11 @@ function resetVideoTrim(): void {
 }
 
 function valueFor(field: FieldDef): unknown {
+  const raw = rawValueFor(field)
+  return field.toInput ? field.toInput(raw) : raw
+}
+
+function rawValueFor(field: FieldDef): unknown {
   // UX_FINDINGS §7 — for an animated property, return the value that the
   // engine resolves at the current playhead (matches the painted frame),
   // not the authored base value. Single-select only: multi-select still
@@ -644,6 +697,10 @@ function sameValue(a: unknown, b: unknown): boolean {
   if (typeof a === 'number' && typeof b === 'number') {
     return Math.abs(a - b) < 1e-9
   }
+  // Compound values (text shadow) are small plain objects.
+  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+    return JSON.stringify(a) === JSON.stringify(b)
+  }
   return false
 }
 
@@ -659,6 +716,7 @@ const INPUT_FOR_KIND = {
   percent: PercentInput,
   json: RawJsonInput,
   asset: AssetPickerInput,
+  shadow: ShadowInput,
 } as const
 
 function inputFor(field: FieldDef) {
@@ -781,7 +839,7 @@ function dispatchEdit(field: FieldDef, raw: unknown): void {
   for (const id of targets) {
     emit('apply', {
       kind,
-      payload: { id, props: { [field.key]: raw } },
+      payload: { id, props: { [field.key]: field.toWire ? field.toWire(raw) : raw } },
       source: 'ui',
     } as Command)
   }
@@ -850,7 +908,8 @@ function openAddTweenPopover(field: FieldDef): void {
   if (!item) return
   const desc = getTweenable(item.type as ItemType, field.path)
   if (!desc) return
-  const current = readPath(item, field.path)
+  const stored = readPath(item, field.path)
+  const current = field.toInput ? field.toInput(stored) : stored
   // Sensible defaults: from = current value, to = current value (user nudges
   // it), start = current playhead clipped into the composition, duration =
   // min(1s, remaining time). Falls back to neutral colours/0 when the field

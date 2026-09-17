@@ -236,6 +236,37 @@ Why `opacity: 0` here? The first tween sets `from: 0`, so the *base* value
 is irrelevant to the final pixels — but explicit base values make the
 composition self-documenting and round-trip cleanly through `get_composition`.
 
+**Aside — a wrapped caption (text v2).** Not part of hello-world (text needs a
+`register_asset` font first), but this is how an agent flows copy into a box
+instead of hand-placing one item per line. `maxWidth` word-wraps and switches
+the item to box mode, so `anchorX`/`anchorY: 0.5` centre the *measured block*
+on `(x, y)`; `\n` forces a break.
+
+```jsonc
+// → add_text
+{
+  "layerId": "foreground",
+  "id": "caption",
+  "text": "Ship faster.\nBreak nothing, even when the copy runs long.",
+  "font": "font-display",
+  "fontSize": 48,
+  "color": "#ffffff",
+  "x": 640, "y": 600,
+  "anchorX": 0.5, "anchorY": 0.5,
+  "align": "center",
+  "maxWidth": 720,
+  "lineHeight": 1.25,
+  "fontWeight": "bold",
+  "strokeColor": "#0a0e27", "strokeWidth": 4,
+  "shadow": { "color": "#00000099", "blur": 12, "offsetY": 4 }
+}
+// ← { "itemId": "caption" }
+```
+
+`update_item` patches the same fields (`{ "maxWidth": null }` returns to point
+mode, `{ "shadow": null }` removes the shadow); `letterSpacing`, `lineHeight`
+and `strokeWidth` are tweenable with `add_tween`.
+
 ### 3.5 Add the three tweens
 
 ```jsonc

@@ -26,6 +26,11 @@ and cite the behavior/expansion version marker that moved
   fill, round joins), `shadow {color, blur?, offsetX?, offsetY?}` (cast by
   the fill). `\n` is a line break in both modes.
 - New tweenables on text: `letterSpacing`, `lineHeight`, `strokeWidth`.
+- MCP `add_text` / `update_item` accept every new text field; on
+  `update_item`, `maxWidth: null` returns to point mode and `shadow: null`
+  removes the shadow. The editor Inspector edits them (compound shadow
+  input), and `get_composition` / the editor's command round-trip no longer
+  drop them.
 - `Canvas2DContext` gains `measureText`, `strokeText`, `lineJoin`, the four
   shadow properties and an optional `letterSpacing`. Custom contexts must add
   them.

@@ -414,6 +414,19 @@ const COMPOSITION_ID = z
   .describe("Target composition id. Omit to use the default.");
 
 const HEX_COLOR = z.string().describe("Hex string (#rgb or #rrggbb) or rgba()");
+// Text v2 (v1.1 S13/S14) — mirrors TextItemSchema in src/schema/zod.ts.
+const FONT_WEIGHT = z
+  .union([z.enum(["normal", "bold"]), z.number().int().min(1).max(1000)])
+  .describe('"normal" | "bold" | 1..1000');
+const FONT_STYLE = z.enum(["normal", "italic", "oblique"]);
+const TEXT_SHADOW = z
+  .object({
+    color: HEX_COLOR,
+    blur: z.number().nonnegative().optional(),
+    offsetX: z.number().optional(),
+    offsetY: z.number().optional(),
+  })
+  .describe("Drop shadow cast by the fill. Offsets are canvas px, unaffected by rotation/scale.");
 const POINTS = z
   .array(z.tuple([z.number(), z.number()]))
   .describe("Polygon points as [[x,y], ...]");
@@ -869,7 +882,13 @@ const addText = defineTool({
     "Add a text item to a layer. `font` is the `id` of a font asset already registered via `register_asset` " +
     '(`type: "font"`) or present in the editor Library — NOT a CSS font-family name like "Arial" or "sans-serif". ' +
     "Call `list_fonts` first to see what's registered/available; if it comes back empty, its `hint` field explains " +
-    "how to register one. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the text's measured box (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
+    "how to register one. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. " +
+    "`text` may contain `\\n` line breaks. Layout has two modes: POINT mode (no `maxWidth`, anchor 0,0) puts the first line's " +
+    "baseline at (x, y) with lines aligned around x per `align`; BOX mode (`maxWidth` set, or any non-zero anchor) makes (x, y) the " +
+    "top-left of the text block, word-wraps at `maxWidth`, and `anchorX`/`anchorY` become fractions of the measured block " +
+    "(0.5/0.5 centres the block on x,y) acting as the pivot for rotation and scale. `lineHeight` is a multiple of fontSize " +
+    "(default 1.2); `letterSpacing` is extra px between glyphs; `strokeColor`/`strokeWidth` outline the glyphs over the fill; " +
+    "`shadow` casts a drop shadow. `letterSpacing`, `lineHeight` and `strokeWidth` are tweenable. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
   inputSchema: {
     layerId: z.string().min(1),
     text: z.string(),
@@ -881,6 +900,14 @@ const addText = defineTool({
     anchorX: z.number().optional(),
     anchorY: z.number().optional(),
     align: z.enum(["left", "center", "right"]).optional(),
+    maxWidth: z.number().positive().optional(),
+    lineHeight: z.number().positive().optional(),
+    letterSpacing: z.number().optional(),
+    fontWeight: FONT_WEIGHT.optional(),
+    fontStyle: FONT_STYLE.optional(),
+    strokeColor: HEX_COLOR.optional(),
+    strokeWidth: z.number().nonnegative().optional(),
+    shadow: TEXT_SHADOW.optional(),
     rotation: z.number().optional(),
     opacity: z.number().min(0).max(1).optional(),
     id: z.string().min(1).optional(),
@@ -900,6 +927,14 @@ const addText = defineTool({
         ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
         ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
         ...(args.align !== undefined ? { align: args.align } : {}),
+        ...(args.maxWidth !== undefined ? { maxWidth: args.maxWidth } : {}),
+        ...(args.lineHeight !== undefined ? { lineHeight: args.lineHeight } : {}),
+        ...(args.letterSpacing !== undefined ? { letterSpacing: args.letterSpacing } : {}),
+        ...(args.fontWeight !== undefined ? { fontWeight: args.fontWeight } : {}),
+        ...(args.fontStyle !== undefined ? { fontStyle: args.fontStyle } : {}),
+        ...(args.strokeColor !== undefined ? { strokeColor: args.strokeColor } : {}),
+        ...(args.strokeWidth !== undefined ? { strokeWidth: args.strokeWidth } : {}),
+        ...(args.shadow !== undefined ? { shadow: args.shadow } : {}),
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
@@ -1019,6 +1054,13 @@ const ITEM_PROP_SHAPE = z
     fontSize: z.number().positive(),
     color: z.string(),
     align: z.enum(["left", "center", "right"]),
+    // Text v2. `null` clears maxWidth (back to point mode) / removes shadow.
+    maxWidth: z.number().positive().nullable(),
+    lineHeight: z.number().positive(),
+    letterSpacing: z.number(),
+    fontWeight: FONT_WEIGHT,
+    fontStyle: FONT_STYLE,
+    shadow: TEXT_SHADOW.nullable(),
     fillColor: z.string(),
     strokeColor: z.string(),
     strokeWidth: z.number().nonnegative(),
@@ -1042,7 +1084,9 @@ const updateItem = defineTool({
   name: "update_item",
   title: "Update item",
   description:
-    "Patch an item's transform fields and/or type-specific properties. Unknown keys for the item type error.",
+    "Patch an item's transform fields and/or type-specific properties. Unknown keys for the item type error. " +
+    "Text items accept the text v2 fields (maxWidth, lineHeight, letterSpacing, fontWeight, fontStyle, strokeColor, " +
+    "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow.",
   inputSchema: {
     id: z.string().min(1),
     props: ITEM_PROP_SHAPE,

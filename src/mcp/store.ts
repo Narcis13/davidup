@@ -26,6 +26,7 @@ import type {
   ShapeItem,
   SpriteItem,
   TextItem,
+  TextShadow,
   Transform,
   Tween,
   VideoFit,
@@ -203,6 +204,15 @@ export interface AddTextInput {
   anchorX?: number;
   anchorY?: number;
   align?: "left" | "center" | "right";
+  // Text v2 (v1.1 S13/S14) — see TextItemSchema in src/schema/zod.ts.
+  maxWidth?: number;
+  lineHeight?: number;
+  letterSpacing?: number;
+  fontWeight?: TextItem["fontWeight"];
+  fontStyle?: TextItem["fontStyle"];
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadow?: TextShadow;
   rotation?: number;
   opacity?: number;
   id?: string;
@@ -266,7 +276,15 @@ export interface UpdateItemProps {
   fontSize?: number;
   color?: string;
   align?: "left" | "center" | "right";
-  // Shape-specific.
+  // Text v2 (v1.1 S14). `null` clears `maxWidth` (back to point mode) or
+  // removes the shadow; the other optional fields have neutral values.
+  maxWidth?: number | null;
+  lineHeight?: number;
+  letterSpacing?: number;
+  fontWeight?: TextItem["fontWeight"];
+  fontStyle?: TextItem["fontStyle"];
+  shadow?: TextShadow | null;
+  // Shape-specific (strokeColor/strokeWidth also apply to text).
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
@@ -863,6 +881,7 @@ export class CompositionStore {
       color: input.color,
       transform,
       ...(input.align !== undefined ? { align: input.align } : {}),
+      ...textV2Fields(input),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, text);
@@ -2394,6 +2413,7 @@ function cloneItem(item: Item): Item {
         color: item.color,
         transform: { ...item.transform },
         ...(item.align !== undefined ? { align: item.align } : {}),
+        ...textV2Fields(item),
         ...flags,
       };
     case "shape":
@@ -2438,6 +2458,39 @@ function cloneItem(item: Item): Item {
         ...flags,
       };
   }
+}
+
+// Optional text v2 fields, copied only when present so canonical JSON for a
+// v1.0-shaped text item stays byte-identical.
+function textV2Fields(src: {
+  maxWidth?: number | undefined;
+  lineHeight?: number | undefined;
+  letterSpacing?: number | undefined;
+  fontWeight?: TextItem["fontWeight"] | undefined;
+  fontStyle?: TextItem["fontStyle"] | undefined;
+  strokeColor?: string | undefined;
+  strokeWidth?: number | undefined;
+  shadow?: TextShadow | undefined;
+}): Partial<TextItem> {
+  return {
+    ...(src.maxWidth !== undefined ? { maxWidth: src.maxWidth } : {}),
+    ...(src.lineHeight !== undefined ? { lineHeight: src.lineHeight } : {}),
+    ...(src.letterSpacing !== undefined ? { letterSpacing: src.letterSpacing } : {}),
+    ...(src.fontWeight !== undefined ? { fontWeight: src.fontWeight } : {}),
+    ...(src.fontStyle !== undefined ? { fontStyle: src.fontStyle } : {}),
+    ...(src.strokeColor !== undefined ? { strokeColor: src.strokeColor } : {}),
+    ...(src.strokeWidth !== undefined ? { strokeWidth: src.strokeWidth } : {}),
+    ...(src.shadow !== undefined ? { shadow: cloneTextShadow(src.shadow) } : {}),
+  };
+}
+
+function cloneTextShadow(shadow: TextShadow): TextShadow {
+  return {
+    color: shadow.color,
+    ...(shadow.blur !== undefined ? { blur: shadow.blur } : {}),
+    ...(shadow.offsetX !== undefined ? { offsetX: shadow.offsetX } : {}),
+    ...(shadow.offsetY !== undefined ? { offsetY: shadow.offsetY } : {}),
+  };
 }
 
 function cloneTween(tween: Tween): Tween {
@@ -2542,12 +2595,34 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...flagPatch,
       };
       if (props.align !== undefined) next.align = props.align;
+      if (props.maxWidth !== undefined && props.maxWidth !== null)
+        ensurePositive("maxWidth", props.maxWidth);
+      if (props.lineHeight !== undefined) ensurePositive("lineHeight", props.lineHeight);
+      if (props.strokeWidth !== undefined) ensureNonNegative("strokeWidth", props.strokeWidth);
+      if (props.maxWidth === null) delete next.maxWidth;
+      else if (props.maxWidth !== undefined) next.maxWidth = props.maxWidth;
+      if (props.lineHeight !== undefined) next.lineHeight = props.lineHeight;
+      if (props.letterSpacing !== undefined) next.letterSpacing = props.letterSpacing;
+      if (props.fontWeight !== undefined) next.fontWeight = props.fontWeight;
+      if (props.fontStyle !== undefined) next.fontStyle = props.fontStyle;
+      if (props.strokeColor !== undefined) next.strokeColor = props.strokeColor;
+      if (props.strokeWidth !== undefined) next.strokeWidth = props.strokeWidth;
+      if (props.shadow === null) delete next.shadow;
+      else if (props.shadow !== undefined) next.shadow = cloneTextShadow(props.shadow);
       rejectKeys(props, item.type, [
         "text",
         "font",
         "fontSize",
         "color",
         "align",
+        "maxWidth",
+        "lineHeight",
+        "letterSpacing",
+        "fontWeight",
+        "fontStyle",
+        "strokeColor",
+        "strokeWidth",
+        "shadow",
         "x",
         "y",
         "scaleX",

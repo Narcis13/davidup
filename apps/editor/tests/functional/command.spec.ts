@@ -410,6 +410,109 @@ test.group('applyCommand · audio loop + master bus (v1.1 S10)', () => {
   })
 })
 
+test.group('applyCommand · text v2 fields (v1.1 S14)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  const V2 = {
+    maxWidth: 400,
+    lineHeight: 1.4,
+    letterSpacing: 2,
+    fontWeight: 700,
+    fontStyle: 'italic',
+    strokeColor: '#000000',
+    strokeWidth: 3,
+    shadow: { color: '#00000080', blur: 6, offsetX: 2, offsetY: 4 },
+  }
+
+  function compWithFont() {
+    const comp = cloneComp()
+    comp.assets = [{ id: 'f', type: 'font', src: 'f.ttf', family: 'F' }]
+    return comp
+  }
+
+  test('add_text keeps every text v2 field through the dual schema', async ({ assert }) => {
+    const next = await applyCommand(
+      compWithFont(),
+      parsed({
+        kind: 'add_text',
+        payload: {
+          layerId: 'fg',
+          id: 'title',
+          text: 'Ship faster.\nBreak nothing.',
+          font: 'f',
+          fontSize: 48,
+          color: '#ffffff',
+          x: 100,
+          y: 100,
+          ...V2,
+        },
+        source: 'ui',
+      })
+    )
+    const title = next.items.title as Record<string, unknown>
+    for (const [key, value] of Object.entries(V2)) {
+      assert.deepEqual(title[key], value, key)
+    }
+  })
+
+  test('update_item patches text v2 fields and survives rehydration', async ({ assert }) => {
+    const a = await applyCommand(
+      compWithFont(),
+      parsed({
+        kind: 'add_text',
+        payload: { layerId: 'fg', id: 't', text: 'hi', font: 'f', fontSize: 24, color: '#fff', x: 0, y: 0 },
+        source: 'ui',
+      })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({ kind: 'update_item', payload: { id: 't', props: V2 }, source: 'ui' })
+    )
+    // An unrelated command rehydrates the store from JSON — nothing is dropped.
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { x: 10 } }, source: 'ui' })
+    )
+    const t = c.items.t as Record<string, unknown>
+    for (const [key, value] of Object.entries(V2)) {
+      assert.deepEqual(t[key], value, key)
+    }
+  })
+
+  test('null clears maxWidth and shadow', async ({ assert }) => {
+    const a = await applyCommand(
+      compWithFont(),
+      parsed({
+        kind: 'add_text',
+        payload: { layerId: 'fg', id: 't', text: 'hi', font: 'f', fontSize: 24, color: '#fff', x: 0, y: 0, ...V2 },
+        source: 'ui',
+      })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'update_item',
+        payload: { id: 't', props: { maxWidth: null, shadow: null } },
+        source: 'ui',
+      })
+    )
+    const t = b.items.t as Record<string, unknown>
+    assert.notProperty(t, 'maxWidth')
+    assert.notProperty(t, 'shadow')
+    assert.equal(t.strokeWidth, 3)
+  })
+
+  test('dual schema rejects invalid text v2 values', async ({ assert }) => {
+    for (const props of [{ maxWidth: 0 }, { fontWeight: 1001 }, { fontStyle: 'slanted' }, { shadow: { blur: 1 } }]) {
+      assert.isFalse(
+        CommandSchema.safeParse({ kind: 'update_item', payload: { id: 't', props }, source: 'ui' })
+          .success,
+        JSON.stringify(props)
+      )
+    }
+  })
+})
+
 // ──────────────── CommandBus ────────────────
 
 test.group('CommandBus · in-process', (group) => {

@@ -35,6 +35,18 @@ const POSITIVE = z.number().positive()
 const POINTS = z.array(z.tuple([z.number(), z.number()]))
 const TWEEN_VALUE = z.union([z.number(), z.string()])
 
+// Text v2 (v1.1 S14). DUAL of engine TextItemSchema / add_text (src/schema/zod.ts,
+// src/mcp/tools.ts) — mirror any new text field here or the bus strips it.
+const FONT_WEIGHT = z.union([z.enum(['normal', 'bold']), z.number().int().min(1).max(1000)])
+const FONT_STYLE = z.enum(['normal', 'italic', 'oblique'])
+export const TextShadowSchema = z.object({
+  color: z.string(),
+  blur: NON_NEG.optional(),
+  offsetX: z.number().optional(),
+  offsetY: z.number().optional(),
+})
+export type TextShadow = z.infer<typeof TextShadowSchema>
+
 const TRANSFORM_INPUT = {
   anchorX: z.number().optional(),
   anchorY: z.number().optional(),
@@ -93,6 +105,13 @@ const ITEM_PROPS = z
     fontSize: POSITIVE,
     color: z.string(),
     align: z.enum(['left', 'center', 'right']),
+    // Text v2. `null` clears maxWidth (point mode) / removes the shadow.
+    maxWidth: POSITIVE.nullable(),
+    lineHeight: POSITIVE,
+    letterSpacing: z.number(),
+    fontWeight: FONT_WEIGHT,
+    fontStyle: FONT_STYLE,
+    shadow: TextShadowSchema.nullable(),
     fillColor: z.string(),
     strokeColor: z.string(),
     strokeWidth: NON_NEG,
@@ -323,6 +342,14 @@ const addText = z.object({
     anchorX: z.number().optional(),
     anchorY: z.number().optional(),
     align: z.enum(['left', 'center', 'right']).optional(),
+    maxWidth: POSITIVE.optional(),
+    lineHeight: POSITIVE.optional(),
+    letterSpacing: z.number().optional(),
+    fontWeight: FONT_WEIGHT.optional(),
+    fontStyle: FONT_STYLE.optional(),
+    strokeColor: z.string().optional(),
+    strokeWidth: NON_NEG.optional(),
+    shadow: TextShadowSchema.optional(),
     rotation: z.number().optional(),
     opacity: UNIT.optional(),
     id: ID.optional(),
