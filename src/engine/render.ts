@@ -47,7 +47,9 @@ import type {
   Canvas2DContext,
   OffscreenSurface,
   RenderOptions,
+  VideoClip,
   VideoFrameProvider,
+  VideoFrameRequest,
 } from "./types.js";
 
 // Subset of RenderOptions plumbed through the per-item draw functions. Built
@@ -84,6 +86,47 @@ export function renderFrame(
     time: t,
     ...(options.video !== undefined ? { video: options.video } : {}),
   });
+}
+
+/**
+ * Warm a video provider for the frame at composition time `t` (v1.1 S6).
+ *
+ * `renderFrame` draws synchronously, so a provider that keeps only a bounded
+ * window of decoded frames must be told which frames are about to be drawn
+ * and given the chance to decode them first. Mirrors `drawVideo`'s temporal
+ * math exactly (same `[start, end)` window, same `videoFrameIndex`), grouping
+ * the requests per clip so items sharing a clip are prepared together. A
+ * no-op for providers (or clips) without `prepare`.
+ */
+export async function prepareVideoFrames(
+  comp: Composition,
+  t: number,
+  provider: VideoFrameProvider | undefined,
+): Promise<void> {
+  if (provider === undefined) return;
+  const byClip = new Map<VideoClip, VideoFrameRequest[]>();
+  for (const [id, item] of Object.entries(comp.items)) {
+    if (item.type !== "video") continue;
+    if (t < item.start) continue;
+    if (item.end !== undefined && t >= item.end) continue;
+    const clip = provider.getClip(id);
+    if (!clip || clip.frameCount < 1 || clip.prepare === undefined) continue;
+    const frameIndex = videoFrameIndex(
+      t,
+      item.start,
+      comp.composition.fps,
+      clip.frameCount,
+      item.loop,
+    );
+    if (frameIndex === undefined) continue;
+    let list = byClip.get(clip);
+    if (!list) {
+      list = [];
+      byClip.set(clip, list);
+    }
+    list.push({ frameIndex, loop: item.loop });
+  }
+  await Promise.all([...byClip].map(([clip, reqs]) => clip.prepare!(reqs)));
 }
 
 // Optional video render context for `drawScene`. `time` is the composition

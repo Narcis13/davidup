@@ -30,12 +30,13 @@ import {
 } from "../../assets/index.js";
 import { precompile } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
-import { indexTweens, renderFrame } from "../../engine/index.js";
+import { indexTweens, prepareVideoFrames, renderFrame } from "../../engine/index.js";
 import type {
   Canvas2DContext,
   OffscreenSurface,
   VideoClip,
   VideoFrameProvider,
+  VideoFrameRequest,
 } from "../../engine/types.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
@@ -43,6 +44,7 @@ import { resolveFfmpeg, sweepOrphanTempVideos } from "./ffmpeg.js";
 import {
   compositionHasVideo,
   preExtractVideoFrames,
+  type FrameCacheEntry,
   type FrameExtractProgress,
   type PreExtractResult,
 } from "./videoExtract.js";
@@ -168,6 +170,11 @@ export interface PreExtractRenderOptions {
   maxBytes?: number;
   /** Per-frame progress for the extraction phase (distinct from `onProgress`). */
   onExtractProgress?: (info: FrameExtractProgress) => void;
+  /**
+   * Cap on decoded frames held in memory per clip while rendering (v1.1 S6).
+   * Default {@link DEFAULT_MAX_DECODED_FRAMES}.
+   */
+  maxDecodedFrames?: number;
 }
 
 export interface RenderToFileResult {
@@ -194,8 +201,8 @@ export async function renderToFile(
   await loader.preloadAll(compiled.assets);
 
   // Pre-extract phase (v0.2 §S7) + frame binding (§S8): materialise/refresh the
-  // cached PNG sequence for every distinct video clip, then decode those frames
-  // into a VideoFrameProvider the renderer draws from. Skipped entirely when the
+  // cached PNG sequence for every distinct video clip, then bind those frames
+  // to a VideoFrameProvider that decodes a bounded window ahead of the loop. Skipped entirely when the
   // composition has no video items (zero behaviour change for the pre-S5 path)
   // or when the caller opts out with `preExtract: false`.
   let videoProvider: VideoFrameProvider | undefined;
@@ -210,7 +217,11 @@ export async function renderToFile(
       ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
       ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
     });
-    videoProvider = await buildVideoFrameProvider(peResult, skia);
+    videoProvider = await buildVideoFrameProvider(peResult, skia, {
+      ...(pe.maxDecodedFrames !== undefined
+        ? { maxDecodedFrames: pe.maxDecodedFrames }
+        : {}),
+    });
   }
 
   const meta = compiled.composition;
@@ -277,6 +288,7 @@ export async function renderToFile(
     for (let i = 0; i < totalFrames; i++) {
       if (stdinErrored) throw stdinErrored;
       const t = i / meta.fps;
+      await prepareVideoFrames(compiled, t, videoProvider);
       ctx.clearRect(0, 0, meta.width, meta.height);
       renderFrame(compiled, t, ctx, {
         assets: loader,
@@ -399,40 +411,52 @@ export function frameCount(comp: Composition): number {
   return Math.max(1, Math.ceil(duration * fps));
 }
 
+/** Default cap on decoded frames resident per clip (v1.1 S6). */
+export const DEFAULT_MAX_DECODED_FRAMES = 64;
+/** Frames kept behind the current one (a re-render / small seek back is free). */
+const WINDOW_BEHIND = 2;
+/** Frames decoded ahead of the current one. */
+const WINDOW_AHEAD = 16;
+/** Parallel background decodes per clip. */
+const PREFETCH_CONCURRENCY = 4;
+
+export interface VideoFrameProviderOptions {
+  /**
+   * Upper bound on decoded frames held per clip (default
+   * {@link DEFAULT_MAX_DECODED_FRAMES}). Only exceeded when more items sharing
+   * one clip draw distinct frames at the same instant than this allows.
+   */
+  maxDecodedFrames?: number;
+}
+
 /**
  * Build the render-time {@link VideoFrameProvider} (v0.2 §S8) from a pre-extract
- * result: decode every cached PNG (`<dir>/00001.png`, …) via skia into memory
- * and map each composition video-item id to its {@link VideoClip}.
+ * result, mapping each composition video-item id to a {@link VideoClip} backed
+ * by the cached PNGs (`<dir>/00001.png`, …).
  *
- * Frames are decoded eagerly because the per-frame render loop draws
- * synchronously — `drawImage` needs an already-decoded image. Memory scales
- * with the total frame count across distinct clips; streaming / a bounded LRU
- * of decoded frames is a future optimisation (kept out of §S8 alongside
- * parallelization). Exported for unit testing with an injected skia fake.
+ * Decoding is a bounded sliding window (v1.1 S6), not eager: `renderFrame`
+ * draws synchronously, so callers await `prepareVideoFrames(comp, t, provider)`
+ * first. That decodes the requested frames, keeps `[current − 2, current + 16]`
+ * per clip (wrapping for looping items), evicts everything else and prefetches
+ * the read-ahead in the background with bounded concurrency. Residency is
+ * capped at `maxDecodedFrames` per clip; pixels are identical to eager decode.
+ * Exported for unit testing with an injected skia fake.
  */
 export async function buildVideoFrameProvider(
   result: PreExtractResult,
   skia: { loadImage: (src: string) => Promise<unknown> },
+  opts: VideoFrameProviderOptions = {},
 ): Promise<VideoFrameProvider> {
+  const maxDecoded = opts.maxDecodedFrames ?? DEFAULT_MAX_DECODED_FRAMES;
+  if (!Number.isInteger(maxDecoded) || maxDecoded < 1) {
+    throw new RangeError(
+      `maxDecodedFrames must be a positive integer (got ${String(maxDecoded)})`,
+    );
+  }
   const byItemId = new Map<string, VideoClip>();
   for (const entry of result.entries.values()) {
-    const frames: unknown[] = new Array(entry.frameCount);
-    for (let i = 1; i <= entry.frameCount; i++) {
-      const file = join(entry.dir, `${String(i).padStart(5, "0")}.png`);
-      frames[i - 1] = await skia.loadImage(file);
-    }
-    // `fit` needs the frame's true intrinsic size: prefer the decoded bitmap's
-    // own dimensions over the cache entry's (B-1).
-    const size = imageSize(frames[0]);
-    const clip: VideoClip = {
-      frameCount: entry.frameCount,
-      width: size?.width ?? entry.width,
-      height: size?.height ?? entry.height,
-      getFrame(frameIndex: number): unknown | undefined {
-        if (frameIndex < 1 || frameIndex > frames.length) return undefined;
-        return frames[frameIndex - 1];
-      },
-    };
+    const clip = new SlidingWindowClip(entry, skia.loadImage, maxDecoded);
+    await clip.init();
     for (const id of entry.itemIds) byItemId.set(id, clip);
   }
   return {
@@ -440,6 +464,149 @@ export async function buildVideoFrameProvider(
       return byItemId.get(itemId);
     },
   };
+}
+
+/**
+ * One cache entry's frames, decoded on demand into a bounded window. Exported
+ * (not part of the package surface) so tests can observe residency.
+ */
+export class SlidingWindowClip implements VideoClip {
+  readonly frameCount: number;
+  width: number;
+  height: number;
+
+  private readonly decoded = new Map<number, unknown>();
+  private readonly inflight = new Map<number, Promise<unknown>>();
+  /** Frames the current window wants resident, highest priority first. */
+  private wanted: number[] = [1];
+  private wantedSet = new Set<number>([1]);
+  private required = new Set<number>([1]);
+
+  constructor(
+    private readonly entry: FrameCacheEntry,
+    private readonly loadImage: (src: string) => Promise<unknown>,
+    private readonly maxDecoded: number,
+  ) {
+    this.frameCount = entry.frameCount;
+    this.width = entry.width;
+    this.height = entry.height;
+  }
+
+  /** Decode frame 1 up front: `fit` needs the true intrinsic size (B-1). */
+  async init(): Promise<void> {
+    if (this.frameCount < 1) return;
+    const size = imageSize(await this.load(1));
+    if (size) {
+      this.width = size.width;
+      this.height = size.height;
+    }
+  }
+
+  /** Number of decoded frames currently held (for tests / diagnostics). */
+  get residentFrames(): number {
+    return this.decoded.size;
+  }
+
+  getFrame(frameIndex: number): unknown | undefined {
+    return this.decoded.get(frameIndex);
+  }
+
+  async prepare(requests: ReadonlyArray<VideoFrameRequest>): Promise<void> {
+    const required: number[] = [];
+    for (const r of requests) {
+      const i = r.frameIndex;
+      if (Number.isInteger(i) && i >= 1 && i <= this.frameCount && !required.includes(i)) {
+        required.push(i);
+      }
+    }
+    if (required.length === 0) return;
+
+    // Priority: the frames drawn now, then read-ahead (nearest first,
+    // round-robin across requests), then the short look-behind. Truncated to
+    // the cap, but never below the required set.
+    const wanted = [...required];
+    const seen = new Set(required);
+    const push = (i: number | undefined): void => {
+      if (i === undefined || seen.has(i)) return;
+      seen.add(i);
+      wanted.push(i);
+    };
+    for (let k = 1; k <= WINDOW_AHEAD; k++) {
+      for (const r of requests) push(this.offset(r, k));
+    }
+    for (let k = 1; k <= WINDOW_BEHIND; k++) {
+      for (const r of requests) push(this.offset(r, -k));
+    }
+    this.wanted = wanted.slice(0, Math.max(required.length, this.maxDecoded));
+    this.wantedSet = new Set(this.wanted);
+    this.required = new Set(required);
+
+    for (const i of [...this.decoded.keys()]) {
+      if (!this.wantedSet.has(i)) this.decoded.delete(i);
+    }
+
+    await Promise.all(required.map((i) => this.load(i)));
+    this.pump();
+  }
+
+  /** Frame `k` steps from a request, wrapping for loops; undefined off the ends. */
+  private offset(r: VideoFrameRequest, k: number): number | undefined {
+    const i = r.frameIndex + k;
+    if (i >= 1 && i <= this.frameCount) return i;
+    if (!r.loop || k < 0) return undefined;
+    return ((i - 1) % this.frameCount) + 1;
+  }
+
+  private load(i: number): Promise<unknown> {
+    const have = this.decoded.get(i);
+    if (have !== undefined) return Promise.resolve(have);
+    const pending = this.inflight.get(i);
+    if (pending) return pending;
+    const file = join(this.entry.dir, `${String(i).padStart(5, "0")}.png`);
+    const p = this.loadImage(file).then(
+      (image) => {
+        this.inflight.delete(i);
+        this.store(i, image);
+        return image;
+      },
+      (err: unknown) => {
+        this.inflight.delete(i);
+        throw err;
+      },
+    );
+    this.inflight.set(i, p);
+    return p;
+  }
+
+  private store(i: number, image: unknown): void {
+    // A read-ahead that landed after the window moved on is dropped.
+    if (!this.wantedSet.has(i)) return;
+    if (this.decoded.size >= this.maxDecoded) {
+      // Make room by dropping the lowest-priority non-required frame; if every
+      // resident frame is required, only a required frame may overflow.
+      const victim = [...this.decoded.keys()]
+        .filter((j) => !this.required.has(j))
+        .sort((a, b) => this.wanted.indexOf(b) - this.wanted.indexOf(a))[0];
+      if (victim !== undefined) this.decoded.delete(victim);
+      else if (!this.required.has(i)) return;
+    }
+    this.decoded.set(i, image);
+  }
+
+  /** Start background decodes of the read-ahead, bounded by concurrency + cap. */
+  private pump(): void {
+    for (const i of this.wanted) {
+      if (this.inflight.size >= PREFETCH_CONCURRENCY) return;
+      if (this.decoded.size + this.inflight.size >= this.maxDecoded) return;
+      if (this.decoded.has(i) || this.inflight.has(i)) continue;
+      // Prefetch failures are silent: the frame is retried (and its error
+      // surfaced) if it is ever actually required.
+      this.load(i).then(
+        () => this.pump(),
+        () => undefined,
+      );
+    }
+  }
 }
 
 function imageSize(image: unknown): { width: number; height: number } | undefined {

@@ -8,6 +8,7 @@ export type {
   SourceMap,
   VideoClip,
   VideoFrameProvider,
+  VideoFrameRequest,
 } from "./types.js";
 export {
   computeStateAt,
@@ -20,6 +21,7 @@ export {
   computeFitRects,
   drawItem,
   drawScene,
+  prepareVideoFrames,
   renderFrame,
   videoFrameIndex,
   type FitRects,

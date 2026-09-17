@@ -86,6 +86,22 @@ export interface VideoClip {
    * whatever the host's `drawImage` accepts (skia Image, HTMLImageElement).
    */
   getFrame(frameIndex: number): unknown | undefined;
+  /**
+   * Optional async warm-up (v1.1 S6). Providers that keep only a bounded
+   * window of decoded frames resident implement this; the host awaits it (via
+   * `prepareVideoFrames`) before each synchronous `renderFrame`, after which
+   * `getFrame` must return every requested index. Providers that hold all
+   * frames (or none, like a best-effort browser cache) omit it.
+   */
+  prepare?(requests: ReadonlyArray<VideoFrameRequest>): Promise<void>;
+}
+
+/** One frame a video item will draw at the upcoming render time. */
+export interface VideoFrameRequest {
+  /** 1-based frame index, as passed to {@link VideoClip.getFrame}. */
+  frameIndex: number;
+  /** The requesting item loops — read-ahead wraps past the last frame. */
+  loop: boolean;
 }
 
 // Resolves the backing {@link VideoClip} for a video item by its composition

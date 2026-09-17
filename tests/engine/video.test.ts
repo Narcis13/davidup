@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeFitRects,
+  prepareVideoFrames,
   renderFrame,
   videoFrameIndex,
   type AssetRegistry,
@@ -22,7 +23,11 @@ import type {
   Tween,
   VideoItem,
 } from "../../src/schema/types.js";
-import type { VideoFrameProvider } from "../../src/engine/types.js";
+import type {
+  VideoClip,
+  VideoFrameProvider,
+  VideoFrameRequest,
+} from "../../src/engine/types.js";
 import { FakeContext } from "./fakeContext.js";
 
 // ─────────────────────────────── helpers ───────────────────────────────────
@@ -461,5 +466,56 @@ describe("renderFrame — video + sprite + text compose correctly", () => {
     });
     // t=0→1, mid→6, end-1→10, freeze→10.
     expect(frames).toEqual([1, 6, 10, 10]);
+  });
+});
+
+describe("prepareVideoFrames (v1.1 S6)", () => {
+  function recordingClip(frameCount: number) {
+    const calls: VideoFrameRequest[][] = [];
+    const clip: VideoClip = {
+      frameCount,
+      width: 10,
+      height: 10,
+      getFrame: () => undefined,
+      prepare: async (reqs) => {
+        calls.push([...reqs]);
+      },
+    };
+    return { clip, calls };
+  }
+
+  it("requests the frame drawVideo will draw, grouped per clip, only inside [start, end)", async () => {
+    const { clip, calls } = recordingClip(5);
+    const provider: VideoFrameProvider = { getClip: () => clip };
+    const comp = compWith(
+      {
+        a: videoItem({ start: 0 }),
+        b: videoItem({ start: 1, loop: true }),
+        c: videoItem({ start: 2.5 }), // not started yet at t=2
+        d: videoItem({ start: 0, end: 1 }), // already ended at t=2
+      },
+      [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["a", "b", "c", "d"] }],
+    );
+
+    await prepareVideoFrames(comp, 2, provider);
+
+    expect(calls).toEqual([
+      [
+        { frameIndex: 5, loop: false }, // localFrame 20 → freeze on 5
+        { frameIndex: 1, loop: true }, // localFrame 10 → wraps to 1
+      ],
+    ]);
+  });
+
+  it("is a no-op without a provider or for clips lacking prepare", async () => {
+    const comp = compWith(
+      { a: videoItem() },
+      [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["a"] }],
+    );
+    await expect(prepareVideoFrames(comp, 0, undefined)).resolves.toBeUndefined();
+    const plain: VideoClip = { frameCount: 1, width: 1, height: 1, getFrame: () => undefined };
+    await expect(
+      prepareVideoFrames(comp, 0, { getClip: () => plain }),
+    ).resolves.toBeUndefined();
   });
 });

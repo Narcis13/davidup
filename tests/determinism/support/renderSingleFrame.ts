@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { NodeAssetLoader, type SkiaCanvasModule } from "../../../src/assets/index.js";
 import { precompile } from "../../../src/compose/index.js";
 import type { ReadFile } from "../../../src/compose/imports.js";
-import { indexTweens, renderFrame } from "../../../src/engine/index.js";
+import { indexTweens, prepareVideoFrames, renderFrame } from "../../../src/engine/index.js";
 import type { OffscreenSurface, VideoFrameProvider } from "../../../src/engine/types.js";
 import {
   buildVideoFrameProvider,
@@ -88,6 +88,7 @@ export async function renderFractionalFrames(
       Math.max(0, Math.round(frac * (totalFrames - 1))),
     );
     const t = idx / meta.fps;
+    await prepareVideoFrames(compiled, t, videoProvider);
     ctx.clearRect(0, 0, meta.width, meta.height);
     renderFrame(compiled, t, ctx, {
       assets: loader,

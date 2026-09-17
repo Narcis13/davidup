@@ -7,6 +7,17 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Bounded-memory video frame decoding
+
+- Video frames are no longer all decoded into memory before a render. The node
+  driver keeps a sliding window per clip (2 behind, 16 ahead of the playhead,
+  wrapping for `loop`), prefetches the read-ahead in the background and caps
+  residency at `preExtract.maxDecodedFrames` (default 64 per clip). Output is
+  byte-identical; a 10 s 1080p30 full-frame clip peaked at 261 MB RSS vs 399 MB.
+- API: `VideoClip` gains an optional async `prepare()`; hosts that draw with a
+  windowed provider await the new `prepareVideoFrames(comp, t, provider)`
+  before each `renderFrame` (`renderToFile` and the MCP preview tools do).
+
 ### Even composition dimensions are validated (B-2)
 
 - `validate` reports **`E_DIMENSION_ODD`** for an odd composition `width` or

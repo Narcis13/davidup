@@ -20,7 +20,7 @@ import {
   preExtractVideoFrames,
   type FfmpegSpawn,
 } from "../drivers/node/index.js";
-import { indexTweens, renderFrame } from "../engine/index.js";
+import { indexTweens, prepareVideoFrames, renderFrame } from "../engine/index.js";
 import type { Canvas2DContext, VideoFrameProvider } from "../engine/types.js";
 import type { Asset, Composition } from "../schema/types.js";
 import { MCPToolError } from "./errors.js";
@@ -120,6 +120,7 @@ export async function renderPreviewFrame(
   const meta = comp.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
   const ctx = canvas.getContext("2d");
+  await prepareVideoFrames(comp, time, video);
   ctx.clearRect(0, 0, meta.width, meta.height);
   renderFrame(comp, time, ctx, {
     assets: loader,
@@ -174,6 +175,7 @@ export async function renderThumbnailStrip(
   const times = sampleTimes(meta.duration, options.count);
   const images: string[] = [];
   for (const t of times) {
+    await prepareVideoFrames(comp, t, video);
     ctx.clearRect(0, 0, meta.width, meta.height);
     renderFrame(comp, t, ctx, {
       assets: loader,
