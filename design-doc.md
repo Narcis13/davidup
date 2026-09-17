@@ -187,6 +187,15 @@ Engine programatic 2D pentru compoziții video deterministe, generabile de agen�
   fontSize: number,    // px
   color: string,       // hex or rgba()
   align?: "left" | "center" | "right",  // default "left"
+  // v1.1 (Text v2, src/engine/textLayout.ts):
+  maxWidth?: number,       // word-wrap width px; also selects box mode
+  lineHeight?: number,     // × fontSize, default 1.2
+  letterSpacing?: number,  // px
+  fontWeight?: "normal" | "bold" | number,  // 1..1000
+  fontStyle?: "normal" | "italic" | "oblique",
+  strokeColor?: string,
+  strokeWidth?: number,
+  shadow?: { color: string, blur?: number, offsetX?: number, offsetY?: number },
   transform: Transform
 }
 ```
@@ -276,7 +285,7 @@ Sintaxa `property` folosește dot-path. Lista actuală suportată:
 | `transform.opacity` | toate | numeric, clamp [0,1] |
 | `transform.anchorX`, `transform.anchorY` | toate | numeric |
 | `width`, `height` | sprite, shape, video | numeric |
-| `fontSize` | text | numeric |
+| `fontSize`, `letterSpacing`, `lineHeight`, `strokeWidth` | text | numeric |
 | `color`, `fillColor`, `strokeColor`, `tint` | text/shape/sprite | RGB lerp |
 
 ### 3.4 Easings suportate (v0.1)

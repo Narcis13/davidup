@@ -159,6 +159,7 @@ const NON_NEGATIVE_PROPS: ReadonlySet<string> = new Set([
   "width",
   "height",
   "fontSize",
+  "lineHeight",
   "strokeWidth",
   "cornerRadius",
 ]);

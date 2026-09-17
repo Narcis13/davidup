@@ -33,7 +33,7 @@ export function buildParityComposition(fontSrc: string): Composition {
     ],
     layers: [
       { id: "back", z: 0, opacity: 1, blendMode: "normal", items: ["panel"] },
-      { id: "fore", z: 1, opacity: 1, blendMode: "normal", items: ["badge", "label"] },
+      { id: "fore", z: 1, opacity: 1, blendMode: "normal", items: ["badge", "label", "wrapped"] },
     ],
     items: {
       panel: {
@@ -86,6 +86,33 @@ export function buildParityComposition(fontSrc: string): Composition {
           rotation: 0,
           anchorX: 0,
           anchorY: 0,
+          opacity: 1,
+        },
+      },
+      // Text v2 (v1.1 S13): box mode — word-wrapped, centred, anchored on
+      // its measured block, with stroke and shadow. The wrap width leaves
+      // slack on both lines so small metric differences between the two
+      // Skia embeddings don't move a break.
+      wrapped: {
+        type: "text",
+        text: "SHIP FAST BREAK NOTHING",
+        font: PARITY_FONT_FAMILY,
+        fontSize: 20,
+        color: "#ffd166",
+        align: "center",
+        maxWidth: 110,
+        lineHeight: 1.1,
+        strokeColor: "#1b2a4a",
+        strokeWidth: 2,
+        shadow: { color: "rgba(0, 0, 0, 0.6)", blur: 3, offsetX: 1, offsetY: 2 },
+        transform: {
+          x: 180,
+          y: 70,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 1,
         },
       },

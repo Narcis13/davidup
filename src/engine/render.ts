@@ -52,6 +52,13 @@ import type {
   VideoFrameProvider,
   VideoFrameRequest,
 } from "./types.js";
+import {
+  DEFAULT_LINE_HEIGHT,
+  isBoxText,
+  layoutText,
+  textFontString,
+  type TextLayout,
+} from "./textLayout.js";
 
 // Subset of RenderOptions plumbed through the per-item draw functions. Built
 // once per renderFrame call so we don't reach back into the public options
@@ -201,6 +208,14 @@ export function drawItem(
   // in the module header for why that's an intentional v1.0 trade-off.
   ctx.globalAlpha = ctx.globalAlpha * tr.opacity;
 
+  if (item.type === "text") {
+    // Text measures its own anchor box, which needs the font on the context
+    // first — so it handles the anchor translate itself.
+    drawText(ctx, item, assets);
+    ctx.restore();
+    return;
+  }
+
   const w = anchorWidth(item);
   const h = anchorHeight(item);
   if (w !== 0 || h !== 0) {
@@ -210,9 +225,6 @@ export function drawItem(
   switch (item.type) {
     case "sprite":
       drawSprite(ctx, item, dc);
-      break;
-    case "text":
-      drawText(ctx, item, assets);
       break;
     case "shape":
       drawShape(ctx, item);
@@ -496,17 +508,74 @@ export function computeFitRects(
   }
 }
 
+// Text (v1.1 S13): layout lives in textLayout.ts. Fill carries the shadow;
+// the stroke is painted over the fill without one (SVG's default paint order),
+// so neither pass double-draws the glyphs — a fading item keeps its alpha.
 function drawText(
   ctx: Canvas2DContext,
   item: TextItem,
   assets: AssetRegistry | undefined,
 ): void {
   const family = assets?.getFontFamily(item.font) ?? item.font;
-  ctx.font = `${item.fontSize}px "${family}"`;
-  ctx.textAlign = item.align ?? "left";
-  ctx.textBaseline = "alphabetic";
+  const layout = applyTextStyle(ctx, item, family);
+  const tr = item.transform;
+  if (layout.mode === "box") {
+    ctx.translate(-tr.anchorX * layout.blockWidth, -tr.anchorY * layout.blockHeight);
+  }
   ctx.fillStyle = item.color;
-  ctx.fillText(item.text, 0, 0);
+
+  const shadow = item.shadow;
+  if (shadow !== undefined) {
+    ctx.shadowColor = shadow.color;
+    ctx.shadowBlur = shadow.blur ?? 0;
+    ctx.shadowOffsetX = shadow.offsetX ?? 0;
+    ctx.shadowOffsetY = shadow.offsetY ?? 0;
+  }
+  for (const line of layout.lines) ctx.fillText(line.text, line.x, line.y);
+
+  const sw = item.strokeWidth ?? 0;
+  if (item.strokeColor !== undefined && sw > 0) {
+    if (shadow !== undefined) {
+      ctx.shadowColor = "rgba(0, 0, 0, 0)";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+    ctx.strokeStyle = item.strokeColor;
+    ctx.lineWidth = sw;
+    ctx.lineJoin = "round";
+    for (const line of layout.lines) ctx.strokeText(line.text, line.x, line.y);
+  }
+}
+
+/**
+ * Set font, alignment, baseline and letter spacing for `item` on `ctx`, then
+ * lay the text out with that context's metrics. Shared with the browser
+ * driver's pick buffer so hit areas match the rendered glyphs.
+ */
+export function applyTextStyle(
+  ctx: Canvas2DContext,
+  item: TextItem,
+  family: string,
+): TextLayout {
+  ctx.font = textFontString(item, family);
+  ctx.textBaseline = "alphabetic";
+  if (item.letterSpacing !== undefined && "letterSpacing" in ctx) {
+    ctx.letterSpacing = `${item.letterSpacing}px`;
+  }
+  const box = isBoxText(item);
+  ctx.textAlign = box ? "left" : (item.align ?? "left");
+  // A lone point-mode line needs no measurement (the v1.0 fast path); its
+  // width and blockWidth are reported as 0, i.e. unmeasured.
+  if (!box && !item.text.includes("\n")) {
+    return {
+      mode: "point",
+      lines: [{ text: item.text, x: 0, y: 0, width: 0 }],
+      blockWidth: 0,
+      blockHeight: (item.lineHeight ?? DEFAULT_LINE_HEIGHT) * item.fontSize,
+    };
+  }
+  return layoutText(item, (t) => ctx.measureText(t).width);
 }
 
 function drawShape(ctx: Canvas2DContext, item: ShapeItem): void {

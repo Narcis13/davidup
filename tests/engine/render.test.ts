@@ -576,6 +576,110 @@ describe("drawItem — text", () => {
   });
 });
 
+describe("drawItem — text v2", () => {
+  function v2(overrides: Partial<TextItem> = {}, anchor: [number, number] = [0, 0]): TextItem {
+    return {
+      type: "text",
+      text: "Hi",
+      font: "inter",
+      fontSize: 20,
+      color: "#ffffff",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: anchor[0],
+        anchorY: anchor[1],
+        opacity: 0.5,
+      },
+      ...overrides,
+    };
+  }
+  function draw(item: TextItem): FakeContext {
+    const ctx = new FakeContext();
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { t: item },
+    };
+    drawItem(ctx, item, scene, stubAssets);
+    return ctx;
+  }
+  const fills = (ctx: FakeContext) =>
+    ctx.calls.flatMap((c) => (c.op === "fillText" ? [c] : []));
+
+  it("legacy single line: one fillText at the origin, no translate for the anchor", () => {
+    const ctx = draw(v2({ align: "center" }));
+    expect(ctx.calls.filter((c) => c.op === "translate")).toHaveLength(1);
+    const [ft] = fills(ctx);
+    expect([ft!.x, ft!.y, ft!.textAlign, ft!.font]).toEqual([0, 0, "center", '20px "Inter"']);
+  });
+
+  it("point mode draws one fillText per line break", () => {
+    const ctx = draw(v2({ text: "a\nbb\nccc", lineHeight: 1.5 }));
+    expect(fills(ctx).map((c) => [c.text, c.y])).toEqual([
+      ["a", 0],
+      ["bb", 30],
+      ["ccc", 60],
+    ]);
+  });
+
+  it("box mode wraps, aligns explicitly and translates by the measured anchor box", () => {
+    const ctx = draw(v2({ text: "aa bb cc", maxWidth: 60, align: "center" }, [0.5, 1]));
+    // 2 lines × 24 = 48 tall, 60 wide (FakeContext: 10px per code point).
+    const translates = ctx.calls.filter((c) => c.op === "translate");
+    expect(translates.at(-1)).toEqual({ op: "translate", x: -30, y: -48 });
+    expect(fills(ctx).map((c) => [c.text, c.x, c.y, c.textAlign])).toEqual([
+      ["aa bb", 5, 16, "left"],
+      ["cc", 20, 40, "left"],
+    ]);
+  });
+
+  it("applies weight, style and letterSpacing", () => {
+    const [ft] = fills(draw(v2({ fontWeight: "bold", fontStyle: "italic", letterSpacing: 2 })));
+    expect(ft!.font).toBe('italic bold 20px "Inter"');
+    expect(ft!.letterSpacing).toBe("2px");
+  });
+
+  it("fill carries the shadow; the stroke draws over it without one, at the same alpha", () => {
+    const ctx = draw(
+      v2({
+        strokeColor: "#000000",
+        strokeWidth: 3,
+        shadow: { color: "rgba(0,0,0,0.5)", blur: 6, offsetX: 2, offsetY: 4 },
+      }),
+    );
+    const ops = ctx.calls.map((c) => c.op).filter((o) => o.endsWith("Text"));
+    expect(ops).toEqual(["fillText", "strokeText"]);
+    const [ft] = fills(ctx);
+    expect([ft!.shadowColor, ft!.shadowBlur, ft!.shadowOffsetX, ft!.shadowOffsetY]).toEqual([
+      "rgba(0,0,0,0.5)",
+      6,
+      2,
+      4,
+    ]);
+    const st = ctx.calls.find((c) => c.op === "strokeText");
+    if (st?.op !== "strokeText") throw new Error("no strokeText");
+    expect([st.strokeStyle, st.lineWidth, st.lineJoin, st.shadowColor, st.alpha]).toEqual([
+      "#000000",
+      3,
+      "round",
+      "rgba(0, 0, 0, 0)",
+      0.5,
+    ]);
+    expect(ft!.alpha).toBe(0.5);
+  });
+
+  it("skips the stroke when strokeWidth is 0 or absent", () => {
+    expect(draw(v2({ strokeColor: "#000" })).calls.some((c) => c.op === "strokeText")).toBe(false);
+    expect(
+      draw(v2({ strokeColor: "#000", strokeWidth: 0 })).calls.some((c) => c.op === "strokeText"),
+    ).toBe(false);
+  });
+});
+
 describe("drawItem — shape", () => {
   it("draws a rect via beginPath/rect/fill when no cornerRadius", () => {
     const ctx = new FakeContext();

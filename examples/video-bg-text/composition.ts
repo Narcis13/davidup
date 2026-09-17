@@ -89,8 +89,11 @@ export function buildVideoBgTextComposition(): Composition {
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0.5,
-          anchorY: 0.5,
+          // Anchor (0, 0): `align: "center"` centres the caption on x and
+          // its baseline sits on y. (Before Text v2 anchors did nothing on
+          // text; this example used to carry an inert 0.5/0.5.)
+          anchorX: 0,
+          anchorY: 0,
           opacity: 0,
         },
       },

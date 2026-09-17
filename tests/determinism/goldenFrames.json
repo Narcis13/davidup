@@ -64,6 +64,40 @@
           "fecc4248aa7f102143cfef12004026c38396ccdb6d3e0eca9acc48c4f43d12de"
         ]
       }
+    },
+    "darwin-x64": {
+      "examples": {
+        "shapes-tweens": [
+          "d443f1c8672e9947cdda09e1226b04fba7f320302d217b0c50ec9d3bbe4ac764",
+          "340072f28407ad2fd0c51a768d2c34d377e48713690192adbc98af2b9cdd1aba",
+          "ed8b6a49e6e0b78bb5999fb84d6370cb907593b5701d732f8a48b19d54c05101"
+        ],
+        "comprehensive": [
+          "6088a53dc657c18b52f5d48b5f5625b84c13fd25225fca175b9ba13929d77b2d",
+          "f9c4a0c27033f009fad992d4f3e2e80a308437fe06f9f33bd4e3a2795597f0df",
+          "2f786c4a5be6944a3caead0c00001a79ddb024998217654ea05113ca1d88d307"
+        ],
+        "video-pip": [
+          "9fa6fc62b67a22eddd6437408fb3b2b7e4e7cb8b56aa23ba6df5046812048cf5",
+          "e8aeccf92bc6793b12eb3ee2a7bdca6346ff356acc6b91dec11bc9c5dd6c884f",
+          "4e1f39ad1e57c7c6b5d682628a48e2a9e5e6bab3d5bd2b628e2489eabcd1f18f"
+        ],
+        "video-bg-text": [
+          "24a392c737713f6f27e0095d1d97fcda1927a9bf37a565da08f014bb3ec1a72e",
+          "4d272bd42c2d54564b8b190ea5c0b2a97505461d3f496b4bc422bf6026d24a68",
+          "4d272bd42c2d54564b8b190ea5c0b2a97505461d3f496b4bc422bf6026d24a68"
+        ],
+        "video-freeze-trim": [
+          "a8dcc70e73d365a4a607ba45316369ff95fc498dffdae5d49e1e624b2df81166",
+          "a8dcc70e73d365a4a607ba45316369ff95fc498dffdae5d49e1e624b2df81166",
+          "a8dcc70e73d365a4a607ba45316369ff95fc498dffdae5d49e1e624b2df81166"
+        ],
+        "text-v2": [
+          "78cd3355134db10118fc7575a5559d7fb7f293db5e66ceb00b91b07f22757856",
+          "3cf40aa5f57166cb37603accd232707a383ff5b618703b9ea2cdcaa0ca886283",
+          "fa6b769df9dc4619d2537a9eaf8fa803f1ca0c5b2d43804d54b83c05eb9efeeb"
+        ]
+      }
     }
   }
 }

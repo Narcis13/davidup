@@ -241,6 +241,28 @@ export const SpriteItemSchema = z.object({
   ...ItemFlagsSchema,
 });
 
+// Drop shadow cast by a text item's fill (v1.1 S13). Offsets are in canvas
+// pixels and, per Canvas2D, are not affected by the item's rotation/scale.
+export const TextShadowSchema = z.object({
+  color: z.string(),
+  blur: z.number().nonnegative().optional(),
+  offsetX: z.number().optional(),
+  offsetY: z.number().optional(),
+});
+
+// Text v2 (v1.1 S13, TEXT_V2_DESIGN.md). Every field after `align` is
+// optional; see src/engine/textLayout.ts for the layout model:
+//   - point mode (no `maxWidth`, anchor 0,0): first baseline at the origin,
+//     lines aligned around x — a single line draws exactly as in v1.0.
+//   - box mode (`maxWidth` set, or a non-zero anchor): origin is the top-left
+//     of the text block, anchors pivot on its measured extent.
+//   maxWidth      — word-wrap width in px (a word wider than it overflows)
+//   lineHeight    — line advance as a multiple of fontSize (default 1.2)
+//   letterSpacing — extra px between glyphs (may be negative)
+//   fontWeight    — CSS weight keyword or 1..1000
+//   fontStyle     — CSS font-style
+//   strokeColor / strokeWidth — outline drawn over the fill
+//   shadow        — drop shadow cast by the fill
 export const TextItemSchema = z.object({
   type: z.literal("text"),
   text: z.string(),
@@ -248,6 +270,16 @@ export const TextItemSchema = z.object({
   fontSize: z.number().positive(),
   color: z.string(),
   align: z.enum(["left", "center", "right"]).optional(),
+  maxWidth: z.number().positive().optional(),
+  lineHeight: z.number().positive().optional(),
+  letterSpacing: z.number().optional(),
+  fontWeight: z
+    .union([z.enum(["normal", "bold"]), z.number().int().min(1).max(1000)])
+    .optional(),
+  fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
+  strokeColor: z.string().optional(),
+  strokeWidth: z.number().nonnegative().optional(),
+  shadow: TextShadowSchema.optional(),
   transform: TransformSchema,
   ...ItemFlagsSchema,
 });

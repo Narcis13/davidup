@@ -1,8 +1,13 @@
 # Text v2 — multiline, wrapping, measured extents, stagger reveal
 
-**Status:** design only — v1.1 candidate (`DAVIDUP_V1_REVIEW.md` §6 item 22,
-`v1_implementation_plan.md` Session 30). **No schema or engine code changes
-land with this document.**
+**Status:** engine half implemented in v1.1 Session 13
+(`src/engine/textLayout.ts`), with these differences from the text below:
+the wrap width is `maxWidth` (not `width`) and wraps at words only (no
+`wrap`/`maxLines`); box mode also switches on for any non-zero anchor, not
+only when a width is set; `letterSpacing`, `fontWeight`/`fontStyle`,
+stroke and shadow landed (§2 deferred letter-spacing); `lineHeight`,
+`letterSpacing` and `strokeWidth` are tweenable. Stagger reveal (§6),
+`measure_text` (§8) and the lint codes (§9) are not implemented yet.
 
 **Companion doc:** `REPEAT_EXPRESSIONS_DESIGN.md` (§6 item 23). The two are
 independent — Text v2 deliberately does *not* depend on `$repeat` or

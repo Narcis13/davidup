@@ -23,6 +23,7 @@ export {
   ShapeItemSchema,
   SpriteItemSchema,
   TextItemSchema,
+  TextShadowSchema,
   TransformSchema,
   TweenSchema,
   VIDEO_FIT_MODES,

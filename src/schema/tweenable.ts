@@ -32,6 +32,9 @@ const TEXT_PROPS: PropertyDescriptor[] = [
   ...COMMON_TRANSFORM,
   { path: "fontSize", kind: "number" },
   { path: "color", kind: "color" },
+  { path: "letterSpacing", kind: "number" },
+  { path: "lineHeight", kind: "number" },
+  { path: "strokeWidth", kind: "number" },
 ];
 
 const SHAPE_PROPS: PropertyDescriptor[] = [

@@ -3,9 +3,44 @@
 Entries that change existing render output are marked **⚠ pixel-changing**
 and cite the behavior/expansion version marker that moved
 (`BEHAVIOR_EXPANSION_VERSION` in `src/compose/behaviors.ts`,
-`SCENE_EXPANSION_VERSION` in `src/compose/scenes.ts`).
+`SCENE_EXPANSION_VERSION` in `src/compose/scenes.ts`,
+`TEXT_LAYOUT_VERSION` in `src/engine/textLayout.ts`).
 
 ## Unreleased
+
+### Text v2: wrapping, multiline, anchors on text, stroke, shadow ⚠ pixel-changing
+
+- **BREAKING (`TEXT_LAYOUT_VERSION` 1 → 2):** anchors now act on text. A text
+  item with a non-zero `anchorX`/`anchorY` switches to box mode: `(x, y)` is
+  the top-left of the text block (first baseline `0.8 × fontSize` below), and
+  the anchor pivots on the measured block. Before, text anchors did nothing.
+  A centred title with `align: "center"` and anchor `0.5, 0.5` keeps its x
+  and moves down by `0.2 × fontSize` (now vertically centred on `y`); anchor
+  `1, 0` moves down by `0.8 × fontSize`. Text with anchor `0, 0` and no
+  `maxWidth` renders exactly as before. Shipped examples with anchored text
+  (`davidup-demo-90s`, `launch-video`, `editor-demo`) move accordingly;
+  `video-bg-text` now uses anchor `0, 0` so it keeps its pixels.
+- New optional text fields: `maxWidth` (greedy word-wrap; also selects box
+  mode), `lineHeight` (× fontSize, default 1.2), `letterSpacing` (px),
+  `fontWeight`, `fontStyle`, `strokeColor`/`strokeWidth` (drawn over the
+  fill, round joins), `shadow {color, blur?, offsetX?, offsetY?}` (cast by
+  the fill). `\n` is a line break in both modes.
+- New tweenables on text: `letterSpacing`, `lineHeight`, `strokeWidth`.
+- `Canvas2DContext` gains `measureText`, `strokeText`, `lineJoin`, the four
+  shadow properties and an optional `letterSpacing`. Custom contexts must add
+  them.
+- Layout is exported from `davidup/engine`: `layoutText`, `wrapText`,
+  `isBoxText`, `textFontString`, `applyTextStyle`, `TEXT_LAYOUT_VERSION`.
+- Browser driver: the pick buffer paints every laid-out line at the rendered
+  position, and the selection ring uses measured extents instead of the
+  `fontSize × 0.6` guess.
+- Determinism: new `text-v2` golden (captured on darwin-x64; other platforms
+  skip it until regenerated there). The golden coverage check now allows a
+  platform entry to lag behind a new example. Existing goldens are unchanged.
+  The node↔browser parity fixture gains a wrapped, anchored, stroked,
+  shadowed text block (mean diff 1.6, limit 6).
+- Not in this change: MCP `add_text`/`update_item` params and the editor
+  Inspector (Session 14), stagger reveal and `measure_text`.
 
 ### Time-range render, PNG sequence export, ranged thumbnail strips
 

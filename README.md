@@ -370,14 +370,21 @@ this way.
 | Type | Own fields |
 |---|---|
 | `sprite` | `asset` (image id), `width`, `height`, `tint?` |
-| `text` | `text`, `font` (font **asset id**, not a CSS family), `fontSize`, `color`, `align?` (`left`/`center`/`right`) |
+| `text` | `text`, `font` (font **asset id**, not a CSS family), `fontSize`, `color`, `align?` (`left`/`center`/`right`), `maxWidth?`, `lineHeight?` (× fontSize, default 1.2), `letterSpacing?` (px), `fontWeight?`, `fontStyle?`, `strokeColor?`, `strokeWidth?`, `shadow?` (`{color, blur?, offsetX?, offsetY?}`) |
 | `shape` | `kind` (`rect`/`circle`/`polygon`), `width?`, `height?`, `points?`, `fillColor?`, `strokeColor?`, `strokeWidth?`, `cornerRadius?` |
 | `group` | `items: string[]` — child ids; group opacity multiplies into children (not isolated compositing) |
 | `video` | `asset` (video id), `width`, `height`, `start`, `end?`, `trimIn?`, `trimOut?`, `fit` (`cover`/`contain`/`fill`/`none`, default `contain`), `loop` (default `false`), `keepAudio?` |
 
-Text is a single line drawn with one `fillText`: no wrapping, no `\n`, no
-letter-spacing / line-height / stroke / shadow (see `TEXT_V2_DESIGN.md` for
-the v1.1 plan). Circles use `width` as diameter. A video item is a silent
+Text breaks lines on `\n` and word-wraps to `maxWidth`. It has two placement
+modes. **Point mode** (no `maxWidth`, anchor `0,0`): the first baseline sits
+on `(x, y)` and lines align around `x` — a v1.0 composition renders
+unchanged. **Box mode** (`maxWidth` set, or any non-zero anchor): `(x, y)` is
+the top-left of the text block (first baseline `0.8 × fontSize` below it), and
+anchors pivot on the measured block — width `maxWidth` or the widest line,
+height `lines × lineHeight × fontSize`. The fill casts the shadow; the stroke
+draws over the fill. `fontWeight`/`fontStyle` select a face only if the font
+provides one. The MCP tools and editor Inspector don't expose these fields
+yet. Circles use `width` as diameter. A video item is a silent
 texture by default — it freezes on its last frame when the trim window runs
 out, or loops with `loop: true`. `keepAudio: true` muxes the clip's own sound:
 at render, `renderToFile` adds an `audio[]` track `<itemId>__audio` that reads
@@ -390,7 +397,8 @@ the video file's first audio stream over the same `start`/`end`/`trimIn`
 
 `x`, `y`, `scaleX`, `scaleY`, `rotation` (radians, clockwise), `anchorX`,
 `anchorY` (fractional 0..1 of the item's box), `opacity` (0..1). All required.
-Anchors are inert on `text` and `group` (their anchor extent is 0).
+Anchors are inert on `group` (its anchor extent is 0). On `text` they pivot on
+the measured text block (box mode, see above).
 
 ### Item and layer flags
 
@@ -425,7 +433,7 @@ No cubic-bezier or custom curves.
 |---|---|---|
 | all | `transform.x/y/scaleX/scaleY/rotation/opacity/anchorX/anchorY` (number) | — |
 | sprite | + | `width`, `height` (number); `tint` (color) |
-| text | + | `fontSize` (number); `color` (color) |
+| text | + | `fontSize`, `letterSpacing`, `lineHeight`, `strokeWidth` (number); `color` (color) |
 | shape | + | `width`, `height`, `strokeWidth`, `cornerRadius` (number); `fillColor`, `strokeColor` (color) |
 | group | + | — (children carry their own tweens) |
 | video | + | `width`, `height` (number) |
@@ -993,8 +1001,9 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 **Authoring**
 
-- Text is single-line, single-style: no wrapping, multiline, letter-spacing,
-  line-height, stroke or shadow (`TEXT_V2_DESIGN.md`).
+- Text is single-style per item (no rich spans), wraps at word boundaries
+  only, and has no stagger reveal or `measure_text` tool yet
+  (`TEXT_V2_DESIGN.md`).
 - No cubic-bezier or custom easings; no visual effects (blur, glow, shadow).
 - Group opacity multiplies into children rather than compositing the group
   as one layer (overlapping children show through).
@@ -1127,8 +1136,6 @@ Shipped in v1.0:
 
 Planned for v1.1 (designs written, no code yet):
 
-- Text v2 — wrapping, multiline, letter-spacing, line-height, stroke, shadow
-  (`TEXT_V2_DESIGN.md`).
 - `$repeat` + expressions in templates (`REPEAT_EXPRESSIONS_DESIGN.md`).
 - Strict schema (R-23), per-session MCP state (R-29), bundled starter font
   (R-30), editable source drawer, template round-trip edits.

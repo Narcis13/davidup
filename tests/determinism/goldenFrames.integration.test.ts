@@ -69,15 +69,18 @@ async function loadGolden(): Promise<GoldenFile> {
 }
 
 describe("determinism — golden frame hashes", () => {
-  it("golden fixture covers exactly the registered examples at the expected fractions", async () => {
+  // A platform entry may lag behind a newly registered example (it can only be
+  // captured on that platform), exactly as a missing platform does: the hash
+  // test below skips it with a warning. What is never allowed is a stale entry
+  // for an example that no longer exists.
+  it("golden fixture only holds registered examples, at the expected fractions", async () => {
     const golden = await loadGolden();
     expect(golden.fractions).toEqual(GOLDEN_FRACTIONS as unknown as number[]);
     expect(Object.keys(golden.platforms).length).toBeGreaterThan(0);
+    const registered = new Set(GOLDEN_EXAMPLES.map((e) => e.name));
     for (const [key, platform] of Object.entries(golden.platforms)) {
-      expect(
-        Object.keys(platform.examples).sort(),
-        `platform "${key}" must cover exactly the registered examples`,
-      ).toEqual(GOLDEN_EXAMPLES.map((e) => e.name).sort());
+      const unknown = Object.keys(platform.examples).filter((n) => !registered.has(n));
+      expect(unknown, `platform "${key}" has goldens for unregistered examples`).toEqual([]);
     }
   });
 
@@ -94,10 +97,14 @@ describe("determinism — golden frame hashes", () => {
         return;
       }
       const expected = platform.examples[example.name];
-      expect(
-        expected,
-        `no golden entry for "${example.name}" on ${PLATFORM_KEY}`,
-      ).toBeDefined();
+      if (!expected) {
+        console.warn(
+          `[goldenFrames] no golden for "${example.name}" on "${PLATFORM_KEY}" — ` +
+            `run \`bun run scripts/regenerate-goldens.ts\` here to add it`,
+        );
+        ctx.skip();
+        return;
+      }
 
       const comp = await example.build();
       const hashes = await renderFractionalFrameHashes(comp, GOLDEN_FRACTIONS);

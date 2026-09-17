@@ -40,10 +40,15 @@ import type { AssetLoader } from "../../assets/loader.js";
 import { precompile } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
 import {
+  applyTextStyle,
   computeStateAt,
   indexTweens,
+  layoutText,
   renderFrame,
+  TEXT_ASCENT_RATIO,
+  DEFAULT_LINE_HEIGHT,
   type ResolvedScene,
+  type TextLayout,
 } from "../../engine/index.js";
 import type {
   Canvas2DContext,
@@ -220,6 +225,18 @@ export async function attach(
   const createPickBuffer = options.createPickBuffer ?? defaultCreatePickBuffer;
   const tweenIndex = indexTweens(compiled);
   const duration = compiled.composition.duration;
+  const fontFamily = (id: string): string => loader.getFontFamily(id) ?? id;
+  // Selection-ring text extents, measured on the visible canvas's context
+  // (save/restore keeps the measurement from leaking font state).
+  const measureTextItem: TextMeasurer = (item) => {
+    ctx.save();
+    try {
+      applyTextStyle(ctx, item, fontFamily(item.font));
+      return layoutText(item, (s) => ctx.measureText(s).width);
+    } finally {
+      ctx.restore();
+    }
+  };
 
   let startTime = now() - (options.startAt ?? 0) * 1000;
   let rafId: number | null = null;
@@ -312,7 +329,7 @@ export async function attach(
     }
     const t = tArg !== undefined ? tArg : currentT();
     const scene = computeStateAt(compiled, t, tweenIndex);
-    const idForColor = renderPickBuffer(scene, pickBuffer.context);
+    const idForColor = renderPickBuffer(scene, pickBuffer.context, fontFamily);
     const px = Math.floor(x);
     const py = Math.floor(y);
     const rgba = pickBuffer.readPixelRgba(px, py);
@@ -397,7 +414,14 @@ export async function attach(
         for (const topId of layer.items) {
           const top = scene.items[topId];
           if (!top) continue;
-          const corners = findItemCorners(top, topId, identityMat(), scene, itemId);
+          const corners = findItemCorners(
+            top,
+            topId,
+            identityMat(),
+            scene,
+            itemId,
+            measureTextItem,
+          );
           if (corners) return { corners };
         }
       }
@@ -463,13 +487,24 @@ function applyMat(m: Mat, x: number, y: number): [number, number] {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 }
 
-function applyItemTransform(parent: Mat, item: Item): Mat {
+// Lays out a text item with real metrics. Absent ⇒ the ring falls back to a
+// glyph-width heuristic and text anchors are treated as inert.
+type TextMeasurer = (item: TextItem) => TextLayout;
+
+function applyItemTransform(parent: Mat, item: Item, measure?: TextMeasurer): Mat {
   const tr = item.transform;
   let m: Mat = translateMat(parent, tr.x, tr.y);
   if (tr.rotation !== 0) m = rotateMat(m, tr.rotation);
   if (tr.scaleX !== 1 || tr.scaleY !== 1) m = scaleMat(m, tr.scaleX, tr.scaleY);
-  const aw = anchorWidth(item);
-  const ah = anchorHeight(item);
+  let aw = anchorWidth(item);
+  let ah = anchorHeight(item);
+  if (item.type === "text" && measure !== undefined) {
+    const layout = measure(item);
+    if (layout.mode === "box") {
+      aw = layout.blockWidth;
+      ah = layout.blockHeight;
+    }
+  }
   if (aw !== 0 || ah !== 0) m = translateMat(m, -tr.anchorX * aw, -tr.anchorY * ah);
   return m;
 }
@@ -499,14 +534,15 @@ function findItemCorners(
   parentMat: Mat,
   scene: ResolvedScene,
   targetId: string,
+  measure?: TextMeasurer,
 ): ReadonlyArray<readonly [number, number]> | null {
-  const m = applyItemTransform(parentMat, item);
-  if (id === targetId) return cornersForItem(item, m, scene);
+  const m = applyItemTransform(parentMat, item, measure);
+  if (id === targetId) return cornersForItem(item, m, scene, measure);
   if (item.type !== "group") return null;
   for (const childId of item.items) {
     const child = scene.items[childId];
     if (!child) continue;
-    const r = findItemCorners(child, childId, m, scene, targetId);
+    const r = findItemCorners(child, childId, m, scene, targetId, measure);
     if (r) return r;
   }
   return null;
@@ -516,6 +552,7 @@ function cornersForItem(
   item: Item,
   m: Mat,
   scene: ResolvedScene,
+  measure?: TextMeasurer,
 ): ReadonlyArray<readonly [number, number]> {
   switch (item.type) {
     case "sprite":
@@ -551,11 +588,30 @@ function cornersForItem(
       return rectCorners(minX, minY, maxX - minX, maxY - minY, m);
     }
     case "text": {
-      // Without a Canvas2D context handy we can't call `measureText`, so we
-      // approximate. The estimate intentionally errs slightly large
-      // (fontSize × 0.6 per glyph) — a selection ring that hugs too tight on
-      // wide glyphs would clip the descenders; a slightly loose ring still
-      // reads as "this is the thing I clicked."
+      if (measure !== undefined) {
+        const layout = measure(item);
+        if (layout.mode === "box") {
+          return rectCorners(0, 0, layout.blockWidth, layout.blockHeight, m);
+        }
+        // Point mode: lines hang off baselines at the origin, each aligned
+        // around x. Ascent ≈ 0.8 fontSize above a baseline, descent ≈ 0.2.
+        const align = item.align ?? "left";
+        let minX = 0;
+        let maxX = 0;
+        for (const line of layout.lines) {
+          const x = align === "center" ? -line.width / 2 : align === "right" ? -line.width : 0;
+          if (x < minX) minX = x;
+          if (x + line.width > maxX) maxX = x + line.width;
+        }
+        const advance = (item.lineHeight ?? DEFAULT_LINE_HEIGHT) * item.fontSize;
+        const top = -TEXT_ASCENT_RATIO * item.fontSize;
+        const h = (layout.lines.length - 1) * advance + item.fontSize;
+        return rectCorners(minX, top, maxX - minX, h, m);
+      }
+      // No context to measure with: approximate. The estimate intentionally
+      // errs slightly large (fontSize × 0.6 per glyph) — a selection ring
+      // that hugs too tight on wide glyphs would clip the descenders; a
+      // slightly loose ring still reads as "this is the thing I clicked."
       const text = item.text;
       const w = item.fontSize * 0.6 * Math.max(1, text.length);
       const h = item.fontSize;
@@ -576,7 +632,7 @@ function cornersForItem(
       let maxX = -Infinity;
       let maxY = -Infinity;
       const visit = (it: Item, mLocal: Mat): void => {
-        const m2 = applyItemTransform(mLocal, it);
+        const m2 = applyItemTransform(mLocal, it, measure);
         if (it.type === "group") {
           for (const cid of it.items) {
             const c = scene.items[cid];
@@ -584,7 +640,7 @@ function cornersForItem(
           }
           return;
         }
-        const cs = cornersForItem(it, m2, scene);
+        const cs = cornersForItem(it, m2, scene, measure);
         for (const c of cs) {
           if (c[0] < minX) minX = c[0];
           if (c[0] > maxX) maxX = c[0];
@@ -632,6 +688,7 @@ function cornersForItem(
 function renderPickBuffer(
   scene: ResolvedScene,
   ctx: Canvas2DContext,
+  fontFamily: (id: string) => string = (id) => id,
 ): ReadonlyMap<number, string> {
   // Clear with fully-transparent black so empty pixels are unambiguous.
   ctx.save();
@@ -662,7 +719,7 @@ function renderPickBuffer(
     for (const itemId of layer.items) {
       const item = scene.items[itemId];
       if (!item) continue;
-      drawPickItem(ctx, item, itemId, scene, colorFor);
+      drawPickItem(ctx, item, itemId, scene, colorFor, fontFamily);
     }
     ctx.restore();
   }
@@ -676,6 +733,7 @@ function drawPickItem(
   itemId: string,
   scene: ResolvedScene,
   colorFor: (id: string) => string,
+  fontFamily: (id: string) => string,
 ): void {
   const tr = item.transform;
   ctx.save();
@@ -687,6 +745,13 @@ function drawPickItem(
   // semi-transparent items are still pickable.
   ctx.globalAlpha = 1;
 
+  if (item.type === "text") {
+    // Text anchors on its measured box, which needs the font set first.
+    paintTextHitArea(ctx, item, colorFor(itemId), fontFamily(item.font));
+    ctx.restore();
+    return;
+  }
+
   const w = anchorWidth(item);
   const h = anchorHeight(item);
   if (w !== 0 || h !== 0) {
@@ -697,9 +762,6 @@ function drawPickItem(
     case "sprite":
       paintSpriteBounds(ctx, item.width, item.height, colorFor(itemId));
       break;
-    case "text":
-      paintTextHitArea(ctx, item, colorFor(itemId));
-      break;
     case "shape":
       paintShapePath(ctx, item, colorFor(itemId));
       break;
@@ -709,7 +771,7 @@ function drawPickItem(
       paintSpriteBounds(ctx, item.width, item.height, colorFor(itemId));
       break;
     case "group":
-      paintGroupChildren(ctx, item, scene, colorFor);
+      paintGroupChildren(ctx, item, scene, colorFor, fontFamily);
       break;
   }
 
@@ -730,18 +792,20 @@ function paintTextHitArea(
   ctx: Canvas2DContext,
   item: TextItem,
   color: string,
+  family: string,
 ): void {
-  // Mirror the renderer's font + alignment exactly so the painted glyphs land
-  // on the same pixels that show up on screen. We don't have access to the
-  // asset registry here, but the renderer falls back to the raw font id when
-  // the registry has no mapping — `ctx.font` will just use whatever the
-  // browser knows by that name. Pickable area is the inked region of the
-  // glyphs.
-  ctx.font = `${item.fontSize}px "${item.font}"`;
-  ctx.textAlign = item.align ?? "left";
-  ctx.textBaseline = "alphabetic";
+  // Same style + layout + anchor translate as the renderer's drawText, so the
+  // painted glyphs land on the pixels shown on screen. Every laid-out line is
+  // painted, so any line is clickable. Pickable area is the glyphs' ink.
+  const layout = applyTextStyle(ctx, item, family);
+  if (layout.mode === "box") {
+    ctx.translate(
+      -item.transform.anchorX * layout.blockWidth,
+      -item.transform.anchorY * layout.blockHeight,
+    );
+  }
   ctx.fillStyle = color;
-  ctx.fillText(item.text, 0, 0);
+  for (const line of layout.lines) ctx.fillText(line.text, line.x, line.y);
 }
 
 function paintShapePath(
@@ -797,11 +861,12 @@ function paintGroupChildren(
   item: GroupItem,
   scene: ResolvedScene,
   colorFor: (id: string) => string,
+  fontFamily: (id: string) => string,
 ): void {
   for (const childId of item.items) {
     const child = scene.items[childId];
     if (!child) continue;
-    drawPickItem(ctx, child, childId, scene, colorFor);
+    drawPickItem(ctx, child, childId, scene, colorFor, fontFamily);
   }
 }
 

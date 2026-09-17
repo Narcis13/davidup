@@ -14,6 +14,7 @@ import type {
   ShapeItemSchema,
   SpriteItemSchema,
   TextItemSchema,
+  TextShadowSchema,
   TransformSchema,
   TweenSchema,
   VideoAssetSchema,
@@ -38,6 +39,7 @@ export type Transform = z.infer<typeof TransformSchema>;
 export type Item = z.infer<typeof ItemSchema>;
 export type SpriteItem = z.infer<typeof SpriteItemSchema>;
 export type TextItem = z.infer<typeof TextItemSchema>;
+export type TextShadow = z.infer<typeof TextShadowSchema>;
 export type ShapeItem = z.infer<typeof ShapeItemSchema>;
 export type GroupItem = z.infer<typeof GroupItemSchema>;
 export type VideoItem = z.infer<typeof VideoItemSchema>;

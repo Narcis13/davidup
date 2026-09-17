@@ -46,6 +46,23 @@ export type Call =
       fillStyle: string;
       textAlign: string;
       textBaseline: string;
+      letterSpacing: string;
+      shadowColor: string;
+      shadowBlur: number;
+      shadowOffsetX: number;
+      shadowOffsetY: number;
+      alpha: number;
+    }
+  | {
+      op: "strokeText";
+      text: string;
+      x: number;
+      y: number;
+      font: string;
+      strokeStyle: string;
+      lineWidth: number;
+      lineJoin: string;
+      shadowColor: string;
       alpha: number;
     }
   | {
@@ -72,6 +89,12 @@ interface State {
   font: string;
   textAlign: string;
   textBaseline: string;
+  letterSpacing: string;
+  lineJoin: string;
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
 }
 
 const INITIAL_STATE: State = {
@@ -83,7 +106,16 @@ const INITIAL_STATE: State = {
   font: "10px sans-serif",
   textAlign: "start",
   textBaseline: "alphabetic",
+  letterSpacing: "0px",
+  lineJoin: "miter",
+  shadowColor: "rgba(0, 0, 0, 0)",
+  shadowBlur: 0,
+  shadowOffsetX: 0,
+  shadowOffsetY: 0,
 };
+
+/** Width per code point used by FakeContext.measureText. */
+export const FAKE_GLYPH_WIDTH = 10;
 
 export class FakeContext implements Canvas2DContext {
   calls: Call[] = [];
@@ -137,6 +169,48 @@ export class FakeContext implements Canvas2DContext {
   }
   set textBaseline(v: string) {
     this.state.textBaseline = v;
+  }
+
+  get letterSpacing(): string {
+    return this.state.letterSpacing;
+  }
+  set letterSpacing(v: string) {
+    this.state.letterSpacing = v;
+  }
+  get lineJoin(): string {
+    return this.state.lineJoin;
+  }
+  set lineJoin(v: string) {
+    this.state.lineJoin = v;
+  }
+  get shadowColor(): string {
+    return this.state.shadowColor;
+  }
+  set shadowColor(v: string) {
+    this.state.shadowColor = v;
+  }
+  get shadowBlur(): number {
+    return this.state.shadowBlur;
+  }
+  set shadowBlur(v: number) {
+    this.state.shadowBlur = v;
+  }
+  get shadowOffsetX(): number {
+    return this.state.shadowOffsetX;
+  }
+  set shadowOffsetX(v: number) {
+    this.state.shadowOffsetX = v;
+  }
+  get shadowOffsetY(): number {
+    return this.state.shadowOffsetY;
+  }
+  set shadowOffsetY(v: number) {
+    this.state.shadowOffsetY = v;
+  }
+
+  // Deterministic linear metrics: every code point is FAKE_GLYPH_WIDTH wide.
+  measureText(text: string): { width: number } {
+    return { width: Array.from(text).length * FAKE_GLYPH_WIDTH };
   }
 
   save(): void {
@@ -246,6 +320,25 @@ export class FakeContext implements Canvas2DContext {
       fillStyle: this.state.fillStyle,
       textAlign: this.state.textAlign,
       textBaseline: this.state.textBaseline,
+      letterSpacing: this.state.letterSpacing,
+      shadowColor: this.state.shadowColor,
+      shadowBlur: this.state.shadowBlur,
+      shadowOffsetX: this.state.shadowOffsetX,
+      shadowOffsetY: this.state.shadowOffsetY,
+      alpha: this.state.globalAlpha,
+    });
+  }
+  strokeText(text: string, x: number, y: number): void {
+    this.calls.push({
+      op: "strokeText",
+      text,
+      x,
+      y,
+      font: this.state.font,
+      strokeStyle: this.state.strokeStyle,
+      lineWidth: this.state.lineWidth,
+      lineJoin: this.state.lineJoin,
+      shadowColor: this.state.shadowColor,
       alpha: this.state.globalAlpha,
     });
   }

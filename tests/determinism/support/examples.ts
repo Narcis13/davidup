@@ -194,6 +194,137 @@ async function comprehensiveComposition(): Promise<Composition> {
   return json;
 }
 
+// Text v2 (v1.1 S13): point multi-line, box word-wrap in each alignment,
+// anchored blocks, stroke + shadow, weight/style/letterSpacing, and tweens on
+// the three new text tweenables.
+function textV2Composition(): Composition {
+  const t = (x: number, y: number, anchorX = 0, anchorY = 0) => ({
+    x,
+    y,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX,
+    anchorY,
+    opacity: 1,
+  });
+  return {
+    version: "0.1",
+    composition: { width: 480, height: 270, fps: 24, duration: 2, background: "#10141f" },
+    assets: [
+      {
+        id: "font-display",
+        type: "font",
+        src: resolve(EXAMPLES_ROOT, "fonts", "BebasNeue-Regular.ttf"),
+        family: "Bebas Neue",
+      },
+      {
+        id: "font-mono",
+        type: "font",
+        src: resolve(EXAMPLES_ROOT, "fonts", "JetBrainsMono-Bold.ttf"),
+        family: "JetBrains Mono",
+      },
+    ],
+    layers: [
+      {
+        id: "text",
+        z: 0,
+        opacity: 1,
+        blendMode: "normal",
+        items: ["point", "boxLeft", "boxCenter", "boxRight", "title"],
+      },
+    ],
+    items: {
+      point: {
+        type: "text",
+        text: "POINT MODE\nSECOND LINE",
+        font: "font-display",
+        fontSize: 22,
+        color: "#ffffff",
+        letterSpacing: 1,
+        transform: t(16, 30),
+      },
+      boxLeft: {
+        type: "text",
+        text: "the quick brown fox jumps over the lazy dog",
+        font: "font-mono",
+        fontSize: 12,
+        color: "#9ad1ff",
+        maxWidth: 140,
+        lineHeight: 1.4,
+        transform: t(16, 90),
+      },
+      boxCenter: {
+        type: "text",
+        text: "the quick brown fox jumps over the lazy dog",
+        font: "font-mono",
+        fontSize: 12,
+        color: "#b8f5a0",
+        align: "center",
+        maxWidth: 140,
+        fontStyle: "italic",
+        transform: t(240, 120, 0.5, 0.5),
+      },
+      boxRight: {
+        type: "text",
+        text: "the quick brown fox jumps over the lazy dog",
+        font: "font-mono",
+        fontSize: 12,
+        color: "#ffc6a8",
+        align: "right",
+        maxWidth: 140,
+        fontWeight: "bold",
+        transform: t(464, 90, 1, 0),
+      },
+      title: {
+        type: "text",
+        text: "SHIP FASTER\nBREAK NOTHING",
+        font: "font-display",
+        fontSize: 44,
+        color: "#ffd166",
+        align: "center",
+        lineHeight: 1,
+        strokeColor: "#1b2a4a",
+        strokeWidth: 3,
+        shadow: { color: "rgba(0, 0, 0, 0.7)", blur: 8, offsetX: 3, offsetY: 5 },
+        transform: t(240, 225, 0.5, 0.5),
+      },
+    },
+    tweens: [
+      {
+        id: "title-spacing",
+        target: "title",
+        property: "letterSpacing",
+        from: 12,
+        to: 0,
+        start: 0,
+        duration: 1.5,
+        easing: "easeOutCubic",
+      },
+      {
+        id: "title-leading",
+        target: "title",
+        property: "lineHeight",
+        from: 1.4,
+        to: 1,
+        start: 0,
+        duration: 1.5,
+        easing: "easeOutCubic",
+      },
+      {
+        id: "title-stroke",
+        target: "title",
+        property: "strokeWidth",
+        from: 0,
+        to: 3,
+        start: 0.5,
+        duration: 1,
+        easing: "linear",
+      },
+    ],
+  };
+}
+
 export interface GoldenExample {
   name: string;
   build: () => Composition | Promise<Composition>;
@@ -205,4 +336,5 @@ export const GOLDEN_EXAMPLES: readonly GoldenExample[] = [
   { name: "video-pip", build: buildVideoPipComposition },
   { name: "video-bg-text", build: buildVideoBgTextComposition },
   { name: "video-freeze-trim", build: buildVideoFreezeTrimComposition },
+  { name: "text-v2", build: textV2Composition },
 ];

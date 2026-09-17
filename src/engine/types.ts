@@ -37,10 +37,25 @@ export interface Canvas2DContext {
   fill(): void;
   stroke(): void;
 
+  lineJoin: string;
+
+  // Shadow state (v1.1 S13 text shadow). Offsets are device pixels.
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+
   font: string;
   textAlign: string;
   textBaseline: string;
+  // CSS length, e.g. "2px". Optional: older browsers lack it; letterSpacing
+  // is then ignored rather than throwing.
+  letterSpacing?: string;
   fillText(text: string, x: number, y: number): void;
+  strokeText(text: string, x: number, y: number): void;
+  // Only `width` is consumed (text layout); both hosts return a richer
+  // TextMetrics that satisfies this structurally.
+  measureText(text: string): { width: number };
 
   // Both Canvas2D overloads. The 5-arg form scales the whole image into the
   // destination box (sprites); the 9-arg form crops a source rect first, which

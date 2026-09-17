@@ -18,6 +18,7 @@ export {
   type TweenIndex,
 } from "./resolver.js";
 export {
+  applyTextStyle,
   computeFitRects,
   drawItem,
   drawScene,
@@ -27,6 +28,18 @@ export {
   type FitRects,
   type VideoRenderContext,
 } from "./render.js";
+export {
+  DEFAULT_LINE_HEIGHT,
+  TEXT_ASCENT_RATIO,
+  TEXT_LAYOUT_VERSION,
+  isBoxText,
+  layoutText,
+  textFontString,
+  wrapText,
+  type MeasureText,
+  type TextLayout,
+  type TextLine,
+} from "./textLayout.js";
 export {
   MCP_ERROR_CODES,
   MCPToolError,

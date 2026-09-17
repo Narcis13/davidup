@@ -541,8 +541,17 @@ function makeFakePickBuffer(width: number, height: number): PickSurface {
     font: "10px sans-serif",
     textAlign: "left",
     textBaseline: "alphabetic",
+    lineJoin: "miter",
+    shadowColor: "rgba(0, 0, 0, 0)",
+    shadowBlur: 0,
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
     fillText() {
       /* text picking unused in these tests */
+    },
+    strokeText() {},
+    measureText(text) {
+      return { width: text.length * 10 };
     },
     drawImage() {
       /* not used */
