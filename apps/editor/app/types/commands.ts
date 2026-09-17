@@ -148,8 +148,9 @@ export type AudioTrack = z.infer<typeof AudioTrackSchema>
 // mirror any new field here or it is silently stripped from UI payloads.
 // Spatially a sprite (`transform` + `width`/`height` box); on top of that it
 // carries a temporal window (`start`, optional `end`) and a source trim
-// (`trimIn`/`trimOut`). `fit` defaults to 'contain', `loop` to false. ZERO
-// audio fields by design — all audio comes from external AudioTracks. The
+// (`trimIn`/`trimOut`). `fit` defaults to 'contain', `loop` to false.
+// `keepAudio` (v1.1 S11) opts the clip's own audio stream into the render mux;
+// otherwise audio comes from external AudioTracks. The
 // add_video / update_video MCP commands arrive in §S9; this document fragment
 // exists now so the composition type is complete and the Inspector/Timeline
 // work (U4/U5) can bind to it. Cross-field invariants (trimIn < trimOut ≤
@@ -179,6 +180,7 @@ export const VideoItemSchema = z.object({
   trimOut: POSITIVE.optional(),
   fit: z.enum(VIDEO_FIT_MODES).default('contain'),
   loop: z.boolean().default(false),
+  keepAudio: z.boolean().optional(),
   transform: VIDEO_TRANSFORM,
   // §M flags + §P friendly label, mirroring engine ItemFlagsSchema.
   visible: z.boolean().optional(),
@@ -219,7 +221,7 @@ const setCompositionProperty = z.object({
 // DUAL of engine `register_asset` (src/mcp/tools.ts). `audio` (v0.2 §S2) and
 // `video` (§S6) are admitted here too or the command is silently stripped
 // before reaching the MCP tool. Probed metadata (audio: duration/sampleRate/
-// channels/codec; video: duration/width/height/fps/hasAlpha/codec/pixelFormat)
+// channels/codec; video: duration/width/height/fps/hasAlpha/codec/pixelFormat/hasAudio)
 // is NOT part of the payload — the engine derives it via ffprobe at
 // registration time.
 const registerAsset = z.object({
@@ -402,8 +404,8 @@ const removeItem = z.object({
 // field the MCP tools accept is mirrored here or the command bus strips it
 // before the call reaches the engine (see VideoItemSchema note above). Video is
 // spatially a sprite (transform + width/height box) plus a temporal window
-// (start/end), source trim (trimIn/trimOut), and display (fit/loop). ZERO audio
-// fields. `layerId` is optional — omitted, the clip lands on the topmost layer.
+// (start/end), source trim (trimIn/trimOut), display (fit/loop), and
+// `keepAudio` (v1.1 S11). `layerId` is optional — omitted, the clip lands on the topmost layer.
 const addVideo = z.object({
   kind: z.literal('add_video'),
   payload: z.object({
@@ -420,6 +422,7 @@ const addVideo = z.object({
     trimOut: POSITIVE.optional(),
     fit: z.enum(VIDEO_FIT_MODES).optional(),
     loop: z.boolean().optional(),
+    keepAudio: z.boolean().optional(),
     id: ID.optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
@@ -450,6 +453,7 @@ const updateVideo = z.object({
         trimOut: POSITIVE,
         fit: z.enum(VIDEO_FIT_MODES),
         loop: z.boolean(),
+        keepAudio: z.boolean(),
         visible: z.boolean(),
         locked: z.boolean(),
         name: z.string().max(80),

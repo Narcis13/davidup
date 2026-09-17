@@ -243,6 +243,33 @@ describe("video item tools — update_video, move, remove", () => {
     expect((item.transform as { x: number }).x).toBe(50);
   });
 
+  it("add_video / update_video carry keepAudio (v1.1 S11)", async () => {
+    const deps = freshDeps(30);
+    withVideoAsset(deps, "clip", { duration: 12 });
+    await call("add_layer", { z: 0, id: "L" }, deps);
+    const added = await call(
+      "add_video",
+      { layerId: "L", asset: "clip", x: 0, y: 0, id: "v1", keepAudio: true },
+      deps,
+    );
+    expect(added.ok).toBe(true);
+    const itemOf = async () => {
+      const comp = await call("get_composition", {}, deps);
+      if (!comp.ok) throw new Error("get_composition failed");
+      return (comp.result as { json: { items: Record<string, Record<string, unknown>> } })
+        .json.items.v1!;
+    };
+    expect((await itemOf()).keepAudio).toBe(true);
+
+    // A patch that doesn't mention keepAudio keeps it.
+    await call("update_video", { id: "v1", props: { start: 1 } }, deps);
+    expect((await itemOf()).keepAudio).toBe(true);
+
+    const off = await call("update_video", { id: "v1", props: { keepAudio: false } }, deps);
+    expect(off.ok).toBe(true);
+    expect((await itemOf()).keepAudio).toBe(false);
+  });
+
   it("move_item_to_layer relocates a video item", async () => {
     const deps = freshDeps(30);
     const id = await withVideo(deps);

@@ -1390,6 +1390,7 @@ function cloneAsset(a: Asset): Asset {
         ...(a.hasAlpha !== undefined ? { hasAlpha: a.hasAlpha } : {}),
         ...(a.codec !== undefined ? { codec: a.codec } : {}),
         ...(a.pixelFormat !== undefined ? { pixelFormat: a.pixelFormat } : {}),
+        ...(a.hasAudio !== undefined ? { hasAudio: a.hasAudio } : {}),
       };
   }
 }
@@ -1468,6 +1469,9 @@ function cloneRawAsset(a: Record<string, unknown>): Asset {
     }
     if (typeof a.pixelFormat === "string" && a.pixelFormat.length > 0) {
       out.pixelFormat = a.pixelFormat;
+    }
+    if (typeof a.hasAudio === "boolean") {
+      out.hasAudio = a.hasAudio;
     }
     return out;
   }

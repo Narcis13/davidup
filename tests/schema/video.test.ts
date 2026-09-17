@@ -172,7 +172,13 @@ describe("VideoItemSchema — field rules (Zod layer)", () => {
     expect(VideoItemSchema.safeParse(videoItem({ fit: "stretch" })).success).toBe(false);
   });
 
-  it("carries ZERO audio fields — audio-only keys are stripped, not stored", () => {
+  it("accepts an optional boolean keepAudio (v1.1 S11), absent by default", () => {
+    expect("keepAudio" in VideoItemSchema.parse(videoItem())).toBe(false);
+    expect(VideoItemSchema.parse(videoItem({ keepAudio: true })).keepAudio).toBe(true);
+    expect(VideoItemSchema.safeParse(videoItem({ keepAudio: "yes" })).success).toBe(false);
+  });
+
+  it("carries no per-track audio fields — audio-only keys are stripped, not stored", () => {
     const parsed = VideoItemSchema.parse(
       videoItem({ volume: 0.5, fadeIn: 1, fadeOut: 1 }),
     ) as Record<string, unknown>;

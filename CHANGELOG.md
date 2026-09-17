@@ -7,6 +7,30 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Keep a video item's own audio (`keepAudio`)
+
+- Video items gain `keepAudio?: boolean`. At render, `renderToFile` lowers each
+  such item into an `audio[]` track `<itemId>__audio` whose asset is the video
+  itself; the mux reads the file's first audio stream (`[n:a:0]`). The track
+  mirrors `start`, `end` and `trimIn`, stops where `trimOut` exhausts the
+  source, and loops over `[trimIn, trimOut)` when the clip loops. Hidden clips
+  stay silent. Renders without `keepAudio` are unchanged.
+- The lowering is exported as `synthesizeVideoAudio` (plus `videoAudioTrackId`,
+  `VIDEO_AUDIO_TRACK_SUFFIX`) from `davidup/compose`. It runs inside
+  `renderToFile`, not `precompile()`, because the editor and CLI keep
+  precompiled compositions and would otherwise duplicate the tracks.
+- Audio tracks may now reference a video asset at mux time
+  (`resolveAudioInputs`); the MCP `add_audio_track` tool still requires an
+  audio asset.
+- Video assets gain `hasAudio?` from ffprobe at `register_asset`. The validator
+  warns `W_VIDEO_NO_AUDIO_STREAM` when `keepAudio` names a source probed with no
+  audio stream, and the render skips that item's audio.
+- `add_video` / `update_video` accept `keepAudio`; the editor Inspector has a
+  "keep audio" checkbox. Inspector edits to video-only fields (start/end/trim,
+  fit, loop, keepAudio, and the reset-trim button) now go through
+  `update_video`. They used to go through `update_item`, whose command schema
+  silently dropped them.
+
 ### Audio limiter, loudness target, per-track loop
 
 - **Output-changing (audio only):** every muxed render now runs the mix

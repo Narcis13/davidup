@@ -20,6 +20,12 @@
 // clip on the composition timeline. A `loop` track repeats its (trimIn-seeked)
 // source with `aloop` and is cut to its timeline span (v1.1 S10).
 //
+// A track may also name a *video* asset (v1.1 S11 — `keepAudio` video items are
+// lowered into such tracks by compose/videoAudio.ts): the chain then reads that
+// file's first audio stream (`[n:a:0]`) and ignores its picture. For a looping
+// `keepAudio` clip with a `trimOut`, the repeated window is bounded to
+// [trimIn, trimOut) so sound and picture loop together.
+//
 // After `amix` the master bus (`composition.audioMaster`, v1.1 S10) runs, in
 // order: optional `loudnorm` (two-pass — see below) → `alimiter` at
 // MUX_LIMITER_CEILING_DB (on by default) → pad/trim to the video's duration so
@@ -41,11 +47,13 @@ import { once } from "node:events";
 import { extname } from "node:path";
 
 import { resolveGlobalSrc } from "../../assets/node.js";
+import { videoAudioTrackId } from "../../compose/videoAudio.js";
 import type {
   AudioAsset,
   AudioMaster,
   AudioTrack,
   Composition,
+  VideoAsset,
 } from "../../schema/types.js";
 import { resolveFfmpeg } from "./ffmpeg.js";
 import type { FfmpegSpawn } from "./index.js";
@@ -84,6 +92,13 @@ export interface ResolvedAudioTrack {
   src: string;
   /** Asset's natural duration in seconds, when known from the registry. */
   assetDuration?: number;
+  /** True when the source is a video file whose audio stream is read (v1.1 S11). */
+  fromVideo?: boolean;
+  /**
+   * End of the source window a looping track repeats, in source seconds —
+   * the `trimOut` of the `keepAudio` video item the track came from.
+   */
+  trimOut?: number;
 }
 
 /** True when the composition has at least one audio track to mux. */
@@ -93,7 +108,8 @@ export function compositionHasAudio(comp: Composition): boolean {
 
 /**
  * Resolve each audio track to a concrete ffmpeg input: look up its asset,
- * confirm it is an audio asset, and resolve the `src` to a filesystem path.
+ * confirm it is an audio (or, for its audio stream, a video) asset, and
+ * resolve the `src` to a filesystem path.
  *
  * @throws {Error} when a track references a missing or non-audio asset — the
  *   schema validator does not (yet) cross-check audio references, so this is
@@ -105,6 +121,13 @@ export function resolveAudioInputs(
 ): ResolvedAudioTrack[] {
   const tracks = comp.audio ?? [];
   const assetById = new Map(comp.assets.map((a) => [a.id, a] as const));
+  // Synthesised keepAudio track id → its video item's trimOut (loop bound).
+  const videoTrimOut = new Map<string, number>();
+  for (const [itemId, item] of Object.entries(comp.items ?? {})) {
+    if (item.type === "video" && item.keepAudio === true && item.trimOut !== undefined) {
+      videoTrimOut.set(videoAudioTrackId(itemId), item.trimOut);
+    }
+  }
 
   return tracks.map((track) => {
     const label = `Audio track "${track.id ?? track.asset}"`;
@@ -112,18 +135,23 @@ export function resolveAudioInputs(
     if (!asset) {
       throw new Error(`${label} references unknown asset "${track.asset}".`);
     }
-    if (asset.type !== "audio") {
+    if (asset.type !== "audio" && asset.type !== "video") {
       throw new Error(
-        `${label} references asset "${track.asset}" which is type "${asset.type}", not "audio".`,
+        `${label} references asset "${track.asset}" which is type "${asset.type}", not "audio" or "video".`,
       );
     }
-    const audioAsset = asset as AudioAsset;
+    const media = asset as AudioAsset | VideoAsset;
     const resolved: ResolvedAudioTrack = {
       track,
-      src: resolveGlobalSrc(audioAsset.src, globalLibraryRoot),
+      src: resolveGlobalSrc(media.src, globalLibraryRoot),
     };
-    if (audioAsset.duration !== undefined) {
-      resolved.assetDuration = audioAsset.duration;
+    if (media.duration !== undefined) {
+      resolved.assetDuration = media.duration;
+    }
+    if (asset.type === "video") {
+      resolved.fromVideo = true;
+      const trimOut = track.id !== undefined ? videoTrimOut.get(track.id) : undefined;
+      if (trimOut !== undefined) resolved.trimOut = trimOut;
     }
     return resolved;
   });
@@ -256,7 +284,7 @@ function buildTrackMix(
   const chains: string[] = [];
   const mixLabels: string[] = [];
 
-  resolved.forEach(({ track, assetDuration }, i) => {
+  resolved.forEach(({ track, assetDuration, fromVideo, trimOut }, i) => {
     const outLabel = `a${i}`;
     const parts: string[] = [];
 
@@ -284,7 +312,10 @@ function buildTrackMix(
       // v1.1 S10: seek once, repeat everything after the seek point, then cut
       // the repeated stream to the clip's timeline span (`end`, or the
       // composition end when `end` is omitted).
-      if (trimIn > 0) {
+      if (trimOut !== undefined && trimOut > trimIn) {
+        // v1.1 S11: a looping keepAudio clip repeats [trimIn, trimOut) only.
+        parts.push(`atrim=${secs(trimIn)}:${secs(trimOut)}`, "asetpts=PTS-STARTPTS");
+      } else if (trimIn > 0) {
         parts.push(`atrim=${secs(trimIn)}`, "asetpts=PTS-STARTPTS");
       }
       parts.push(
@@ -328,7 +359,10 @@ function buildTrackMix(
       parts.push(`adelay=${Math.round(track.start * 1000)}:all=1`);
     }
 
-    chains.push(`[${i + 1}:a]${parts.join(",")}[${outLabel}]`);
+    // A video source's audio is its first audio stream (v1.1 S11); `:a` alone
+    // stays for audio files so existing graphs are unchanged.
+    const input = fromVideo ? `[${i + 1}:a:0]` : `[${i + 1}:a]`;
+    chains.push(`${input}${parts.join(",")}[${outLabel}]`);
     mixLabels.push(`[${outLabel}]`);
   });
 

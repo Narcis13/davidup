@@ -244,10 +244,11 @@ await renderToFile(comp, "out.mp4", { codec: "libx264", crf: 18 });
 → validate → sample the resolver → render a single PNG frame → render the
 full MP4. Outputs land in `examples/output/`.
 
-**Video + audio, minimal**: a `video` item is a silent, sprite-shaped clip
+**Video + audio, minimal**: a `video` item is a sprite-shaped clip
 (`trimIn`/`trimOut` window into the source file, `fit`/`loop` like any other
 box); audio comes from the separate top-level `audio` array, muxed on after
-the silent video encode:
+the silent video encode — or, with `keepAudio: true`, from the clip's own
+audio stream:
 
 ```ts
 {
@@ -370,13 +371,18 @@ this way.
 | `text` | `text`, `font` (font **asset id**, not a CSS family), `fontSize`, `color`, `align?` (`left`/`center`/`right`) |
 | `shape` | `kind` (`rect`/`circle`/`polygon`), `width?`, `height?`, `points?`, `fillColor?`, `strokeColor?`, `strokeWidth?`, `cornerRadius?` |
 | `group` | `items: string[]` — child ids; group opacity multiplies into children (not isolated compositing) |
-| `video` | `asset` (video id), `width`, `height`, `start`, `end?`, `trimIn?`, `trimOut?`, `fit` (`cover`/`contain`/`fill`/`none`, default `contain`), `loop` (default `false`) |
+| `video` | `asset` (video id), `width`, `height`, `start`, `end?`, `trimIn?`, `trimOut?`, `fit` (`cover`/`contain`/`fill`/`none`, default `contain`), `loop` (default `false`), `keepAudio?` |
 
 Text is a single line drawn with one `fillText`: no wrapping, no `\n`, no
 letter-spacing / line-height / stroke / shadow (see `TEXT_V2_DESIGN.md` for
 the v1.1 plan). Circles use `width` as diameter. A video item is a silent
-texture — it freezes on its last frame when the trim window runs out, or
-loops with `loop: true`; its own audio track is always discarded.
+texture by default — it freezes on its last frame when the trim window runs
+out, or loops with `loop: true`. `keepAudio: true` muxes the clip's own sound:
+at render, `renderToFile` adds an `audio[]` track `<itemId>__audio` that reads
+the video file's first audio stream over the same `start`/`end`/`trimIn`
+(stopping at `trimOut`, looping with the picture). Hidden clips
+(`visible: false`) stay silent, and a source ffprobe found silent
+(`hasAudio: false`) is skipped with a `W_VIDEO_NO_AUDIO_STREAM` warning.
 
 ### Transform fields
 
@@ -439,7 +445,7 @@ through to Canvas2D for static fills but are rejected as tween endpoints.
 | `image` | `id`, `src` | png / jpg / … anything Canvas2D decodes |
 | `font` | `id`, `src`, `family` | ttf / otf / woff |
 | `audio` | `id`, `src`, `duration?`, `sampleRate?`, `channels?`, `codec?` | `.mp3 .wav .aac .m4a .ogg` |
-| `video` | `id`, `src`, `duration?`, `width?`, `height?`, `fps?`, `hasAlpha?`, `codec?`, `pixelFormat?` | `.mp4 .mov .webm .mkv` |
+| `video` | `id`, `src`, `duration?`, `width?`, `height?`, `fps?`, `hasAlpha?`, `codec?`, `pixelFormat?`, `hasAudio?` | `.mp4 .mov .webm .mkv` |
 
 Audio/video metadata is filled in by `ffprobe` on `register_asset` when
 available; without it the asset still registers (with a warning). The
@@ -634,7 +640,7 @@ hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 | 4.2 | Assets | `register_asset` (image / font / audio / video; audio+video are ffprobed), `list_assets`, `remove_asset` |
 | 4.3 | Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 | Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
-| 4.4a | Video items | `add_video`, `update_video` — silent, sprite-shaped clips with `trimIn`/`trimOut`, `fit`, `loop` (freezes on the last frame once trimmed content runs out) |
+| 4.4a | Video items | `add_video`, `update_video` — sprite-shaped clips with `trimIn`/`trimOut`, `fit`, `loop` (freezes on the last frame once trimmed content runs out), `keepAudio` (mux the clip's own sound) |
 | 4.5 | Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
 | 4.5a | Audio tracks | `add_audio_track`, `update_audio_track`, `remove_audio_track`, `list_audio_tracks` |
 | 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` (descriptor only) |
@@ -691,7 +697,8 @@ handle:
 `E_POLYGON_INVALID`, `E_DIMENSION_ODD` (odd composition width/height — the
 H.264/yuv420p encoder needs even sizes); warnings `W_DIMENSION_LARGE` (either
 axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
-`W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES`.
+`W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES`,
+`W_VIDEO_NO_AUDIO_STREAM` (`keepAudio` on a source with no audio stream).
 Warnings never fail a call. `create_composition` and `set_composition_property`
 return the dimension codes eagerly as `issues[]` / `warnings[]` on their result.
 
@@ -957,8 +964,10 @@ Things v1.0 does not do. Each is either an open ledger item in
   composite them.
 - All extracted frames are decoded into memory before encoding; a 30 s
   full-frame 1080p clip is ~900 bitmaps. Watch RAM on small machines.
-- A video item's own audio is always dropped. Register the sound separately
-  as an `audio` asset if you need it.
+- `keepAudio` has no volume/fade controls of its own — for those, register
+  the same file as an `audio` asset and add a track by hand. A source
+  registered without ffprobe metadata that turns out to be silent fails the
+  mux instead of being skipped.
 
 **Output**
 

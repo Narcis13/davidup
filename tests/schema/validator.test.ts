@@ -844,3 +844,54 @@ describe("validate — scene instance outliving its scene (W_SCENE_INSTANCE_OUTL
     ).toBe(false);
   });
 });
+
+describe("validate — keepAudio on a silent source (W_VIDEO_NO_AUDIO_STREAM)", () => {
+  function withClip(hasAudio: boolean | undefined, keepAudio: boolean) {
+    const comp = baseComposition();
+    comp.assets.push({
+      id: "clip",
+      type: "video",
+      src: "./clip.mp4",
+      duration: 5,
+      ...(hasAudio !== undefined ? { hasAudio } : {}),
+    });
+    comp.items["clip-item"] = {
+      type: "video",
+      asset: "clip",
+      width: 1920,
+      height: 1080,
+      start: 0,
+      fit: "contain",
+      loop: false,
+      keepAudio,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    comp.layers[0]!.items.push("clip-item");
+    return comp;
+  }
+  const flagged = (comp: ReturnType<typeof withClip>) =>
+    validate(comp).warnings.filter((w) => w.code === "W_VIDEO_NO_AUDIO_STREAM");
+
+  it("warns when keepAudio is set but ffprobe found no audio stream", () => {
+    const result = validate(withClip(false, true));
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find((w) => w.code === "W_VIDEO_NO_AUDIO_STREAM");
+    expect(warn?.path).toBe("items.clip-item.keepAudio");
+    expect(warn?.message).toMatch(/clip-item/);
+  });
+
+  it("stays quiet when the source has audio, is unprobed, or keepAudio is off", () => {
+    expect(flagged(withClip(true, true))).toEqual([]);
+    expect(flagged(withClip(undefined, true))).toEqual([]);
+    expect(flagged(withClip(false, false))).toEqual([]);
+  });
+});

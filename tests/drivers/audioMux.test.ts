@@ -241,6 +241,36 @@ describe("buildAudioFilterComplex — per-track loop (v1.1 S10)", () => {
   });
 });
 
+describe("buildAudioFilterComplex — video sources (v1.1 S11 keepAudio)", () => {
+  it("reads a video file's first audio stream", () => {
+    const filter = buildAudioFilterComplex(
+      [{ ...resolved({ asset: "broll", start: 1, end: 3, trimIn: 0.5 }), fromVideo: true }],
+      4,
+    );
+    expect(filter).toBe(
+      "[1:a:0]aresample=48000,aformat=channel_layouts=stereo," +
+        "atrim=0.5:2.5,asetpts=PTS-STARTPTS,adelay=1000:all=1[a0];" +
+        "[a0]" + LIMITER + ",apad,atrim=0:4[aout]",
+    );
+  });
+
+  it("bounds a looping clip's repeated window to [trimIn, trimOut)", () => {
+    const filter = buildAudioFilterComplex(
+      [
+        {
+          ...resolved({ asset: "broll", start: 0, end: 6, trimIn: 0.5, loop: true }),
+          fromVideo: true,
+          trimOut: 2,
+        },
+      ],
+      6,
+    );
+    expect(filter).toContain(
+      "atrim=0.5:2,asetpts=PTS-STARTPTS,aloop=loop=-1:size=2147483647,atrim=0:6,asetpts=PTS-STARTPTS",
+    );
+  });
+});
+
 describe("buildAudioFilterComplex — master bus (v1.1 S10)", () => {
   const tracks = [
     resolved({ asset: "music", start: 0 }),
@@ -440,6 +470,38 @@ describe("resolveAudioInputs", () => {
     expect(() => resolveAudioInputs(c)).toThrow(/unknown asset "ghost"/);
   });
 
+  it("accepts a video asset and picks up its keepAudio item's trimOut (v1.1 S11)", () => {
+    const base = comp({
+      assets: [{ id: "broll", type: "video", src: "/v/broll.mp4", duration: 4 }],
+      audio: [{ id: "clip__audio", asset: "broll", start: 0, loop: true }],
+    });
+    const c: Composition = {
+      ...base,
+      items: {
+        ...base.items,
+        clip: {
+          type: "video",
+          asset: "broll",
+          width: 32,
+          height: 32,
+          start: 0,
+          trimOut: 1.5,
+          fit: "contain",
+          loop: true,
+          keepAudio: true,
+          transform: base.items.s!.transform,
+        },
+      },
+    };
+    const [out] = resolveAudioInputs(c);
+    expect(out).toMatchObject({
+      src: "/v/broll.mp4",
+      assetDuration: 4,
+      fromVideo: true,
+      trimOut: 1.5,
+    });
+  });
+
   it("throws when a track references a non-audio asset", () => {
     const c = comp({
       assets: [{ id: "pic", type: "image", src: "pic.png" }],
@@ -519,6 +581,46 @@ describe("renderToFile — two-stage audio pipeline", () => {
     const filter = harness.calls[1]!.args[filterIdx + 1]!;
     expect(filter).toContain("atrim=0:2[aout]");
     expect(filter).toContain(`aresample=${MUX_SAMPLE_RATE}`);
+  });
+
+  it("muxes a keepAudio video item's own sound (v1.1 S11)", async () => {
+    const skia = makeFakeSkia();
+    const harness = makeFakeSpawn({ exitCode: 0 });
+    const base = comp({
+      assets: [{ id: "broll", type: "video", src: "/v/broll.mp4", duration: 3 }],
+    });
+    const c: Composition = {
+      ...base,
+      layers: [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["clip"] }],
+      items: {
+        clip: {
+          type: "video",
+          asset: "broll",
+          width: 32,
+          height: 32,
+          start: 0.5,
+          trimIn: 1,
+          trimOut: 2,
+          fit: "contain",
+          loop: false,
+          keepAudio: true,
+          transform: base.items.s!.transform,
+        },
+      },
+    };
+
+    await renderToFile(c, "/tmp/out.mp4", {
+      skiaCanvas: skia,
+      spawn: harness.spawn,
+      preExtract: false,
+    });
+
+    expect(harness.calls).toHaveLength(2);
+    const mux = harness.calls[1]!;
+    expect(mux.args).toEqual(expect.arrayContaining(["-i", "/v/broll.mp4"]));
+    const filter = mux.args[mux.args.indexOf("-filter_complex") + 1]!;
+    expect(filter).toContain("[1:a:0]");
+    expect(filter).toContain("atrim=1:2,asetpts=PTS-STARTPTS,adelay=500:all=1");
   });
 
   it("stays single-stage when there is no audio", async () => {

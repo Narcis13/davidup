@@ -170,7 +170,9 @@ export function isSupportedVideoSrc(src: string): boolean {
 // `duration` is seconds; `width`/`height` are pixels; `fps` is the frame rate;
 // `hasAlpha` is true when the pixel format carries an alpha plane; `codec` is
 // ffprobe's `codec_name` (e.g. "h264", "vp9", "av1"); `pixelFormat` is
-// ffprobe's `pix_fmt` (e.g. "yuv420p", "yuva420p").
+// ffprobe's `pix_fmt` (e.g. "yuv420p", "yuva420p"); `hasAudio` (v1.1 S11) is
+// whether the container carries at least one audio stream — it lets the
+// validator warn when a `keepAudio` clip has no sound to keep.
 export const VideoAssetSchema = z.object({
   id: z.string().min(1),
   type: z.literal("video"),
@@ -182,6 +184,7 @@ export const VideoAssetSchema = z.object({
   hasAlpha: z.boolean().optional(),
   codec: z.string().min(1).optional(),
   pixelFormat: z.string().min(1).optional(),
+  hasAudio: z.boolean().optional(),
 });
 
 export const AssetSchema = z.discriminatedUnion("type", [
@@ -292,8 +295,13 @@ export const VideoFitSchema = z.enum(VIDEO_FIT_MODES);
 //   fit              — how the frame fills the box (default "contain")
 //   loop             — replay the trimmed source when `end` outlasts it
 //
-// Video is a SILENT texture: it carries ZERO audio fields by design — all
-// audio comes from explicitly declared external AudioTracks (§S1). The `asset`
+//   keepAudio        — (v1.1 S11) mux the clip's own audio stream: the render
+//                      synthesises an `audio[]` track `${itemId}__audio` that
+//                      mirrors start/end/trimIn/trimOut (see
+//                      compose/videoAudio.ts)
+//
+// By default video is a SILENT texture — all audio comes from explicitly
+// declared AudioTracks (§S1); `keepAudio` is the one opt-in bridge. The `asset`
 // reference is intentionally NOT cross-checked at parse time (video asset
 // registration is §S6, mirroring how audio §S1 defers its check to §S2), so a
 // composition naming a not-yet-registered clip still parses. The temporal/trim
@@ -313,6 +321,7 @@ export const VideoItemSchema = z.object({
   trimOut: z.number().positive().optional(),
   fit: VideoFitSchema.default("contain"),
   loop: z.boolean().default(false),
+  keepAudio: z.boolean().optional(),
   transform: TransformSchema,
   ...ItemFlagsSchema,
 });

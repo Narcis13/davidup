@@ -273,6 +273,22 @@ test.group('applyCommand · video items (U4)', () => {
     assert.equal(updated.loop, true)
   })
 
+  test('keepAudio survives add_video + update_video (v1.1 S11 dual schema)', async ({ assert }) => {
+    const a = await applyCommand(compWithMedia(), {
+      kind: 'add_video',
+      payload: { layerId: 'fg', asset: 'clip', x: 0, y: 0, id: 'clip1', keepAudio: true },
+      source: 'ui',
+    })
+    assert.equal((a.items.clip1 as { keepAudio?: boolean }).keepAudio, true)
+
+    const b = await applyCommand(a, {
+      kind: 'update_video',
+      payload: { id: 'clip1', props: { keepAudio: false } },
+      source: 'ui',
+    })
+    assert.equal((b.items.clip1 as { keepAudio?: boolean }).keepAudio, false)
+  })
+
   test('add_video rejects an unregistered asset id', async ({ assert }) => {
     await assert.rejects(() =>
       applyCommand(compWithMedia(), {

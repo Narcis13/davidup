@@ -28,7 +28,7 @@ import {
   type AssetLoader,
   type SkiaCanvasModule,
 } from "../../assets/index.js";
-import { precompile } from "../../compose/index.js";
+import { precompile, synthesizeVideoAudio } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
 import { indexTweens, prepareVideoFrames, renderFrame } from "../../engine/index.js";
 import type {
@@ -275,10 +275,15 @@ export async function renderToFile(
   const startedAt = nowMs();
   const containerError = checkContainerCodec(outPath, opts.codec);
   if (containerError !== undefined) throw new RenderOptionsError(containerError);
-  const compiled = (await precompile(comp, {
-    ...(opts.sourcePath !== undefined ? { sourcePath: opts.sourcePath } : {}),
-    ...(opts.readFile !== undefined ? { readFile: opts.readFile } : {}),
-  })) as Composition;
+  // v1.1 S11: `keepAudio` video items become ordinary `audio[]` tracks here,
+  // after precompile, so the mux below picks them up (see compose/videoAudio.ts
+  // for why this isn't a precompile pass).
+  const compiled = synthesizeVideoAudio(
+    await precompile(comp, {
+      ...(opts.sourcePath !== undefined ? { sourcePath: opts.sourcePath } : {}),
+      ...(opts.readFile !== undefined ? { readFile: opts.readFile } : {}),
+    }),
+  ) as Composition;
   const skia = opts.skiaCanvas ?? (await importSkiaCanvas());
   const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
 

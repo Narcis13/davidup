@@ -1211,6 +1211,7 @@ is bit-deterministic.
 | `W_ITEM_OFF_CANVAS`               | validator (warning) | item's full range of motion never overlaps the canvas rect  |
 | `W_FONT_UNREGISTERED`             | validator (warning) | text.font doesn't resolve to a registered font asset (host-dependent fallback at render) |
 | `W_SCENE_INSTANCE_OUTLIVES`       | validator (warning) | scene-instance wrapper group stays visible well past its content's last tween |
+| `W_VIDEO_NO_AUDIO_STREAM`         | validator (warning) | video item sets `keepAudio` but its asset was probed with no audio stream |
 | `E_NO_COMPOSITION`                | store / dispatch    | no default composition; pass `compositionId`               |
 | `E_DUPLICATE_ID`                  | store               | id already in use                                          |
 | `E_NOT_FOUND`                     | store               | entity (item/layer/asset/tween) does not exist             |

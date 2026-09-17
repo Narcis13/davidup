@@ -44,6 +44,8 @@ export interface VideoMetadata {
   codec?: string;
   /** ffprobe `pix_fmt`, e.g. "yuv420p", "yuva420p". */
   pixelFormat?: string;
+  /** True when the container also carries an audio stream (v1.1 S11 `keepAudio`). */
+  hasAudio?: boolean;
 }
 
 export type ProbeSpawn = (
@@ -319,6 +321,9 @@ function parseVideoMetadata(probe: FfprobeOutput, src: string): VideoMetadata {
   } else if (alphaFromTag) {
     out.hasAlpha = true;
   }
+
+  // v1.1 S11: whether there is any nat sound for `keepAudio` to mux.
+  out.hasAudio = (probe.streams ?? []).some((s) => s.codec_type === "audio");
 
   return out;
 }

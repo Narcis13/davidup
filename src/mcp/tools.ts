@@ -597,7 +597,7 @@ const registerAsset = defineTool({
     `Audio assets accept ${AUDIO_ASSET_EXTENSIONS.join(", ")} and are probed with ffprobe to ` +
     "extract duration, sampleRate, channels, and codec. " +
     `Video assets accept ${VIDEO_ASSET_EXTENSIONS.join(", ")} and are probed for duration, width, ` +
-    "height, fps, hasAlpha, codec, and pixelFormat; a `warnings` entry flags >=4K resolution, " +
+    "height, fps, hasAlpha, codec, pixelFormat, and hasAudio; a `warnings` entry flags >=4K resolution, " +
     ">60s duration, or an exotic codec (e.g. AV1). For audio and video, if ffprobe is unavailable " +
     "the asset is registered without metadata and a `warnings` entry is returned.",
   inputSchema: {
@@ -1305,9 +1305,9 @@ const listAudioTracks = defineTool({
 
 // A video item is spatially a sprite (same `x`/`y` + `width`/`height` box +
 // transform) plus a temporal window on the composition timeline and a trim into
-// the source. It is a SILENT texture — zero audio fields (all audio comes from
-// add_audio_track). Generic update_item still patches the spatial surface;
-// update_video below is the full-fidelity patcher that also reaches the
+// the source. Silent by default (audio comes from add_audio_track); `keepAudio`
+// (v1.1 S11) muxes the clip's own audio stream instead. Generic update_item
+// still patches the spatial surface; update_video below is the full-fidelity patcher that also reaches the
 // temporal/display fields. remove_item / move_item_to_layer work unchanged
 // (they address any item by id). Tween x/y/opacity/width/height via add_tween
 // exactly like a sprite (see list_engine_capabilities.tweenable.video).
@@ -1321,7 +1321,7 @@ const addVideo = defineTool({
   name: "add_video",
   title: "Add video item",
   description:
-    "Add a video clip item to a layer. `asset` must be a registered video asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't video). Coordinates `x`/`y` are pixels from the composition top-left (y down). `width`/`height` default to the composition size (so the clip fills the frame; with fit=contain it letterboxes, never overflows). `start` (default 0) and optional `end` are composition seconds; `trimIn`/`trimOut` slice [trimIn, trimOut) out of the source; `fit` defaults to \"contain\"; `loop` (default false) replays the trimmed source when `end` outlasts it. `layerId` is optional — omit it to drop the clip on the topmost layer. Returns the assigned `itemId`, plus a `warnings` array when the clip's window extends past the composition end (cut at render, never rejected).",
+    "Add a video clip item to a layer. `asset` must be a registered video asset (E_NOT_FOUND if unknown, E_ASSET_TYPE_MISMATCH if it isn't video). Coordinates `x`/`y` are pixels from the composition top-left (y down). `width`/`height` default to the composition size (so the clip fills the frame; with fit=contain it letterboxes, never overflows). `start` (default 0) and optional `end` are composition seconds; `trimIn`/`trimOut` slice [trimIn, trimOut) out of the source; `fit` defaults to \"contain\"; `loop` (default false) replays the trimmed source when `end` outlasts it; `keepAudio` (default false) muxes the clip's own audio stream at render, mirroring start/end/trimIn/trimOut (no separate add_audio_track needed). `layerId` is optional — omit it to drop the clip on the topmost layer. Returns the assigned `itemId`, plus a `warnings` array when the clip's window extends past the composition end (cut at render, never rejected).",
   inputSchema: {
     layerId: z.string().min(1).optional(),
     asset: z.string().min(1),
@@ -1336,6 +1336,7 @@ const addVideo = defineTool({
     trimOut: z.number().positive().optional(),
     fit: VIDEO_FIT.optional(),
     loop: z.boolean().optional(),
+    keepAudio: z.boolean().optional(),
     id: z.string().min(1).optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
@@ -1361,6 +1362,7 @@ const addVideo = defineTool({
         ...(args.trimOut !== undefined ? { trimOut: args.trimOut } : {}),
         ...(args.fit !== undefined ? { fit: args.fit } : {}),
         ...(args.loop !== undefined ? { loop: args.loop } : {}),
+        ...(args.keepAudio !== undefined ? { keepAudio: args.keepAudio } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
         ...(args.name !== undefined ? { name: args.name } : {}),
       },
@@ -1374,7 +1376,7 @@ const updateVideo = defineTool({
   name: "update_video",
   title: "Update video item",
   description:
-    "Patch any field of a video item — spatial (`x`/`y`/`scaleX`/`scaleY`/`rotation`/`anchorX`/`anchorY`/`opacity`/`width`/`height`/`asset`), temporal (`start`/`end`/`trimIn`/`trimOut`), display (`fit`/`loop`), and flags (`visible`/`locked`/`name`/`enter`/`exit`). Errors with E_NOT_FOUND if the id is unknown, E_INVALID_PROPERTY if it isn't a video item, E_ASSET_TYPE_MISMATCH if a new `asset` isn't video, and E_INVALID_VALUE on a bad trim/timing window. Returns `{ ok: true }`, plus a `warnings` array when the resulting window extends past the composition end.",
+    "Patch any field of a video item — spatial (`x`/`y`/`scaleX`/`scaleY`/`rotation`/`anchorX`/`anchorY`/`opacity`/`width`/`height`/`asset`), temporal (`start`/`end`/`trimIn`/`trimOut`), display (`fit`/`loop`), audio (`keepAudio`), and flags (`visible`/`locked`/`name`/`enter`/`exit`). Errors with E_NOT_FOUND if the id is unknown, E_INVALID_PROPERTY if it isn't a video item, E_ASSET_TYPE_MISMATCH if a new `asset` isn't video, and E_INVALID_VALUE on a bad trim/timing window. Returns `{ ok: true }`, plus a `warnings` array when the resulting window extends past the composition end.",
   inputSchema: {
     id: z.string().min(1),
     props: z
@@ -1396,6 +1398,7 @@ const updateVideo = defineTool({
         trimOut: z.number().positive(),
         fit: VIDEO_FIT,
         loop: z.boolean(),
+        keepAudio: z.boolean(),
         visible: z.boolean(),
         locked: z.boolean(),
         name: z.string().max(80),

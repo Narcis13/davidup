@@ -468,7 +468,8 @@ const SHAPE_FIELDS: ReadonlyArray<FieldDef> = [
 // `transform` shape as a sprite. This registry only adds the video-specific
 // source/time/display fields: asset (filtered to video), trim window, the
 // item's own temporal placement (start/end — distinct from the Lifespan
-// enter/exit window every item type has), display fit mode, and loop.
+// enter/exit window every item type has), display fit mode, loop, and
+// keepAudio (v1.1 S11 — mux the clip's own sound at render).
 const VIDEO_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'asset', label: 'asset', kind: 'asset', path: 'asset', assetType: 'video' },
   { key: 'start', label: 'start', kind: 'time', path: 'start', min: 0, step: 0.05 },
@@ -483,9 +484,22 @@ const VIDEO_FIELDS: ReadonlyArray<FieldDef> = [
     options: ['cover', 'contain', 'fill', 'none'],
   },
   { key: 'loop', label: 'loop', kind: 'boolean', path: 'loop' },
+  { key: 'keepAudio', label: 'keep audio', kind: 'boolean', path: 'keepAudio' },
   { key: 'width', label: 'width', kind: 'number', path: 'width', min: 0, step: 1 },
   { key: 'height', label: 'height', kind: 'number', path: 'height', min: 0, step: 1 },
 ]
+
+// Video-only keys `update_item` doesn't carry (its props schema would strip
+// them); these edits go through `update_video` instead.
+const VIDEO_ONLY_KEYS: ReadonlySet<string> = new Set([
+  'start',
+  'end',
+  'trimIn',
+  'trimOut',
+  'fit',
+  'loop',
+  'keepAudio',
+])
 
 const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
   // Multi-select across mixed item types: hide the type-specific section
@@ -558,7 +572,7 @@ function resetVideoTrim(): void {
   if (!id) return
   const dur = selectedVideoAssetDuration.value
   emit('apply', {
-    kind: 'update_item',
+    kind: 'update_video',
     payload: {
       id,
       props: { trimIn: 0, ...(dur !== null ? { trimOut: dur } : {}) },
@@ -760,9 +774,13 @@ function dispatchEdit(field: FieldDef, raw: unknown): void {
         ? [selection.selectedItemId.value]
         : []
   if (targets.length === 0) return
+  const kind =
+    commonItemType.value === 'video' && VIDEO_ONLY_KEYS.has(field.key)
+      ? 'update_video'
+      : 'update_item'
   for (const id of targets) {
     emit('apply', {
-      kind: 'update_item',
+      kind,
       payload: { id, props: { [field.key]: raw } },
       source: 'ui',
     } as Command)

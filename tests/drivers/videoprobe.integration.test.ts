@@ -31,6 +31,7 @@ describe("probeVideo — real files (ffprobe-static)", () => {
     expect(meta.fpsRational).toBe("30/1");
     expect(meta.pixelFormat).toBe("yuv420p");
     expect(meta.hasAlpha).toBe(false);
+    expect(meta.hasAudio).toBe(false);
     expect(meta.duration).toBeCloseTo(1, 1);
   });
 

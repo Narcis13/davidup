@@ -39,6 +39,8 @@
 //                                              → W_SCENE_INSTANCE_OUTLIVES
 //      Video asset ref missing is already E_ASSET_MISSING (since Session 10)
 //      and stays an error — not duplicated here.
+//  16. keepAudio video whose asset was probed with no audio stream
+//                                              → W_VIDEO_NO_AUDIO_STREAM
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getTweenable } from "./tweenable.js";
@@ -66,7 +68,8 @@ export type ValidationWarningCode =
   | "W_ITEM_INVISIBLE_OPACITY"
   | "W_ITEM_OFF_CANVAS"
   | "W_FONT_UNREGISTERED"
-  | "W_SCENE_INSTANCE_OUTLIVES";
+  | "W_SCENE_INSTANCE_OUTLIVES"
+  | "W_VIDEO_NO_AUDIO_STREAM";
 
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
@@ -133,6 +136,7 @@ export function validate(input: unknown): ValidationResult {
   validateOffCanvas(comp, warnings);
   validateFontResolution(comp, assetMap, warnings);
   validateSceneInstanceLifespans(comp, warnings);
+  validateKeepAudioStreams(comp, assetMap, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
 }
@@ -549,6 +553,30 @@ function validateFontResolution(
         "at render time this silently falls back to using the id as a literal CSS font-family, " +
         "which renders inconsistently across hosts.",
       path: `items.${itemId}.font`,
+    });
+  }
+}
+
+// keepAudio on a silent source (W_VIDEO_NO_AUDIO_STREAM, v1.1 S11). The
+// validator is synchronous, so it trusts the `hasAudio` flag ffprobe stored on
+// the asset at registration — an asset registered without metadata stays quiet.
+// The render skips such an item's audio rather than failing on the missing
+// stream, so this is the only signal that the nat sound won't be there.
+function validateKeepAudioStreams(
+  comp: Composition,
+  assetMap: ReadonlyMap<string, Composition["assets"][number]>,
+  warnings: ValidationWarning[],
+): void {
+  for (const [itemId, item] of Object.entries(comp.items)) {
+    if (item.type !== "video" || item.keepAudio !== true) continue;
+    const asset = assetMap.get(item.asset);
+    if (asset?.type !== "video" || asset.hasAudio !== false) continue;
+    warnings.push({
+      code: "W_VIDEO_NO_AUDIO_STREAM",
+      message:
+        `Video "${itemId}" sets keepAudio but asset "${item.asset}" has no audio stream — ` +
+        "the clip renders silent.",
+      path: `items.${itemId}.keepAudio`,
     });
   }
 }

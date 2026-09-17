@@ -149,6 +149,7 @@ export interface RegisterAssetInput {
   fps?: number;
   hasAlpha?: boolean;
   pixelFormat?: string;
+  hasAudio?: boolean;
 }
 
 export interface AddLayerInput {
@@ -360,7 +361,7 @@ export interface AddAudioTrackResult extends AudioTrackMutationResult {
 // source trim (`trimIn`/`trimOut`). `width`/`height` default to the composition
 // dimensions; `start` defaults to 0; `fit` to "contain"; `loop` to false.
 // `layerId` is optional — omitted, the clip lands on the topmost layer (highest
-// z). Video carries ZERO audio fields by design.
+// z). `keepAudio` (v1.1 S11) opts the clip's own audio stream into the mux.
 export interface AddVideoInput {
   layerId?: string;
   asset: string;
@@ -380,6 +381,7 @@ export interface AddVideoInput {
   trimOut?: number;
   fit?: VideoFit;
   loop?: boolean;
+  keepAudio?: boolean;
   id?: string;
   name?: string;
 }
@@ -405,6 +407,7 @@ export interface UpdateVideoProps {
   trimOut?: number;
   fit?: VideoFit;
   loop?: boolean;
+  keepAudio?: boolean;
   // §M flags + §P label + lifespan (every item type).
   visible?: boolean;
   locked?: boolean;
@@ -652,6 +655,7 @@ export class CompositionStore {
         ...(input.hasAlpha !== undefined ? { hasAlpha: input.hasAlpha } : {}),
         ...(input.codec !== undefined ? { codec: input.codec } : {}),
         ...(input.pixelFormat !== undefined ? { pixelFormat: input.pixelFormat } : {}),
+        ...(input.hasAudio !== undefined ? { hasAudio: input.hasAudio } : {}),
       });
     } else {
       throw new MCPToolError(
@@ -1030,6 +1034,7 @@ export class CompositionStore {
       ...(input.end !== undefined ? { end: input.end } : {}),
       ...(input.trimIn !== undefined ? { trimIn: input.trimIn } : {}),
       ...(input.trimOut !== undefined ? { trimOut: input.trimOut } : {}),
+      ...(input.keepAudio !== undefined ? { keepAudio: input.keepAudio } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, video);
@@ -1093,6 +1098,7 @@ export class CompositionStore {
     const name = props.name ?? existing.name;
     const enter = props.enter ?? existing.enter;
     const exit = props.exit ?? existing.exit;
+    const keepAudio = props.keepAudio ?? existing.keepAudio;
 
     const updated: VideoItem = {
       type: "video",
@@ -1106,6 +1112,7 @@ export class CompositionStore {
       ...(end !== undefined ? { end } : {}),
       ...(trimIn !== undefined ? { trimIn } : {}),
       ...(trimOut !== undefined ? { trimOut } : {}),
+      ...(keepAudio !== undefined ? { keepAudio } : {}),
       ...(visible !== undefined ? { visible } : {}),
       ...(locked !== undefined ? { locked } : {}),
       ...(name !== undefined ? { name } : {}),
@@ -2338,6 +2345,7 @@ function cloneAsset(asset: Asset): Asset {
         ...(asset.hasAlpha !== undefined ? { hasAlpha: asset.hasAlpha } : {}),
         ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
         ...(asset.pixelFormat !== undefined ? { pixelFormat: asset.pixelFormat } : {}),
+        ...(asset.hasAudio !== undefined ? { hasAudio: asset.hasAudio } : {}),
       };
   }
 }
@@ -2426,6 +2434,7 @@ function cloneItem(item: Item): Item {
         ...(item.end !== undefined ? { end: item.end } : {}),
         ...(item.trimIn !== undefined ? { trimIn: item.trimIn } : {}),
         ...(item.trimOut !== undefined ? { trimOut: item.trimOut } : {}),
+        ...(item.keepAudio !== undefined ? { keepAudio: item.keepAudio } : {}),
         ...flags,
       };
   }

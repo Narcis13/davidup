@@ -60,6 +60,11 @@ export {
 } from "./scenes.js";
 export { substitute, type SubstitutionContext } from "./params.js";
 export {
+  synthesizeVideoAudio,
+  videoAudioTrackId,
+  VIDEO_AUDIO_TRACK_SUFFIX,
+} from "./videoAudio.js";
+export {
   precompile,
   type PrecompileOptions,
   type PrecompileResult,
