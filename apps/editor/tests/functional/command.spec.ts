@@ -587,6 +587,85 @@ test.group('applyCommand · parametric easings (v1.1 S17)', () => {
   })
 })
 
+test.group('applyCommand · group compositing (v1.1 S18)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  // `isolate` / `blendMode` are the dual-schema risk here: the command bus
+  // strips anything the UI-side schema doesn't declare, so a group saved from
+  // the Inspector would silently lose them.
+  test('add_group carries isolate + blendMode through the dual schema', async ({ assert }) => {
+    const next = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'add_group',
+        payload: {
+          layerId: 'fg',
+          id: 'g',
+          x: 0,
+          y: 0,
+          childItemIds: ['logo'],
+          isolate: true,
+          blendMode: 'multiply',
+        },
+        source: 'ui',
+      })
+    )
+    const group = next.items.g as Record<string, unknown>
+    assert.equal(group.isolate, true)
+    assert.equal(group.blendMode, 'multiply')
+  })
+
+  test('update_item toggles both and survives rehydration', async ({ assert }) => {
+    const a = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'add_group',
+        payload: { layerId: 'fg', id: 'g', x: 0, y: 0, childItemIds: ['logo'] },
+        source: 'ui',
+      })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'update_item',
+        payload: { id: 'g', props: { isolate: true, blendMode: 'screen' } },
+        source: 'ui',
+      })
+    )
+    // An unrelated command rehydrates the store from JSON — nothing is dropped.
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'g', props: { x: 10 } }, source: 'ui' })
+    )
+    const group = c.items.g as Record<string, unknown>
+    assert.equal(group.isolate, true)
+    assert.equal(group.blendMode, 'screen')
+
+    // Defaults clear the fields rather than storing a no-op override.
+    const d = await applyCommand(
+      c,
+      parsed({
+        kind: 'update_item',
+        payload: { id: 'g', props: { isolate: false, blendMode: 'normal' } },
+        source: 'ui',
+      })
+    )
+    const cleared = d.items.g as Record<string, unknown>
+    assert.notProperty(cleared, 'isolate')
+    assert.notProperty(cleared, 'blendMode')
+  })
+
+  test('dual schema rejects a blendMode that is not a Canvas2D operator', async ({ assert }) => {
+    assert.isFalse(
+      CommandSchema.safeParse({
+        kind: 'update_item',
+        payload: { id: 'g', props: { blendMode: 'divide' } },
+        source: 'ui',
+      }).success
+    )
+  })
+})
+
 // ──────────────── CommandBus ────────────────
 
 test.group('CommandBus · in-process', (group) => {

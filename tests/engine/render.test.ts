@@ -914,6 +914,294 @@ describe("drawItem — group transform stack", () => {
   });
 });
 
+// ──────────── v1.1 S18 — isolated group compositing ────────────
+//
+// `isolate: true` takes the group off the multiplicative path: the children
+// flatten onto a scratch surface at full alpha, and that surface composites
+// once, carrying the group's opacity and blend mode. These tests read the
+// recorded calls; the pixel-level proof (overlapping children come out at a
+// uniform alpha) is in tests/engine/isolatedGroup.pixels.test.ts.
+
+function isolateScene(
+  group: GroupItem,
+  children: Record<string, ShapeItem>,
+): ResolvedScene {
+  return {
+    composition: { width: 200, height: 100, fps: 30, duration: 1, background: "#000" },
+    layers: [],
+    items: { g: group, ...children },
+  };
+}
+
+function offscreenFactory(): {
+  createOffscreen: (w: number, h: number) => { context: FakeContext; source: unknown };
+  surfaces: Array<{ w: number; h: number; ctx: FakeContext; source: unknown }>;
+} {
+  const surfaces: Array<{ w: number; h: number; ctx: FakeContext; source: unknown }> = [];
+  const createOffscreen = (w: number, h: number) => {
+    const ctx = new FakeContext();
+    const source = { __offscreen: surfaces.length };
+    surfaces.push({ w, h, ctx, source });
+    return { context: ctx, source };
+  };
+  return { createOffscreen, surfaces };
+}
+
+function isolatedGroup(overrides: Partial<GroupItem> = {}): GroupItem {
+  return {
+    type: "group",
+    items: ["a", "b"],
+    isolate: true,
+    transform: {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      anchorX: 0,
+      anchorY: 0,
+      opacity: 0.5,
+    },
+    ...overrides,
+  };
+}
+
+describe("drawItem — isolated groups (v1.1 S18)", () => {
+  it("draws the children at full alpha on a composition-sized scratch surface, then composites once at the group's opacity", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = isolatedGroup();
+    const scene = isolateScene(group, { a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    // One scratch surface, sized to the composition.
+    expect(surfaces.length).toBe(1);
+    expect(surfaces[0]!.w).toBe(200);
+    expect(surfaces[0]!.h).toBe(100);
+
+    // Both children painted on the scratch surface, neither dimmed: the
+    // group's 0.5 is applied to the composite, not to each child.
+    const offFills = surfaces[0]!.ctx.calls.filter((c) => c.op === "fill");
+    expect(offFills.length).toBe(2);
+    for (const f of offFills) {
+      if (f.op === "fill") expect(f.alpha).toBe(1);
+    }
+
+    // Nothing painted straight onto the main context — only the composite.
+    expect(ctx.calls.some((c) => c.op === "fill")).toBe(false);
+    const composites = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(composites.length).toBe(1);
+    const composite = composites[0]!;
+    if (composite.op === "drawImage") {
+      expect(composite.image).toBe(surfaces[0]!.source);
+      expect(composite.alpha).toBeCloseTo(0.5, 10);
+      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 200, 100]);
+    }
+  });
+
+  it("composites at the canvas's own frame, with the scratch surface seeded from the inherited matrix", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    // An ancestor transform the group inherits: the children must still land
+    // where they would have without isolation, so the scratch surface takes
+    // the matrix verbatim while the composite runs at identity.
+    ctx.translate(30, 40);
+    ctx.scale(2, 2);
+    const group = isolatedGroup();
+    const scene = isolateScene(group, { a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    const seed = surfaces[0]!.ctx.calls.find((c) => c.op === "setTransform");
+    expect(seed).toBeDefined();
+    if (seed?.op === "setTransform") {
+      expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 30, 40]);
+    }
+
+    // The main context is reset to identity for the 1:1 composite, then
+    // restored — the inherited matrix survives for whatever draws next.
+    const reset = ctx.calls.find((c) => c.op === "setTransform");
+    expect(reset).toBeDefined();
+    if (reset?.op === "setTransform") {
+      expect([reset.a, reset.b, reset.c, reset.d, reset.e, reset.f]).toEqual([1, 0, 0, 1, 0, 0]);
+    }
+    expect(ctx.getTransform()).toEqual({ a: 2, b: 0, c: 0, d: 2, e: 30, f: 40 });
+  });
+
+  it("applies the group's own transform to the children on the scratch surface", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = isolatedGroup({
+      items: ["a"],
+      transform: {
+        x: 100,
+        y: 100,
+        scaleX: 2,
+        scaleY: 2,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    });
+    const scene = isolateScene(group, {
+      a: tinyShape({
+        transform: {
+          x: 5,
+          y: 5,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      }),
+    });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    // Group's (100,100), then the child's (5,5), then the child's anchor
+    // offset — the same nesting the multiplicative path produces, just on the
+    // scratch surface.
+    const translates = surfaces[0]!.ctx.calls.filter((c) => c.op === "translate");
+    expect(translates.length).toBe(3);
+    if (translates[0]?.op === "translate") {
+      expect([translates[0].x, translates[0].y]).toEqual([100, 100]);
+    }
+    if (translates[1]?.op === "translate") {
+      expect([translates[1].x, translates[1].y]).toEqual([5, 5]);
+    }
+    const scales = surfaces[0]!.ctx.calls.filter((c) => c.op === "scale");
+    expect(scales.length).toBe(1);
+    if (scales[0]?.op === "scale") expect([scales[0].x, scales[0].y]).toEqual([2, 2]);
+  });
+
+  it("carries the group's blendMode on the composite, not on each child", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = isolatedGroup({ blendMode: "multiply" });
+    const scene = isolateScene(group, { a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    // Children blend against their siblings on a transparent surface with the
+    // default operator — that isolation is the point.
+    const offFills = surfaces[0]!.ctx.calls.filter((c) => c.op === "fill");
+    expect(offFills.length).toBe(2);
+    for (const f of offFills) {
+      if (f.op === "fill") expect(f.composite).toBe("source-over");
+    }
+    // …and `multiply` lands on the one composite instead.
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite).toBeDefined();
+    if (composite?.op === "drawImage") expect(composite.composite).toBe("multiply");
+  });
+
+  it("keeps the multiplicative path when the host wires no offscreen factory", () => {
+    const ctx = new FakeContext();
+    const group = isolatedGroup({ items: ["a"] });
+    const scene = isolateScene(group, {
+      a: tinyShape({
+        transform: {
+          x: 0,
+          y: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      }),
+    });
+
+    drawItem(ctx, group, scene, undefined);
+
+    // No surface to flatten onto ⇒ children paint straight onto the canvas,
+    // dimmed by the group as they were before isolation existed.
+    expect(ctx.calls.some((c) => c.op === "drawImage")).toBe(false);
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill).toBeDefined();
+    if (fill?.op === "fill") expect(fill.alpha).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe("drawItem — group blendMode (v1.1 S18)", () => {
+  it("applies an un-isolated group's blendMode to each child's own draw", () => {
+    const ctx = new FakeContext();
+    const group: GroupItem = {
+      type: "group",
+      items: ["a"],
+      blendMode: "screen",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene = isolateScene(group, { a: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined);
+
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill).toBeDefined();
+    if (fill?.op === "fill") expect(fill.composite).toBe("screen");
+  });
+
+  it("leaves the inherited composite operator alone when the group declares no blendMode", () => {
+    const ctx = new FakeContext();
+    ctx.globalCompositeOperation = "multiply";
+    const group: GroupItem = {
+      type: "group",
+      items: ["a"],
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene = isolateScene(group, { a: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined);
+
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill).toBeDefined();
+    if (fill?.op === "fill") expect(fill.composite).toBe("multiply");
+  });
+});
+
 describe("drawScene integrates with the resolver", () => {
   it("draws a scene whose tween-resolved properties are reflected in the calls", () => {
     const ctx = new FakeContext();

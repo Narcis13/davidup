@@ -244,6 +244,11 @@ export interface AddGroupInput {
   x: number;
   y: number;
   childItemIds?: ReadonlyArray<string>;
+  // v1.1 S18 — flatten the children onto a scratch surface and composite once
+  // (so a faded group stops showing its overlap seams), and how that
+  // composite blends against what is already painted.
+  isolate?: boolean;
+  blendMode?: BlendMode;
   anchorX?: number;
   anchorY?: number;
   rotation?: number;
@@ -292,6 +297,10 @@ export interface UpdateItemProps {
   points?: ReadonlyArray<readonly [number, number]>;
   // Group-specific.
   items?: ReadonlyArray<string>;
+  // v1.1 S18 group compositing. `false` / `"normal"` return the group to the
+  // default multiplicative path rather than dropping the field.
+  isolate?: boolean;
+  blendMode?: BlendMode;
   // §M flags (all item types).
   visible?: boolean;
   locked?: boolean;
@@ -966,6 +975,8 @@ export class CompositionStore {
       type: "group",
       items: [...childIds],
       transform,
+      ...(input.isolate !== undefined ? { isolate: input.isolate } : {}),
+      ...(input.blendMode !== undefined ? { blendMode: input.blendMode } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, group);
@@ -2437,6 +2448,10 @@ function cloneItem(item: Item): Item {
         type: "group",
         items: [...item.items],
         transform: { ...item.transform },
+        // v1.1 S18 compositing opt-ins. Absent ⇒ the default multiplicative
+        // path, so they only survive the clone when actually set.
+        ...(item.isolate !== undefined ? { isolate: item.isolate } : {}),
+        ...(item.blendMode !== undefined ? { blendMode: item.blendMode } : {}),
         ...flags,
       };
     case "video":
@@ -2691,8 +2706,21 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.items !== undefined ? { items: [...props.items] } : {}),
         ...flagPatch,
       };
+      // v1.1 S18. Both fields are droppable: `isolate: false` and
+      // `blendMode: "normal"` are the defaults, so clear them rather than
+      // persisting a no-op that the source map would then show as an override.
+      if (props.isolate !== undefined) {
+        if (props.isolate) next.isolate = true;
+        else delete next.isolate;
+      }
+      if (props.blendMode !== undefined) {
+        if (props.blendMode === "normal") delete next.blendMode;
+        else next.blendMode = props.blendMode;
+      }
       rejectKeys(props, item.type, [
         "items",
+        "isolate",
+        "blendMode",
         "x",
         "y",
         "scaleX",

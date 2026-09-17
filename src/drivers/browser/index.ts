@@ -674,7 +674,11 @@ function cornersForItem(
 //     still pickable, and the renderer's opacity-multiply collapse cannot
 //     accidentally make a foreground item invisible to the picker.
 //   - Composite mode stays "source-over"; blend modes change visual
-//     appearance but not which item painted on top.
+//     appearance but not which item painted on top. An isolated group
+//     (v1.1 S18) is likewise ignored here: the ID buffer keeps recursing
+//     straight into the children, because isolation only changes how the
+//     group's pixels are composited, never which child owns them. A click
+//     inside an isolated group still resolves to the child, not the group.
 //   - Sprites pick by their bounding rect (the destination size from
 //     `drawImage`). Pixel-perfect alpha picking on sprites would require
 //     re-decoding the image into the ID buffer, which is overkill for the

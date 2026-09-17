@@ -8,6 +8,31 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Isolated group compositing and group blend modes (opt-in)
+
+- A group takes `isolate?: boolean` and `blendMode?`. With `isolate: true`
+  the children are painted onto a scratch surface at full alpha and that
+  surface is composited once, carrying the group's `transform.opacity` and
+  blend mode — so a faded group reads as one layer instead of showing its
+  children's overlap seams (R-20, previously closed as "documented"), and a
+  child's own blend mode sees only its siblings, not the canvas backdrop.
+- Not pixel-changing: both fields are absent by default, and an opaque
+  isolated group renders byte-identical to the multiplicative path.
+- `blendMode` on a group applies once to the flattened result when isolated,
+  and to each child's own draw when not (matching `Layer.blendMode`).
+  `"normal"` and `isolate: false` clear the field rather than storing a
+  no-op override.
+- `Canvas2DContext` gains optional `getTransform` / `setTransform` and the
+  exported `CanvasMatrix` type. The scratch surface has to take the
+  inherited matrix verbatim — a scale/rotate/scale chain can carry shear, so
+  it cannot be replayed as translate/rotate/scale. A host that supplies
+  neither these nor `createOffscreen` keeps the multiplicative path.
+- MCP: `add_group` takes `isolate` / `blendMode`; `update_item` accepts both
+  on group items and rejects them elsewhere; `list_engine_capabilities` adds
+  `groups: { isolate, blendMode }`. Editor: the command schema mirrors both
+  and the Inspector shows them for a selected group. Picking is unaffected —
+  a click inside an isolated group still resolves to the child.
+
 ### Cubic-bezier and steps easings
 
 - A tween's `easing` can now be `{ "bezier": [x1, y1, x2, y2] }` (CSS

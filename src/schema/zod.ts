@@ -345,9 +345,30 @@ export const ShapeItemSchema = z.object({
   ...ItemFlagsSchema,
 });
 
+// Group (v1.1 S18 adds `isolate` / `blendMode`).
+//
+// By default a group is a pure transform node: its `transform.opacity`
+// multiplies into every descendant's alpha and its children paint straight
+// onto the shared canvas. Two overlapping opaque children in a 50 % group
+// therefore show their seam, because each is composited separately (R-20).
+//
+//   isolate   — flatten the children into a scratch surface first, then
+//               composite that surface once with the group's opacity and
+//               blend mode. The group reads as one layer: overlaps vanish,
+//               and a child's own blend mode sees only its siblings, not the
+//               canvas backdrop (CSS `isolation: isolate`). Opt-in — absent
+//               keeps the multiplicative path, so no existing frame moves.
+//   blendMode — how the group composites against what is already painted.
+//               Isolated, it applies once to the flattened result; otherwise
+//               it applies to each child's own draw (like `Layer.blendMode`).
+//
+// DUAL: mirror both in apps/editor/app/types/commands.ts or they are silently
+// stripped off UI payloads.
 export const GroupItemSchema = z.object({
   type: z.literal("group"),
   items: z.array(z.string().min(1)),
+  isolate: z.boolean().optional(),
+  blendMode: BlendModeSchema.optional(),
   transform: TransformSchema,
   ...ItemFlagsSchema,
 });

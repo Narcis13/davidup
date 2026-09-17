@@ -1003,12 +1003,15 @@ const addGroup = defineTool({
   name: "add_group",
   title: "Add group item",
   description:
-    "Add a group item with optional initial child items list. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; children are drawn relative to this group origin. The group's `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the group's rotation/scale. `rotation` (set via `update_item`) is in radians, clockwise — multiply degrees by Math.PI/180.",
+    "Add a group item with optional initial child items list. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; children are drawn relative to this group origin. The group's `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the group's rotation/scale. `rotation` (set via `update_item`) is in radians, clockwise — multiply degrees by Math.PI/180. " +
+    "By default a group's opacity multiplies into each child separately, so fading a group with overlapping children shows their seams; set `isolate: true` to flatten the children first and fade the result once, as one layer. `blendMode` composites the group against what is already painted (once, if isolated; per child otherwise).",
   inputSchema: {
     layerId: z.string().min(1),
     x: z.number(),
     y: z.number(),
     childItemIds: z.array(z.string().min(1)).optional(),
+    isolate: z.boolean().optional(),
+    blendMode: BlendModeSchema.optional(),
     ...TRANSFORM_INPUT,
     id: z.string().min(1).optional(),
     name: z.string().max(80).optional(),
@@ -1021,6 +1024,8 @@ const addGroup = defineTool({
         x: args.x,
         y: args.y,
         ...(args.childItemIds !== undefined ? { childItemIds: args.childItemIds } : {}),
+        ...(args.isolate !== undefined ? { isolate: args.isolate } : {}),
+        ...(args.blendMode !== undefined ? { blendMode: args.blendMode } : {}),
         ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
         ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
@@ -1068,6 +1073,10 @@ const ITEM_PROP_SHAPE = z
     cornerRadius: z.number().nonnegative(),
     points: POINTS,
     items: z.array(z.string().min(1)),
+    // Group compositing (v1.1 S18). `isolate: false` / `blendMode: "normal"`
+    // put the group back on the default multiplicative path.
+    isolate: z.boolean(),
+    blendMode: BlendModeSchema,
     // §M flags. Setting `visible: false` keeps the renderer from drawing the
     // item; `locked: true` is purely a hint to the editor.
     visible: z.boolean(),
@@ -1087,7 +1096,8 @@ const updateItem = defineTool({
   description:
     "Patch an item's transform fields and/or type-specific properties. Unknown keys for the item type error. " +
     "Text items accept the text v2 fields (maxWidth, lineHeight, letterSpacing, fontWeight, fontStyle, strokeColor, " +
-    "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow.",
+    "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow. " +
+    "Group items accept `isolate` and `blendMode` (see add_group).",
   inputSchema: {
     id: z.string().min(1),
     props: ITEM_PROP_SHAPE,
@@ -2858,6 +2868,14 @@ const listEngineCapabilitiesTool = defineTool({
       // v1.1 S17 — object forms accepted wherever `easing` is (see list_easings).
       parametricEasings: parametricEasings(),
       blendModes: [...BLEND_MODES],
+      // Group compositing (v1.1 S18). `isolate` flattens a group's children
+      // onto a scratch surface and composites once — the fix for a faded
+      // group showing its children's overlap seams; `blendMode` sets how that
+      // composite (or, un-isolated, each child) blends with the backdrop.
+      groups: {
+        isolate: true,
+        blendMode: true,
+      },
       itemTypes: ["sprite", "text", "shape", "group", "video"] as const,
       shapeKinds: ["rect", "circle", "polygon"] as const,
       // Audio support (v0.2 §S3): external tracks on the composition timeline via

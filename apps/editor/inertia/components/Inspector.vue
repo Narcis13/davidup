@@ -31,7 +31,7 @@
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Easing } from 'davidup/easings'
-import { getTweenable, listTweenable } from 'davidup/schema'
+import { BLEND_MODES, getTweenable, listTweenable } from 'davidup/schema'
 import type { ItemType } from 'davidup/schema'
 import { useSelection } from '~/composables/useSelection'
 import type { Command, CommandSource, Composition } from '~/composables/useCommandBus'
@@ -538,6 +538,23 @@ const VIDEO_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'height', label: 'height', kind: 'number', path: 'height', min: 0, step: 1 },
 ]
 
+// Group compositing (v1.1 S18). A group has no box of its own, so these are
+// the only non-transform fields it carries: `isolate` flattens the children
+// onto a scratch surface and composites once — the fix for a faded group
+// showing its children's overlap seams — and `blendMode` sets how that
+// composite (or, un-isolated, each child) blends with the backdrop.
+const GROUP_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'isolate', label: 'isolate', kind: 'boolean', path: 'isolate' },
+  {
+    key: 'blendMode',
+    label: 'blendMode',
+    kind: 'enum',
+    path: 'blendMode',
+    options: [...BLEND_MODES],
+    toInput: (v) => v ?? 'normal',
+  },
+]
+
 // Video-only keys `update_item` doesn't carry (its props schema would strip
 // them); these edits go through `update_video` instead.
 const VIDEO_ONLY_KEYS: ReadonlySet<string> = new Set([
@@ -565,7 +582,7 @@ const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
     case 'video':
       return VIDEO_FIELDS
     case 'group':
-      return []
+      return GROUP_FIELDS
     default:
       return []
   }

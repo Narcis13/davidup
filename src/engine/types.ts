@@ -3,12 +3,38 @@
 // We list only the methods/properties the renderer actually uses so we are
 // not coupled to DOM lib types or to skia-canvas-specific extensions.
 
+/**
+ * The six affine components of a Canvas2D transform matrix, in the order
+ * `setTransform` takes them. `DOMMatrix` (browser) and skia-canvas's matrix
+ * both satisfy this structurally, so neither host needs a wrapper.
+ */
+export interface CanvasMatrix {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+}
+
 export interface Canvas2DContext {
   save(): void;
   restore(): void;
   translate(x: number, y: number): void;
   rotate(angle: number): void;
   scale(x: number, y: number): void;
+
+  // Direct CTM access (v1.1 S18 isolated groups). Optional: `translate` /
+  // `rotate` / `scale` remain the only transforms the renderer *needs*, and a
+  // host that omits these simply falls back to multiplicative group alpha
+  // (see `drawItem`). A group's children have to land on a scratch surface at
+  // the exact matrix they would have had on the main canvas, and an arbitrary
+  // composition of scale-then-rotate-then-scale can carry shear, so it cannot
+  // be replayed as a translate/rotate/scale triple — the matrix must be
+  // copied verbatim. Both hosts implement these (browser Canvas2D and
+  // skia-canvas); `DOMMatrix` satisfies `CanvasMatrix` structurally.
+  getTransform?(): CanvasMatrix;
+  setTransform?(a: number, b: number, c: number, d: number, e: number, f: number): void;
 
   globalAlpha: number;
   globalCompositeOperation: string;

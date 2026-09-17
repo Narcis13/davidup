@@ -39,7 +39,7 @@ review's finding numbers stable as cross-reference anchors).
 | R-17 | P2 | Preview frames as base64-in-JSON, not MCP image content blocks — costly and invisible to vision clients | **CLOSED** — Session 25 (`d993844`); this ledger wasn't updated at the time — caught and corrected during the Session 28 sweep | `src/mcp/render.ts`, `src/mcp/tools.ts`, `src/mcp/server.ts` |
 | R-18 | P2 | `render_thumbnail_strip` has no `count` upper bound — `count:500` floods the tool channel | **CLOSED** — Session 25 (`d993844`): `THUMBNAIL_STRIP_MAX_COUNT` (30) rejects anything above it with a hinted `E_INVALID_VALUE`. Ledger correction as above. | `src/mcp/render.ts` |
 | R-19 | P2 | Doc drift, systemic: stale "not implemented" claim, README roadmap contradiction, version strings stuck at 0.1.0, `KNOWN_BUGS.md` misnamed, incomplete error-code list | **CLOSED** — Session 9 (this session) | cited per-file in the finding |
-| R-20 | P2 | Group opacity multiplies alpha instead of offscreen compositing — overlapping semi-transparent children double-blend | **CLOSED** — Session 28: decided intentional (see the code comment in `render.ts` and the manual). True isolated compositing needs a canvas-sized scratch surface plus transform-matrix capture the minimal `Canvas2DContext` contract doesn't expose; revisit only if a real project hits it. Deferred to v1.1+ if ever. | `src/engine/render.ts`, `vision/davidup-v1.0-manual.md`, `BUGS.md` |
+| R-20 | P2 | Group opacity multiplies alpha instead of offscreen compositing — overlapping semi-transparent children double-blend | **CLOSED** — v1.1 Session 18: fixed as an opt-in. `isolate: true` on a group flattens the children onto a canvas-sized scratch surface and composites once; `Canvas2DContext` gained optional `getTransform`/`setTransform` so the surface can take the inherited matrix verbatim. Default stays multiplicative, so no existing frame moved. (v1.0 Session 28 had closed this as intentional for the reason the new contract removes.) | `src/engine/render.ts`, `src/engine/types.ts`, `src/schema/zod.ts` |
 | R-21 | P2 | Scene/template `color` params accepted any non-empty string (`rgb(999,0,0)` parsed unclamped); polygons with <3 points validated | **CLOSED** — Session 4 (`ee90fea`) | `src/compose/scenes.ts`, `src/color/index.ts` |
 | R-22 | P2 | Editor HMR websocket port not derived from `--port`; editor package still named `adonisjs-inertia-starter-kit@0.0.0`; three lockfile ecosystems in one app dir | **OPEN** — deferred to v1.1 (cosmetic/dev-ergonomics, no user-facing correctness impact). Package rename to `@davidup/editor@1.0.0` landed in v1.1 Session 1; HMR port + lockfiles remain (v1.1 Session 31) | `apps/editor` config |
 | R-23 | P2 | Composition schema is not `.strict()` — typo'd keys silently stripped, agents never learn they misspelled a property | **OPEN** — deferred to v1.1 (the strict-vs-forward-compatible trade-off needs a real design decision, not a quick fix — see `DAVIDUP_V1_REVIEW.md` §4 for the debate) | `src/schema/zod.ts` |
@@ -172,3 +172,39 @@ ffmpeg stderr tail instead of a structured validation error.
 odd axis and `W_DIMENSION_LARGE` above 4096; `create_composition` /
 `set_composition_property` return the same issues eagerly; `davidup render`
 exits 1 with `E_VALIDATION_FAILED` listing them.
+
+### 2.5 Golden-frame hashes flake roughly 1 run in 6 under the full suite
+
+**Where:** `tests/determinism/goldenFrames.integration.test.ts`,
+`tests/determinism/support/renderSingleFrame.ts`, `src/assets/node.ts`.
+
+**What happens:** running `bunx vitest run` (the whole suite) fails the
+`comprehensive` golden about one run in six, on the last of the three hashed
+frames, with a hash that is stable in itself but different from the committed
+one. The same test passes every time when run on its own, or with only a file
+or two beside it. Measured on darwin-arm64: 1/6 failures on a clean `v0.2`
+checkout at `62de22d`, and 1/6 with v1.1 Session 18 applied — i.e. it is not
+tied to any one session's changes.
+
+**Suspected cause:** not confirmed. `comprehensive` is one of the two examples
+that use the `DavidupDisplay` family, and skia-canvas's `FontLibrary` is
+process-global while vitest reuses worker processes across test files — so
+which other font-touching file ran first in that worker varies with
+scheduling. R-32 fixed the re-registration path for a repeated (family, path)
+pair, but nothing pins the *order* across files. A GPU/CPU rasterization
+switch under concurrent load (skia-canvas defaults to Metal on macOS and
+nothing here sets `canvas.gpu = false`) would produce the same symptom and has
+not been ruled out.
+
+**Why it matters:** determinism is the claim this test exists to defend, so a
+silent 1-in-6 flake both erodes that claim and burns session time — it reads
+exactly like an accidental pixel change until you bisect it.
+
+**Suggested direction:** reproduce with `--pool=forks --poolOptions.forks.singleFork`
+and with `canvas.gpu = false` to separate the two hypotheses, then either pin
+the rasterization backend in the golden harness or give the font-bearing
+determinism tests their own isolated worker — v1.1 Session 30 (test-coverage
+gaps).
+
+**Status:** OPEN — pre-existing, diagnosed during v1.1 Session 18 but out of
+its scope.

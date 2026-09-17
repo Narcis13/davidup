@@ -117,6 +117,10 @@ const ITEM_PROPS = z
     cornerRadius: NON_NEG,
     points: POINTS,
     items: z.array(ID),
+    // Group compositing (v1.1 S18). `isolate: false` / `blendMode: 'normal'`
+    // put the group back on the default multiplicative path.
+    isolate: z.boolean(),
+    blendMode: BlendModeSchema,
     // §M flags (engine-honored visibility, editor-only lock).
     visible: z.boolean(),
     locked: z.boolean(),
@@ -383,6 +387,10 @@ const addShape = z.object({
   source: SOURCE,
 })
 
+// DUAL of engine `add_group` (src/mcp/tools.ts). `isolate` / `blendMode`
+// (v1.1 S18) control group compositing: isolated, the children flatten onto a
+// scratch surface and composite once, so a faded group stops showing its
+// overlap seams.
 const addGroup = z.object({
   kind: z.literal('add_group'),
   payload: z.object({
@@ -390,6 +398,8 @@ const addGroup = z.object({
     x: z.number(),
     y: z.number(),
     childItemIds: z.array(ID).optional(),
+    isolate: z.boolean().optional(),
+    blendMode: BlendModeSchema.optional(),
     id: ID.optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,

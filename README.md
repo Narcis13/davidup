@@ -373,7 +373,7 @@ this way.
 | `sprite` | `asset` (image id), `width`, `height`, `tint?` |
 | `text` | `text`, `font` (font **asset id**, not a CSS family), `fontSize`, `color`, `align?` (`left`/`center`/`right`), `maxWidth?`, `lineHeight?` (× fontSize, default 1.2), `letterSpacing?` (px), `fontWeight?`, `fontStyle?`, `strokeColor?`, `strokeWidth?`, `shadow?` (`{color, blur?, offsetX?, offsetY?}`) |
 | `shape` | `kind` (`rect`/`circle`/`polygon`), `width?`, `height?`, `points?`, `fillColor?`, `strokeColor?`, `strokeWidth?`, `cornerRadius?` |
-| `group` | `items: string[]` — child ids; group opacity multiplies into children (not isolated compositing) |
+| `group` | `items: string[]` — child ids; `isolate?` (flatten the children and composite once), `blendMode?` |
 | `video` | `asset` (video id), `width`, `height`, `start`, `end?`, `trimIn?`, `trimOut?`, `fit` (`cover`/`contain`/`fill`/`none`, default `contain`), `loop` (default `false`), `keepAudio?` |
 
 Text breaks lines on `\n` and word-wraps to `maxWidth`. It has two placement
@@ -393,6 +393,34 @@ the video file's first audio stream over the same `start`/`end`/`trimIn`
 (stopping at `trimOut`, looping with the picture). Hidden clips
 (`visible: false`) stay silent, and a source ffprobe found silent
 (`hasAudio: false`) is skipped with a `W_VIDEO_NO_AUDIO_STREAM` warning.
+
+### Group compositing
+
+A group is a transform node: by default its `transform.opacity` multiplies
+into each child, and the children paint onto the shared canvas one at a time.
+Fade such a group and its overlaps show — two opaque children at 50 % read
+0.5 alpha where each sits alone and 0.75 where they cross.
+
+`isolate: true` makes the group read as one layer instead. The children are
+painted onto a scratch surface at full alpha, then that surface is composited
+once, carrying the group's opacity and its optional `blendMode`. The overlap
+seam disappears, and a child's own blend mode sees only its siblings rather
+than the canvas behind the group (CSS `isolation: isolate`).
+
+```json
+{ "type": "group", "items": ["a", "b"], "isolate": true,
+  "transform": { "x": 0, "y": 0, "scaleX": 1, "scaleY": 1, "rotation": 0,
+                 "anchorX": 0, "anchorY": 0, "opacity": 0.5 } }
+```
+
+Both fields are opt-in, and an opaque isolated group is pixel-identical to
+the default path, so turning `isolate` on never moves a frame that did not
+have an overlap to fix. `blendMode` works with or without it: isolated it
+applies once to the flattened result, otherwise to each child's own draw
+(the way `Layer.blendMode` does). Tween `transform.opacity` as usual —
+isolation changes how the group composites, not what animates. Clicking
+inside an isolated group in the editor still selects the child, not the
+group.
 
 ### Transform fields
 
@@ -1052,8 +1080,6 @@ Things v1.0 does not do. Each is either an open ledger item in
   (`TEXT_V2_DESIGN.md`).
 - No visual effects (blur, glow, shadow). Easings are limited to the 19
   names, cubic-bezier and steps (no springs).
-- Group opacity multiplies into children rather than compositing the group
-  as one layer (overlapping children show through).
 - Template params are whole-string substitution only; no arithmetic or
   `$repeat` (`REPEAT_EXPRESSIONS_DESIGN.md`).
 - `define_user_behavior` is catalog metadata only; user behaviors cannot be

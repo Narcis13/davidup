@@ -264,6 +264,96 @@ describe("CompositionStore — items", () => {
   });
 });
 
+describe("CompositionStore — group compositing (v1.1 S18)", () => {
+  function groupWithChild(store: CompositionStore): string {
+    const layerId = store.addLayer({ z: 0 });
+    const child = store.addShape({
+      layerId,
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+    });
+    return store.addGroup({ layerId, x: 0, y: 0, childItemIds: [child] });
+  }
+
+  it("add_group carries isolate and blendMode through to the composition", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const id = store.addGroup({
+      layerId,
+      x: 0,
+      y: 0,
+      isolate: true,
+      blendMode: "multiply",
+    });
+    const group = store.toJSON().items[id];
+    expect(group).toMatchObject({ type: "group", isolate: true, blendMode: "multiply" });
+  });
+
+  it("omits both fields when the caller doesn't ask for them", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const id = store.addGroup({ layerId, x: 0, y: 0 });
+    const group = store.toJSON().items[id] as Record<string, unknown>;
+    expect("isolate" in group).toBe(false);
+    expect("blendMode" in group).toBe(false);
+  });
+
+  it("update_item toggles isolate, and dropping it back to false clears the field", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+
+    store.updateItem(id, { isolate: true });
+    expect(store.toJSON().items[id]).toMatchObject({ isolate: true });
+
+    store.updateItem(id, { isolate: false });
+    const group = store.toJSON().items[id] as Record<string, unknown>;
+    expect("isolate" in group).toBe(false);
+  });
+
+  it("update_item treats blendMode 'normal' as a reset, not a stored override", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+
+    store.updateItem(id, { blendMode: "screen" });
+    expect(store.toJSON().items[id]).toMatchObject({ blendMode: "screen" });
+
+    store.updateItem(id, { blendMode: "normal" });
+    const group = store.toJSON().items[id] as Record<string, unknown>;
+    expect("blendMode" in group).toBe(false);
+  });
+
+  it("rejects isolate / blendMode on item types that have no children to flatten", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const shapeId = store.addShape({
+      layerId,
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+    });
+    expect(() => store.updateItem(shapeId, { isolate: true })).toThrow(
+      /E_INVALID_PROPERTY|cannot be set/,
+    );
+    expect(() => store.updateItem(shapeId, { blendMode: "multiply" })).toThrow(
+      /E_INVALID_PROPERTY|cannot be set/,
+    );
+  });
+
+  it("keeps an isolated group valid", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+    store.updateItem(id, { isolate: true, blendMode: "multiply" });
+    const result = store.validate();
+    expect(result.errors).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+});
+
 describe("CompositionStore — tweens", () => {
   it("rejects overlapping tweens on (target, property)", () => {
     const { store } = makeStore();

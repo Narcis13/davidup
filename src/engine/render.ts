@@ -11,19 +11,23 @@
 // to the type-specific draw function. Groups recurse — Canvas2D's save/restore
 // stack handles transform matrix composition for free (per §5.4).
 //
-// Group opacity is multiplicative alpha, not isolated/offscreen compositing
-// (R-20, decided Session 28 — see BUGS.md): a group's own `transform.opacity`
-// multiplies `ctx.globalAlpha` exactly like any other item, then its children
-// draw straight onto the shared canvas. Overlapping semi-transparent children
-// inside the same group therefore blend against each other at full strength
-// first, and that combined result gets alpha-multiplied again by the group's
-// opacity — i.e. it is NOT equivalent to flattening the group to one layer
-// and then applying opacity once. This is intentional for v1.0: true isolated
-// group compositing needs a canvas-sized scratch surface plus a way to copy
-// the current transform matrix onto it, which the minimal `Canvas2DContext`
-// contract deliberately doesn't expose (see `OffscreenSurface`, used today
-// only for same-size, identity-transform sprite tinting). Revisit if a real
-// project needs isolated group blending.
+// Group opacity is multiplicative alpha by default (R-20): a group's own
+// `transform.opacity` multiplies `ctx.globalAlpha` exactly like any other
+// item, then its children draw straight onto the shared canvas. Overlapping
+// children inside the same group therefore blend against each other at full
+// strength first, and that combined result gets alpha-multiplied again by the
+// group's opacity — i.e. it is NOT equivalent to flattening the group to one
+// layer and then applying opacity once.
+//
+// v1.1 S18 makes the flattened reading available as an opt-in: `isolate: true`
+// on a group paints its children into a canvas-sized scratch surface (seeded
+// with the CTM they would have inherited) and composites that surface once,
+// with the group's opacity and its optional `blendMode`. Overlap seams vanish
+// and a child's own blend mode sees only its siblings. The default is
+// unchanged, so no existing frame moves. Isolation needs both an
+// `OffscreenSurface` factory and the optional `getTransform`/`setTransform`
+// pair on `Canvas2DContext`; a host missing either silently keeps the
+// multiplicative path (see `drawItem`).
 
 import type {
   BlendMode,
@@ -198,15 +202,31 @@ export function drawItem(
   itemId?: string,
 ): void {
   const tr = item.transform;
+
+  // v1.1 S18: an isolated group never enters the shared transform/alpha path
+  // below — it flattens onto its own surface first, so the group's opacity and
+  // blend mode are applied to the composite instead of to each child.
+  if (item.type === "group" && item.isolate === true && canIsolate(ctx, dc)) {
+    if (drawIsolatedGroup(ctx, item, scene, dc)) return;
+    // Scratch surface turned out unusable — fall through to the default path
+    // below rather than dropping the group.
+  }
+
   ctx.save();
 
   ctx.translate(tr.x, tr.y);
   if (tr.rotation !== 0) ctx.rotate(tr.rotation);
   if (tr.scaleX !== 1 || tr.scaleY !== 1) ctx.scale(tr.scaleX, tr.scaleY);
   // For a group, this multiplies into every descendant's own alpha rather
-  // than isolating the group and applying opacity once — see the R-20 note
-  // in the module header for why that's an intentional v1.0 trade-off.
+  // than isolating the group and applying opacity once — see the R-20 note in
+  // the module header, and `isolate: true` for the flattened reading.
   ctx.globalAlpha = ctx.globalAlpha * tr.opacity;
+  // A non-isolated group's blend mode applies to each child's own draw, the
+  // way `Layer.blendMode` does. Left alone when absent so the layer's (or an
+  // ancestor group's) mode keeps applying.
+  if (item.type === "group" && item.blendMode !== undefined) {
+    applyBlendMode(ctx, item.blendMode);
+  }
 
   if (item.type === "text") {
     // Text measures its own anchor box, which needs the font on the context
@@ -630,6 +650,74 @@ function paintShape(ctx: Canvas2DContext, item: ShapeItem): void {
     ctx.lineWidth = sw;
     ctx.stroke();
   }
+}
+
+// Everything an isolated group needs beyond the default path: a scratch
+// surface to flatten into, and the ability to copy the inherited CTM onto it
+// (and to get back to the canvas's own frame for the composite). A host that
+// wires neither — a bare test double, a driver without `createOffscreen` —
+// falls back to multiplicative alpha rather than dropping the group.
+function canIsolate(ctx: Canvas2DContext, dc: DrawContext): boolean {
+  return (
+    dc.createOffscreen !== undefined &&
+    typeof ctx.getTransform === "function" &&
+    typeof ctx.setTransform === "function"
+  );
+}
+
+/**
+ * Paint a group's children onto a scratch surface, then composite that
+ * surface once (v1.1 S18).
+ *
+ * The scratch surface is composition-sized and holds canvas-space pixels: it
+ * is seeded with the CTM the group inherited, then given the group's own
+ * transform, so every child lands on exactly the pixel it would have without
+ * isolation. Children draw at `globalAlpha = 1` against transparent black —
+ * that is what makes the group read as one layer, and what keeps a child's
+ * own blend mode from seeing the canvas backdrop.
+ *
+ * The composite then runs at the canvas's identity frame (1:1, the same frame
+ * `drawBackground` fills), carrying the group's `transform.opacity` on top of
+ * the alpha it inherited and its `blendMode` if it declares one. Anything the
+ * children painted outside the composition box is clipped — it was off-frame
+ * either way.
+ *
+ * Returns false without drawing when the surface the factory handed back
+ * can't take the inherited matrix; the caller then falls back to the default
+ * path, since children in the wrong place are worse than an un-isolated group.
+ */
+function drawIsolatedGroup(
+  ctx: Canvas2DContext,
+  item: GroupItem,
+  scene: ResolvedScene,
+  dc: DrawContext,
+): boolean {
+  const { width, height } = scene.composition;
+  const off = dc.createOffscreen!(width, height);
+  const oc = off.context;
+  if (typeof oc.setTransform !== "function") return false;
+
+  const m = ctx.getTransform!();
+  oc.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+  oc.save();
+  const tr = item.transform;
+  oc.translate(tr.x, tr.y);
+  if (tr.rotation !== 0) oc.rotate(tr.rotation);
+  if (tr.scaleX !== 1 || tr.scaleY !== 1) oc.scale(tr.scaleX, tr.scaleY);
+  // A group has no intrinsic box (anchorWidth/anchorHeight are 0 for it), so
+  // there is no anchor translate to mirror here — matching `drawItem`.
+  oc.globalAlpha = 1;
+  oc.globalCompositeOperation = COMPOSITE_NORMAL;
+  drawGroupChildren(oc, item, scene, dc);
+  oc.restore();
+
+  ctx.save();
+  ctx.setTransform!(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = ctx.globalAlpha * tr.opacity;
+  if (item.blendMode !== undefined) applyBlendMode(ctx, item.blendMode);
+  ctx.drawImage(off.source, 0, 0, width, height);
+  ctx.restore();
+  return true;
 }
 
 function drawGroupChildren(
