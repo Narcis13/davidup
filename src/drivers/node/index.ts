@@ -38,6 +38,7 @@ import type {
   VideoFrameProvider,
   VideoFrameRequest,
 } from "../../engine/types.js";
+import { fpsArg, frameTime, framesForDuration } from "../../schema/fps.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
 import { resolveFfmpeg, sweepOrphanTempVideos } from "./ffmpeg.js";
@@ -287,7 +288,7 @@ export async function renderToFile(
   try {
     for (let i = 0; i < totalFrames; i++) {
       if (stdinErrored) throw stdinErrored;
-      const t = i / meta.fps;
+      const t = frameTime(i, meta.fps);
       await prepareVideoFrames(compiled, t, videoProvider);
       ctx.clearRect(0, 0, meta.width, meta.height);
       renderFrame(compiled, t, ctx, {
@@ -338,7 +339,7 @@ export async function renderToFile(
   // Stage 2: mux the declared audio tracks onto the silent temp video.
   if (hasAudio) {
     try {
-      await muxAudioTracks(compiled, tempVideoPath, outPath, totalFrames / meta.fps, {
+      await muxAudioTracks(compiled, tempVideoPath, outPath, frameTime(totalFrames, meta.fps), {
         // Default faststart on the final MP4 unless the caller opted out.
         movflagsFaststart: opts.movflagsFaststart ?? true,
         ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
@@ -373,7 +374,7 @@ export function buildFfmpegArgs(
     "-s",
     `${meta.width}x${meta.height}`,
     "-r",
-    String(meta.fps),
+    fpsArg(meta.fps),
     "-i",
     "pipe:0",
     "-c:v",
@@ -408,7 +409,7 @@ export function frameCount(comp: Composition): number {
   // Match the design-doc reference: ceil(duration * fps). Always at least one
   // frame so a zero-duration composition still produces a valid (1-frame) clip.
   const { duration, fps } = comp.composition;
-  return Math.max(1, Math.ceil(duration * fps));
+  return Math.max(1, framesForDuration(duration, fps));
 }
 
 /** Default cap on decoded frames resident per clip (v1.1 S6). */

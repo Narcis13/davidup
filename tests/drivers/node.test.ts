@@ -97,6 +97,13 @@ describe("buildFfmpegArgs", () => {
     // Output path stays last.
     expect(args[args.length - 1]).toBe("/tmp/x.mp4");
   });
+
+  it("passes a rational fps verbatim and keeps decimals decimal (v1.1 S7)", () => {
+    const rational = buildFfmpegArgs(tinyComp({ fps: "30000/1001" }), "/tmp/r.mp4", {});
+    expect(rational[rational.indexOf("-r") + 1]).toBe("30000/1001");
+    const decimal = buildFfmpegArgs(tinyComp({ fps: 29.97 }), "/tmp/d.mp4", {});
+    expect(decimal[decimal.indexOf("-r") + 1]).toBe("29.97");
+  });
 });
 
 describe("frameCount", () => {
@@ -104,6 +111,11 @@ describe("frameCount", () => {
     expect(frameCount(tinyComp({ duration: 1, fps: 30 }))).toBe(30);
     expect(frameCount(tinyComp({ duration: 1.001, fps: 30 }))).toBe(31);
     expect(frameCount(tinyComp({ duration: 0, fps: 30 }))).toBe(1);
+  });
+
+  it("counts rational frame rates exactly (v1.1 S7)", () => {
+    expect(frameCount(tinyComp({ duration: 10, fps: "30000/1001" }))).toBe(300);
+    expect(frameCount(tinyComp({ duration: 1.001, fps: "24000/1001" }))).toBe(24);
   });
 });
 

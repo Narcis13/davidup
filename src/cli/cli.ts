@@ -33,6 +33,7 @@ import {
   type ScaffoldOptions,
 } from "./scaffold.js";
 import { VERSION } from "../index.js";
+import { isRationalFps } from "../schema/fps.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // `src/cli/cli.ts` (or its compiled `dist/cli/cli.js`) → up two levels =
@@ -132,7 +133,8 @@ FLAGS
   -o, --output=<f>    Output video file path (required for render).
   --codec=<c>         Video codec: libx264 (default) or libx265.
   --crf=<n>           Constant rate factor, 0-51 (default 18; lower = higher quality).
-  --fps=<n>           Override the composition's frame rate.
+  --fps=<n>           Override the composition's frame rate (number or "N/D",
+                      e.g. 30000/1001 for NTSC 29.97).
   --preset=<p>        ffmpeg encoder preset (default "medium").
 
 EXAMPLES
@@ -548,7 +550,10 @@ async function runRenderCommand(
 
   const crf = numberFlag(parsed.flags, "crf", deps.io, 0, 51);
   if (crf === INVALID_FLAG) return 2;
-  const fps = numberFlag(parsed.flags, "fps", deps.io, Number.EPSILON, Infinity);
+  const fpsRaw = stringFlag(parsed.flags, "fps");
+  const fps = isRationalFps(fpsRaw)
+    ? fpsRaw
+    : numberFlag(parsed.flags, "fps", deps.io, Number.EPSILON, Infinity);
   if (fps === INVALID_FLAG) return 2;
   const preset = stringFlag(parsed.flags, "preset");
 

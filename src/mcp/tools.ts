@@ -72,6 +72,7 @@ import {
   BLEND_MODES,
   BlendModeSchema,
   COMPOSITION_VERSION,
+  FpsSchema,
   isSupportedAudioSrc,
   isSupportedVideoSrc,
 } from "../schema/zod.js";
@@ -425,7 +426,10 @@ const createComposition = defineTool({
   inputSchema: {
     width: z.number().int().positive().describe("Canvas width in px. Must be even."),
     height: z.number().int().positive().describe("Canvas height in px. Must be even."),
-    fps: z.number().positive(),
+    fps: FpsSchema.describe(
+      'Frames per second: a positive number (24, 30, 60) or an exact rational string "N/D" ' +
+        '("24000/1001", "30000/1001", "60000/1001" for NTSC 23.976 / 29.97 / 59.94).',
+    ),
     duration: z.number().nonnegative(),
     background: z.string().optional(),
     id: z.string().min(1).optional(),
@@ -473,7 +477,8 @@ const setCompositionProperty = defineTool({
   name: "set_composition_property",
   title: "Set composition meta property",
   description:
-    "Update one of width/height/fps/duration/background on the composition. width and height must be EVEN " +
+    "Update one of width/height/fps/duration/background on the composition. fps takes a positive number or an " +
+    'exact rational string "N/D" (e.g. "30000/1001"). width and height must be EVEN ' +
     "(H.264/yuv420p); after a width/height change that leaves an odd or >4096px canvas the response carries " +
     "`issues` (E_DIMENSION_ODD, blocks rendering) / `warnings` (W_DIMENSION_LARGE).",
   inputSchema: {

@@ -52,6 +52,7 @@ import * as nodeOs from "node:os";
 import { join } from "node:path";
 
 import { resolveGlobalSrc } from "../../assets/node.js";
+import { fpsRational, fpsValue, type Fps } from "../../schema/fps.js";
 import type { Composition, VideoAsset, VideoItem } from "../../schema/types.js";
 import { resolveFfmpeg, sweepOrphanExtractDirs } from "./ffmpeg.js";
 import type { FfmpegSpawn } from "./index.js";
@@ -94,8 +95,8 @@ export interface VideoExtractSpec {
   trimOut: number | undefined;
   /** `trimOut - trimIn` when both are known, else undefined (extract to EOF). */
   duration: number | undefined;
-  /** Target output frame rate (the composition fps). */
-  fps: number;
+  /** Target output frame rate (the composition fps; number or "N/D"). */
+  fps: Fps;
   /** Expected frame width in pixels (source aspect; see {@link resolveExtractDimensions}). */
   width: number;
   /** Expected frame height in pixels. */
@@ -308,7 +309,7 @@ interface SpecHashInput {
   size: number;
   trimIn: number;
   trimOut: number | null;
-  fps: number;
+  fps: Fps;
   width: number;
   height: number;
   /** ffmpeg scale filter; see {@link ExtractDimensions.scale}. */
@@ -366,7 +367,7 @@ export function buildExtractArgs(
   if (spec.duration !== undefined) {
     args.push("-t", fmtSeconds(spec.duration));
   }
-  const filters = [`fps=${fmtSeconds(spec.fps)}`];
+  const filters = [`fps=${fmtFps(spec.fps)}`];
   if (spec.scale) filters.push(spec.scale);
   args.push("-vf", filters.join(","), outputPattern);
   return args;
@@ -477,7 +478,7 @@ export async function preExtractVideoFrames(
     const dir = join(root, spec.hash);
     const expectedFrames =
       spec.duration !== undefined
-        ? Math.max(1, Math.round(spec.duration * spec.fps))
+        ? Math.max(1, Math.round(spec.duration * fpsValue(spec.fps)))
         : undefined;
 
     // ── Cache hit: a complete meta marker means the PNGs are already here. ──
@@ -666,7 +667,7 @@ interface CacheMeta {
   src: string;
   trimIn: number;
   trimOut: number | null;
-  fps: number;
+  fps: Fps;
   width: number;
   height: number;
   frameCount: number;
@@ -874,6 +875,13 @@ function report(opts: PreExtractOptions, info: FrameExtractProgress): void {
  * Format a seconds value for an ffmpeg argument: fixed-point (never
  * exponential, which ffmpeg rejects), trailing zeros trimmed.
  */
+/** `fps=` filter value: exact "N/D" for a rational, the trimmed decimal otherwise. */
+function fmtFps(fps: Fps): string {
+  if (typeof fps === "number") return fmtSeconds(fps);
+  const { num, den } = fpsRational(fps);
+  return `${num}/${den}`;
+}
+
 function fmtSeconds(n: number): string {
   if (!Number.isFinite(n)) return "0";
   const rounded = Math.round(n * 1e6) / 1e6;

@@ -48,7 +48,7 @@ export interface RenderOptions {
   crf?: number;
   preset?: string;
   /** Overrides `composition.fps` from the source JSON when set. */
-  fps?: number;
+  fps?: number | string;
 }
 
 export interface RenderDeps {

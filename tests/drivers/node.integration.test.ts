@@ -205,3 +205,31 @@ describe("renderToFile — hello-world MP4 (integration)", () => {
     }
   }, 30_000);
 });
+
+describe("renderToFile — rational fps (v1.1 S7, integration)", () => {
+  let workDir: string;
+
+  beforeAll(() => {
+    workDir = mkdtempSync(join(tmpdir(), "davidup-ntsc-"));
+  });
+
+  afterAll(() => {
+    rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("a 30000/1001 composition encodes with an exact NTSC r_frame_rate", async () => {
+    const comp = helloWorldComposition();
+    comp.composition.fps = "30000/1001";
+    const outPath = join(workDir, "ntsc.mp4");
+
+    const result = await renderToFile(comp, outPath, { ffmpegPath, preset: "ultrafast" });
+    // 0.5 s × 29.97 = 14.985 → 15 frames.
+    expect(result.frameCount).toBe(15);
+
+    const video = ffprobe(outPath).streams.find((s) => s.codec_name === "h264");
+    expect(video).toBeDefined();
+    expect(video!.r_frame_rate).toBe("30000/1001");
+    expect(video!.avg_frame_rate).toBe("30000/1001");
+    expect(Number(video!.nb_frames)).toBe(15);
+  });
+});

@@ -24,7 +24,7 @@ import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
-import { renderToFile } from 'davidup/node'
+import { frameCount, renderToFile } from 'davidup/node'
 import type { Composition } from 'davidup/schema'
 
 /**
@@ -179,8 +179,7 @@ export class RenderJob extends EventEmitter {
     this.sourcePath = opts.sourcePath
     this.startedAt = Date.now()
     this.renderOptions = opts.renderOptions ?? {}
-    const meta = opts.composition.composition
-    this.totalFrames = Math.max(1, Math.ceil(meta.duration * meta.fps))
+    this.totalFrames = frameCount(opts.composition)
 
     this.#donePromise = new Promise((resolve) => {
       this.#resolveDone = resolve

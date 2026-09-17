@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EASING_NAMES } from "../easings/index.js";
+import { isRationalFps } from "./fps.js";
 
 /**
  * Canonical composition schema version. Bumped when the validator's accepted
@@ -63,10 +64,19 @@ export function idSchema(label: string) {
 // the >4096 size warning) are semantic checks in `validator.ts`
 // (`checkDimensions` → E_DIMENSION_ODD / W_DIMENSION_LARGE) so they surface
 // with their own code rather than a generic E_SCHEMA.
+// `fps` is a positive number or an exact rational "N/D" (v1.1 S7), e.g.
+// "30000/1001" for NTSC 29.97 — see `fps.ts` for the time math.
+export const FpsSchema = z.union([
+  z.number().positive(),
+  z.string().refine(isRationalFps, {
+    message: 'fps string must be a rational "N/D" with positive integers, e.g. "30000/1001"',
+  }),
+]);
+
 export const CompositionMetaSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-  fps: z.number().positive(),
+  fps: FpsSchema,
   duration: z.number().nonnegative(),
   background: z.string(),
 });

@@ -36,6 +36,7 @@ import type {
   VideoFit,
   VideoItem,
 } from "../schema/types.js";
+import { fpsValue } from "../schema/fps.js";
 import type { Composition } from "../schema/types.js";
 import {
   computeStateAt,
@@ -114,7 +115,7 @@ export async function prepareVideoFrames(
     const frameIndex = videoFrameIndex(
       t,
       item.start,
-      comp.composition.fps,
+      fpsValue(comp.composition.fps),
       clip.frameCount,
       item.loop,
     );
@@ -360,7 +361,7 @@ function drawVideo(
   if (t < item.start) return;
   if (item.end !== undefined && t >= item.end) return;
 
-  const fps = scene.composition.fps;
+  const fps = fpsValue(scene.composition.fps);
   const frameIndex = videoFrameIndex(
     t,
     item.start,

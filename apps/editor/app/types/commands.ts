@@ -195,6 +195,7 @@ const setCompositionProperty = z.object({
   kind: z.literal('set_composition_property'),
   payload: z.object({
     property: z.enum(['width', 'height', 'fps', 'duration', 'background']),
+    // String covers `background` and a rational fps ("30000/1001", v1.1 S7).
     value: z.union([z.number(), z.string()]),
     compositionId: COMPOSITION_ID,
   }),

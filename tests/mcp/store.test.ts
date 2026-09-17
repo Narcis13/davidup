@@ -70,6 +70,9 @@ describe("CompositionStore — composition lifecycle", () => {
     store.setMetaProperty("fps", 60);
     expect(store.toJSON().composition.fps).toBe(60);
     expect(() => store.setMetaProperty("fps", -1)).toThrow(MCPToolError);
+    store.setMetaProperty("fps", "30000/1001");
+    expect(store.toJSON().composition.fps).toBe("30000/1001");
+    expect(() => store.setMetaProperty("fps", "29.97")).toThrow(MCPToolError);
     expect(() => store.setMetaProperty("background", "")).toThrow(MCPToolError);
   });
 });

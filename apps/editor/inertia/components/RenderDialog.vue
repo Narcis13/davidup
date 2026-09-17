@@ -14,6 +14,7 @@
 // editor remembers the user's previous choice (UX_GAPS §N tail).
 
 import { computed, ref, watch, onMounted } from 'vue'
+import { framesForDuration } from 'davidup/schema'
 import type { Composition } from '~/composables/useCommandBus'
 import {
   useEditorPrefs,
@@ -68,7 +69,7 @@ const meta = computed(() => {
 const totalFrames = computed<number | null>(() => {
   const m = meta.value
   if (!m) return null
-  return Math.max(1, Math.ceil(m.duration * m.fps))
+  return Math.max(1, framesForDuration(m.duration, m.fps))
 })
 
 const presetCopy: Record<RenderPreset, { label: string; description: string }> = {

@@ -7,6 +7,23 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Rational frame rates (23.976 / 29.97 / 59.94)
+
+- `composition.fps` accepts an exact rational string `"N/D"` as well as a
+  number, e.g. `"30000/1001"`. The render passes `-r 30000/1001` to ffmpeg and
+  the video extraction filter uses `fps=30000/1001`, so the MP4's
+  `r_frame_rate` is exactly NTSC and cuts line up with camera footage. Frame
+  times are `i * den / num`.
+- Numbers are unchanged: `29.97` stays a decimal (no NTSC snapping), and
+  existing compositions render byte-identically.
+- `create_composition`, `set_composition_property` and `davidup render --fps`
+  accept the rational form. `probeVideo` also returns `fpsRational` (the
+  exact rate ffprobe reported). The editor's composition settings offer
+  24 / 25 / 30 / 50 / 60 / 23.976 / 29.97 / 59.94, with the NTSC rates stored
+  as rationals.
+- New schema exports: `FpsSchema`, `fpsRational`, `fpsValue`, `frameTime`,
+  `framesForDuration`, `fpsArg`, `isRationalFps`.
+
 ### Bounded-memory video frame decoding
 
 - Video frames are no longer all decoded into memory before a render. The node

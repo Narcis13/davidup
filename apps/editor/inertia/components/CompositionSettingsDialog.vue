@@ -13,7 +13,8 @@ import type { Command, Composition } from '~/composables/useCommandBus'
 interface CompositionMeta {
   width: number
   height: number
-  fps: number
+  // Positive number or exact rational "N/D" (v1.1 S7).
+  fps: number | string
   duration: number
   background: string
 }
@@ -28,9 +29,23 @@ const emit = defineEmits<{
   (event: 'apply', command: Command): void
 }>()
 
+// Frame-rate presets. The NTSC rates map to exact rationals so renders get a
+// true 30000/1001 (etc.) timebase; typing 29.97 would stay a decimal.
+const FPS_PRESETS: ReadonlyArray<{ label: string; value: number | string }> = [
+  { label: '24', value: 24 },
+  { label: '25', value: 25 },
+  { label: '30', value: 30 },
+  { label: '50', value: 50 },
+  { label: '60', value: 60 },
+  { label: '23.976 (24000/1001)', value: '24000/1001' },
+  { label: '29.97 (30000/1001)', value: '30000/1001' },
+  { label: '59.94 (60000/1001)', value: '60000/1001' },
+]
+
 const width = ref(1280)
 const height = ref(720)
-const fps = ref(60)
+// Select key: String(fps) — "60" or "30000/1001".
+const fps = ref('60')
 const duration = ref(1)
 const background = ref('#000000')
 const errorMsg = ref<string | null>(null)
@@ -47,7 +62,7 @@ function syncFromComposition(): void {
   if (!m) return
   width.value = m.width
   height.value = m.height
-  fps.value = m.fps
+  fps.value = String(m.fps)
   duration.value = m.duration
   background.value = normalizeColor(m.background ?? '#000000')
   errorMsg.value = null
@@ -79,6 +94,22 @@ watch(
   },
 )
 
+// Presets plus the composition's current rate when it isn't one of them
+// (e.g. 12 or 29.97 authored elsewhere), so opening the dialog never
+// silently changes it.
+const fpsOptions = computed(() => {
+  const current = meta.value?.fps
+  const opts = FPS_PRESETS.map((p) => ({ label: p.label, key: String(p.value) }))
+  if (current !== undefined && !opts.some((o) => o.key === String(current))) {
+    opts.push({ label: `${current} (current)`, key: String(current) })
+  }
+  return opts
+})
+
+function fpsFromKey(key: string): number | string {
+  return /^\d+\/\d+$/.test(key) ? key : Number(key)
+}
+
 const canSubmit = computed(() => {
   if (!meta.value) return false
   return (
@@ -88,8 +119,7 @@ const canSubmit = computed(() => {
     Number.isFinite(height.value) &&
     height.value > 0 &&
     Number.isInteger(height.value) &&
-    Number.isFinite(fps.value) &&
-    fps.value > 0 &&
+    fps.value.length > 0 &&
     Number.isFinite(duration.value) &&
     duration.value >= 0 &&
     background.value.length > 0
@@ -105,7 +135,7 @@ function submit(): void {
   }
   if (!canSubmit.value) {
     errorMsg.value =
-      'Width / height must be positive integers; fps must be > 0; duration must be ≥ 0.'
+      'Width / height must be positive integers; duration must be ≥ 0.'
     return
   }
   // Emit one command per changed property — `set_composition_property`
@@ -115,7 +145,7 @@ function submit(): void {
   const changes: Array<{ property: CompositionMeta extends infer T ? keyof T : never; value: number | string }> = []
   if (width.value !== m.width) changes.push({ property: 'width', value: width.value })
   if (height.value !== m.height) changes.push({ property: 'height', value: height.value })
-  if (fps.value !== m.fps) changes.push({ property: 'fps', value: fps.value })
+  if (fps.value !== String(m.fps)) changes.push({ property: 'fps', value: fpsFromKey(fps.value) })
   if (duration.value !== m.duration) changes.push({ property: 'duration', value: duration.value })
   if (normalizeColor(m.background ?? '') !== background.value)
     changes.push({ property: 'background', value: background.value })
@@ -200,14 +230,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="row two">
           <label class="field">
             <span class="label">FPS</span>
-            <input
-              v-model.number="fps"
-              class="input"
-              type="number"
-              min="1"
-              step="1"
-              data-testid="comp-settings-fps"
-            />
+            <select v-model="fps" class="input" data-testid="comp-settings-fps">
+              <option v-for="o in fpsOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
+            </select>
           </label>
           <label class="field">
             <span class="label">Duration (s)</span>

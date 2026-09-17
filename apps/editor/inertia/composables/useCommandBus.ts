@@ -44,7 +44,7 @@ export interface CommandErrorReport {
 export type CommandSource = 'ui' | 'mcp'
 
 type Composition = {
-  composition: { width: number; height: number; fps: number; duration: number; background?: string }
+  composition: { width: number; height: number; fps: number | string; duration: number; background?: string }
   // `id`/`type` are named explicitly (not just covered by the index
   // signature) so structural targets like Library.vue's `CompositionLike`
   // that only declare `id`/`type` don't fail TS's weak-type-detection check

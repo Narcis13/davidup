@@ -401,6 +401,11 @@ describe("buildExtractArgs", () => {
     expect(args[args.indexOf("-vf") + 1]).toBe("fps=30");
   });
 
+  it("emits an exact fps=N/D filter for a rational composition rate (v1.1 S7)", () => {
+    const args = buildExtractArgs({ ...spec, fps: "30000/1001", scale: "" }, "/c/%05d.png");
+    expect(args[args.indexOf("-vf") + 1]).toBe("fps=30000/1001");
+  });
+
   it("omits -t when the duration is unknown (extract to EOF)", () => {
     const args = buildExtractArgs({ ...spec, trimOut: undefined, duration: undefined }, "/c/%05d.png");
     expect(args).not.toContain("-t");

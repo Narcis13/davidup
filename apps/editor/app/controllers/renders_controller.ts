@@ -124,7 +124,7 @@ export default class RendersController {
   async store({ request, response }: HttpContext) {
     const project = projectStore.project
     const composition = projectStore.composition as
-      | { composition: { duration: number; fps: number; width: number; height: number } }
+      | { composition: { duration: number; fps: number | string; width: number; height: number } }
       | null
     if (!project || !composition) {
       return response.notFound({

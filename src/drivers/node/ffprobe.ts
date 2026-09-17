@@ -32,6 +32,12 @@ export interface VideoMetadata {
   height?: number;
   /** Frames per second (decimal; parsed from ffprobe's frame-rate fraction). */
   fps?: number;
+  /**
+   * The same rate as ffprobe reported it, exact: "30000/1001" (v1.1 S7). Set
+   * only when the chosen field was a positive "num/den" fraction; usable
+   * verbatim as a composition `fps` so cuts line up with the source.
+   */
+  fpsRational?: string;
   /** True when the pixel format carries an alpha plane (e.g. "yuva420p", "rgba"). */
   hasAlpha?: boolean;
   /** ffprobe `codec_name`, e.g. "h264", "hevc", "vp9", "av1". */
@@ -283,9 +289,20 @@ function parseVideoMetadata(probe: FfprobeOutput, src: string): VideoMetadata {
   // Frame rate: prefer the average (the true playback rate for VFR / decimal
   // fps), fall back to the base `r_frame_rate`. Both arrive as "num/den"
   // strings; "0/0" (unknown) parses to undefined and is skipped.
-  const fps =
-    parseFrameRate(video.avg_frame_rate) ?? parseFrameRate(video.r_frame_rate);
-  if (fps !== undefined) out.fps = fps;
+  const rateField =
+    parseFrameRate(video.avg_frame_rate) !== undefined
+      ? video.avg_frame_rate
+      : video.r_frame_rate;
+  const fps = parseFrameRate(rateField);
+  if (fps !== undefined) {
+    out.fps = fps;
+    const m = typeof rateField === "string" ? rateField.match(/^(\d+)\/(\d+)$/) : null;
+    if (m) {
+      // Kept as reported (ffprobe emits lowest terms); parseInt drops any
+      // leading zeros so the string passes the composition `fps` schema.
+      out.fpsRational = `${Number.parseInt(m[1]!, 10)}/${Number.parseInt(m[2]!, 10)}`;
+    }
+  }
 
   if (typeof video.codec_name === "string" && video.codec_name.length > 0) {
     out.codec = video.codec_name;

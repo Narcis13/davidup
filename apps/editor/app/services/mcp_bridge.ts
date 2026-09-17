@@ -478,7 +478,7 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
     start: async (args: MCPRenderStartArgs): Promise<MCPRenderJobSnapshot> => {
       const project = projectOrThrow()
       const composition = store.composition as
-        | { composition: { duration: number; fps: number; width: number; height: number } }
+        | { composition: { duration: number; fps: number | string; width: number; height: number } }
         | null
       if (!composition) {
         throw new MCPToolError(

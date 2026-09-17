@@ -39,6 +39,7 @@ import {
   isSupportedVideoSrc,
 } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
+import { isRationalFps, type Fps } from "../schema/fps.js";
 import type { BehaviorDescriptor } from "../compose/behaviors.js";
 import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
 import type { TemplateDefinition } from "../compose/templates.js";
@@ -111,7 +112,8 @@ interface MutableComposition {
 export interface CreateCompositionInput {
   width: number;
   height: number;
-  fps: number;
+  /** Positive number or exact rational "N/D" (v1.1 S7). */
+  fps: Fps;
   duration: number;
   background?: string;
   id?: string;
@@ -504,8 +506,8 @@ export class CompositionStore {
         comp.meta = { ...comp.meta, [property]: value as number };
         return;
       case "fps":
-        ensurePositive(property, value);
-        comp.meta = { ...comp.meta, fps: value as number };
+        if (!isRationalFps(value)) ensurePositive(property, value);
+        comp.meta = { ...comp.meta, fps: value };
         return;
       case "duration":
         ensureNonNegative(property, value);

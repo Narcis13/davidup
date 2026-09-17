@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./validator.js";
+export * from "./fps.js";
 export { validate as validateComposition } from "./validator.js";
 export {
   AssetSchema,
@@ -12,6 +13,7 @@ export {
   CANVAS2D_COMPOSITE_OPS,
   CompositionMetaSchema,
   CompositionSchema,
+  FpsSchema,
   FontAssetSchema,
   GroupItemSchema,
   idSchema,
