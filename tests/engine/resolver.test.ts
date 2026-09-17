@@ -127,6 +127,49 @@ describe("computeStateAt — easings and clamping", () => {
     expect(computeStateAt(comp, 0.5).items.box!.transform.x).toBe(25);
   });
 
+  it("applies a cubic-bezier easing (v1.1 S17)", () => {
+    const comp = emptyComp({
+      tweens: [
+        {
+          id: "t1",
+          target: "box",
+          property: "transform.x",
+          from: 0,
+          to: 100,
+          start: 0,
+          duration: 1,
+          easing: { bezier: [0.25, 0.1, 0.25, 1] },
+        },
+      ],
+    });
+    // CSS `ease` at 0.5 = 0.802403387584857 → 80.24…
+    expect(computeStateAt(comp, 0.5).items.box!.transform.x).toBeCloseTo(80.2403387585, 8);
+    expect(computeStateAt(comp, 1).items.box!.transform.x).toBe(100);
+  });
+
+  it("applies a steps easing: holds each step, lands on `to` at the end (v1.1 S17)", () => {
+    const comp = emptyComp({
+      tweens: [
+        {
+          id: "t1",
+          target: "box",
+          property: "transform.x",
+          from: 0,
+          to: 100,
+          start: 1,
+          duration: 2,
+          easing: { steps: 4 },
+        },
+      ],
+    });
+    const xAt = (t: number) => computeStateAt(comp, t).items.box!.transform.x;
+    expect(xAt(1)).toBe(0);
+    expect(xAt(1.49)).toBe(0);
+    expect(xAt(1.5)).toBe(25);
+    expect(xAt(2.99)).toBe(75);
+    expect(xAt(3)).toBe(100);
+  });
+
   it("defaults to linear when easing is omitted", () => {
     const comp = emptyComp({
       tweens: [

@@ -876,7 +876,7 @@ una:
 |---|---|---|
 | Q1 | Tween cu `from` explicit obligatoriu sau opțional (fallback la valoarea curentă)? Acum: explicit. | open |
 | Q2 | Color space pentru lerp culori — RGB linear sau OKLab? Acum: RGB simplu. | open |
-| Q3 | Suport pentru `cubic-bezier(x1,y1,x2,y2)` ca easing custom în plus față de cele numite? | open |
+| Q3 | Suport pentru `cubic-bezier(x1,y1,x2,y2)` ca easing custom în plus față de cele numite? | **rezolvat (v1.1)** — `{ "bezier": [x1, y1, x2, y2] }` și `{ "steps": n }` alături de cele 19 nume, vezi README § Easings. |
 | Q4 | Group cu transform propriu — păstrăm doar matrix implicit prin Canvas2D, sau expunem și matrix explicit pentru queries? | open |
 | Q5 | Curs de evoluție: după v0.1 — adăugăm video clips ca surse, particule, sau efecte (blur, glow)? Care e prioritar? | **rezolvat (v0.2)** — video clips (§3.2, §4.4a) și audio muxing (§3.2a, §4.5a) au fost prioritizate și livrate. Particule și efecte vizuale rămân deschise, vezi §8. |
 | Q6 | Validation strictness: tween peste durata compoziției = warning sau eroare? Acum: warning. | open |

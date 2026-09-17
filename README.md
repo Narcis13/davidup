@@ -178,7 +178,8 @@ The browser opens to the editor. You get:
 - **LayersPanel** — reorder, `visible` / `locked` toggles, rename.
 - **Outliner** — tree view of every item with group expansion.
 - **Inspector** — typed inputs per item type, "+ animate" to add a tween,
-  tween editor on bar select, audio-track and video-trim editors. Multi-select
+  tween editor on bar select (easing picker with cubic-bezier and steps
+  fields), audio-track and video-trim editors. Multi-select
   shows "Mixed" for diverging fields and writes back to the whole selection.
 - **Library** — templates / behaviors / scenes / assets / fonts from the
   global pool and a project-local override pool. Save your own via
@@ -344,8 +345,8 @@ this way.
    flags `visible`, `locked`, `name`, `enter`, `exit`.
 3. **Layers** are flat z-stacks of item ids. Layers carry their own
    `opacity`, `blendMode`, and the same flags.
-4. **Tweens** interpolate one property of one item over a time window with a
-   named easing. Two tweens cannot overlap on the same `(item, property)` —
+4. **Tweens** interpolate one property of one item over a time window with an
+   easing. Two tweens cannot overlap on the same `(item, property)` —
    the validator rejects it (`E_TWEEN_OVERLAP`).
 5. **Audio tracks** live outside the item tree in `audio[]` and are muxed onto
    the finished video; the engine never touches sound.
@@ -419,13 +420,31 @@ Every Canvas2D `globalCompositeOperation` value (26) plus `"normal"` as an
 alias for `source-over`. See `BLEND_MODES` in
 [`src/schema/zod.ts`](./src/schema/zod.ts).
 
-### Easings (19)
+### Easings (19 names + cubic-bezier + steps)
 
 `linear`, `easeInQuad`, `easeOutQuad`, `easeInOutQuad`, `easeInCubic`,
 `easeOutCubic`, `easeInOutCubic`, `easeInQuart`, `easeOutQuart`,
 `easeInOutQuart`, `easeInBack`, `easeOutBack`, `easeInOutBack`, `easeInSine`,
 `easeOutSine`, `easeInOutSine`, `easeInExpo`, `easeOutExpo`, `easeInOutExpo`.
-No cubic-bezier or custom curves.
+
+Two object forms work wherever a name does (tweens, `$behavior` blocks,
+`add_tween` / `update_tween` / `apply_behavior`):
+
+```json
+"easing": { "bezier": [0.25, 0.1, 0.25, 1] }
+"easing": { "steps": 4 }
+```
+
+- `bezier` is CSS `cubic-bezier(x1, y1, x2, y2)`. `x1` and `x2` must be in
+  [0, 1]; `y1` and `y2` may leave it to overshoot. Solved like browsers do
+  (Newton, then bisection) using only arithmetic, so node and browser
+  renders agree; values match Chromium's to 1e-6.
+- `steps` is CSS `steps(n)` (`jump-end`): the value holds at 0, 1/n, …,
+  (n − 1)/n of the way from `from` to `to`, and lands on `to` when the tween
+  ends. `n` is an integer ≥ 1.
+
+`list_easings` returns the names plus a `parametric` array describing both
+forms (`list_engine_capabilities` reports it as `parametricEasings`).
 
 ### Tweenable properties by item type
 
@@ -780,8 +799,8 @@ Subpath exports declared in [`package.json`](./package.json). Each has a
 | Subpath | Headline exports | Use when |
 |---|---|---|
 | `davidup` | `VERSION` | Version check |
-| `davidup/schema` | `validate`, `CompositionSchema`, `ItemSchema`, `TransformSchema`, `LayerSchema`, `TweenSchema`, `AssetSchema`, `AudioTrackSchema`, `BLEND_MODES`, `getTweenable`, `listTweenable` | Parsing JSON, validating before render, discovering tweenable paths |
-| `davidup/easings` | `EASING_NAMES`, `EASINGS`, `isEasingName`, `getEasing` | Sampling the same easing math from custom code |
+| `davidup/schema` | `validate`, `CompositionSchema`, `ItemSchema`, `TransformSchema`, `LayerSchema`, `TweenSchema`, `EasingSchema`, `AssetSchema`, `AudioTrackSchema`, `BLEND_MODES`, `getTweenable`, `listTweenable` | Parsing JSON, validating before render, discovering tweenable paths |
+| `davidup/easings` | `EASING_NAMES`, `EASINGS`, `isEasingName`, `getEasing`, `cubicBezier`, `steps`, `formatEasing`, `PARAMETRIC_EASINGS` | Sampling the same easing math from custom code |
 | `davidup/engine` | `computeStateAt`, `renderFrame`, `drawScene`, `drawItem`, `indexTweens`, `computeFitRects`, `MCP_ERROR_CODES`, `MCPToolError`, source-map types | Building your own driver, sampling state without painting |
 | `davidup/assets` | `BaseAssetLoader`, `BrowserAssetLoader`, `NodeAssetLoader` | Custom asset loading (CDN, S3, mocks) |
 | `davidup/browser` | `attach(comp, canvas, options) → { stop, pause, resume, seek, pickItemAt, getItemBoundsAt, getResolvedItemAt, getSourceMap }` | Live preview, editor hit-testing |
@@ -1031,7 +1050,8 @@ Things v1.0 does not do. Each is either an open ledger item in
 - Text is single-style per item (no rich spans), wraps at word boundaries
   only, and has no stagger reveal or `measure_text` tool yet
   (`TEXT_V2_DESIGN.md`).
-- No cubic-bezier or custom easings; no visual effects (blur, glow, shadow).
+- No visual effects (blur, glow, shadow). Easings are limited to the 19
+  names, cubic-bezier and steps (no springs).
 - Group opacity multiplies into children rather than compositing the group
   as one layer (overlapping children show through).
 - Template params are whole-string substitution only; no arithmetic or
@@ -1091,7 +1111,7 @@ More agent-side troubleshooting: [`examples/mcp-demo.md` §7](./examples/mcp-dem
 ```
 src/
   schema/         Zod schemas + validator + tweenable lookup     (design-doc §3, §3.5)
-  easings/        19 named easings + lookup helpers              (§3.4)
+  easings/        19 named easings, cubic-bezier, steps, lookup  (§3.4)
   color/          hex / rgba parser + RGB lerp                    (§3.3)
   engine/         computeStateAt, renderFrame, drawItem,          (§5.1–5.4)
                   computeFitRects, MCP_ERROR_CODES, MCPToolError,
@@ -1166,7 +1186,7 @@ Planned for v1.1 (designs written, no code yet):
 - Strict schema (R-23), per-session MCP state (R-29), bundled starter font
   (R-30), editable source drawer, template round-trip edits.
 
-Still open beyond that: cubic-bezier easings, frame-range parallelization,
+Still open beyond that: frame-range parallelization,
 visual effects (blur, glow, drop shadow), video
 frames in the live preview. Full discussion: [`design-doc.md` §8](./design-doc.md).
 

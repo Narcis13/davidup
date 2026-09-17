@@ -16,7 +16,7 @@
 // `${target}_${behavior}_${start}`). Each emitted tween gets a stable
 // `${parentId}__${suffix}` id where `suffix` is fixed per behavior step.
 
-import type { EasingName } from "../easings/index.js";
+import type { Easing } from "../easings/index.js";
 import { MCPToolError } from "../engine/errors.js";
 import type { Tween } from "../schema/types.js";
 
@@ -65,7 +65,7 @@ export interface BehaviorBlock {
   /** Total duration covered by the behavior's tweens combined. */
   duration: number;
   /** Optional easing applied to every emitted tween that doesn't pin its own. */
-  easing?: EasingName;
+  easing?: Easing;
   /** Per-behavior parameter map. See each behavior's descriptor. */
   params?: Record<string, unknown>;
   /** Optional explicit parent id. If absent, derived from target+name+start. */
@@ -79,7 +79,7 @@ interface ExpandContext {
   block: BehaviorBlock;
   duration: number;
   start: number;
-  easing: EasingName | undefined;
+  easing: Easing | undefined;
   params: Record<string, unknown>;
 }
 
@@ -90,7 +90,7 @@ interface RawTween {
   to: number | string;
   start: number;
   duration: number;
-  easing?: EasingName;
+  easing?: Easing;
 }
 
 type BehaviorExpand = (ctx: ExpandContext) => RawTween[];
@@ -328,13 +328,15 @@ function readBehaviorBlock(raw: Record<string, unknown>): BehaviorBlock {
   }
   const block: BehaviorBlock = { behavior, target, start, duration };
   if (raw.easing !== undefined) {
-    if (typeof raw.easing !== "string") {
+    // Shape check only — the name / bezier / steps contents are validated by
+    // TweenSchema once the emitted tweens reach the composition.
+    if (typeof raw.easing !== "string" && !isPlainObject(raw.easing)) {
       throw new MCPToolError(
         "E_INVALID_VALUE",
-        `Behavior "${behavior}" easing must be a string.`,
+        `Behavior "${behavior}" easing must be an easing name, { bezier: [x1, y1, x2, y2] } or { steps: n }.`,
       );
     }
-    block.easing = raw.easing as EasingName;
+    block.easing = raw.easing as Easing;
   }
   if (raw.params !== undefined) {
     if (!isPlainObject(raw.params)) {

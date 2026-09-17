@@ -47,6 +47,53 @@ export const CANVAS2D_COMPOSITE_OPS = [
 export const BLEND_MODES = [...CANVAS2D_COMPOSITE_OPS, "normal"] as const;
 export const BlendModeSchema = z.enum(BLEND_MODES);
 
+// Tween easing (v1.1 S17): one of the 19 names, `{ bezier: [x1, y1, x2, y2] }`
+// (CSS cubic-bezier — x1/x2 in [0, 1], y1/y2 may overshoot) or `{ steps: n }`
+// (CSS steps(n), jump-end). The object forms are strict so an ambiguous
+// `{ bezier, steps }` is rejected rather than resolved by union order.
+// Shared by TweenSchema, the MCP tweens/behavior tools and the editor's
+// command schema (apps/editor/app/types/commands.ts). Each tuple slot is its
+// own schema instance: a reused instance becomes a `$ref` in the tool JSON
+// Schema that MCP clients see.
+export const BezierEasingSchema = z
+  .object({
+    bezier: z.tuple([
+      z.number().min(0).max(1),
+      z.number().finite(),
+      z.number().min(0).max(1),
+      z.number().finite(),
+    ]),
+  })
+  .strict();
+
+export const StepsEasingSchema = z
+  .object({ steps: z.number().int().min(1) })
+  .strict();
+
+// A plain union reports a bare "Invalid input" when nothing matches (a typo'd
+// name, a 3-number bezier), where z.enum used to list the names. Out-of-range
+// numbers, fractional steps and unknown keys keep their specific issue.
+const easingErrorMap: z.ZodErrorMap = (issue, ctx) => {
+  if (issue.code !== z.ZodIssueCode.invalid_union) return { message: ctx.defaultError };
+  let received: string;
+  try {
+    received = JSON.stringify(ctx.data) ?? String(ctx.data);
+  } catch {
+    received = String(ctx.data);
+  }
+  if (received.length > 80) received = `${received.slice(0, 77)}...`;
+  return {
+    message:
+      `Invalid easing ${received}. Expected a name (${EASING_NAMES.join(" | ")}), ` +
+      "{ bezier: [x1, y1, x2, y2] } with x1 and x2 in [0, 1], or { steps: n } with an integer n ≥ 1.",
+  };
+};
+
+export const EasingSchema = z.union(
+  [z.enum(EASING_NAMES), BezierEasingSchema, StepsEasingSchema],
+  { errorMap: easingErrorMap },
+);
+
 // Item ids (the `items` record key), layer ids, tween ids, tween targets, and
 // tween properties all end up as one half of the resolver's bucket key
 // `${target}::${property}` (see engine/resolver.ts). That key is split on the
@@ -383,7 +430,7 @@ export const TweenSchema = z.object({
   to: z.union([z.number(), z.string()]),
   start: z.number().nonnegative(),
   duration: z.number().positive(),
-  easing: z.enum(EASING_NAMES).optional(),
+  easing: EasingSchema.optional(),
 });
 
 // External audio track on the composition timeline (v0.2 §S1). Audio is never

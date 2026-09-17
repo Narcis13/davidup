@@ -18,8 +18,7 @@
 */
 
 import { z } from 'zod'
-import { EASING_NAMES } from 'davidup/easings'
-import { BlendModeSchema, idSchema } from 'davidup/schema'
+import { BlendModeSchema, EasingSchema, idSchema } from 'davidup/schema'
 
 // ──────────────── Reusable fragments ────────────────
 
@@ -502,7 +501,8 @@ const addTween = z.object({
     to: TWEEN_VALUE,
     start: NON_NEG,
     duration: POSITIVE,
-    easing: z.enum(EASING_NAMES).optional(),
+    // DUAL of engine EasingSchema (v1.1 S17): a name, { bezier } or { steps }.
+    easing: EasingSchema.optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),
@@ -521,7 +521,7 @@ const updateTween = z.object({
         to: TWEEN_VALUE,
         start: NON_NEG,
         duration: POSITIVE,
-        easing: z.enum(EASING_NAMES),
+        easing: EasingSchema,
       })
       .partial(),
     compositionId: COMPOSITION_ID,
@@ -597,7 +597,7 @@ const applyBehavior = z.object({
     start: NON_NEG,
     duration: POSITIVE,
     params: z.record(z.string(), z.unknown()).optional(),
-    easing: z.enum(EASING_NAMES).optional(),
+    easing: EasingSchema.optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),

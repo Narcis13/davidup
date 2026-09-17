@@ -64,6 +64,63 @@ describe("validate — schema errors (E_SCHEMA)", () => {
   });
 });
 
+describe("validate — parametric easings (v1.1 S17)", () => {
+  function withEasing(easing: unknown) {
+    const comp = baseComposition() as unknown as Record<string, unknown>;
+    (comp.tweens as Array<Record<string, unknown>>)[0]!.easing = easing;
+    return validate(comp);
+  }
+
+  it("accepts { bezier } (y may overshoot) and { steps }", () => {
+    for (const easing of [
+      { bezier: [0.25, 0.1, 0.25, 1] },
+      { bezier: [0, -0.5, 1, 1.5] },
+      { steps: 1 },
+      { steps: 12 },
+    ]) {
+      const result = withEasing(easing);
+      expect(result.errors, JSON.stringify(easing)).toEqual([]);
+    }
+  });
+
+  it("rejects bezier x outside [0, 1] at the offending slot", () => {
+    const result = withEasing({ bezier: [0.25, 0.1, 1.2, 1] });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "E_SCHEMA", path: "tweens.0.easing.bezier.2" }),
+    ]);
+  });
+
+  it("rejects steps that are not an integer ≥ 1", () => {
+    for (const steps of [0, -2, 2.5]) {
+      const result = withEasing({ steps });
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toMatchObject({ code: "E_SCHEMA", path: "tweens.0.easing.steps" });
+    }
+  });
+
+  it("rejects an object carrying both forms instead of picking one", () => {
+    const result = withEasing({ bezier: [0.25, 0.1, 0.25, 1], steps: 3 });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]!.message).toMatch(/Unrecognized key/);
+  });
+
+  it("an unmatched value lists the names and both object forms", () => {
+    for (const easing of ["easeBogus", { bezier: [0.1, 0.2, 0.3] }, { cubic: [0, 0, 1, 1] }, 3]) {
+      const result = withEasing(easing);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      const { code, path, message } = result.errors[0]!;
+      expect(code).toBe("E_SCHEMA");
+      expect(path).toBe("tweens.0.easing");
+      expect(message).toContain("easeInOutExpo");
+      expect(message).toContain("{ bezier: [x1, y1, x2, y2] }");
+      expect(message).toContain("{ steps: n }");
+      expect(message).toContain(JSON.stringify(easing));
+    }
+  });
+});
+
 describe("validate — reference errors (E_ITEM_MISSING / E_ASSET_MISSING)", () => {
   it("flags layer pointing at unknown item", () => {
     const comp = baseComposition();

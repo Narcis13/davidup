@@ -513,6 +513,80 @@ test.group('applyCommand · text v2 fields (v1.1 S14)', () => {
   })
 })
 
+test.group('applyCommand · parametric easings (v1.1 S17)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+  const EASE = { bezier: [0.25, 0.1, 0.25, 1] }
+
+  test('add_tween keeps { bezier } and update_tween swaps to { steps }, surviving rehydration', async ({
+    assert,
+  }) => {
+    const a = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'add_tween',
+        payload: {
+          id: 'move',
+          target: 'logo',
+          property: 'transform.x',
+          from: 0,
+          to: 400,
+          start: 0,
+          duration: 1,
+          easing: EASE,
+        },
+        source: 'ui',
+      })
+    )
+    assert.deepEqual(a.tweens[0].easing, EASE)
+
+    const b = await applyCommand(
+      a,
+      parsed({ kind: 'update_tween', payload: { id: 'move', props: { easing: { steps: 4 } } }, source: 'ui' })
+    )
+    assert.deepEqual(b.tweens[0].easing, { steps: 4 })
+
+    // An unrelated command rehydrates the store from JSON — the object easing stays.
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { y: 10 } }, source: 'ui' })
+    )
+    assert.deepEqual(c.tweens[0].easing, { steps: 4 })
+  })
+
+  test('apply_behavior forwards an object easing to every emitted tween', async ({ assert }) => {
+    const next = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'apply_behavior',
+        payload: { target: 'logo', behavior: 'popIn', start: 0, duration: 1, easing: EASE },
+        source: 'ui',
+      })
+    )
+    assert.lengthOf(next.tweens, 3)
+    for (const t of next.tweens) assert.deepEqual(t.easing, EASE)
+  })
+
+  test('dual schema rejects malformed easings', async ({ assert }) => {
+    for (const easing of [
+      'easeBogus',
+      { bezier: [1.5, 0, 0.5, 1] },
+      { bezier: [0.25, 0.1, 0.25] },
+      { steps: 0 },
+      { steps: 2.5 },
+      { bezier: [0.25, 0.1, 0.25, 1], steps: 2 },
+    ]) {
+      assert.isFalse(
+        CommandSchema.safeParse({
+          kind: 'update_tween',
+          payload: { id: 'move', props: { easing } },
+          source: 'ui',
+        }).success,
+        JSON.stringify(easing)
+      )
+    }
+  })
+})
+
 // ──────────────── CommandBus ────────────────
 
 test.group('CommandBus · in-process', (group) => {

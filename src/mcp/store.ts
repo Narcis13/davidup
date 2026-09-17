@@ -11,7 +11,7 @@
 // tween overlap) by throwing MCPToolError; tool wrappers turn those into
 // structured `{error}` payloads.
 
-import type { EasingName } from "../easings/index.js";
+import type { Easing } from "../easings/index.js";
 import { validate, OVERLAP_EPS, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
@@ -311,7 +311,7 @@ export interface AddTweenInput {
   to: number | string;
   start: number;
   duration: number;
-  easing?: EasingName;
+  easing?: Easing;
   id?: string;
 }
 
@@ -322,7 +322,7 @@ export interface UpdateTweenProps {
   to?: number | string;
   start?: number;
   duration?: number;
-  easing?: EasingName;
+  easing?: Easing;
 }
 
 export interface ListTweensFilter {
@@ -1293,7 +1293,7 @@ export class CompositionStore {
       to: input.to,
       start: input.start,
       duration: input.duration,
-      ...(input.easing !== undefined ? { easing: input.easing } : {}),
+      ...(input.easing !== undefined ? { easing: cloneEasing(input.easing) } : {}),
     };
     comp.tweens.set(id, tween);
     return id;
@@ -1368,7 +1368,7 @@ export class CompositionStore {
       to,
       start,
       duration,
-      ...(easing !== undefined ? { easing } : {}),
+      ...(easing !== undefined ? { easing: cloneEasing(easing) } : {}),
     };
     comp.tweens.set(id, updated);
   }
@@ -1834,7 +1834,7 @@ export class CompositionStore {
       to: tween.to,
       start: tween.start,
       duration: tween.duration,
-      ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
+      ...(tween.easing !== undefined ? { easing: cloneEasing(tween.easing) } : {}),
     });
   }
 
@@ -2502,8 +2502,20 @@ function cloneTween(tween: Tween): Tween {
     to: tween.to,
     start: tween.start,
     duration: tween.duration,
-    ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
+    ...(tween.easing !== undefined ? { easing: cloneEasing(tween.easing) } : {}),
   };
+}
+
+// Object easings (v1.1 S17) are copied in and out like `shadow`, so a caller
+// mutating a returned tween — or a behavior expansion sharing one easing
+// object across its tweens — can't reach into stored state.
+function cloneEasing(easing: Easing): Easing {
+  if (typeof easing === "string") return easing;
+  if ("bezier" in easing) {
+    const [x1, y1, x2, y2] = easing.bezier;
+    return { bezier: [x1, y1, x2, y2] };
+  }
+  return { steps: easing.steps };
 }
 
 function cloneAudioTrack(track: AudioTrack): AudioTrack {

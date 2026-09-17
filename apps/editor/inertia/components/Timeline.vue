@@ -23,6 +23,7 @@
 // hand-authored single tweens.
 
 import { computed, ref, watch, type Ref } from 'vue'
+import type { Easing } from 'davidup/easings'
 import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
@@ -350,7 +351,7 @@ const rows = computed<TimelineItemRow[]>(() => {
     property: string
     start: number
     duration: number
-    easing?: string
+    easing?: Easing
   }>
 
   // Bucket tweens by target. We iterate tweens once and sort the per-target

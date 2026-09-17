@@ -471,6 +471,37 @@ describe("expandBehaviors — compile-time pass over composition.tweens", () => 
     ]);
   });
 
+  it("passes a parametric easing through to every emitted tween (v1.1 S17)", () => {
+    const easing = { bezier: [0.34, 1.56, 0.64, 1] };
+    const out = expandBehaviors({
+      tweens: [{ $behavior: "popIn", target: "title", start: 0, duration: 1, easing }],
+    }) as { tweens: Array<{ easing?: unknown }> };
+    expect(out.tweens).toHaveLength(3);
+    for (const t of out.tweens) expect(t.easing).toEqual(easing);
+
+    const stepped = expandBehavior({
+      behavior: "fadeIn",
+      target: "x",
+      start: 0,
+      duration: 1,
+      easing: { steps: 3 },
+    });
+    expect(stepped[0]!.easing).toEqual({ steps: 3 });
+  });
+
+  it("rejects an easing that is neither a name nor an object", () => {
+    try {
+      expandBehaviors({
+        tweens: [{ $behavior: "fadeIn", target: "x", start: 0, duration: 1, easing: 42 }],
+      });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(MCPToolError);
+      expect((err as MCPToolError).code).toBe("E_INVALID_VALUE");
+      expect((err as MCPToolError).message).toMatch(/bezier.*steps/);
+    }
+  });
+
   it("ignores non-objects and missing tweens key gracefully", () => {
     expect(expandBehaviors(42)).toBe(42);
     expect(expandBehaviors(null)).toBe(null);

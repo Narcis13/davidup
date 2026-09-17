@@ -30,7 +30,7 @@
 // rather than "what diverges from the source-of-truth defaults".
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EASING_NAMES } from 'davidup/easings'
+import type { Easing } from 'davidup/easings'
 import { getTweenable, listTweenable } from 'davidup/schema'
 import type { ItemType } from 'davidup/schema'
 import { useSelection } from '~/composables/useSelection'
@@ -47,6 +47,7 @@ import PercentInput from '~/components/inputs/Percent.vue'
 import RawJsonInput from '~/components/inputs/RawJson.vue'
 import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
 import ShadowInput from '~/components/inputs/Shadow.vue'
+import EasingInput from '~/components/inputs/Easing.vue'
 
 type ItemLike = {
   type: 'sprite' | 'text' | 'shape' | 'group' | 'video'
@@ -859,7 +860,7 @@ interface AddTweenPopoverState {
   to: number | string
   start: number
   duration: number
-  easing: string
+  easing: Easing
 }
 
 const addTweenPopover = ref<AddTweenPopoverState | null>(null)
@@ -1050,7 +1051,7 @@ type TweenLike = {
   to: unknown
   start: number
   duration: number
-  easing?: string
+  easing?: Easing
 }
 
 const selectedTween = computed<TweenLike | null>(() => {
@@ -1428,12 +1429,11 @@ function deleteSelectedAudioTrack(): void {
           :disabled="pending"
           @update:model-value="(v: number) => dispatchTweenEdit('duration', v)"
         />
-        <EnumInput
-          :model-value="selectedTween.easing ?? 'linear'"
+        <EasingInput
+          :model-value="selectedTween.easing"
           label="easing"
-          :options="EASING_NAMES"
           :disabled="pending"
-          @update:model-value="(v: string) => dispatchTweenEdit('easing', v)"
+          @update:model-value="(v: Easing) => dispatchTweenEdit('easing', v)"
         />
       </div>
     </section>
@@ -1608,12 +1608,11 @@ function deleteSelectedAudioTrack(): void {
                   :disabled="pending"
                   @update:model-value="(v: number) => updateAddTweenField('duration', v)"
                 />
-                <EnumInput
+                <EasingInput
                   :model-value="addTweenPopover.easing"
                   label="easing"
-                  :options="EASING_NAMES"
                   :disabled="pending"
-                  @update:model-value="(v: string) => updateAddTweenField('easing', v)"
+                  @update:model-value="(v: Easing) => updateAddTweenField('easing', v)"
                 />
                 <div class="animate-popover-actions">
                   <button
@@ -1822,12 +1821,11 @@ function deleteSelectedAudioTrack(): void {
                   :disabled="pending"
                   @update:model-value="(v: number) => updateAddTweenField('duration', v)"
                 />
-                <EnumInput
+                <EasingInput
                   :model-value="addTweenPopover.easing"
                   label="easing"
-                  :options="EASING_NAMES"
                   :disabled="pending"
-                  @update:model-value="(v: string) => updateAddTweenField('easing', v)"
+                  @update:model-value="(v: Easing) => updateAddTweenField('easing', v)"
                 />
                 <div class="animate-popover-actions">
                   <button

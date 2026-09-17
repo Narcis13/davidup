@@ -20,6 +20,8 @@
 // trailing click after a release does not bleed into selection.
 
 import { computed } from 'vue'
+import { formatEasing } from 'davidup/easings'
+import type { Easing } from 'davidup/easings'
 import type { DragActive, DragMode } from '~/composables/useTimelineDrag'
 import type { VideoTrimActive, VideoTrimMode } from '~/composables/useVideoTrimDrag'
 
@@ -31,7 +33,7 @@ export interface TimelineTween {
   property: string
   start: number
   duration: number
-  easing?: string
+  easing?: Easing
   source: TweenSource
 }
 
@@ -209,7 +211,7 @@ function onBarDoubleClick(t: TimelineTween, event: MouseEvent): void {
 function barTitle(t: TimelineTween): string {
   const v = effectiveValues(t)
   const end = v.start + v.duration
-  const easing = t.easing ? ` · ${t.easing}` : ''
+  const easing = t.easing ? ` · ${formatEasing(t.easing)}` : ''
   return `${t.id}\n${t.property} · ${t.source}${easing}\n${v.start.toFixed(2)}s → ${end.toFixed(2)}s (${v.duration.toFixed(2)}s)`
 }
 

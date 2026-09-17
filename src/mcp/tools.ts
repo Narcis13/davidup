@@ -63,7 +63,7 @@ import {
   type AudioMetadata,
   type VideoMetadata,
 } from "../drivers/node/index.js";
-import { EASING_NAMES } from "../easings/index.js";
+import { EASING_NAMES, PARAMETRIC_EASINGS } from "../easings/index.js";
 import { listTweenable } from "../schema/tweenable.js";
 import {
   checkDimensions,
@@ -78,6 +78,7 @@ import {
   BLEND_MODES,
   BlendModeSchema,
   COMPOSITION_VERSION,
+  EasingSchema,
   FpsSchema,
   isSupportedAudioSrc,
   isSupportedVideoSrc,
@@ -1131,6 +1132,14 @@ const removeItem = defineTool({
 
 const TWEEN_VALUE = z.union([z.number(), z.string()]);
 
+const EASING_DESCRIPTION =
+  "Easing curve, default linear: a name from list_easings, { bezier: [x1, y1, x2, y2] } (CSS cubic-bezier; x1 and x2 in [0, 1], y may overshoot) or { steps: n } (CSS steps(n), integer n ≥ 1).";
+
+// Fresh copies so an in-process caller can't mutate the shared descriptors.
+function parametricEasings() {
+  return PARAMETRIC_EASINGS.map((p) => ({ ...p, example: structuredClone(p.example) }));
+}
+
 const addTween = defineTool({
   name: "add_tween",
   title: "Add tween",
@@ -1143,7 +1152,7 @@ const addTween = defineTool({
     to: TWEEN_VALUE,
     start: z.number().nonnegative(),
     duration: z.number().positive(),
-    easing: z.enum(EASING_NAMES).optional(),
+    easing: EasingSchema.optional().describe(EASING_DESCRIPTION),
     id: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -1179,7 +1188,7 @@ const updateTween = defineTool({
         to: TWEEN_VALUE,
         start: z.number().nonnegative(),
         duration: z.number().positive(),
-        easing: z.enum(EASING_NAMES),
+        easing: EasingSchema.describe(EASING_DESCRIPTION),
       })
       .partial(),
     compositionId: COMPOSITION_ID,
@@ -1480,7 +1489,9 @@ const applyBehavior = defineTool({
     start: z.number().nonnegative(),
     duration: z.number().positive(),
     params: z.record(z.string(), z.unknown()).optional(),
-    easing: z.enum(EASING_NAMES).optional(),
+    easing: EasingSchema.optional().describe(
+      `${EASING_DESCRIPTION} Applies to every emitted tween that doesn't pin its own.`,
+    ),
     id: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -2760,10 +2771,10 @@ const listEasingsTool = defineTool({
   name: "list_easings",
   title: "List easings",
   description:
-    "List every easing name accepted by `add_tween` / `update_tween`. Pass one verbatim as the `easing` field. Identical across compositions and across standalone vs. editor servers.",
+    "List the easings accepted by `add_tween` / `update_tween` / `apply_behavior`. `easings` are the named curves — pass one verbatim as the `easing` field. `parametric` documents the two object forms: `{ bezier: [x1, y1, x2, y2] }` (CSS cubic-bezier, x1 and x2 in [0, 1]) and `{ steps: n }` (CSS steps(n), jump-end). Identical across compositions and across standalone vs. editor servers.",
   inputSchema: {},
   handler: () => {
-    return { easings: [...EASING_NAMES] };
+    return { easings: [...EASING_NAMES], parametric: parametricEasings() };
   },
 });
 
@@ -2826,7 +2837,7 @@ const listEngineCapabilitiesTool = defineTool({
   name: "list_engine_capabilities",
   title: "List engine capabilities",
   description:
-    "Single-call discovery of the engine's capability surface: composition schema version, easing names, blend modes, item types, shape kinds, supported audio/video containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary. " +
+    "Single-call discovery of the engine's capability surface: composition schema version, easing names and the parametric `{ bezier }` / `{ steps }` forms, blend modes, item types, shape kinds, supported audio/video containers, and the tweenable property paths per item type. Use this to construct valid tweens and items without hitting `E_INVALID_VALUE` to learn the vocabulary. " +
     "Also reports `server.flavor` (`\"standalone\"` | `\"editor\"`) so you know up front whether project_*/library_*/render-queue tools are available — check that instead of learning the hard way via `E_FEATURE_UNAVAILABLE`.",
   inputSchema: {},
   handler: (_args, deps) => {
@@ -2844,6 +2855,8 @@ const listEngineCapabilitiesTool = defineTool({
       },
       schemaVersion: COMPOSITION_VERSION,
       easings: [...EASING_NAMES],
+      // v1.1 S17 — object forms accepted wherever `easing` is (see list_easings).
+      parametricEasings: parametricEasings(),
       blendModes: [...BLEND_MODES],
       itemTypes: ["sprite", "text", "shape", "group", "video"] as const,
       shapeKinds: ["rect", "circle", "polygon"] as const,

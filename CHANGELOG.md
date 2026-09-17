@@ -8,6 +8,32 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Cubic-bezier and steps easings
+
+- A tween's `easing` can now be `{ "bezier": [x1, y1, x2, y2] }` (CSS
+  `cubic-bezier`, `x1`/`x2` in [0, 1], `y1`/`y2` may overshoot) or
+  `{ "steps": n }` (CSS `steps(n)`, `jump-end`, integer `n` ≥ 1) as well as
+  one of the 19 names. Accepted in compositions, `$behavior` blocks,
+  templates and scenes, and by `add_tween`, `update_tween` and
+  `apply_behavior`.
+- The bezier solver works like the browser one (Newton–Raphson, then
+  bisection) using only arithmetic, so node and browser renders get the same
+  values. It matches Chromium to 1e-6 (`ease` at 0.5 is 0.8024033876). No
+  caching. Existing names render exactly as before.
+- Schema: exported `EasingSchema`, `BezierEasingSchema`, `StepsEasingSchema`.
+  The object forms reject unknown keys, so `{ bezier, steps }` is an error.
+  A value that matches no form gets an `E_SCHEMA` message listing the names
+  and both forms; out-of-range numbers keep their specific path
+  (`tweens.0.easing.bezier.2`).
+- `list_easings` adds `parametric` (syntax, example and description for each
+  form); `list_engine_capabilities` adds `parametricEasings`.
+- `davidup/easings` exports `cubicBezier`, `steps`, `formatEasing`,
+  `PARAMETRIC_EASINGS` and the `Easing` / `BezierEasing` / `StepsEasing`
+  types. `getEasing` accepts any `Easing`.
+- Editor: the command schema takes the object forms. The Inspector's easing
+  dropdown (tween panel and "+ animate") adds `cubic-bezier…` and `steps…`
+  with number fields. Timeline tooltips show `cubic-bezier(…)` / `steps(n)`.
+
 ### `$repeat` blocks in compositions, templates and scenes
 
 - `{"$repeat": {"count": 3, "as": "i", "id": "dot${i}"}, "item": {…}}` as an

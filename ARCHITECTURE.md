@@ -344,9 +344,11 @@ interface Canvas2DContext {
 
 ### 5.1 Easings (`src/easings`)
 
-19 named easings, all canonical easings.net formulas. Hard invariant for
-each: `f(0) === 0` and `f(1) === 1` (back-easings overshoot in the middle
-but hit endpoints exactly). Default is `linear`.
+19 named easings, all canonical easings.net formulas, plus two parametric
+object forms (v1.1): `{ bezier: [x1, y1, x2, y2] }` (CSS cubic-bezier) and
+`{ steps: n }` (CSS steps(n), jump-end). Hard invariant for each:
+`f(0) === 0` and `f(1) === 1` (back-easings and overshooting beziers leave
+[0, 1] in the middle but hit endpoints exactly). Default is `linear`.
 
 ```
 linear
@@ -355,8 +357,13 @@ easeInQuart/Out/InOut         easeInBack/Out/InOut        (overshoots)
 easeInSine/Out/InOut          easeInExpo/Out/InOut        (edge-cased at 0/1)
 ```
 
-`getEasing(name | undefined): (t: number) => number` is the only entry
-point the resolver uses.
+`getEasing(easing | undefined): (t: number) => number` is the only entry
+point the resolver uses. `cubicBezier(x1, y1, x2, y2)` solves x(s) = t with
+Newton–Raphson and a bisection fallback, the same method browsers use, with
+only + − × ÷ so node and browser agree; the closed-form cube-root solution
+would need `cbrt`/`acos`, whose last bits can differ between JS engines.
+`steps(n)` is `floor(t·n)/n`. Nothing is cached: a closure is built per
+call.
 
 ### 5.2 Color (`src/color`)
 
