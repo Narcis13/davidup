@@ -64,6 +64,16 @@ describe("buildFfmpegArgs", () => {
       "30",
       "-i",
       "pipe:0",
+      "-vf",
+      "scale=out_color_matrix=bt709:out_range=tv",
+      "-colorspace",
+      "bt709",
+      "-color_primaries",
+      "bt709",
+      "-color_trc",
+      "bt709",
+      "-color_range",
+      "tv",
       "-c:v",
       "libx264",
       "-preset",
@@ -96,6 +106,13 @@ describe("buildFfmpegArgs", () => {
     expect(args.join(" ")).toContain("-movflags +faststart");
     // Output path stays last.
     expect(args[args.length - 1]).toBe("/tmp/x.mp4");
+  });
+
+  it("colorProfile untagged drops the matrix pin and colour tags (v1.1 S8)", () => {
+    const args = buildFfmpegArgs(tinyComp(), "/tmp/u.mp4", { colorProfile: "untagged" });
+    expect(args).not.toContain("-vf");
+    expect(args.some((a) => a.startsWith("-color"))).toBe(false);
+    expect(args.join(" ")).toContain("-i pipe:0 -c:v libx264");
   });
 
   it("passes a rational fps verbatim and keeps decimals decimal (v1.1 S7)", () => {

@@ -621,7 +621,7 @@ hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 | 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` (descriptor only) |
 | 4.5c | Templates | `apply_template`, `list_templates`, `define_user_template`, `remove_user_template` |
 | 4.5d | Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
-| 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30), `render_to_video` (`outputPath`, `codec`, `crf` 0–51, `preset`, `pixFmt`, `movflagsFaststart`, `wait`), `get_render`, `list_renders`, `cancel_render` |
+| 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30), `render_to_video` (`outputPath`, `codec`, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `wait`), `get_render`, `list_renders`, `cancel_render` |
 | 4.7 | Project lifecycle *(editor-hosted)* | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 | Library *(editor-hosted)* | `list_library`, `get_library_thumbnail` |
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
@@ -740,6 +740,7 @@ await renderToFile(comp, "out.mp4", {
   crf: 18,                  // 0–51
   preset: "medium",         // any ffmpeg preset
   pixFmt: "yuv420p",
+  colorProfile: "bt709",    // BT.709 matrix + tags, TV range; "untagged" = legacy BT.601, no tags
   movflagsFaststart: true,  // streamable MP4; off by default here, on by default in CLI + MCP
   ffmpegPath: "/usr/local/bin/ffmpeg",   // default: ffmpeg-static, then $PATH
   onProgress: ({ frame, total }) => { /* SSE / IPC */ },
@@ -798,7 +799,7 @@ played in the browser.
 ```
 davidup new <dir> [--template=<name>] [--force]
 davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
-davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>]
+davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
 davidup list                          # or: davidup recent
 davidup --version | --help
 ```
@@ -812,7 +813,8 @@ davidup --version | --help
 - `render` renders a project directory or a raw composition file headlessly.
   `-o` is required. `--codec` is `libx264` (default) or `libx265`, `--crf`
   0–51 (default 18), `--fps` overrides the composition's frame rate,
-  `--preset` is any ffmpeg preset (default `medium`). Faststart is always on.
+  `--preset` is any ffmpeg preset (default `medium`), `--color` is `bt709`
+  (default) or `untagged`. Faststart is always on.
   Progress goes to stderr; exit code 2 for bad arguments, 1 for invalid input
   or a failed render.
 - `list` / `recent` prints the recents registry as a table (NAME / PATH /
@@ -928,7 +930,6 @@ Things v1.0 does not do. Each is either an open ledger item in
 
 - MP4 only in practice (H.264 / H.265, `yuv420p`). No alpha / transparent
   export, no ProRes, no WebM, no PNG-sequence export, no time-range render.
-- No colour-space tags are written; output is untagged `yuv420p`.
 - Fractional frame rates are decimal (`29.97`), not rational (`30000/1001`).
 - Odd `width`/`height` fail inside ffmpeg (`E_RENDER_FAILED`) rather than at
   validation. Use even dimensions.

@@ -26,7 +26,11 @@ import {
   type RenderDeps,
   type RenderOptions,
 } from "./render.js";
-import type { RenderToFileResult } from "../drivers/node/index.js";
+import {
+  COLOR_PROFILES,
+  type ColorProfile,
+  type RenderToFileResult,
+} from "../drivers/node/index.js";
 import {
   scaffoldProject,
   ScaffoldError,
@@ -105,7 +109,7 @@ davidup ${VERSION}
 USAGE
   davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
   davidup new  <dir> [--template=<name>] [--force]
-  davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>]
+  davidup render <project|comp.json> -o <out.mp4> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>]
   davidup list
   davidup recent
   davidup --help
@@ -136,6 +140,8 @@ FLAGS
   --fps=<n>           Override the composition's frame rate (number or "N/D",
                       e.g. 30000/1001 for NTSC 29.97).
   --preset=<p>        ffmpeg encoder preset (default "medium").
+  --color=<c>         Output colour profile: bt709 (default; BT.709 matrix,
+                      TV range, tagged) or untagged (legacy, no colour tags).
 
 EXAMPLES
   davidup new ./my-clip
@@ -556,6 +562,13 @@ async function runRenderCommand(
     : numberFlag(parsed.flags, "fps", deps.io, Number.EPSILON, Infinity);
   if (fps === INVALID_FLAG) return 2;
   const preset = stringFlag(parsed.flags, "preset");
+  const colorRaw = stringFlag(parsed.flags, "color");
+  if (colorRaw !== undefined && !COLOR_PROFILES.includes(colorRaw as ColorProfile)) {
+    deps.io.error(
+      `davidup: invalid --color "${colorRaw}" (expected ${COLOR_PROFILES.join(" or ")})`,
+    );
+    return 2;
+  }
 
   const clock = deps.clock ?? Date.now;
   const startedAt = clock();
@@ -583,6 +596,7 @@ async function runRenderCommand(
         ...(crf !== undefined ? { crf } : {}),
         ...(fps !== undefined ? { fps } : {}),
         ...(preset !== undefined ? { preset } : {}),
+        ...(colorRaw !== undefined ? { colorProfile: colorRaw as ColorProfile } : {}),
       },
       { onProgress },
     );

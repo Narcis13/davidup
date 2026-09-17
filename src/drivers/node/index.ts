@@ -129,6 +129,14 @@ export interface RenderToFileOptions {
   pixFmt?: string;
   ffmpegPath?: string;
   movflagsFaststart?: boolean;
+  /**
+   * Output colour tagging (v1.1 S8). `"bt709"` (default) pins the RGB→YUV
+   * conversion to the BT.709 matrix at TV range and tags the stream
+   * (`colorspace`/`color_primaries`/`color_trc`/`color_range`) to match, so
+   * NLEs and players don't guess. `"untagged"` restores the pre-1.1 argv:
+   * swscale's implicit BT.601 matrix with no colour metadata.
+   */
+  colorProfile?: ColorProfile;
 
   /**
    * Path of the file the composition was loaded from. Required only when the
@@ -163,6 +171,9 @@ export interface RenderToFileOptions {
    */
   preExtract?: false | PreExtractRenderOptions;
 }
+
+export type ColorProfile = "bt709" | "untagged";
+export const COLOR_PROFILES: readonly ColorProfile[] = ["bt709", "untagged"];
 
 export interface PreExtractRenderOptions {
   /** Cache root. Default: `$DAVIDUP_CACHE/frames` or `~/.davidup/cache/frames`. */
@@ -377,6 +388,25 @@ export function buildFfmpegArgs(
     fpsArg(meta.fps),
     "-i",
     "pipe:0",
+  ];
+  if ((opts.colorProfile ?? "bt709") === "bt709") {
+    // v1.1 S8: without an explicit matrix swscale converts RGB→YUV with
+    // BT.601 coefficients, so tagging alone would lie about the pixels. Pin
+    // the math, then tag the stream to match (encoder VUI + mp4 `colr`).
+    args.push(
+      "-vf",
+      "scale=out_color_matrix=bt709:out_range=tv",
+      "-colorspace",
+      "bt709",
+      "-color_primaries",
+      "bt709",
+      "-color_trc",
+      "bt709",
+      "-color_range",
+      "tv",
+    );
+  }
+  args.push(
     "-c:v",
     opts.codec ?? "libx264",
     "-preset",
@@ -397,7 +427,7 @@ export function buildFfmpegArgs(
     "+bitexact",
     "-flags:v",
     "+bitexact",
-  ];
+  );
   if (opts.movflagsFaststart) {
     args.push("-movflags", "+faststart");
   }

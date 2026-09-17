@@ -25,6 +25,10 @@ interface ProbeStream {
   r_frame_rate?: string;
   nb_frames?: string;
   duration?: string;
+  color_space?: string;
+  color_primaries?: string;
+  color_transfer?: string;
+  color_range?: string;
 }
 
 interface ProbeOutput {
@@ -232,4 +236,40 @@ describe("renderToFile — rational fps (v1.1 S7, integration)", () => {
     expect(video!.avg_frame_rate).toBe("30000/1001");
     expect(Number(video!.nb_frames)).toBe(15);
   });
+});
+
+describe("renderToFile — colour-space tagging (v1.1 S8, integration)", () => {
+  let workDir: string;
+
+  beforeAll(() => {
+    workDir = mkdtempSync(join(tmpdir(), "davidup-color-"));
+  });
+
+  afterAll(() => {
+    rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("tags the output bt709 / tv by default", async () => {
+    const outPath = join(workDir, "bt709.mp4");
+    await renderToFile(helloWorldComposition(), outPath, { ffmpegPath, preset: "ultrafast" });
+    const video = ffprobe(outPath).streams.find((s) => s.codec_name === "h264");
+    expect(video).toBeDefined();
+    expect(video!.color_space).toBe("bt709");
+    expect(video!.color_primaries).toBe("bt709");
+    expect(video!.color_transfer).toBe("bt709");
+    expect(video!.color_range).toBe("tv");
+  }, 30_000);
+
+  it("writes no colour tags with colorProfile: untagged", async () => {
+    const outPath = join(workDir, "untagged.mp4");
+    await renderToFile(helloWorldComposition(), outPath, {
+      ffmpegPath,
+      preset: "ultrafast",
+      colorProfile: "untagged",
+    });
+    const video = ffprobe(outPath).streams.find((s) => s.codec_name === "h264");
+    expect(video).toBeDefined();
+    expect(video!.color_space).toBeUndefined();
+    expect(video!.color_primaries).toBeUndefined();
+  }, 30_000);
 });

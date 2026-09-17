@@ -47,7 +47,7 @@ function timestampStamp(now = new Date()): string {
 interface CreateRenderBody {
   /** Optional output filename, relative to `renders/` or absolute under the project. */
   filename?: unknown
-  /** Optional ffmpeg knobs — codec / crf / preset / pixFmt. Forwarded to the worker. */
+  /** Optional ffmpeg knobs — codec / crf / preset / pixFmt / colorProfile. Forwarded to the worker. */
   renderOptions?: unknown
 }
 
@@ -64,12 +64,14 @@ const ALLOWED_PRESETS = new Set([
   'veryslow',
 ])
 const ALLOWED_PIX_FMTS = new Set(['yuv420p', 'yuv422p', 'yuv444p', 'yuv420p10le'])
+const ALLOWED_COLOR_PROFILES = new Set(['bt709', 'untagged'])
 
 function parseRenderOptions(raw: unknown): {
   codec?: 'libx264' | 'libx265'
   crf?: number
   preset?: string
   pixFmt?: string
+  colorProfile?: 'bt709' | 'untagged'
 } | null {
   if (!raw || typeof raw !== 'object') return null
   const src = raw as Record<string, unknown>
@@ -78,6 +80,7 @@ function parseRenderOptions(raw: unknown): {
     crf?: number
     preset?: string
     pixFmt?: string
+    colorProfile?: 'bt709' | 'untagged'
   } = {}
   if (typeof src.codec === 'string' && ALLOWED_CODECS.has(src.codec)) {
     out.codec = src.codec as 'libx264' | 'libx265'
@@ -90,6 +93,9 @@ function parseRenderOptions(raw: unknown): {
   }
   if (typeof src.pixFmt === 'string' && ALLOWED_PIX_FMTS.has(src.pixFmt)) {
     out.pixFmt = src.pixFmt
+  }
+  if (typeof src.colorProfile === 'string' && ALLOWED_COLOR_PROFILES.has(src.colorProfile)) {
+    out.colorProfile = src.colorProfile as 'bt709' | 'untagged'
   }
   return Object.keys(out).length > 0 ? out : null
 }

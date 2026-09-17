@@ -7,6 +7,21 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Colour-space tagging on output — **⚠ pixel-changing**
+
+- Rendered MP4s are now converted RGB→YUV with the **BT.709** matrix at TV
+  range and tagged to match: `color_space`, `color_primaries` and
+  `color_transfer` are `bt709`, `color_range` is `tv`. Previously ffmpeg used
+  its implicit BT.601 matrix and wrote no tags, so players and NLEs had to
+  guess (and typically guessed BT.709, shifting colours). The tags are set on
+  the stage-1 encode and survive the audio mux (`-c:v copy`).
+- Encoded bytes change (different matrix). Pre-encode frame goldens and the
+  expansion caches are unaffected, so no expansion version marker moved.
+- New option `colorProfile: "bt709" | "untagged"` on `renderToFile` (default
+  `bt709`), `davidup render --color=…`, and `render_to_video`'s `colorProfile`
+  param (also accepted by the editor render queue). `untagged` reproduces the
+  old argv exactly. New export: `COLOR_PROFILES`, type `ColorProfile`.
+
 ### Rational frame rates (23.976 / 29.97 / 59.94)
 
 - `composition.fps` accepts an exact rational string `"N/D"` as well as a

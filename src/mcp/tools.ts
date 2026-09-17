@@ -51,6 +51,8 @@ import {
 import { RefResolutionError } from "../compose/imports.js";
 import {
   renderToFile,
+  COLOR_PROFILES,
+  type ColorProfile,
   probeAudio as defaultProbeAudio,
   probeVideo as defaultProbeVideo,
   FfprobeUnavailableError,
@@ -249,6 +251,7 @@ export interface MCPRenderStartArgs {
   preset?: string;
   pixFmt?: string;
   movflagsFaststart?: boolean;
+  colorProfile?: ColorProfile;
 }
 
 export interface RenderControls {
@@ -2323,6 +2326,12 @@ const renderToVideo = defineTool({
     crf: z.number().int().min(0).max(51).optional(),
     preset: z.string().optional(),
     pixFmt: z.string().optional(),
+    colorProfile: z
+      .enum(COLOR_PROFILES as [ColorProfile, ...ColorProfile[]])
+      .optional()
+      .describe(
+        "Output colour tagging. `bt709` (default) converts RGB→YUV with the BT.709 matrix at TV range and tags the stream to match, so NLEs and players don't guess. `untagged` is the legacy output: implicit BT.601 matrix, no colour metadata.",
+      ),
     movflagsFaststart: z
       .boolean()
       .optional()
@@ -2350,6 +2359,7 @@ const renderToVideo = defineTool({
       if (args.crf !== undefined) startArgs.crf = args.crf;
       if (args.preset !== undefined) startArgs.preset = args.preset;
       if (args.pixFmt !== undefined) startArgs.pixFmt = args.pixFmt;
+      if (args.colorProfile !== undefined) startArgs.colorProfile = args.colorProfile;
       if (args.movflagsFaststart !== undefined) {
         startArgs.movflagsFaststart = args.movflagsFaststart;
       }
@@ -2401,6 +2411,7 @@ const renderToVideo = defineTool({
         ...(args.crf !== undefined ? { crf: args.crf } : {}),
         ...(args.preset !== undefined ? { preset: args.preset } : {}),
         ...(args.pixFmt !== undefined ? { pixFmt: args.pixFmt } : {}),
+        ...(args.colorProfile !== undefined ? { colorProfile: args.colorProfile } : {}),
       });
       return {
         jobId,

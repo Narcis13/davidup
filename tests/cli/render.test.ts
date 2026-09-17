@@ -116,6 +116,19 @@ describe("cli · render · renderComposition", () => {
     expect(calls[0]!.comp.composition.fps).toBe(60);
   });
 
+  it("forwards colorProfile to the renderer (v1.1 S8)", async () => {
+    const dir = await makeTmp("davidup-render-color-");
+    await writeFile(join(dir, "composition.json"), JSON.stringify(basicComposition()));
+    const { renderFn, calls } = fakeRenderFn();
+
+    await renderComposition(
+      { input: dir, outputPath: join(dir, "out.mp4"), colorProfile: "untagged" },
+      { renderFn },
+    );
+
+    expect(calls[0]!.opts).toMatchObject({ colorProfile: "untagged" });
+  });
+
   it("resolves relative asset src against the source file's directory", async () => {
     const dir = await makeTmp("davidup-render-assets-");
     await mkdir(join(dir, "fonts"), { recursive: true });

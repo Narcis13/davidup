@@ -121,6 +121,8 @@ export interface RenderJobRenderOptions {
   crf?: number
   preset?: string
   pixFmt?: string
+  /** Output colour tagging (v1.1 S8). Engine default `bt709`. */
+  colorProfile?: 'bt709' | 'untagged'
   /**
    * Override the editor's default of `true`. MCP callers may pass `false`
    * when targeting a non-MP4 container, where ffmpeg refuses `-movflags
@@ -236,6 +238,7 @@ export class RenderJob extends EventEmitter {
         ...(ro.crf !== undefined ? { crf: ro.crf } : {}),
         ...(ro.preset !== undefined ? { preset: ro.preset } : {}),
         ...(ro.pixFmt !== undefined ? { pixFmt: ro.pixFmt } : {}),
+        ...(ro.colorProfile !== undefined ? { colorProfile: ro.colorProfile } : {}),
         onProgress: ({ frame, total }) => {
           lastFrame = frame
           const ev: RenderProgressEvent = {

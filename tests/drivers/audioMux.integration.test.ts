@@ -37,6 +37,8 @@ interface ProbeStream {
   channels?: number;
   width?: number;
   height?: number;
+  color_space?: string;
+  color_range?: string;
 }
 interface ProbeOutput {
   streams: ProbeStream[];
@@ -223,6 +225,9 @@ describe("renderToFile — voiceover + music mux (integration)", () => {
     expect(video!.codec_name).toBe("h264");
     expect(video!.width).toBe(64);
     expect(video!.height).toBe(48);
+    // v1.1 S8: stage-1 colour tags survive the copy mux.
+    expect(video!.color_space).toBe("bt709");
+    expect(video!.color_range).toBe("tv");
   });
 
   it("cleans up the temporary silent video", () => {

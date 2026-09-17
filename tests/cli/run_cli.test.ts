@@ -163,7 +163,7 @@ describe("cli · runCli", () => {
     let received: Parameters<
       NonNullable<Parameters<typeof runCli>[1]["renderFn"]>
     >[0] | null = null;
-    const code = await runCli(["render", root, "-o", "out.mp4", "--crf=20"], {
+    const code = await runCli(["render", root, "-o", "out.mp4", "--crf=20", "--color=untagged"], {
       io: cap.io,
       cwd: root,
       renderFn: async (opts) => {
@@ -177,6 +177,7 @@ describe("cli · runCli", () => {
     expect(received!.input).toBe(root);
     expect(received!.outputPath).toBe(outPath);
     expect(received!.crf).toBe(20);
+    expect(received!.colorProfile).toBe("untagged");
     expect(cap.out.join("\n")).toMatch(/wrote .*out\.mp4.*30 frames/);
   });
 
@@ -188,6 +189,16 @@ describe("cli · runCli", () => {
     });
     expect(code).toBe(2);
     expect(cap.err.join("\n")).toMatch(/invalid --crf/);
+  });
+
+  it("`render` exits 2 on invalid --color", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--color=srgb"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --color/);
   });
 
   it("`render` exits 2 on invalid --codec", async () => {

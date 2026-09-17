@@ -16,6 +16,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { precompile } from "../compose/index.js";
 import {
   renderToFile,
+  type ColorProfile,
   type RenderToFileOptions,
   type RenderToFileResult,
 } from "../drivers/node/index.js";
@@ -49,6 +50,8 @@ export interface RenderOptions {
   preset?: string;
   /** Overrides `composition.fps` from the source JSON when set. */
   fps?: number | string;
+  /** Output colour tagging (v1.1 S8). Default `"bt709"`. */
+  colorProfile?: ColorProfile;
 }
 
 export interface RenderDeps {
@@ -182,6 +185,7 @@ export async function renderComposition(
       ...(opts.codec !== undefined ? { codec: opts.codec } : {}),
       ...(opts.crf !== undefined ? { crf: opts.crf } : {}),
       ...(opts.preset !== undefined ? { preset: opts.preset } : {}),
+      ...(opts.colorProfile !== undefined ? { colorProfile: opts.colorProfile } : {}),
       ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
     });
   } catch (err) {
