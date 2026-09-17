@@ -322,6 +322,109 @@ test.group('LibraryIndex · service', (group) => {
     }
   })
 
+  test('a library behavior with a `tweens` body is executable (v1.1 S19)', async ({
+    assert,
+  }) => {
+    const { expandBehavior, unregisterBehavior } = await import('davidup/compose')
+    const dir = await makeProject({ withLibrary: true })
+    const lib = join(dir, 'library')
+    await mkdir(join(lib, 'behaviors'), { recursive: true })
+    await writeFile(
+      join(lib, 'behaviors', 'swoop.behavior.json'),
+      JSON.stringify({
+        id: 'librarySwoop',
+        description: 'Slide in while fading up.',
+        params: [{ name: 'distance', type: 'number', required: false, default: 120 }],
+        tweens: [
+          {
+            property: 'transform.y',
+            from: '${params.distance}',
+            to: 0,
+            easing: 'easeOutCubic',
+            suffix: 'slide',
+          },
+          {
+            property: 'transform.opacity',
+            from: 0,
+            to: 1,
+            duration: '${$.duration * 0.5}',
+            suffix: 'opacity',
+          },
+        ],
+      }),
+      'utf8'
+    )
+
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      await idx.attach(lib)
+      const tweens = expandBehavior({
+        behavior: 'librarySwoop',
+        target: 'card',
+        start: 2,
+        duration: 1,
+      })
+      assert.deepEqual(
+        tweens.map((t) => [t.id, t.property, t.from, t.start, t.duration]),
+        [
+          ['card_librarySwoop_2__slide', 'transform.y', 120, 2, 1],
+          ['card_librarySwoop_2__opacity', 'transform.opacity', 0, 2, 0.5],
+        ]
+      )
+    } finally {
+      unregisterBehavior('librarySwoop')
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('dropping a shadowing library behavior restores the built-in (bug 2.1)', async ({
+    assert,
+  }) => {
+    const { expandBehavior, getBehaviorDescriptor, unregisterBehavior } = await import(
+      'davidup/compose'
+    )
+    const dir = await makeProject({ withLibrary: true })
+    const lib = join(dir, 'library')
+    await mkdir(join(lib, 'behaviors'), { recursive: true })
+    const file = join(lib, 'behaviors', 'fadeIn.behavior.json')
+    await writeFile(
+      file,
+      JSON.stringify({ id: 'fadeIn', description: 'Shadowing card.' }),
+      'utf8'
+    )
+
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      await idx.attach(lib)
+      assert.equal(getBehaviorDescriptor('fadeIn')!.description, 'Shadowing card.')
+
+      // The watcher's reload diff unregisters the shadow when the file goes.
+      await rm(file, { force: true })
+      let restored = false
+      for (let i = 0; i < 40; i += 1) {
+        await delay(50)
+        if (getBehaviorDescriptor('fadeIn')!.description !== 'Shadowing card.') {
+          restored = true
+          break
+        }
+      }
+      assert.isTrue(restored, 'built-in descriptor should come back within 2s')
+      const tweens = expandBehavior({
+        behavior: 'fadeIn',
+        target: 'logo',
+        start: 0,
+        duration: 1,
+      })
+      assert.lengthOf(tweens, 1)
+      assert.equal(tweens[0]!.property, 'transform.opacity')
+    } finally {
+      unregisterBehavior('fadeIn')
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('attach() registers library templates with the engine registry (step 14)', async ({
     assert,
   }) => {

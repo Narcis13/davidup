@@ -562,7 +562,8 @@ describe("registerBehavior / unregisterBehavior — library hydration path", () 
       }
       expect(caught).toBeInstanceOf(MCPToolError);
       expect(caught?.code).toBe("E_BEHAVIOR_UNKNOWN");
-      expect(caught?.hint).toMatch(/metadata only/i);
+      expect(caught?.message).toMatch(/catalog metadata/i);
+      expect(caught?.hint).toMatch(/tweens/i);
     } finally {
       unregisterBehavior("user_metaonly");
     }
@@ -613,5 +614,510 @@ describe("registerBehavior / unregisterBehavior — library hydration path", () 
 
   it("unregisterBehavior returns false for unknown names", () => {
     expect(unregisterBehavior("nope-not-here")).toBe(false);
+  });
+});
+
+// ──────────── Executable user behaviors (v1.1 S19, spec §6.6) ────────────
+
+describe("user behaviors with a `tweens` body", () => {
+  function define(name: string, extra: Record<string, unknown> = {}): void {
+    registerBehavior({
+      name,
+      description: "",
+      params: [
+        {
+          name: "amount",
+          type: "number",
+          required: false,
+          description: "",
+          default: 1.2,
+        },
+      ],
+      produces: [],
+      tweens: [
+        {
+          property: "transform.scaleX",
+          from: 1,
+          to: "${params.amount}",
+          duration: 0.2,
+          easing: "easeOutBack",
+          suffix: "out",
+        },
+        {
+          property: "transform.scaleX",
+          from: "${params.amount}",
+          to: 1,
+          start: "${$.start + 0.2}",
+          duration: 0.2,
+          easing: "easeInQuad",
+          suffix: "in",
+        },
+      ],
+      ...extra,
+    });
+  }
+
+  it("expands the §6.6 `myBoinge` shape verbatim, with absolute times", () => {
+    define("myBoinge");
+    try {
+      const tweens = expandBehavior({
+        behavior: "myBoinge",
+        target: "logo",
+        start: 1,
+        duration: 0.4,
+      });
+      expect(tweens).toEqual([
+        {
+          id: "logo_myBoinge_1__out",
+          target: "logo",
+          property: "transform.scaleX",
+          from: 1,
+          to: 1.2,
+          start: 1,
+          duration: 0.2,
+          easing: "easeOutBack",
+        },
+        {
+          id: "logo_myBoinge_1__in",
+          target: "logo",
+          property: "transform.scaleX",
+          from: 1.2,
+          to: 1,
+          start: 1.2,
+          duration: 0.2,
+          easing: "easeInQuad",
+        },
+      ]);
+    } finally {
+      unregisterBehavior("myBoinge");
+    }
+  });
+
+  it("substitutes supplied params over declared defaults", () => {
+    define("myBoinge");
+    try {
+      const tweens = expandBehavior({
+        behavior: "myBoinge",
+        target: "logo",
+        start: 0,
+        duration: 0.4,
+        params: { amount: 2 },
+      });
+      expect(tweens[0]?.to).toBe(2);
+      expect(tweens[1]?.from).toBe(2);
+    } finally {
+      unregisterBehavior("myBoinge");
+    }
+  });
+
+  it("derives `produces` from the body and reports executable", () => {
+    define("myBoinge");
+    try {
+      const desc = getBehaviorDescriptor("myBoinge");
+      // The caller passed `produces: []` — the body's suffixes win.
+      expect(desc?.produces).toEqual(["out", "in"]);
+      expect(desc?.executable).toBe(true);
+    } finally {
+      unregisterBehavior("myBoinge");
+    }
+  });
+
+  it("omitted start/duration fill the whole block", () => {
+    registerBehavior({
+      name: "user_fill",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [{ property: "transform.opacity", from: 0, to: 1 }],
+    });
+    try {
+      const [t] = expandBehavior({
+        behavior: "user_fill",
+        target: "logo",
+        start: 2,
+        duration: 3,
+      });
+      expect(t?.start).toBe(2);
+      expect(t?.duration).toBe(3);
+      // Suffix defaults to the (zero-padded) index.
+      expect(t?.id).toBe("logo_user_fill_2__0");
+    } finally {
+      unregisterBehavior("user_fill");
+    }
+  });
+
+  it("the block's easing applies to body tweens that don't pin their own", () => {
+    registerBehavior({
+      name: "user_easing",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [
+        { property: "transform.opacity", from: 0, to: 1, duration: 0.5, suffix: "a" },
+        {
+          property: "transform.x",
+          from: 0,
+          to: 10,
+          easing: "linear",
+          suffix: "b",
+        },
+      ],
+    });
+    try {
+      const tweens = expandBehavior({
+        behavior: "user_easing",
+        target: "logo",
+        start: 0,
+        duration: 1,
+        easing: "easeInOutQuad",
+      });
+      expect(tweens[0]?.easing).toBe("easeInOutQuad");
+      expect(tweens[1]?.easing).toBe("linear");
+    } finally {
+      unregisterBehavior("user_easing");
+    }
+  });
+
+  it("a `$repeat` body staggers, and makes `produces` dynamic", () => {
+    registerBehavior({
+      name: "user_echo",
+      description: "",
+      params: [
+        { name: "count", type: "number", required: true, description: "" },
+      ],
+      produces: [],
+      tweens: [
+        {
+          $repeat: { count: "${params.count}", as: "i" },
+          item: {
+            suffix: "e${i}",
+            property: "transform.opacity",
+            from: 0,
+            to: 1,
+            start: "${$.start + i * 0.25}",
+            duration: 0.25,
+          },
+        },
+      ],
+    });
+    try {
+      expect(getBehaviorDescriptor("user_echo")?.produces).toBe("dynamic");
+      const tweens = expandBehavior({
+        behavior: "user_echo",
+        target: "logo",
+        start: 0,
+        duration: 1,
+        params: { count: 3 },
+      });
+      expect(tweens.map((t) => [t.id, t.start, t.duration])).toEqual([
+        ["logo_user_echo_0__e0", 0, 0.25],
+        ["logo_user_echo_0__e1", 0.25, 0.25],
+        ["logo_user_echo_0__e2", 0.5, 0.25],
+      ]);
+    } finally {
+      unregisterBehavior("user_echo");
+    }
+  });
+
+  it("a tween may retarget a companion item via ${$.target}", () => {
+    registerBehavior({
+      name: "user_companion",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [
+        { property: "transform.opacity", from: 0, to: 1, suffix: "self" },
+        {
+          target: "${$.target}__glow",
+          property: "transform.opacity",
+          from: 1,
+          to: 0,
+          suffix: "glow",
+        },
+      ],
+    });
+    try {
+      const tweens = expandBehavior({
+        behavior: "user_companion",
+        target: "logo",
+        start: 0,
+        duration: 1,
+      });
+      expect(tweens[0]?.target).toBe("logo");
+      expect(tweens[1]?.target).toBe("logo__glow");
+    } finally {
+      unregisterBehavior("user_companion");
+    }
+  });
+
+  it("rejects a required param that wasn't supplied", () => {
+    registerBehavior({
+      name: "user_req",
+      description: "",
+      params: [{ name: "n", type: "number", required: true, description: "" }],
+      produces: [],
+      tweens: [{ property: "transform.x", from: 0, to: "${params.n}" }],
+    });
+    try {
+      expect(() =>
+        expandBehavior({
+          behavior: "user_req",
+          target: "logo",
+          start: 0,
+          duration: 1,
+        }),
+      ).toThrow(/requires param "n"/);
+      try {
+        expandBehavior({
+          behavior: "user_req",
+          target: "logo",
+          start: 0,
+          duration: 1,
+          params: { n: "nope" },
+        });
+        expect.unreachable();
+      } catch (err) {
+        expect((err as MCPToolError).code).toBe("E_BEHAVIOR_PARAM_TYPE");
+      }
+    } finally {
+      unregisterBehavior("user_req");
+    }
+  });
+
+  it("rejects a body that overlaps itself on one target+property", () => {
+    registerBehavior({
+      name: "user_overlap",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [
+        { property: "transform.x", from: 0, to: 10, duration: 0.8, suffix: "a" },
+        {
+          property: "transform.x",
+          from: 10,
+          to: 0,
+          start: "${$.start + 0.5}",
+          duration: 0.5,
+          suffix: "b",
+        },
+      ],
+    });
+    try {
+      try {
+        expandBehavior({
+          behavior: "user_overlap",
+          target: "logo",
+          start: 0,
+          duration: 1,
+        });
+        expect.unreachable();
+      } catch (err) {
+        expect((err as MCPToolError).code).toBe("E_TWEEN_OVERLAP");
+      }
+    } finally {
+      unregisterBehavior("user_overlap");
+    }
+  });
+
+  it("tweens that merely touch at an endpoint are fine", () => {
+    registerBehavior({
+      name: "user_touch",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [
+        { property: "transform.x", from: 0, to: 10, duration: 0.5, suffix: "a" },
+        {
+          property: "transform.x",
+          from: 10,
+          to: 0,
+          start: "${$.start + 0.5}",
+          duration: 0.5,
+          suffix: "b",
+        },
+      ],
+    });
+    try {
+      expect(
+        expandBehavior({
+          behavior: "user_touch",
+          target: "logo",
+          start: 0,
+          duration: 1,
+        }),
+      ).toHaveLength(2);
+    } finally {
+      unregisterBehavior("user_touch");
+    }
+  });
+
+  it("rejects two tweens that would emit the same id", () => {
+    registerBehavior({
+      name: "user_dup",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [
+        { property: "transform.x", from: 0, to: 1, duration: 0.4, suffix: "s" },
+        {
+          property: "transform.y",
+          from: 0,
+          to: 1,
+          duration: 0.4,
+          suffix: "s",
+        },
+      ],
+    });
+    try {
+      try {
+        expandBehavior({
+          behavior: "user_dup",
+          target: "logo",
+          start: 0,
+          duration: 1,
+        });
+        expect.unreachable();
+      } catch (err) {
+        expect((err as MCPToolError).code).toBe("E_DUPLICATE_ID");
+      }
+    } finally {
+      unregisterBehavior("user_dup");
+    }
+  });
+
+  it("rejects a malformed body at registration", () => {
+    expect(() =>
+      registerBehavior({
+        name: "user_bad",
+        description: "",
+        params: [],
+        produces: [],
+        tweens: "nope" as unknown as ReadonlyArray<unknown>,
+      }),
+    ).toThrow(/must be an array/);
+    expect(hasBehavior("user_bad")).toBe(false);
+  });
+
+  it("rejects a body tween with no property", () => {
+    registerBehavior({
+      name: "user_noprop",
+      description: "",
+      params: [],
+      produces: [],
+      tweens: [{ from: 0, to: 1 }],
+    });
+    try {
+      try {
+        expandBehavior({
+          behavior: "user_noprop",
+          target: "logo",
+          start: 0,
+          duration: 1,
+        });
+        expect.unreachable();
+      } catch (err) {
+        expect((err as MCPToolError).code).toBe("E_INVALID_VALUE");
+        expect((err as MCPToolError).message).toMatch(/"property"/);
+      }
+    } finally {
+      unregisterBehavior("user_noprop");
+    }
+  });
+
+  it("expandBehaviors expands a $behavior block naming a user behavior", () => {
+    define("myBoinge");
+    try {
+      const out = expandBehaviors({
+        tweens: [
+          { $behavior: "myBoinge", target: "logo", start: 0, duration: 0.4 },
+        ],
+      }) as { tweens: Array<{ id: string }> };
+      expect(out.tweens.map((t) => t.id)).toEqual([
+        "logo_myBoinge_0__out",
+        "logo_myBoinge_0__in",
+      ]);
+    } finally {
+      unregisterBehavior("myBoinge");
+    }
+  });
+
+  it("session definitions passed via options shadow the registry", () => {
+    const tweens = expandBehavior(
+      { behavior: "fadeIn", target: "logo", start: 0, duration: 1 },
+      {
+        behaviors: {
+          fadeIn: {
+            name: "fadeIn",
+            description: "session override",
+            params: [],
+            produces: [],
+            tweens: [{ property: "transform.x", from: 0, to: 5, suffix: "x" }],
+          },
+        },
+      },
+    );
+    expect(tweens).toHaveLength(1);
+    expect(tweens[0]?.property).toBe("transform.x");
+    // The process-global built-in is untouched by the session override.
+    expect(
+      expandBehavior({ behavior: "fadeIn", target: "logo", start: 0, duration: 1 })[0]
+        ?.property,
+    ).toBe("transform.opacity");
+  });
+});
+
+// ──────────── Bug 2.1 — shadowing a built-in then dropping the shadow ────────────
+
+describe("built-in / overlay registry layering (BUGS.md 2.1)", () => {
+  it("unregistering a shadowing entry restores the built-in", () => {
+    // 1. A library `fadeIn.behavior.json` shadows the built-in.
+    registerBehavior({
+      name: "fadeIn",
+      description: "Library fadeIn card.",
+      params: [],
+      produces: "dynamic",
+    });
+    expect(getBehaviorDescriptor("fadeIn")?.description).toBe(
+      "Library fadeIn card.",
+    );
+
+    // 2. The file is deleted; the watcher's reload diff drops the entry.
+    expect(unregisterBehavior("fadeIn")).toBe(true);
+
+    // 3. The built-in is back — before the fix this threw E_BEHAVIOR_UNKNOWN
+    //    for the rest of the process's life.
+    expect(hasBehavior("fadeIn")).toBe(true);
+    const tweens = expandBehavior({
+      behavior: "fadeIn",
+      target: "logo",
+      start: 0,
+      duration: 1,
+    });
+    expect(tweens).toHaveLength(1);
+    expect(tweens[0]?.property).toBe("transform.opacity");
+    expect(getBehaviorDescriptor("fadeIn")?.description).toMatch(/Fade transform/);
+  });
+
+  it("an executable shadow also gives way to the built-in on unregister", () => {
+    registerBehavior({
+      name: "popIn",
+      description: "Library popIn with its own body.",
+      params: [],
+      produces: [],
+      tweens: [{ property: "transform.x", from: 0, to: 1, suffix: "x" }],
+    });
+    expect(
+      expandBehavior({ behavior: "popIn", target: "l", start: 0, duration: 1 }),
+    ).toHaveLength(1);
+    unregisterBehavior("popIn");
+    // Built-in popIn emits opacity + scaleX + scaleY.
+    expect(
+      expandBehavior({ behavior: "popIn", target: "l", start: 0, duration: 1 }),
+    ).toHaveLength(3);
+  });
+
+  it("built-ins cannot be unregistered — there is no overlay entry to drop", () => {
+    expect(unregisterBehavior("kenburns")).toBe(false);
+    expect(hasBehavior("kenburns")).toBe(true);
   });
 });

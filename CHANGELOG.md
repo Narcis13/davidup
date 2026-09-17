@@ -8,6 +8,48 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### User-defined behaviors expand to tweens
+
+- A behavior definition — `define_user_behavior`, or a library
+  `*.behavior.json` card — may carry a `tweens` body, and
+  `apply_behavior` then expands it like a built-in. Entries take
+  `property` / `from` / `to` plus optional `start` / `duration` / `easing` /
+  `suffix` / `target`, interpolate `${params.X}` and `${$.X}` (`$` being the
+  applied block's `start`, `duration`, `end`, `target`) through the same
+  evaluator templates and scenes use, and may be `$repeat` blocks. Times are
+  absolute per spec §6.6: `start` defaults to `${$.start}`, `duration` to the
+  remainder of the block.
+- `produces` is now *derived* from the body instead of trusted, and both
+  `list_behaviors` and `getBehaviorDescriptor` report `executable` — false
+  for a definition with no body, which still throws `E_BEHAVIOR_UNKNOWN`
+  (with a hint that now names the missing `tweens` array).
+- A body that overlaps itself on one target+property is rejected at
+  expansion with `E_TWEEN_OVERLAP`, under the same strict-overlap and
+  `OVERLAP_EPS` rules the validator and store apply; duplicate suffixes are
+  rejected as `E_DUPLICATE_ID` before ids can collide.
+- Session-scoped definitions shadow the process-global registry, so
+  `apply_behavior` (and `$behavior` blocks inside session templates and
+  scenes) resolve one MCP session's definitions without leaking them to
+  another. Definitions reserve an optional `version` string, stored and
+  echoed back but not yet interpreted.
+- Editor: the Library panel's behavior tab gains **From selection**, seeding
+  a new behavior from the selected item's tweens (times rebased to the block
+  start, suffixes derived from each property). The global library seed ships
+  `swoopIn` as a worked executable example.
+- Not pixel-changing: built-in expansions are untouched and
+  `BEHAVIOR_EXPANSION_VERSION` stays at 2.
+
+### Fixed
+
+- **Bug 2.1** — unregistering a library behavior that *shadowed* a built-in
+  deleted the built-in with it, for the lifetime of the process: dropping a
+  `fadeIn.behavior.json` from the library made `apply_behavior fadeIn` fail
+  with `E_BEHAVIOR_UNKNOWN` until restart. The registry is now two-layered
+  (immutable built-in base + user/library overlay), so removing an overlay
+  entry uncovers the built-in instead of deleting it. `unregisterBehavior`
+  returns false for a name that has no overlay entry; built-ins can no
+  longer be unregistered at all.
+
 ### Isolated group compositing and group blend modes (opt-in)
 
 - A group takes `isolate?: boolean` and `blendMode?`. With `isolate: true`

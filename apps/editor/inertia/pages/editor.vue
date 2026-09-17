@@ -811,6 +811,7 @@ onBeforeUnmount(() => {
     <template #library>
       <Library
         :composition="bus.composition.value"
+        :selected-item-id="selection.selectedItemId.value"
         @apply-template="onLibraryApply"
         @add-item="onLibraryAdd"
         @remove-asset="onLibraryRemoveAsset"

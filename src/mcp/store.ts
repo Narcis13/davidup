@@ -42,7 +42,11 @@ import {
 } from "../schema/zod.js";
 import { getTweenable } from "../schema/tweenable.js";
 import { isRationalFps, type Fps } from "../schema/fps.js";
-import type { BehaviorDescriptor } from "../compose/behaviors.js";
+import {
+  getBehaviorDescriptor,
+  normalizeBehaviorDescriptor,
+  type BehaviorDescriptor,
+} from "../compose/behaviors.js";
 import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
 import type { TemplateDefinition } from "../compose/templates.js";
 import { MCPToolError } from "./errors.js";
@@ -1914,23 +1918,10 @@ export class CompositionStore {
   }
 
   setUserBehavior(descriptor: BehaviorDescriptor): void {
-    if (typeof descriptor.name !== "string" || descriptor.name.length === 0) {
-      throw new MCPToolError(
-        "E_INVALID_VALUE",
-        "Behavior descriptor must have a non-empty name.",
-      );
-    }
-    // Clone defensively so callers can't mutate the stored descriptor later.
-    const cloned: BehaviorDescriptor = {
-      name: descriptor.name,
-      description: descriptor.description ?? "",
-      params: descriptor.params.map((p) => ({ ...p })),
-      produces:
-        typeof descriptor.produces === "string"
-          ? descriptor.produces
-          : [...descriptor.produces],
-    };
-    this.userBehaviors.set(descriptor.name, cloned);
+    // Validates the shape, derives `produces` from any `tweens` body, and
+    // clones defensively so callers can't mutate the stored definition later.
+    const cloned = normalizeBehaviorDescriptor(descriptor);
+    this.userBehaviors.set(cloned.name, cloned);
   }
 
   hasUserBehavior(name: string): boolean {
@@ -1941,13 +1932,31 @@ export class CompositionStore {
     return this.userBehaviors.delete(name);
   }
 
+  /**
+   * Catalog view for `list_behaviors` — descriptors without their `tweens`
+   * bodies (agents read the catalog far more often than they re-author a
+   * body), plus the derived `executable` flag: true when the definition has a
+   * body of its own, or when it only retitles a registry behavior that does.
+   */
   listUserBehaviors(): BehaviorDescriptor[] {
-    return Array.from(this.userBehaviors.values()).map((d) => ({
-      name: d.name,
-      description: d.description,
-      params: d.params.map((p) => ({ ...p })),
-      produces: typeof d.produces === "string" ? d.produces : [...d.produces],
-    }));
+    return Array.from(this.userBehaviors.values()).map((d) => {
+      const out: BehaviorDescriptor = {
+        name: d.name,
+        description: d.description,
+        params: d.params.map((p) => ({ ...p })),
+        produces: typeof d.produces === "string" ? d.produces : [...d.produces],
+        executable:
+          d.tweens !== undefined ||
+          (getBehaviorDescriptor(d.name)?.executable ?? false),
+      };
+      if (d.version !== undefined) out.version = d.version;
+      return out;
+    });
+  }
+
+  /** Snapshot for `expandBehavior(options.behaviors)` — bodies included. */
+  userBehaviorRecord(): Record<string, BehaviorDescriptor> {
+    return Object.fromEntries(this.userBehaviors);
   }
 
   // ──────────────── Internals ────────────────

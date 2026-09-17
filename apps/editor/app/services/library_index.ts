@@ -720,12 +720,21 @@ function libraryBehaviorToDescriptor(
     if (Object.prototype.hasOwnProperty.call(po, 'default')) desc.default = po.default
     params.push(desc)
   }
-  return {
+  const out: BehaviorDescriptor = {
     name,
     description: asString(obj.description) ?? '',
     params,
     produces: 'dynamic',
   }
+  // A `tweens` body makes the card executable (v1.1 S19) — `registerBehavior`
+  // validates its shape, synthesizes the expansion, and derives `produces`
+  // from it. Bodyless cards stay catalog metadata. Passed through raw rather
+  // than via `asArray` so a malformed body reaches that validator (and lands
+  // in this file's error list) instead of being coerced to an empty one.
+  if (obj.tweens !== undefined) out.tweens = obj.tweens as ReadonlyArray<unknown>
+  const version = asString(obj.version)
+  if (version) out.version = version
+  return out
 }
 
 const libraryIndex = new LibraryIndex()

@@ -574,9 +574,35 @@ blocks inside `tweens[]`.
 Behaviors emit deterministically-named tweens (`${parentId}__${suffix}`,
 parent id defaulting to `${target}_${behavior}_${start}`). `list_behaviors`
 returns the full descriptor including param types and value domain.
-`define_user_behavior` registers **catalog metadata only** — user behaviors
-show up in `list_behaviors` and the Library panel but cannot be expanded in
-v1.0.
+`define_user_behavior` and library `*.behavior.json` cards register **real,
+executable** behaviors: give the definition a `tweens` body and
+`apply_behavior` expands it like a built-in. Each entry takes `property`,
+`from`, `to` and optional `start` / `duration` / `easing` / `suffix` /
+`target`, and may interpolate `${params.X}` (the declared params) and
+`${$.X}`, where `$` is the applied block's `start`, `duration`, `end` and
+`target`. Times are **absolute**, so `start` defaults to `${$.start}` and
+`duration` to the rest of the block:
+
+```json
+{
+  "params": [{ "name": "amount", "type": "number", "default": 1.2 }],
+  "tweens": [
+    { "property": "transform.scaleX", "from": 1, "to": "${params.amount}",
+      "duration": 0.2, "easing": "easeOutBack", "suffix": "out" },
+    { "property": "transform.scaleX", "from": "${params.amount}", "to": 1,
+      "start": "${$.start + 0.2}", "duration": 0.2, "easing": "easeInQuad",
+      "suffix": "in" }
+  ]
+}
+```
+
+A `$repeat` block may stand in for a tween, which is what makes staggered
+echo behaviors expressible in pure JSON. `produces` is derived from the body
+rather than taken on trust, and `list_behaviors` reports `executable: false`
+for a definition that ships no body — those stay catalog metadata and
+`apply_behavior` rejects them with `E_BEHAVIOR_UNKNOWN`. In the editor, the
+Library panel's behavior tab has **From selection**, which seeds a new
+behavior from the selected item's own tweens.
 
 ### Level 3 — Templates (5 built-in + 11 shipped in the global library)
 
@@ -725,7 +751,7 @@ hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 | 4.4a | Video items | `add_video`, `update_video` — sprite-shaped clips with `trimIn`/`trimOut`, `fit`, `loop` (freezes on the last frame once trimmed content runs out), `keepAudio` (mux the clip's own sound) |
 | 4.5 | Tweens | `add_tween`, `update_tween`, `remove_tween`, `list_tweens` |
 | 4.5a | Audio tracks | `add_audio_track`, `update_audio_track`, `remove_audio_track`, `list_audio_tracks` |
-| 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` (descriptor only) |
+| 4.5b | Behaviors | `apply_behavior`, `list_behaviors`, `define_user_behavior` |
 | 4.5c | Templates | `apply_template`, `list_templates`, `define_user_template`, `remove_user_template` |
 | 4.5d | Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
 | 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30, `from`/`to`), `render_to_video` (`outputPath`, `codec` libx264\|libx265\|prores_ks\|libvpx-vp9, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `from`/`to`, `wait`), `get_render`, `list_renders`, `cancel_render` |
@@ -1082,9 +1108,8 @@ Things v1.0 does not do. Each is either an open ledger item in
   names, cubic-bezier and steps (no springs).
 - Template params are whole-string substitution only; no arithmetic or
   `$repeat` (`REPEAT_EXPRESSIONS_DESIGN.md`).
-- `define_user_behavior` is catalog metadata only; user behaviors cannot be
-  expanded. Scene `clip` mapping throws on tweens that straddle the boundary
-  instead of trimming; `reverse` is not implemented.
+- Scene `clip` mapping throws on tweens that straddle the boundary instead
+  of trimming; `reverse` is not implemented.
 - The composition schema is not strict: unknown keys are silently dropped
   rather than reported (R-23).
 - Fonts are not bundled; a standalone MCP session must `register_asset` a

@@ -1076,11 +1076,14 @@ const TEMPLATES: TemplateDoc[] = [
 
 // ──────────────── Behaviors ────────────────
 //
-// User-authored behaviors are descriptor-only in v1.0 (see
-// src/compose/behaviors.ts §6 audit) — the catalog gets metadata, but the
-// engine's built-in expand() is preserved when a name is re-registered.
-// Writing these files makes the eleven engine built-ins draggable from the
-// Library panel without changing their runtime semantics.
+// These eleven cards mirror the engine's built-ins: they carry no `tweens`
+// body, so re-registering the name preserves the built-in expand() and only
+// the catalog metadata comes from the file. Writing them makes the built-ins
+// draggable from the Library panel without changing runtime semantics.
+//
+// A card that *does* carry a `tweens` body is executable (v1.1 S19) — that's
+// how user-authored library behaviors ship real motion. `swoopIn` below is the
+// worked example; see src/compose/behaviors.ts for the body's shape.
 
 interface BehaviorDoc {
   name: string;
@@ -1092,6 +1095,11 @@ interface BehaviorDoc {
     default?: unknown;
     description?: string;
   }>;
+  /**
+   * Executable body. Times are absolute against the applied block: `${$.start}`
+   * is where it lands, `${$.duration}` how long it was given.
+   */
+  tweens?: Array<Record<string, unknown>>;
 }
 
 const BEHAVIORS: BehaviorDoc[] = [
@@ -1192,6 +1200,45 @@ const BEHAVIORS: BehaviorDoc[] = [
     params: [
       { name: "peakScale", type: "number", required: true },
       { name: "fromScale", type: "number", default: 1 },
+    ],
+  },
+  // The one executable card (v1.1 S19) — a library behavior with a real body,
+  // not a mirror of a built-in. Slides in from `distance` on the chosen axis
+  // while fading up over the first `fadeFraction` of the block.
+  {
+    name: "swoopIn",
+    description:
+      "Slide in from an offset while fading up — a library behavior with an executable `tweens` body (edit this file to tune it).",
+    params: [
+      {
+        name: "distance",
+        type: "number",
+        default: 120,
+        description: "Pixels to travel; negative comes from the other side.",
+      },
+      { name: "axis", type: "axis", default: "y", description: '"x" or "y".' },
+      {
+        name: "fadeFraction",
+        type: "number",
+        default: 0.5,
+        description: "Share of the block the fade-up occupies (0–1).",
+      },
+    ],
+    tweens: [
+      {
+        property: "transform.${params.axis}",
+        from: "${params.distance}",
+        to: 0,
+        easing: "easeOutCubic",
+        suffix: "slide",
+      },
+      {
+        property: "transform.opacity",
+        from: 0,
+        to: 1,
+        duration: "${$.duration * params.fadeFraction}",
+        suffix: "opacity",
+      },
     ],
   },
 ];

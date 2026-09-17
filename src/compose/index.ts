@@ -10,15 +10,18 @@ export {
   BEHAVIOR_EXPANSION_VERSION,
   expandBehavior,
   expandBehaviors,
+  getBehaviorDefinition,
   getBehaviorDescriptor,
   hasBehavior,
   listBehaviors,
+  normalizeBehaviorDescriptor,
   registerBehavior,
   unregisterBehavior,
   type BehaviorBlock,
   type BehaviorDescriptor,
   type BehaviorParamDescriptor,
   type BehaviorParamType,
+  type ExpandBehaviorOptions,
 } from "./behaviors.js";
 export {
   expandTemplate,

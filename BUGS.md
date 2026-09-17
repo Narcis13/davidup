@@ -94,9 +94,17 @@ the registry two-layered (built-ins + overlay) so removal of an overlay entry
 can never touch the base layer. Same audit applies to
 `unregisterTemplate` / `unregisterScene` if built-ins exist for those.
 
-**Status:** OPEN — P2, deferred to v1.1 (requires a deliberately shadowed
-built-in in `~/.davidup/library` plus a live reload; no impact on normal
-authoring or rendering paths).
+**Status:** FIXED in v1.1 (session 19) — took the two-layered option.
+`BUILTINS` is written once by the module-load `register()` calls and never
+mutated; every `registerBehavior` lands in `OVERLAY`, lookups read the
+overlay first, and `unregisterBehavior` deletes only from the overlay, so
+dropping a shadowing entry uncovers the built-in. It now returns false for a
+name with no overlay entry — built-ins cannot be unregistered. Regression
+test: `tests/compose/behaviors.test.ts` "unregistering a shadowing entry
+restores the built-in". `unregisterTemplate` / `unregisterScene` still share
+the single-map shape; both have built-ins, so the same audit remains open
+for them (no reported symptom yet — the library index registers templates
+under their own ids far more often than it shadows a built-in name).
 
 ### 2.2 `davidup edit`'s dev-mode server leaks an orphaned `bin/server.js` per session
 

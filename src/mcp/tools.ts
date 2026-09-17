@@ -1492,7 +1492,7 @@ const applyBehavior = defineTool({
   name: "apply_behavior",
   title: "Apply behavior",
   description:
-    "Expand a built-in behavior into one or more tweens. Each emitted tween is added to the store under a deterministic id; ordinary overlap and property-validity checks apply.",
+    "Expand a behavior into one or more tweens — a built-in, a library behavior, or one defined in this session with define_user_behavior. Each emitted tween is added to the store under a deterministic id; ordinary overlap and property-validity checks apply. A behavior registered without a `tweens` body is catalog metadata and throws E_BEHAVIOR_UNKNOWN.",
   inputSchema: {
     target: z.string().min(1),
     behavior: z.string().min(1),
@@ -1515,7 +1515,11 @@ const applyBehavior = defineTool({
     if (args.easing !== undefined) block.easing = args.easing;
     if (args.params !== undefined) block.params = args.params;
     if (args.id !== undefined) block.id = args.id;
-    const tweens = expandBehavior(block);
+    // Session definitions shadow the process-global registry, so one MCP
+    // session's `define_user_behavior` never leaks into another's expansion.
+    const tweens = expandBehavior(block, {
+      behaviors: store.userBehaviorRecord(),
+    });
     const tweenIds: string[] = [];
     try {
       for (const t of tweens) {
@@ -1553,7 +1557,7 @@ const listBehaviorsTool = defineTool({
   name: "list_behaviors",
   title: "List behaviors",
   description:
-    "List the behaviors available for apply_behavior — built-ins from the process-global registry merged with any session-scoped descriptors added via define_user_behavior (session entries shadow globals on name collision). Each descriptor carries its parameters and produced tween suffixes; user-defined behaviors are descriptor-only and will throw E_BEHAVIOR_UNKNOWN if passed to apply_behavior.",
+    "List the behaviors available for apply_behavior — built-ins and library behaviors from the process-global registry merged with any session-scoped definitions added via define_user_behavior (session entries shadow globals on name collision). Each descriptor carries its parameters, the tween suffixes it produces, and `executable`: false means it is catalog metadata with no `tweens` body and apply_behavior will throw E_BEHAVIOR_UNKNOWN.",
   inputSchema: {},
   handler: (_args, { store }) => {
     const merged = new Map<string, BehaviorDescriptor>();
@@ -1577,17 +1581,30 @@ const defineUserBehavior = defineTool({
   name: "define_user_behavior",
   title: "Define user behavior",
   description:
-    "Register a user-authored behavior descriptor scoped to this MCP session. Last write wins per name, and session descriptors take precedence over the built-in / library-loaded global registry on the same name. Definitions do not leak to other MCP sessions sharing the same backend. " +
-    "NOTE: this is descriptor-only — the behavior shows up in `list_behaviors` but `apply_behavior` will throw `E_BEHAVIOR_UNKNOWN` because user-defined expansion is not yet supported. Use it as catalog metadata; expand behaviors yourself by emitting the literal tweens.",
+    "Register a user-authored behavior scoped to this MCP session — define once, apply_behavior it N times. Last write wins per name, and session definitions take precedence over the built-in / library-loaded global registry on the same name. Definitions do not leak to other MCP sessions sharing the same backend. " +
+    "Give it a `tweens` body and it expands for real; omit the body and it stays catalog metadata that apply_behavior rejects with E_BEHAVIOR_UNKNOWN (unless the name shadows a built-in, whose expansion it then keeps).",
   inputSchema: {
     name: z.string().min(1),
     description: z.string().optional(),
     params: z.array(BEHAVIOR_PARAM_DESCRIPTOR).optional(),
+    tweens: z
+      .array(z.record(z.string(), z.unknown()))
+      .optional()
+      .describe(
+        "Executable body: the tweens one apply_behavior call emits. Each entry takes `property`, `from`, `to` and optional `start` / `duration` / `easing` / `suffix` / `target`, and may interpolate `${params.X}` (declared params) and `${$.X}` where `$` is the applied block's `start`, `duration`, `end` and `target`. Times are ABSOLUTE: `start` defaults to `${$.start}`, `duration` defaults to the rest of the block, so `{ \"property\": \"transform.opacity\", \"from\": 0, \"to\": 1 }` fills the whole block. Ids are `<blockId>__<suffix>`, suffix defaulting to the entry's index. A `$repeat` block is allowed in place of a tween for echo/stagger behaviors. Emitted tweens must not overlap each other on the same target+property.",
+      ),
     produces: z
       .union([z.literal("dynamic"), z.array(z.string().min(1))])
       .optional()
       .describe(
-        "Either the suffix list each call appends to the parent block id, or the string \"dynamic\" when the suffix count varies with parameters. Defaults to [].",
+        "Either the suffix list each call appends to the parent block id, or the string \"dynamic\" when the suffix count varies with parameters. Defaults to []. Ignored when `tweens` is given — the suffix list is derived from the body instead.",
+      ),
+    version: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Opaque version stamp echoed back by list_behaviors. Reserved for library locking; not interpreted in v1.1.",
       ),
   },
   handler: (args, { store }) => {
@@ -1608,9 +1625,18 @@ const defineUserBehavior = defineTool({
       description: args.description ?? "",
       params,
       produces: args.produces ?? [],
+      ...(args.tweens !== undefined ? { tweens: args.tweens } : {}),
+      ...(args.version !== undefined ? { version: args.version } : {}),
     };
+    // Validates the body's shape and derives `produces` from it; param values
+    // aren't known until apply_behavior, so expression errors surface there.
     store.setUserBehavior(descriptor);
-    return { name: args.name };
+    const stored = store.listUserBehaviors().find((d) => d.name === args.name);
+    return {
+      name: args.name,
+      executable: stored?.executable ?? false,
+      produces: stored?.produces ?? [],
+    };
   },
 });
 
@@ -1659,7 +1685,9 @@ const applyTemplate = defineTool({
     // Run the §10.4 behavior pass on the template's tween array so any
     // `$behavior` blocks the template emitted resolve to literal tweens.
     const literalTweens = (
-      expandBehaviors({ tweens: expanded.tweens }) as { tweens: Tween[] }
+      expandBehaviors({ tweens: expanded.tweens }, {
+        behaviors: store.userBehaviorRecord(),
+      }) as { tweens: Tween[] }
     ).tweens;
 
     const itemIds: string[] = [];
@@ -2030,7 +2058,9 @@ function applySceneInstanceToStore(
   // Run the §10.4 behavior pass on the scene's tween array so any
   // `$behavior` blocks the scene emitted resolve to literal tweens.
   const literalTweens = (
-    expandBehaviors({ tweens: expanded.tweens }) as { tweens: Tween[] }
+    expandBehaviors({ tweens: expanded.tweens }, {
+      behaviors: store.userBehaviorRecord(),
+    }) as { tweens: Tween[] }
   ).tweens;
 
   const addedItemIds: string[] = [];
