@@ -8,6 +8,39 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Scene `clip` auto-trims straddling tweens; `reverse` time mapping
+
+- A scene-instance `clip { fromTime, toTime }` no longer rejects a tween that
+  crosses one of its edges. The tween is trimmed to the window: its value is
+  sampled through its own easing at each surviving cut, and the trimmed copy
+  carries those values as `from`/`to`, so the value at both cut points is
+  exactly what the untrimmed scene showed there. Numbers are sampled exactly;
+  colors go through the same lerp the resolver uses (and come back in its
+  `rgba(...)` spelling, which `parseColor` round-trips).
+- The *interior* of a trimmed tween is an approximation — the copy replays the
+  original easing over the shorter span rather than the re-normalised
+  sub-curve, which no named easing can spell in general. Exact throughout for
+  `linear`; exact at the endpoints for everything else. Pass
+  `clip.strict: true` for the old guarantee, which still raises
+  `E_TIME_MAPPING_TWEEN_SPLIT` on a straddler.
+- New `time: { mode: "reverse" }` plays a scene backwards. A tween on
+  `[s, s+d)` lands on `[duration − (s+d), duration − s)` with `from`/`to`
+  swapped and its easing mirrored, so the motion retraces itself instead of
+  replaying its acceleration backwards. `mirrorEasing` is exact for all 19
+  easing names and for cubic-bezier; `steps(n)` is returned unchanged, since
+  its true reverse (CSS `jump-start`) has no spelling in the schema. A tween
+  running past the scene's own `duration` is rejected with
+  `E_TIME_MAPPING_INVALID` rather than mirrored to a negative start.
+- Both new paths need concrete `from`/`to` values, so they lower the
+  `$behavior` blocks they touch into literal tweens early, through the same
+  `expandBehavior` the later pass uses — under `clip` only a block that
+  straddles an edge, under `reverse` all of them. Every other mode leaves
+  blocks byte-identical.
+- `SCENE_EXPANSION_VERSION` 3 → 4. **Not pixel-changing**: a straddling tween
+  was a hard error before and `reverse` was unparseable, so nothing that
+  previously rendered renders differently. The bump marks the semantics
+  change for anything keying on expansion behavior.
+
 ### User-defined behaviors expand to tweens
 
 - A behavior definition — `define_user_behavior`, or a library

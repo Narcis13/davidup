@@ -23,19 +23,21 @@
 // scene-internal ids — that's the §8.7 sealed-instance principle, enforced
 // here as `E_SCENE_INSTANCE_DEEP_TARGET`.
 //
-// Time mapping (§8.5): four modes are now supported.
+// Time mapping (§8.5): five modes are now supported.
 //
 //   - `identity` (default): scene-local `t=0` plays at `instance.start`. Every
 //     scene tween is shifted by `instance.start`. Effective span =
 //     `scene.duration`.
 //
-//   - `clip { fromTime, toTime }`: trim playback to the half-open scene-local
-//     window `[fromTime, toTime)`. Tweens entirely outside the window are
-//     dropped. Tweens fully inside are shifted by
-//     `(instance.start - fromTime)`. Boundary-crossing tweens throw
-//     `E_TIME_MAPPING_TWEEN_SPLIT` — the author must shape the scene so its
-//     tweens don't straddle the clip edges. Effective span =
-//     `toTime - fromTime`.
+//   - `clip { fromTime, toTime, strict? }`: trim playback to the half-open
+//     scene-local window `[fromTime, toTime)`. Tweens entirely outside the
+//     window are dropped. Tweens fully inside are shifted by
+//     `(instance.start - fromTime)`. A tween that straddles a boundary is
+//     *auto-trimmed* (v1.1 S20): its value is sampled through its own easing
+//     at the boundary and the trimmed copy carries that sampled `from`/`to`.
+//     Pass `strict: true` to get the pre-S20 guarantee back — a straddler
+//     then throws `E_TIME_MAPPING_TWEEN_SPLIT` instead of being approximated.
+//     Effective span = `toTime - fromTime`.
 //
 //   - `loop { count }`: play the scene N times back-to-back. Each iteration
 //     gets a deterministic id suffix (`__loop${i}`) so the canonical output
@@ -51,9 +53,20 @@
 //     Easing curves are preserved (the curve compresses/stretches with the
 //     tween). Effective span = `scene.duration / scale`.
 //
-// `reverse` is still deferred — would require flipping `from` ↔ `to` per
-// tween and re-sorting them, which interacts awkwardly with sealed-instance
-// parent tweens.
+//   - `reverse {}`: play the scene backwards. Scene-local `t` maps to
+//     `scene.duration - t`, so each tween's span `[s, s+d)` lands at
+//     `[duration - (s+d), duration - s)`, its `from`/`to` swap, and its
+//     easing mirrors (`easeIn* ↔ easeOut*`; see `mirrorEasing`). Emitted
+//     tweens are re-sorted by start so the output reads forward in time.
+//     Effective span = `scene.duration`.
+//
+// Behavior blocks (`$behavior`) normally survive scene expansion unexpanded —
+// `expandBehaviors` runs after this pass. `clip` auto-trim and `reverse` both
+// need a block's concrete `from`/`to` to do their arithmetic, so those two
+// paths expand a block early (via `expandBehavior`) and transform the literal
+// tweens instead. Only blocks that actually need it are expanded: under
+// `clip`, one that straddles a boundary; under `reverse`, all of them. Every
+// other mode leaves blocks alone, byte for byte.
 //
 // Assets: scene-declared assets are merged into the root `assets` array at
 // expansion time. Same id + same src = dedupe. Same id + different src =
@@ -72,8 +85,15 @@
 // same way the child's tweens are, so lifetime nests correctly through
 // `loop`/`clip`/`timeScale` levels.
 
+import { mirrorEasing, type Easing } from "../easings/index.js";
 import { MCPToolError } from "../engine/errors.js";
+import { sampleTweenValue } from "../engine/resolver.js";
 import type { Asset, AudioAsset, VideoAsset } from "../schema/types.js";
+import {
+  expandBehavior,
+  isBehaviorBlock,
+  readBehaviorBlock,
+} from "./behaviors.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 import {
   expandRepeatItems,
@@ -98,8 +118,16 @@ import {
  *   instance that previously overstayed its own duration now disappears when
  *   its scene ends; pass explicit `enter`/`exit` to opt back into an
  *   unbounded or custom window.
+ *
+ *   v3 → v4 (v1.1 S20): `clip` auto-trims a tween that straddles its window
+ *   instead of rejecting it, and the `reverse` mode exists. No composition
+ *   that compiled under v3 renders differently — a straddling tween was a
+ *   hard `E_TIME_MAPPING_TWEEN_SPLIT` error and `reverse` was unparseable, so
+ *   nothing that previously produced pixels changed. The bump marks the
+ *   semantics change for anything keying on expansion behavior; pass
+ *   `clip.strict: true` to keep the v3 rejection.
  */
-export const SCENE_EXPANSION_VERSION = 3;
+export const SCENE_EXPANSION_VERSION = 4;
 
 // ──────────────── Public types ────────────────
 
@@ -156,9 +184,21 @@ export interface SceneDescriptor {
  */
 export type TimeMapping =
   | { mode: "identity" }
-  | { mode: "clip"; fromTime: number; toTime: number }
+  | {
+      mode: "clip";
+      fromTime: number;
+      toTime: number;
+      /**
+       * Reject a tween that straddles the clip window with
+       * `E_TIME_MAPPING_TWEEN_SPLIT` instead of auto-trimming it. For callers
+       * who would rather fix the scene than accept a sampled approximation of
+       * its easing across the cut. Default `false`.
+       */
+      strict?: boolean | undefined;
+    }
   | { mode: "loop"; count: number }
-  | { mode: "timeScale"; scale: number };
+  | { mode: "timeScale"; scale: number }
+  | { mode: "reverse" };
 
 export interface SceneInstance {
   /** Scene name (matches a `SceneDefinition.id`). */
@@ -895,6 +935,7 @@ function validateTimeMapping(
 ): TimeMapping {
   switch (spec.mode) {
     case "identity":
+    case "reverse":
       return spec;
     case "clip": {
       const { fromTime, toTime } = spec;
@@ -981,39 +1022,10 @@ function applyTimeMapping(
         return out;
       });
     }
-    case "clip": {
-      const { fromTime, toTime } = spec;
-      const out: unknown[] = [];
-      for (const t of localTweens) {
-        const s = readNumber(t.start);
-        const d = readNumber(t.duration);
-        if (s === undefined || d === undefined) {
-          // No timing fields to clip against — pass through after start-shift.
-          // (Behavior blocks always carry start+duration, so this branch
-          // should be unreachable in well-formed input.)
-          out.push(shiftStart(t, parentStart));
-          continue;
-        }
-        const end = s + d;
-        // Fully outside the clip window → drop.
-        if (end <= fromTime + 1e-9) continue;
-        if (s >= toTime - 1e-9) continue;
-        // Boundary-crossing → not supported in v0.5. Authors must shape the
-        // scene so tweens align with the clip window. Future versions may
-        // add automatic trimming.
-        if (s < fromTime - 1e-9 || end > toTime + 1e-9) {
-          throw new MCPToolError(
-            "E_TIME_MAPPING_TWEEN_SPLIT",
-            `Scene "${sceneId}" tween "${String(t.id ?? "<anonymous>")}" straddles the clip window [${fromTime}, ${toTime}].`,
-            "Split the tween at the clip boundary in the scene definition, or adjust fromTime/toTime so the tween falls fully inside or outside.",
-          );
-        }
-        const next = { ...t };
-        next.start = parentStart + (s - fromTime);
-        out.push(next);
-      }
-      return out;
-    }
+    case "clip":
+      return clipTweens(localTweens, spec, parentStart, sceneId);
+    case "reverse":
+      return reverseTweens(localTweens, parentStart, sceneDuration, sceneId);
     case "loop": {
       const out: unknown[] = [];
       for (let i = 0; i < spec.count; i += 1) {
@@ -1035,6 +1047,240 @@ function applyTimeMapping(
       return out;
     }
   }
+}
+
+// Boundary comparisons in the clip/reverse arithmetic run against this
+// epsilon, so a tween that misses an edge only by floating-point noise — one
+// authored to end exactly at `toTime` but reached through a chain of adds —
+// counts as aligned rather than straddling.
+const TIME_EPS = 1e-9;
+
+/**
+ * `clip` mode: trim every scene-local tween to `[fromTime, toTime)` and shift
+ * the survivors onto the parent timeline.
+ *
+ * Three outcomes per tween:
+ *   - entirely outside the window → dropped;
+ *   - entirely inside → kept as authored, start shifted by
+ *     `parentStart - fromTime`;
+ *   - straddling a boundary → trimmed (v1.1 S20). The tween's own easing is
+ *     sampled at each surviving edge and the trimmed copy carries those
+ *     values as its `from`/`to`, so at both cut points it reads exactly what
+ *     the untrimmed scene read there.
+ *
+ * The *interior* of a trimmed tween is an approximation: the copy replays the
+ * original `easing` over the shorter span rather than the re-normalised
+ * sub-curve, which no named easing can spell in general. It is exact
+ * throughout for `linear`, and exact at both endpoints for everything else.
+ * `strict: true` rejects straddlers outright instead, for callers who would
+ * rather reshape the scene than accept the approximation.
+ */
+function clipTweens(
+  localTweens: ReadonlyArray<Record<string, unknown>>,
+  spec: Extract<TimeMapping, { mode: "clip" }>,
+  parentStart: number,
+  sceneId: string,
+): unknown[] {
+  const { fromTime, toTime } = spec;
+  const strict = spec.strict === true;
+  // A straddling behavior block has no `from`/`to` of its own to sample, so
+  // lower it to literal tweens first and trim those. Blocks that sit wholly
+  // inside the window (or wholly outside it) keep their authored `$behavior`
+  // shape and flow through the later `expandBehaviors` pass as before.
+  const prepared = strict
+    ? localTweens
+    : expandBehaviorBlocks(localTweens, sceneId, (block) =>
+        straddlesClip(block, fromTime, toTime),
+      );
+
+  const out: unknown[] = [];
+  for (const t of prepared) {
+    const s = readNumber(t.start);
+    const d = readNumber(t.duration);
+    if (s === undefined || d === undefined || d <= 0) {
+      // No usable span to clip against — pass through after the start shift.
+      out.push(shiftStart(t, parentStart));
+      continue;
+    }
+    const end = s + d;
+    if (end <= fromTime + TIME_EPS) continue; // fully before the window
+    if (s >= toTime - TIME_EPS) continue; // fully after it
+
+    if (s >= fromTime - TIME_EPS && end <= toTime + TIME_EPS) {
+      const next = { ...t };
+      next.start = parentStart + (s - fromTime);
+      out.push(next);
+      continue;
+    }
+    if (strict) {
+      throw new MCPToolError(
+        "E_TIME_MAPPING_TWEEN_SPLIT",
+        `Scene "${sceneId}" tween "${String(t.id ?? "<anonymous>")}" straddles the clip window [${fromTime}, ${toTime}].`,
+        "Split the tween at the clip boundary in the scene definition, adjust fromTime/toTime so it falls fully inside or outside, or drop `strict` to let the clip trim it for you.",
+      );
+    }
+    out.push(
+      trimTween(
+        t,
+        s,
+        d,
+        Math.max(s, fromTime),
+        Math.min(end, toTime),
+        parentStart - fromTime,
+        sceneId,
+      ),
+    );
+  }
+  return out;
+}
+
+/**
+ * Cut `tween` — scene-local span `[s, s + d)` — down to `[lo, hi)` and shift
+ * the result by `shift`. `from`/`to` are resampled through the tween's own
+ * easing at the new edges; an edge that coincides with an original edge keeps
+ * the authored value exactly (see {@link sampleTweenValue}).
+ */
+function trimTween(
+  tween: Record<string, unknown>,
+  s: number,
+  d: number,
+  lo: number,
+  hi: number,
+  shift: number,
+  sceneId: string,
+): Record<string, unknown> {
+  const from = tween.from;
+  const to = tween.to;
+  const sampleable =
+    (typeof from === "number" && typeof to === "number") ||
+    (typeof from === "string" && typeof to === "string");
+  if (!sampleable) {
+    throw new MCPToolError(
+      "E_TIME_MAPPING_TWEEN_SPLIT",
+      `Scene "${sceneId}" tween "${String(tween.id ?? "<anonymous>")}" straddles the clip window but has no matching numeric or color from/to to resample.`,
+      "Give the tween explicit `from` and `to` of the same kind, align it with the clip window, or set `strict: true` to reject straddlers outright.",
+    );
+  }
+  const easing = tween.easing as Easing | undefined;
+  const next = { ...tween };
+  next.from = sampleTweenValue(from, to, easing, (lo - s) / d);
+  next.to = sampleTweenValue(from, to, easing, (hi - s) / d);
+  next.start = lo + shift;
+  next.duration = hi - lo;
+  return next;
+}
+
+/** Does this tween cross an edge of `[fromTime, toTime)` rather than sit on one side? */
+function straddlesClip(
+  tween: Record<string, unknown>,
+  fromTime: number,
+  toTime: number,
+): boolean {
+  const s = readNumber(tween.start);
+  const d = readNumber(tween.duration);
+  if (s === undefined || d === undefined || d <= 0) return false;
+  const end = s + d;
+  if (end <= fromTime + TIME_EPS) return false; // fully before
+  if (s >= toTime - TIME_EPS) return false; // fully after
+  return s < fromTime - TIME_EPS || end > toTime + TIME_EPS;
+}
+
+/**
+ * `reverse` mode: mirror the scene's timeline about its own duration.
+ *
+ * A tween covering `[s, s + d)` in scene-local time comes back covering
+ * `[duration - (s + d), duration - s)` with `from`/`to` swapped and its
+ * easing mirrored, so the motion retraces itself exactly rather than
+ * replaying its acceleration backwards.
+ *
+ * Behavior blocks are lowered to literal tweens first: a block names a
+ * direction ("fadeIn") that can't be flipped without the values behind it.
+ *
+ * The result is sorted by start so the emitted timeline reads forward. The
+ * sort is stable, so tweens that end up sharing a start keep their reversed
+ * relative order and the output stays byte-deterministic.
+ */
+function reverseTweens(
+  localTweens: ReadonlyArray<Record<string, unknown>>,
+  parentStart: number,
+  sceneDuration: number,
+  sceneId: string,
+): unknown[] {
+  const prepared = expandBehaviorBlocks(localTweens, sceneId, () => true);
+  const out = prepared.map((t) => {
+    const next = { ...t };
+    const s = readNumber(next.start);
+    if (s !== undefined) {
+      const end = s + (readNumber(next.duration) ?? 0);
+      const mirrored = sceneDuration - end;
+      if (mirrored < -TIME_EPS) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" tween "${String(next.id ?? "<anonymous>")}" runs to ${end}s, past the scene's own duration (${sceneDuration}s), so reversing it would start at ${mirrored}s.`,
+          "`reverse` mirrors about the scene's duration — raise the scene's `duration` to cover its tweens, or shorten the tween.",
+        );
+      }
+      next.start = parentStart + Math.max(0, mirrored);
+    }
+    if (next.from !== undefined || next.to !== undefined) {
+      const from = next.from;
+      next.from = next.to;
+      next.to = from;
+    }
+    if (next.easing !== undefined) {
+      next.easing = mirrorEasing(next.easing as Easing);
+    }
+    return next;
+  });
+  out.sort((a, b) => (readNumber(a.start) ?? 0) - (readNumber(b.start) ?? 0));
+  return out;
+}
+
+/**
+ * Lower the `$behavior` blocks matching `shouldExpand` into their literal
+ * tweens, leaving every other entry untouched and in place.
+ *
+ * `clip` auto-trim and `reverse` both rewrite a tween's `from`/`to`, which a
+ * behavior block hasn't got — it names a behavior and its params, and only
+ * becomes concrete tweens in the later `expandBehaviors` pass. Expanding one
+ * here just runs that pass early for the entries that need it: the emitted
+ * tweens are what the later pass would have produced anyway, since both go
+ * through `expandBehavior` against the same registry.
+ */
+function expandBehaviorBlocks(
+  tweens: ReadonlyArray<Record<string, unknown>>,
+  sceneId: string,
+  shouldExpand: (block: Record<string, unknown>) => boolean,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const t of tweens) {
+    if (!isBehaviorBlock(t) || !shouldExpand(t)) {
+      out.push(t);
+      continue;
+    }
+    let expanded;
+    try {
+      expanded = expandBehavior(readBehaviorBlock(t));
+    } catch (err) {
+      if (err instanceof MCPToolError) {
+        throw new MCPToolError(
+          err.code,
+          `Scene "${sceneId}": ${err.message}`,
+          err.hint,
+        );
+      }
+      throw err;
+    }
+    const source = t.__source;
+    for (const lit of expanded) {
+      const next = { ...lit } as Record<string, unknown>;
+      // Carry the block's provenance onto every tween it produced, so source
+      // maps still point back at the authored `$behavior` entry.
+      if (source !== undefined) next.__source = source;
+      out.push(next);
+    }
+  }
+  return out;
 }
 
 /**
@@ -1095,6 +1341,17 @@ function mapWindowThroughTimeMapping(
         enter: parentStart + (clampedEnter - fromTime),
         exit: parentStart + (clampedExit - fromTime),
       };
+    }
+    case "reverse": {
+      // Mirror the window about the scene's duration. An unbounded exit means
+      // "still on screen when the scene ends", which reverses to "on screen
+      // from the moment it starts" — so clamp the open side to the scene's
+      // own bounds instead of letting it run off to −∞.
+      const hi = localExit === undefined ? sceneDuration : localExit;
+      const enter = Math.max(0, sceneDuration - hi);
+      const exit = Math.min(sceneDuration, sceneDuration - localEnter);
+      if (exit <= enter) return { enter: parentStart, exit: parentStart };
+      return { enter: parentStart + enter, exit: parentStart + exit };
     }
   }
 }
@@ -1230,7 +1487,21 @@ function readTimeMappingFromRaw(instanceId: string, raw: unknown): TimeMapping {
           `Scene instance "${instanceId}" clip.toTime must be a finite number.`,
         );
       }
-      return { mode: "clip", fromTime, toTime };
+      const clip: Extract<TimeMapping, { mode: "clip" }> = {
+        mode: "clip",
+        fromTime,
+        toTime,
+      };
+      if (raw.strict !== undefined) {
+        if (typeof raw.strict !== "boolean") {
+          throw new MCPToolError(
+            "E_TIME_MAPPING_INVALID",
+            `Scene instance "${instanceId}" clip.strict must be a boolean.`,
+          );
+        }
+        clip.strict = raw.strict;
+      }
+      return clip;
     }
     case "loop": {
       const count = raw.count;
@@ -1252,11 +1523,13 @@ function readTimeMappingFromRaw(instanceId: string, raw: unknown): TimeMapping {
       }
       return { mode: "timeScale", scale };
     }
+    case "reverse":
+      return { mode: "reverse" };
     default:
       throw new MCPToolError(
         "E_TIME_MAPPING_INVALID",
         `Scene instance "${instanceId}" has unsupported time mode "${String(mode)}".`,
-        'Supported modes: "identity", "clip", "loop", "timeScale".',
+        'Supported modes: "identity", "clip", "loop", "timeScale", "reverse".',
       );
   }
 }

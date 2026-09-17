@@ -1864,6 +1864,7 @@ const TIME_MAPPING_SCHEMA = z.discriminatedUnion("mode", [
     mode: z.literal("clip"),
     fromTime: z.number().nonnegative(),
     toTime: z.number().positive(),
+    strict: z.boolean().optional(),
   }),
   z.object({
     mode: z.literal("loop"),
@@ -1873,6 +1874,7 @@ const TIME_MAPPING_SCHEMA = z.discriminatedUnion("mode", [
     mode: z.literal("timeScale"),
     scale: z.number().positive(),
   }),
+  z.object({ mode: z.literal("reverse") }),
 ]);
 
 const defineScene = defineTool({
@@ -2163,7 +2165,7 @@ const addSceneInstance = defineTool({
   name: "add_scene_instance",
   title: "Add scene instance",
   description:
-    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. In `transform`, `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; `anchorX`/`anchorY` are fractional in 0..1 of the synthetic group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the scene's rotation/scale; `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, or \"timeScale\" with scale. The synthetic group's visibility defaults to `[start, start + effectiveDuration)` (effectiveDuration follows `time`'s mode) so the instance disappears when its own scene ends; pass explicit `enter`/`exit` (absolute composition-timeline seconds, same axis as `start`) to override either bound, e.g. to keep the instance's last frame held past its own duration. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
+    "Place a scene in the composition's timeline. Expands the scene into a synthetic group (placed in `layerId` at the optional `transform`) plus prefixed inner items and time-shifted tweens. In `transform`, `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; `anchorX`/`anchorY` are fractional in 0..1 of the synthetic group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the scene's rotation/scale; `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. The optional `time` field controls how the scene's tween timeline maps onto the parent: \"identity\" (default), \"clip\" with fromTime/toTime, \"loop\" with count, \"timeScale\" with scale, or \"reverse\" to play the scene backwards. A clip window that cuts across a tween trims it, sampling the tween's own easing at the cut so the value there matches the untrimmed scene; pass `strict: true` on the clip to reject such a tween with E_TIME_MAPPING_TWEEN_SPLIT instead. The synthetic group's visibility defaults to `[start, start + effectiveDuration)` (effectiveDuration follows `time`'s mode) so the instance disappears when its own scene ends; pass explicit `enter`/`exit` (absolute composition-timeline seconds, same axis as `start`) to override either bound, e.g. to keep the instance's last frame held past its own duration. Scene-declared assets are merged into the root composition; conflicts on id with different content error. The whole expansion is atomic — any failure rolls back every item, tween, and asset added during this call.",
   inputSchema: {
     sceneId: z.string().min(1),
     layerId: z.string().min(1),

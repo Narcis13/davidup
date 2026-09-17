@@ -119,6 +119,34 @@ export function lerp(
     : lerpColorString(from as string, to as string, t);
 }
 
+/**
+ * A tween's value at normalized progress `p` ∈ [0, 1] — `lerp(from, to,
+ * ease(p))`, dispatching on whether the endpoints are numbers or colors.
+ *
+ * This is the single-tween core of {@link resolveValue}, lifted out for
+ * callers that need a value part-way through a tween without building a
+ * composition to resolve: the scene `clip` time mapping samples it at the
+ * clip boundaries to trim a straddling tween (`src/compose/scenes.ts`).
+ *
+ * `p` is clamped, and the endpoints return `from` / `to` by identity rather
+ * than through the easing — so a boundary that lands on 0 or 1 (exactly, or
+ * after an epsilon nudge) reproduces the authored value bit-for-bit instead
+ * of a formatted round-trip of it.
+ */
+export function sampleTweenValue(
+  from: number | string,
+  to: number | string,
+  easing: Tween["easing"],
+  p: number,
+): number | string {
+  if (!(p > 0)) return from;
+  if (p >= 1) return to;
+  const eased = getEasing(easing)(p);
+  return typeof from === "number"
+    ? lerpNumber(from, to as number, eased)
+    : lerpColorString(from, to as string, eased);
+}
+
 function makeKey(target: string, property: string): string {
   return `${target}::${property}`;
 }

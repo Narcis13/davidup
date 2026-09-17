@@ -74,6 +74,7 @@ const TIME_MAPPING = z.discriminatedUnion('mode', [
     mode: z.literal('clip'),
     fromTime: NON_NEG,
     toTime: POSITIVE,
+    strict: z.boolean().optional(),
   }),
   z.object({
     mode: z.literal('loop'),
@@ -83,6 +84,7 @@ const TIME_MAPPING = z.discriminatedUnion('mode', [
     mode: z.literal('timeScale'),
     scale: POSITIVE,
   }),
+  z.object({ mode: z.literal('reverse') }),
 ])
 
 const ITEM_PROPS = z

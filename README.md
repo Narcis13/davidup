@@ -656,12 +656,16 @@ instance* drops the scene into a parent composition with time-mapping and
 overrides (`transform`, `enter`, `exit`, `params`):
 
 - `identity` — local `t=0` plays at `instance.start` (default).
-- `clip { fromTime, toTime }` — trim playback to a sub-window. Tweens that
-  cross the boundary throw `E_TIME_MAPPING_TWEEN_SPLIT` (no auto-trim yet).
+- `clip { fromTime, toTime, strict? }` — trim playback to a sub-window. A
+  tween that crosses a boundary is trimmed to it, its `from`/`to` resampled
+  through its own easing at the cut. Pass `strict: true` to reject such a
+  tween with `E_TIME_MAPPING_TWEEN_SPLIT` instead.
 - `loop { count }` — play N times back-to-back with `__loop${i}` id suffixes.
 - `timeScale { scale }` — play at `scale ×` speed.
+- `reverse {}` — play the scene backwards: each tween mirrors about the
+  scene's duration, swaps `from`/`to`, and mirrors its easing.
 
-(`reverse` is reserved but not implemented.) Since expansion v3, an instance
+Since expansion v3, an instance
 defaults its `enter`/`exit` to its own span, so it disappears when its scene
 ends; pass explicit `enter`/`exit` to hold the last frame.
 
@@ -1108,8 +1112,9 @@ Things v1.0 does not do. Each is either an open ledger item in
   names, cubic-bezier and steps (no springs).
 - Template params are whole-string substitution only; no arithmetic or
   `$repeat` (`REPEAT_EXPRESSIONS_DESIGN.md`).
-- Scene `clip` mapping throws on tweens that straddle the boundary instead
-  of trimming; `reverse` is not implemented.
+- A scene `clip` that cuts across a tween keeps the tween's original easing
+  over the shorter span rather than the re-normalised sub-curve, so only the
+  values at the two cut points are exact (all of it is exact for `linear`).
 - The composition schema is not strict: unknown keys are silently dropped
   rather than reported (R-23).
 - Fonts are not bundled; a standalone MCP session must `register_asset` a

@@ -427,11 +427,11 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function isBehaviorBlock(v: unknown): v is Record<string, unknown> {
+export function isBehaviorBlock(v: unknown): v is Record<string, unknown> {
   return isPlainObject(v) && typeof v.$behavior === "string";
 }
 
-function readBehaviorBlock(raw: Record<string, unknown>): BehaviorBlock {
+export function readBehaviorBlock(raw: Record<string, unknown>): BehaviorBlock {
   const behavior = raw.$behavior;
   if (typeof behavior !== "string" || behavior.length === 0) {
     throw new MCPToolError(

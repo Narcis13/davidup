@@ -588,8 +588,8 @@ transform inheritance via Canvas2D `save/restore`.
 
 ### 8.5 Time mapping options
 
-Four modes ship. `identity` is the default; the three v0.5 modes are
-additive and opt-in via a `time` field on the scene instance.
+Five modes ship. `identity` is the default; the rest are additive and opt-in
+via a `time` field on the scene instance.
 
 | Mode | What it does | Ship in | Status |
 |---|---|---|---|
@@ -597,7 +597,7 @@ additive and opt-in via a `time` field on the scene instance.
 | `clip` | trim to `[fromTime, toTime]` of scene-local time | v0.5 | **shipped** |
 | `loop` | repeat scene N times | v0.5 | **shipped** |
 | `timeScale` | play scene at K× speed (K∈ℝ+) | v0.5 | **shipped** |
-| `reverse` | play scene backwards | v0.6 | deferred |
+| `reverse` | play scene backwards | v1.1 | **shipped** |
 
 Authored shape — attach to the scene instance:
 
@@ -606,6 +606,7 @@ Authored shape — attach to the scene instance:
 { "type": "scene", "scene": "introCard", "time": { "mode": "clip", "fromTime": 1.0, "toTime": 3.0 } }
 { "type": "scene", "scene": "introCard", "time": { "mode": "loop", "count": 3 } }
 { "type": "scene", "scene": "introCard", "time": { "mode": "timeScale", "scale": 2.0 } }
+{ "type": "scene", "scene": "introCard", "time": { "mode": "reverse" } }
 ```
 
 Per-mode semantics:
@@ -613,14 +614,22 @@ Per-mode semantics:
 - **identity** — every scene tween's `start` is shifted by
   `instance.start`. Effective span = `scene.duration`.
 
-- **clip** `{ fromTime, toTime }` — drop tweens fully outside
+- **clip** `{ fromTime, toTime, strict? }` — drop tweens fully outside
   `[fromTime, toTime]`; keep fully-contained tweens shifted by
-  `(instance.start − fromTime)`. Tweens that straddle a clip boundary
-  reject with `E_TIME_MAPPING_TWEEN_SPLIT`; the author must split the
-  tween at the boundary in the scene definition or move the window.
-  (Automatic trimming with easing-aware boundary values is intentionally
-  deferred — see §16-O17 in spirit; the v0.5 rule is "predictable, no
-  silent approximation.")
+  `(instance.start − fromTime)`. A tween that straddles a clip boundary is
+  **trimmed to the window** (v1.1): its value is sampled through its own
+  easing at each surviving edge, and the trimmed copy carries those values
+  as `from`/`to`. The value at both cut points therefore matches the
+  untrimmed scene exactly.
+
+  The *interior* of a trimmed tween is an approximation: the copy replays
+  the original `easing` over the shorter span rather than the re-normalised
+  sub-curve, which no named easing can spell in general. Exact throughout
+  for `linear`; exact at the endpoints for everything else. Pass
+  `strict: true` for the pre-v1.1 rule — "predictable, no silent
+  approximation" — which rejects a straddler with
+  `E_TIME_MAPPING_TWEEN_SPLIT` so the author can split it at the boundary
+  or move the window instead.
 
 - **loop** `{ count }` (positive integer) — emit `count` copies of every
   scene tween, with starts `instance.start + i * scene.duration + tweenStart`.
@@ -634,9 +643,29 @@ Per-mode semantics:
   `start` and `duration` by `scale`. Easing curves compress/stretch with
   the tween (same `easing` field; the curve still maps progress 0→1).
 
+- **reverse** `{}` — mirror the scene's timeline about its own duration. A
+  tween covering `[s, s + d)` comes back covering
+  `[duration − (s + d), duration − s)` with `from` and `to` swapped and its
+  easing mirrored, so the motion retraces itself instead of replaying its
+  acceleration backwards. Mirroring is exact for every easing name
+  (`easeIn* ↔ easeOut*`; `easeInOut*` and `linear` are their own mirrors)
+  and for `cubic-bezier(x1, y1, x2, y2)` → `cubic-bezier(1 − x2, 1 − y2,
+  1 − x1, 1 − y1)`. `steps(n)` is the one approximation: its true reverse
+  is CSS `jump-start`, which the schema can't spell, so the same `steps(n)`
+  comes back — mirrored to within one 1/n step. Emitted tweens are re-sorted
+  by start so the output reads forward. Effective span = `scene.duration`.
+
+Both `clip` auto-trim and `reverse` rewrite a tween's `from`/`to`, which a
+`$behavior` block hasn't got yet — it only becomes concrete tweens in the
+later `expandBehaviors` pass. Those two paths therefore lower the blocks they
+touch early, through the same `expandBehavior` entrypoint, and transform the
+literal tweens: under `clip`, only a block that straddles an edge; under
+`reverse`, all of them. Every other mode leaves `$behavior` blocks untouched.
+
 `E_TIME_MAPPING_INVALID` covers shape and range errors: clip outside
-`[0, scene.duration]`, non-positive `count`, non-integer `count`,
-`scale <= 0`, unknown mode.
+`[0, scene.duration]`, non-boolean `clip.strict`, non-positive `count`,
+non-integer `count`, `scale <= 0`, a tween running past `scene.duration`
+under `reverse` (which would mirror to a negative start), unknown mode.
 
 ### 8.6 Sequencing scenes (the common shape for 1-min videos)
 

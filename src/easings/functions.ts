@@ -157,6 +157,62 @@ export function steps(n: number): EasingFn {
   };
 }
 
+// ──────────────── Time reversal (v1.1 S20) ────────────────
+
+// f mirrored in time is `t ↦ 1 − f(1 − t)`. Every in/out pair above is an
+// exact mirror of the other under that map (checked algebraically, and by
+// test against the functions themselves); the in-out and linear curves are
+// symmetric, so they mirror to themselves.
+const MIRRORED_EASING_NAMES: Record<EasingName, EasingName> = {
+  linear: "linear",
+  easeInQuad: "easeOutQuad",
+  easeOutQuad: "easeInQuad",
+  easeInOutQuad: "easeInOutQuad",
+  easeInCubic: "easeOutCubic",
+  easeOutCubic: "easeInCubic",
+  easeInOutCubic: "easeInOutCubic",
+  easeInQuart: "easeOutQuart",
+  easeOutQuart: "easeInQuart",
+  easeInOutQuart: "easeInOutQuart",
+  easeInBack: "easeOutBack",
+  easeOutBack: "easeInBack",
+  easeInOutBack: "easeInOutBack",
+  easeInSine: "easeOutSine",
+  easeOutSine: "easeInSine",
+  easeInOutSine: "easeInOutSine",
+  easeInExpo: "easeOutExpo",
+  easeOutExpo: "easeInExpo",
+  easeInOutExpo: "easeInOutExpo",
+};
+
+/**
+ * The time-reverse of an easing: the curve `g` with `g(t) = 1 − f(1 − t)`.
+ *
+ * Used by the scene `reverse` time mapping, which plays a tween backwards by
+ * swapping its `from` and `to`. The curve has to flip with them — otherwise
+ * an `easeInQuad` run backwards still accelerates out of its (new) start
+ * instead of decelerating into its (new) end.
+ *
+ * Exact for every easing name and for `{ bezier }`: reversing
+ * `cubic-bezier(x1, y1, x2, y2)` is `cubic-bezier(1 − x2, 1 − y2, 1 − x1,
+ * 1 − y1)` — the control polygon read end-to-start through the point
+ * reflection that maps (0,0)↔(1,1).
+ *
+ * `{ steps: n }` is the one inexact case. CSS `steps(n)` is `jump-end`,
+ * whose true reverse is `jump-start`, and the schema has no spelling for
+ * that — so the same `steps(n)` comes back. The hold pattern is then
+ * mirrored to within a single step of 1/n.
+ */
+export function mirrorEasing(easing: Easing | undefined): Easing | undefined {
+  if (easing === undefined) return undefined;
+  if (typeof easing === "string") return MIRRORED_EASING_NAMES[easing];
+  if ("bezier" in easing) {
+    const [x1, y1, x2, y2] = easing.bezier;
+    return { bezier: [1 - x2, 1 - y2, 1 - x1, 1 - y1] };
+  }
+  return { steps: easing.steps };
+}
+
 export function getEasing(easing: Easing | undefined): EasingFn {
   if (easing === undefined) return linear;
   if (typeof easing === "string") return EASINGS[easing];

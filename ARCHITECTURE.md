@@ -816,15 +816,25 @@ applied in `src/compose/scenes.ts`):
 
 - `identity` (default) — scene-local `t = 0` plays at `instance.start`;
   every scene tween shifts by the same delta.
-- `clip { fromTime, toTime }` — plays the half-open scene-local window;
-  tweens fully outside are dropped, tweens straddling an edge are rejected.
+- `clip { fromTime, toTime, strict? }` — plays the half-open scene-local
+  window; tweens fully outside are dropped, and a tween straddling an edge is
+  trimmed to the window with its `from`/`to` resampled through its own easing
+  at the cut (`strict: true` rejects it with `E_TIME_MAPPING_TWEEN_SPLIT`
+  instead, the pre-v4 behavior).
 - `loop { count }` — plays the scene `count` times back-to-back, each
   iteration with deterministic `__loop${i}` id suffixes.
 - `timeScale { scale }` — plays the scene at `scale×` speed (`scale > 0`).
+- `reverse {}` — plays the scene backwards. A tween on `[s, s+d)` lands on
+  `[duration − (s+d), duration − s)` with `from`/`to` swapped and its easing
+  mirrored (`easeIn* ↔ easeOut*`, exact for every name and for
+  cubic-bezier), so the motion retraces itself rather than replaying its
+  acceleration backwards.
 
-`reverse` is reserved and not implemented. The wrapper group's default
-`enter`/`exit` spans the mode's effective duration (see CHANGELOG
-"Expansion v3").
+`clip` auto-trim and `reverse` need concrete `from`/`to` values, so both
+lower the `$behavior` blocks they touch into literal tweens early, via the
+same `expandBehavior` the later pass uses. Every other mode leaves blocks
+alone. The wrapper group's default `enter`/`exit` spans the mode's effective
+duration (see CHANGELOG "Expansion v3").
 
 #### Sealed instances (§8.7)
 

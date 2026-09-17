@@ -14,6 +14,7 @@ import {
   getEasing,
   isEasingName,
   linear,
+  mirrorEasing,
   steps,
 } from "../../src/easings/index.js";
 
@@ -317,6 +318,73 @@ describe("PARAMETRIC_EASINGS", () => {
       const f = getEasing(p.example as Parameters<typeof getEasing>[0]);
       expect(f(0)).toBe(0);
       expect(f(1)).toBe(1);
+    }
+  });
+});
+
+describe("mirrorEasing (v1.1 S20)", () => {
+  // The defining property: mirroring a curve in time is `g(t) = 1 − f(1 − t)`.
+  // Every easing name is claimed to be exact under it, so hold all of them to
+  // the numeric identity rather than just spot-checking the in/out pairs.
+  const SAMPLES = [0, 0.01, 0.1, 0.25, 1 / 3, 0.5, 0.625, 0.75, 0.9, 0.99, 1];
+
+  for (const name of EASING_NAMES) {
+    it(`${name} mirrors to a curve equal to 1 − ${name}(1 − t)`, () => {
+      const f = getEasing(name);
+      const g = getEasing(mirrorEasing(name));
+      for (const t of SAMPLES) {
+        expect(g(t)).toBeCloseTo(1 - f(1 - t), 12);
+      }
+    });
+  }
+
+  it("pairs each ease-in with its ease-out and leaves symmetric curves alone", () => {
+    expect(mirrorEasing("easeInQuad")).toBe("easeOutQuad");
+    expect(mirrorEasing("easeOutExpo")).toBe("easeInExpo");
+    expect(mirrorEasing("easeInBack")).toBe("easeOutBack");
+    expect(mirrorEasing("linear")).toBe("linear");
+    expect(mirrorEasing("easeInOutCubic")).toBe("easeInOutCubic");
+  });
+
+  it("is an involution on every name", () => {
+    for (const name of EASING_NAMES) {
+      expect(mirrorEasing(mirrorEasing(name))).toBe(name);
+    }
+  });
+
+  it("passes undefined through (an absent easing is linear, its own mirror)", () => {
+    expect(mirrorEasing(undefined)).toBeUndefined();
+  });
+
+  it("reverses a cubic-bezier's control polygon exactly", () => {
+    const easing = { bezier: [0.25, 0.1, 0.42, 1] } as const;
+    const mirrored = mirrorEasing(easing) as { bezier: number[] };
+    // (x1, y1, x2, y2) → (1 − x2, 1 − y2, 1 − x1, 1 − y1), to FP precision.
+    for (const [got, want] of [
+      [mirrored.bezier[0]!, 0.58],
+      [mirrored.bezier[1]!, 0],
+      [mirrored.bezier[2]!, 0.75],
+      [mirrored.bezier[3]!, 0.9],
+    ] as const) {
+      expect(got).toBeCloseTo(want, 12);
+    }
+
+    const f = getEasing(easing);
+    const g = getEasing(mirrorEasing(easing));
+    for (const t of SAMPLES) {
+      expect(g(t)).toBeCloseTo(1 - f(1 - t), 9);
+    }
+  });
+
+  it("returns steps(n) unchanged — jump-start has no spelling in the schema", () => {
+    // Documented approximation: the true reverse of steps(n, jump-end) is
+    // steps(n, jump-start). The hold pattern comes back mirrored to within a
+    // single 1/n step, which is what this asserts rather than exactness.
+    expect(mirrorEasing({ steps: 4 })).toEqual({ steps: 4 });
+    const f = getEasing({ steps: 4 });
+    const g = getEasing(mirrorEasing({ steps: 4 }));
+    for (const t of SAMPLES) {
+      expect(Math.abs(g(t) - (1 - f(1 - t)))).toBeLessThanOrEqual(0.25 + EPS);
     }
   });
 });
