@@ -8,7 +8,7 @@
 //               "item": { "$behavior": "fadeIn", "target": "dot__r${i}", "start": "${i * 0.2}", … } } ]
 //
 // Rules:
-//   * `count` is an integer in [0, REPEAT_MAX_COUNT], literal or an expression.
+//   * `count` is an integer in [0, REPEAT_MAX_NODES], literal or an expression.
 //   * `as` names the loop variable (default `i`), a bare identifier inside
 //     every `${…}` of the body: `${i}`, `"b${i + 1}"`, `params['y' + (i + 1)]`.
 //   * Item ids: `${base}__r${i}` where `base` is the record key, unless the
@@ -19,6 +19,13 @@
 //   * `item` may itself be a `$repeat` block (grids); every enclosing loop
 //     variable stays in scope, so nested blocks need distinct `as` names.
 //     Nesting is capped at REPEAT_MAX_DEPTH, total output at REPEAT_MAX_NODES.
+//   * The node budget is per compile: `precompile` (and each standalone
+//     template / scene / behavior expansion, i.e. one MCP tool call) opens a
+//     scope with `withRepeatBudget`, and every `$repeat` expanded inside it —
+//     root items and tweens, template, scene and behavior bodies — draws from
+//     the same REPEAT_MAX_NODES. There is no separate per-block cap.
+//   * Errors are `E_REPEAT_INVALID` with `details.reason` one of
+//     `count` | `budget` | `depth` | `as` | `id` | `shape`.
 //   * Expansion happens where params bind: root blocks in a pass before
 //     `expandTemplates`, template / scene blocks inside their instance
 //     expansion. Bodies are substituted here, with the loop variables in scope,
@@ -30,9 +37,13 @@ import { MCPToolError } from "../engine/errors.js";
 import type { SourceLocation } from "../engine/types.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 
-export const REPEAT_MAX_COUNT = 500;
+/** Entries all `$repeat` blocks of one compile may produce together. */
+export const REPEAT_MAX_NODES = 10_000;
+/** Largest `count` of one block — the budget bounds it, so it's the same number. */
+export const REPEAT_MAX_COUNT = REPEAT_MAX_NODES;
 export const REPEAT_MAX_DEPTH = 4;
-export const REPEAT_MAX_NODES = 2000;
+
+export type RepeatErrorReason = "count" | "budget" | "depth" | "as" | "id" | "shape";
 
 const SOURCE_FIELD = "__source";
 const DEFAULT_AS = "i";
@@ -65,6 +76,30 @@ interface Budget {
   nodes: number;
 }
 
+/** The budget of the enclosing {@link withRepeatBudget} scope, if any. */
+let activeBudget: Budget | undefined;
+
+/**
+ * Run `fn` with one shared `$repeat` node budget. Nested calls join the
+ * outermost scope, so a precompile that expands templates, scenes and
+ * behaviors spends a single REPEAT_MAX_NODES across all of them. Expansion is
+ * synchronous, so a module-level scope can't leak between compiles.
+ */
+export function withRepeatBudget<T>(fn: () => T): T {
+  if (activeBudget !== undefined) return fn();
+  activeBudget = { nodes: 0 };
+  try {
+    return fn();
+  } finally {
+    activeBudget = undefined;
+  }
+}
+
+/** Budget for one `expandRepeat*` call: the active scope's, else a fresh one. */
+function currentBudget(): Budget {
+  return activeBudget ?? { nodes: 0 };
+}
+
 /**
  * Expand every `$repeat` entry of an `items` record. Non-repeat entries pass
  * through untouched. Returns the input unchanged (with empty maps) when there
@@ -80,7 +115,7 @@ export function expandRepeatItems(
   if (!Object.values(items).some(isRepeatBlock)) {
     return { items, generated, expanded };
   }
-  const budget: Budget = { nodes: 0 };
+  const budget = currentBudget();
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(items)) {
     const value = items[key];
@@ -109,7 +144,7 @@ export function expandRepeatTweens(
   ctx: SubstitutionContext,
   path: string,
 ): ExpandedRepeatTween[] {
-  const budget: Budget = { nodes: 0 };
+  const budget = currentBudget();
   const out: ExpandedRepeatTween[] = [];
   for (let i = 0; i < tweens.length; i += 1) {
     const entry = tweens[i];
@@ -184,6 +219,18 @@ export function expandRepeats(comp: unknown): unknown {
   const tweensHaveRepeat = Array.isArray(tweens) && tweens.some(isRepeatBlock);
   if (!itemsHaveRepeat && !tweensHaveRepeat) return comp;
 
+  return withRepeatBudget(() =>
+    expandRootRepeats(comp, itemsHaveRepeat, tweensHaveRepeat),
+  );
+}
+
+function expandRootRepeats(
+  comp: Record<string, unknown>,
+  itemsHaveRepeat: boolean,
+  tweensHaveRepeat: boolean,
+): Record<string, unknown> {
+  const items = comp.items;
+  const tweens = comp.tweens;
   const ctx: SubstitutionContext = { params: {}, meta: {} };
   const out: Record<string, unknown> = { ...comp };
   if (itemsHaveRepeat) {
@@ -235,7 +282,11 @@ function expandItemBlock(
     } else {
       const v = substitute(header.id, iterCtx, `${path}.$repeat.id`);
       if (typeof v !== "string" || v.length === 0) {
-        throw repeatError(`id pattern must produce a non-empty string, got ${JSON.stringify(v)}`, path);
+        throw repeatError(
+          `id pattern must produce a non-empty string, got ${JSON.stringify(v)}`,
+          path,
+          "id",
+        );
       }
       id = v;
     }
@@ -244,7 +295,7 @@ function expandItemBlock(
       continue;
     }
     if (!isPlainObject(header.item)) {
-      throw repeatError("`item` must be an object", path);
+      throw repeatError("`item` must be an object", path, "shape");
     }
     spend(budget, path);
     const item = substitute(header.item, iterCtx, `${path}.item`) as Record<string, unknown>;
@@ -279,7 +330,7 @@ function expandTweenBlock(
       continue;
     }
     if (!isPlainObject(header.item)) {
-      throw repeatError("`item` must be an object", path);
+      throw repeatError("`item` must be an object", path, "shape");
     }
     spend(budget, path);
     const rawId = header.item.id;
@@ -301,28 +352,30 @@ function readHeader(
   headerKeys: ReadonlySet<string>,
 ): Header {
   if (depth >= REPEAT_MAX_DEPTH) {
-    throw repeatError(`$repeat blocks nest deeper than ${REPEAT_MAX_DEPTH} levels`, path);
+    throw repeatError(`$repeat blocks nest deeper than ${REPEAT_MAX_DEPTH} levels`, path, "depth");
   }
   for (const k of Object.keys(block)) {
     if (!BLOCK_KEYS.has(k)) {
       throw repeatError(
         `unexpected key "${k}" next to $repeat — put the repeated entry under "item"`,
         path,
+        "shape",
       );
     }
   }
   if (!Object.prototype.hasOwnProperty.call(block, "item")) {
-    throw repeatError("missing `item`", path);
+    throw repeatError("missing `item`", path, "shape");
   }
   const raw = block.$repeat;
   if (!isPlainObject(raw)) {
-    throw repeatError("`$repeat` must be an object like { count, as }", path);
+    throw repeatError("`$repeat` must be an object like { count, as }", path, "shape");
   }
   for (const k of Object.keys(raw)) {
     if (!headerKeys.has(k)) {
       throw repeatError(
         `unknown $repeat option "${k}" (allowed: ${[...headerKeys].join(", ")})`,
         path,
+        "shape",
       );
     }
   }
@@ -332,35 +385,38 @@ function readHeader(
     throw repeatError(
       `\`as\` must be a plain identifier other than params/min/max/round, got ${JSON.stringify(as)}`,
       path,
+      "as",
     );
   }
   if (ctx.locals !== undefined && Object.prototype.hasOwnProperty.call(ctx.locals, as)) {
     throw repeatError(
       `loop variable "${as}" is already bound by an enclosing $repeat — give the nested block a different \`as\``,
       path,
+      "as",
     );
   }
 
   if (!Object.prototype.hasOwnProperty.call(raw, "count")) {
-    throw repeatError("missing `count`", path);
+    throw repeatError("missing `count`", path, "count");
   }
   const count = substitute(raw.count, ctx, `${path}.$repeat.count`);
   if (
     typeof count !== "number" ||
     !Number.isInteger(count) ||
     count < 0 ||
-    count > REPEAT_MAX_COUNT
+    count > REPEAT_MAX_NODES
   ) {
     throw repeatError(
-      `count must be an integer between 0 and ${REPEAT_MAX_COUNT}, got ${JSON.stringify(count)}`,
+      `count must be an integer between 0 and ${REPEAT_MAX_NODES}, got ${JSON.stringify(count)}`,
       path,
+      "count",
     );
   }
 
   const header: Header = { count, as, item: block.item };
   if (raw.id !== undefined) {
     if (typeof raw.id !== "string" || raw.id.length === 0) {
-      throw repeatError("`id` must be a non-empty string pattern like \"dot${i}\"", path);
+      throw repeatError("`id` must be a non-empty string pattern like \"dot${i}\"", path, "id");
     }
     header.id = raw.id;
   }
@@ -374,7 +430,11 @@ function withLocal(ctx: SubstitutionContext, name: string, i: number): Substitut
 function spend(budget: Budget, path: string): void {
   budget.nodes += 1;
   if (budget.nodes > REPEAT_MAX_NODES) {
-    throw repeatError(`expansion produces more than ${REPEAT_MAX_NODES} entries`, path);
+    throw repeatError(
+      `this compile's $repeat blocks produce more than ${REPEAT_MAX_NODES} entries in total`,
+      path,
+      "budget",
+    );
   }
 }
 
@@ -401,13 +461,14 @@ function withSource(
   return { ...entry, [SOURCE_FIELD]: { ...source, originKind: "repeat" } };
 }
 
-function repeatError(reason: string, path: string): MCPToolError {
+function repeatError(message: string, path: string, reason: RepeatErrorReason): MCPToolError {
   const at = path || "<root>";
   return new MCPToolError(
     "E_REPEAT_INVALID",
-    `Bad $repeat at ${at}: ${reason}.`,
+    `Bad $repeat at ${at}: ${message}.`,
     'Shape: { "$repeat": { "count": 3, "as": "i", "id": "dot${i}" }, "item": { … } } — ' +
-      `count is an integer 0–${REPEAT_MAX_COUNT}; \`id\` is only for items; ` +
+      `count is an integer 0–${REPEAT_MAX_NODES} and all $repeat blocks of one compile ` +
+      `produce at most ${REPEAT_MAX_NODES} entries together; \`id\` is only for items; ` +
       `nest at most ${REPEAT_MAX_DEPTH} levels.`,
     { details: { path: at, reason } },
   );

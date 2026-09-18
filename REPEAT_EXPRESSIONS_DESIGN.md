@@ -179,12 +179,21 @@ param-computed expression instead, recorded as open question Q3).
 
 ### 4.3 Expansion budget
 
-- `count` must resolve (post-substitution) to an integer `0 ≤ n ≤ 500`,
-  else `E_REPEAT_COUNT`. `count: 0` is legal and expands to nothing
+- Total nodes produced by all `$repeat`s in one compile ≤ 10,000
+  (`REPEAT_MAX_NODES`). One budget covers root items and tweens and every
+  template, scene and behavior body expanded by that `precompile`; a
+  standalone `apply_template` / `add_scene_instance` / `apply_behavior` call
+  gets its own. Scene `loop` copies are not `$repeat` nodes and don't count.
+  Keeps a typo (`count: 50000`) from OOMing the MCP server — same philosophy
+  as the R-18 preview `count` cap. 10,000 is a few MB of JSON and covers a
+  per-frame counter or caption on a 30 fps clip up to ~5 minutes.
+- `count` must resolve (post-substitution) to an integer
+  `0 ≤ n ≤ REPEAT_MAX_NODES`. There is no separate per-block cap — the
+  budget already bounds it. `count: 0` is legal and expands to nothing
   (parametric templates want this).
-- Total nodes produced by all `$repeat`s in one compile ≤ 2000, else
-  `E_REPEAT_BUDGET`. Keeps a typo (`count: 50000`) from OOMing the MCP
-  server — same philosophy as the R-18 preview `count` cap.
+- Nesting is capped at 4 levels (`REPEAT_MAX_DEPTH`).
+- Every violation is `E_REPEAT_INVALID` with `details.reason` one of
+  `count` | `budget` | `depth` | `as` | `id` | `shape` (and `details.path`).
 
 ### 4.4 Pipeline position
 
@@ -326,7 +335,7 @@ Follows §6.6 exactly, with the gaps it left unspecified filled in:
    omitted, and its description drops the apology.
 4. **`list_engine_capabilities`** — advertise
    `expressions: { version: 1, ops: ["+","-","*","/","%"], maxLength: 256 }`
-   and `repeat: { maxCount: 500, budget: 2000 }` for feature detection.
+   and `repeat: { maxNodes: 10000, maxDepth: 4 }` for feature detection.
 5. **Manifest sync** — server.json + README + mcp-demo (manifest.test
    trap) for every description change above.
 
@@ -338,8 +347,7 @@ Follows §6.6 exactly, with the gaps it left unspecified filled in:
 | `E_EXPR_TYPE` | new | non-numeric operand / non-finite result |
 | `E_EXPR_LIMIT` | new | §3.3 length/token/depth caps |
 | `E_TEMPLATE_PARAM_MISSING` | reuse | unknown `params.X` / `$.X` ref |
-| `E_REPEAT_COUNT` | new | count not an int in `[0, 500]` |
-| `E_REPEAT_BUDGET` | new | > 2000 expanded nodes per compile |
+| `E_REPEAT_INVALID` | new | malformed block; `details.reason` is `count` (not an int in `[0, 10000]`), `budget` (> 10,000 expanded nodes per compile), `depth`, `as`, `id` or `shape` |
 | `E_BEHAVIOR_PARAM_*` | reuse | user-behavior param validation |
 | `E_TWEEN_OVERLAP`, `E_ITEM_MISSING`, dup-id | reuse | post-expansion, unchanged |
 
@@ -422,3 +430,18 @@ error code; the review's live drives showed hint quality is load-bearing).
   preserved; repeats piggyback on substitution rather than adding a pass
   (§4.4), keeping "behaviors last" true.
 - **§19.7** — "tiny custom parser, AVOID full JS sandbox": followed.
+
+## 12. Changelog
+
+- **v1.2 F3 (B-4, 2026-09-18) — doc updated to match the code.** The v1.1
+  implementation drifted from §4.3 / §6 / §7: it shipped one error code,
+  `E_REPEAT_INVALID` with a `details.reason`, instead of `E_REPEAT_COUNT` /
+  `E_REPEAT_BUDGET`; it capped each block at 500; its 2000-node budget reset
+  on every expansion call (root items, root tweens, each template / scene
+  instance and behavior body got a fresh one); and `list_engine_capabilities`
+  didn't advertise the limits. Resolved in favour of the code where agents
+  already depend on it — `E_REPEAT_INVALID` stays, `reason` is now the enum
+  `count` | `budget` | `depth` | `as` | `id` | `shape` — and in favour of the
+  design's intent elsewhere: the budget is genuinely per compile, raised to
+  10,000 with no per-block cap (a 30 fps frame counter needs 900 for 30 s), and
+  `list_engine_capabilities` reports `repeat: { maxNodes, maxDepth }`.

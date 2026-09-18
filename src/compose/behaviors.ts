@@ -21,7 +21,7 @@ import { MCPToolError } from "../engine/errors.js";
 import type { Tween } from "../schema/types.js";
 import { OVERLAP_EPS } from "../schema/validator.js";
 import { substitute, type SubstitutionContext } from "./params.js";
-import { expandRepeatTweens, isRepeatBlock } from "./repeat.js";
+import { expandRepeatTweens, isRepeatBlock, withRepeatBudget } from "./repeat.js";
 
 /**
  * Behavior-expansion semantics version. Bumped when a *registered* behavior's
@@ -299,6 +299,11 @@ export function expandBehavior(
   block: BehaviorBlock,
   options: ExpandBehaviorOptions = {},
 ): Tween[] {
+  // One `$repeat` budget per block, or the enclosing compile's.
+  return withRepeatBudget(() => expandBehaviorInScope(block, options));
+}
+
+function expandBehaviorInScope(block: BehaviorBlock, options: ExpandBehaviorOptions): Tween[] {
   const entry = resolveEntry(block.behavior, options);
   if (!entry) {
     throw new MCPToolError(

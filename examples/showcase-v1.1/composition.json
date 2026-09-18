@@ -59,7 +59,7 @@
   {
    "id": "self",
    "type": "video",
-   "src": "output/droste/self-6.mp4"
+   "src": "assets/mandelbrot.mp4"
   }
  ],
  "templates": {
@@ -672,8 +672,7 @@
    "blendMode": "normal",
    "name": "hud",
    "items": [
-    "hudA",
-    "hudB",
+    "hud",
     "rec",
     "timebar",
     "cap0",
@@ -2652,11 +2651,11 @@
     "opacity": 0
    }
   },
-  "hudA": {
+  "hud": {
    "$repeat": {
-    "count": 450,
+    "count": 900,
     "as": "i",
-    "id": "frame${i + 0}"
+    "id": "frame${i}"
    },
    "item": {
     "type": "text",
@@ -2675,35 +2674,8 @@
      "opacity": 1
     },
     "align": "right",
-    "enter": "${(i + 0) / 30}",
+    "enter": "${i / 30}",
     "exit": "${(i + 1) / 30}"
-   }
-  },
-  "hudB": {
-   "$repeat": {
-    "count": 450,
-    "as": "i",
-    "id": "frame${i + 450}"
-   },
-   "item": {
-    "type": "text",
-    "text": "frame ${i + 451} / 900",
-    "font": "font-mono",
-    "fontSize": 22,
-    "color": "#5d6690",
-    "transform": {
-     "x": 1856,
-     "y": 62,
-     "scaleX": 1,
-     "scaleY": 1,
-     "rotation": 0,
-     "anchorX": 0,
-     "anchorY": 0,
-     "opacity": 1
-    },
-    "align": "right",
-    "enter": "${(i + 450) / 30}",
-    "exit": "${(i + 451) / 30}"
    }
   },
   "rec": {

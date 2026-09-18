@@ -13,6 +13,7 @@ import {
   expandRepeats,
   REPEAT_MAX_COUNT,
   REPEAT_MAX_DEPTH,
+  REPEAT_MAX_NODES,
 } from "../../src/compose/repeat.js";
 import { MCPToolError } from "../../src/engine/errors.js";
 import { validate } from "../../src/schema/validator.js";
@@ -226,27 +227,33 @@ describe("$repeat errors", () => {
     expandRepeatItems({ d: block }, ctx, "items");
 
   it.each([
-    [{ $repeat: { count: -1 }, item: {} }, "between 0 and"],
-    [{ $repeat: { count: 1.5 }, item: {} }, "between 0 and"],
-    [{ $repeat: { count: REPEAT_MAX_COUNT + 1 }, item: {} }, "between 0 and"],
-    [{ $repeat: { count: "${params.s}" }, item: {} }, "between 0 and"],
-    [{ $repeat: {}, item: {} }, "missing `count`"],
-    [{ $repeat: { count: 1 } }, "missing `item`"],
-    [{ $repeat: { count: 1 }, item: {}, extra: 1 }, 'unexpected key "extra"'],
-    [{ $repeat: { count: 1, stagger: 1 }, item: {} }, 'unknown $repeat option "stagger"'],
-    [{ $repeat: { count: 1, as: "params" }, item: {} }, "`as` must be"],
-    [{ $repeat: { count: 1, as: "a-b" }, item: {} }, "`as` must be"],
-    [{ $repeat: { count: 1, id: 7 }, item: {} }, "`id` must be"],
-    [{ $repeat: { count: 1 }, item: 5 }, "`item` must be an object"],
+    [{ $repeat: { count: -1 }, item: {} }, "between 0 and", "count"],
+    [{ $repeat: { count: 1.5 }, item: {} }, "between 0 and", "count"],
+    [{ $repeat: { count: REPEAT_MAX_NODES + 1 }, item: {} }, "between 0 and", "count"],
+    [{ $repeat: { count: "${params.s}" }, item: {} }, "between 0 and", "count"],
+    [{ $repeat: {}, item: {} }, "missing `count`", "count"],
+    [{ $repeat: { count: 1 } }, "missing `item`", "shape"],
+    [{ $repeat: { count: 1 }, item: {}, extra: 1 }, 'unexpected key "extra"', "shape"],
+    [
+      { $repeat: { count: 1, stagger: 1 }, item: {} },
+      'unknown $repeat option "stagger"',
+      "shape",
+    ],
+    [{ $repeat: { count: 1, as: "params" }, item: {} }, "`as` must be", "as"],
+    [{ $repeat: { count: 1, as: "a-b" }, item: {} }, "`as` must be", "as"],
+    [{ $repeat: { count: 1, id: 7 }, item: {} }, "`id` must be", "id"],
+    [{ $repeat: { count: 1 }, item: 5 }, "`item` must be an object", "shape"],
     [
       { $repeat: { count: 1 }, item: { $repeat: { count: 1 }, item: {} } },
       'loop variable "i" is already bound',
+      "as",
     ],
-  ])("rejects malformed block #%#", (block, message) => {
+  ])("rejects malformed block #%#", (block, message, reason) => {
     const err = caught(() => expandOne(block));
     expect(err.code).toBe("E_REPEAT_INVALID");
     expect(err.message).toContain(message);
     expect(String(err.details?.path)).toMatch(/^items\.d/);
+    expect(err.details?.reason).toBe(reason);
   });
 
   it("rejects `id` on tween repeats", () => {
@@ -261,17 +268,20 @@ describe("$repeat errors", () => {
     for (let d = 0; d <= REPEAT_MAX_DEPTH; d += 1) {
       block = { $repeat: { count: 1, as: `v${d}` }, item: block };
     }
-    expect(caught(() => expandOne(block)).message).toContain(
-      `nest deeper than ${REPEAT_MAX_DEPTH}`,
-    );
+    const err = caught(() => expandOne(block));
+    expect(err.message).toContain(`nest deeper than ${REPEAT_MAX_DEPTH}`);
+    expect(err.details?.reason).toBe("depth");
   });
 
   it("enforces the total output budget", () => {
+    // Each count is legal on its own; the product overruns the budget.
     const block = {
-      $repeat: { count: 500, as: "a" },
-      item: { $repeat: { count: 5, as: "b" }, item: {} },
+      $repeat: { count: REPEAT_MAX_NODES / 2, as: "a" },
+      item: { $repeat: { count: 3, as: "b" }, item: {} },
     };
-    expect(caught(() => expandOne(block)).message).toContain("more than 2000 entries");
+    const err = caught(() => expandOne(block));
+    expect(err.message).toContain(`more than ${REPEAT_MAX_NODES} entries`);
+    expect(err.details?.reason).toBe("budget");
   });
 
   it("rejects colliding ids", () => {
@@ -533,5 +543,141 @@ describe("descriptors", () => {
     expect(
       describeItemIds({ z: {}, dot: { $repeat: { count: 2, as: "k" }, item: {} } }),
     ).toEqual(["dot__r${k}", "z"]);
+  });
+});
+
+// B-4 (v1.2 F3): one node budget per compile, no separate per-block cap.
+describe("$repeat limits", () => {
+  const text = {
+    type: "text",
+    text: "frame ${i}",
+    font: "font:default",
+    fontSize: 24,
+    color: "#ffffff",
+    transform: TRANSFORM,
+  };
+  const frameBlock = (count: number, id: string) => ({
+    $repeat: { count, id },
+    item: { ...text, enter: "${i / 30}", exit: "${(i + 1) / 30}" },
+  });
+  async function precompileErr(comp: unknown): Promise<MCPToolError> {
+    try {
+      await precompile(comp);
+    } catch (err) {
+      expect(err).toBeInstanceOf(MCPToolError);
+      return err as MCPToolError;
+    }
+    throw new Error("expected an MCPToolError");
+  }
+
+  it("keeps REPEAT_MAX_COUNT as an alias of the per-compile budget", () => {
+    expect(REPEAT_MAX_NODES).toBe(10_000);
+    expect(REPEAT_MAX_COUNT).toBe(REPEAT_MAX_NODES);
+  });
+
+  it("accepts 900 entries in one block (a 30 s / 30 fps frame counter)", () => {
+    const out = expandRepeatItems({ f: frameBlock(900, "f${i}") }, { params: {} }, "items");
+    expect(Object.keys(out.items)).toHaveLength(900);
+    expect((out.items.f899 as any).text).toBe("frame 899");
+  });
+
+  it("accepts a block at exactly the budget and rejects one past it with reason count", () => {
+    const block = (count: number) => ({ d: { $repeat: { count }, item: {} } });
+    const ok = expandRepeatItems(block(REPEAT_MAX_NODES), { params: {} }, "items");
+    expect(Object.keys(ok.items)).toHaveLength(REPEAT_MAX_NODES);
+    const err = caught(() => expandRepeatItems(block(REPEAT_MAX_NODES + 1), { params: {} }, "items"));
+    expect(err.code).toBe("E_REPEAT_INVALID");
+    expect(err.details?.reason).toBe("count");
+  });
+
+  it("shares the budget across root blocks of one compile", async () => {
+    const err = await precompileErr(
+      rootComp({
+        layers: [{ id: "main", z: 0, opacity: 1, blendMode: "normal", items: ["a", "b"] }],
+        items: { a: frameBlock(6000, "a${i}"), b: frameBlock(6000, "b${i}") },
+      }),
+    );
+    expect(err.code).toBe("E_REPEAT_INVALID");
+    expect(err.details?.reason).toBe("budget");
+    expect(err.details?.path).toBe("items.b");
+  });
+
+  it("shares the budget between root items and root tweens", async () => {
+    const err = await precompileErr(
+      rootComp({
+        items: { dots: { $repeat: { count: 6000 }, item: dot() } },
+        tweens: [
+          {
+            $repeat: { count: 6000 },
+            item: {
+              target: "dots__r${i}",
+              property: "transform.opacity",
+              from: 0,
+              to: 1,
+              start: 0,
+              duration: 1,
+            },
+          },
+        ],
+      }),
+    );
+    expect(err.details?.reason).toBe("budget");
+  });
+
+  it("shares the budget between a template instance and a root block", async () => {
+    const comp = (templateCount: number) =>
+      rootComp({
+        layers: [{ id: "main", z: 0, opacity: 1, blendMode: "normal", items: ["a"] }],
+        templates: {
+          row: {
+            id: "row",
+            params: [],
+            items: { d: { $repeat: { count: templateCount }, item: dot() } },
+            tweens: [],
+          },
+        },
+        items: {
+          a: frameBlock(6000, "a${i}"),
+          r: { $template: "row", layerId: "main" },
+        },
+      });
+    // Each half fits on its own…
+    const resolved = (await precompile(comp(4000))) as { items: Record<string, unknown> };
+    expect(Object.keys(resolved.items)).toHaveLength(10_000);
+    // …but together they overrun the one compile budget.
+    const err = await precompileErr(comp(4001));
+    expect(err.details?.reason).toBe("budget");
+    expect(err.details?.path).toBe("templates.row.items.d");
+  });
+
+  it("gives each standalone template expansion a fresh budget", () => {
+    const templates = {
+      row: {
+        id: "row",
+        params: [],
+        items: { d: { $repeat: { count: 6000 }, item: dot() } },
+        tweens: [],
+      },
+    };
+    for (const id of ["x", "y"]) {
+      const ex = expandTemplate(id, { template: "row" }, { templates } as any);
+      expect(Object.keys(ex.items)).toHaveLength(6000);
+    }
+  });
+
+  it("precompiles and validates 10,000 windowed text items in < 2 s", async () => {
+    const t0 = performance.now();
+    const resolved = await precompile(
+      rootComp({
+        composition: { width: 640, height: 360, fps: 30, duration: 340, background: "#000000" },
+        layers: [{ id: "main", z: 0, opacity: 1, blendMode: "normal", items: ["f"] }],
+        items: { f: frameBlock(REPEAT_MAX_NODES, "f${i}") },
+      }),
+    );
+    const result = validate(resolved);
+    const elapsed = performance.now() - t0;
+    expect(result.errors).toEqual([]);
+    expect(Object.keys((resolved as any).items)).toHaveLength(REPEAT_MAX_NODES);
+    expect(elapsed).toBeLessThan(2000);
   });
 });

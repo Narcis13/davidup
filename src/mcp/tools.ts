@@ -50,6 +50,7 @@ import {
 } from "../compose/templates.js";
 import { RefResolutionError } from "../compose/imports.js";
 import { topLevelIds } from "../compose/ownership.js";
+import { REPEAT_MAX_DEPTH, REPEAT_MAX_NODES, withRepeatBudget } from "../compose/repeat.js";
 import {
   renderToFile,
   checkContainerCodec,
@@ -1789,16 +1790,20 @@ const applyTemplate = defineTool({
     // two MCP sessions on the same backend never share `define_user_template`
     // mutations. The expander falls back to the global REGISTRY when an id
     // isn't present in the session record.
-    const expanded = expandTemplate(instanceId, instance, {
-      templates: store.userTemplateRecord(),
-    });
     // Run the §10.4 behavior pass on the template's tween array so any
-    // `$behavior` blocks the template emitted resolve to literal tweens.
-    const literalTweens = (
-      expandBehaviors({ tweens: expanded.tweens }, {
-        behaviors: store.userBehaviorRecord(),
-      }) as { tweens: Tween[] }
-    ).tweens;
+    // `$behavior` blocks the template emitted resolve to literal tweens. Both
+    // passes share one `$repeat` budget — the tool call is the compile unit.
+    const { expanded, literalTweens } = withRepeatBudget(() => {
+      const expanded = expandTemplate(instanceId, instance, {
+        templates: store.userTemplateRecord(),
+      });
+      const literalTweens = (
+        expandBehaviors({ tweens: expanded.tweens }, {
+          behaviors: store.userBehaviorRecord(),
+        }) as { tweens: Tween[] }
+      ).tweens;
+      return { expanded, literalTweens };
+    });
 
     // Single-parent invariant (B-3): only the template's top-level items go
     // into the layer; a child of a template-internal group is reachable
@@ -2170,17 +2175,20 @@ function applySceneInstanceToStore(
   };
   // Pass the session's scene record into the expander so any nested scene
   // references inside this scene also resolve session-first.
-  const expanded = expandSceneInstance(args.instanceId, sceneInstance, {
-    scenes: store.userSceneRecord(),
+  // Then run the §10.4 behavior pass on the scene's tween array so any
+  // `$behavior` blocks the scene emitted resolve to literal tweens. Both
+  // passes share one `$repeat` budget — the tool call is the compile unit.
+  const { expanded, literalTweens } = withRepeatBudget(() => {
+    const expanded = expandSceneInstance(args.instanceId, sceneInstance, {
+      scenes: store.userSceneRecord(),
+    });
+    const literalTweens = (
+      expandBehaviors({ tweens: expanded.tweens }, {
+        behaviors: store.userBehaviorRecord(),
+      }) as { tweens: Tween[] }
+    ).tweens;
+    return { expanded, literalTweens };
   });
-
-  // Run the §10.4 behavior pass on the scene's tween array so any
-  // `$behavior` blocks the scene emitted resolve to literal tweens.
-  const literalTweens = (
-    expandBehaviors({ tweens: expanded.tweens }, {
-      behaviors: store.userBehaviorRecord(),
-    }) as { tweens: Tween[] }
-  ).tweens;
 
   const addedItemIds: string[] = [];
   const addedTweenIds: string[] = [];
@@ -3069,6 +3077,15 @@ const listEngineCapabilitiesTool = defineTool({
           ]),
         ),
         propertyPattern: "effects.<index>.<field>",
+      },
+      // `$repeat` limits (v1.2 F3): all blocks of one compile (or one
+      // apply_template / add_scene_instance / apply_behavior call) produce at
+      // most `maxNodes` entries together — a single block's `count` included;
+      // blocks nest at most `maxDepth` levels. Over either → E_REPEAT_INVALID
+      // with `details.reason` "count" | "budget" | "depth".
+      repeat: {
+        maxNodes: REPEAT_MAX_NODES,
+        maxDepth: REPEAT_MAX_DEPTH,
       },
       tweenable: {
         sprite: listTweenable("sprite"),

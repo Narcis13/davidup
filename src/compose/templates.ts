@@ -30,6 +30,7 @@ import { substitute, type SubstitutionContext } from "./params.js";
 import {
   expandRepeatItems,
   expandRepeatTweens,
+  withRepeatBudget,
   describeItemIds,
   replaceGroupRepeatRefs,
 } from "./repeat.js";
@@ -153,6 +154,15 @@ export function expandTemplate(
   instanceId: string,
   instance: TemplateInstance,
   options: { templates?: Record<string, TemplateDefinition> } = {},
+): ExpandedTemplate {
+  // One `$repeat` budget per instance, or the enclosing compile's.
+  return withRepeatBudget(() => expandTemplateInScope(instanceId, instance, options));
+}
+
+function expandTemplateInScope(
+  instanceId: string,
+  instance: TemplateInstance,
+  options: { templates?: Record<string, TemplateDefinition> },
 ): ExpandedTemplate {
   if (typeof instanceId !== "string" || instanceId.length === 0) {
     throw new MCPToolError(

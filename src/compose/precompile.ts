@@ -62,7 +62,7 @@
 
 import { expandBehaviors } from "./behaviors.js";
 import { resolveImports, type ReadFile } from "./imports.js";
-import { expandRepeats } from "./repeat.js";
+import { expandRepeats, withRepeatBudget } from "./repeat.js";
 import { expandSceneInstances } from "./scenes.js";
 import { expandTemplates } from "./templates.js";
 // Side-effect import: registers the v0.3 built-in templates with the global
@@ -163,11 +163,20 @@ export async function precompile(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
-  current = expandRepeats(current);
-  current = expandTemplates(current);
-  current = expandSceneInstances(current);
-  current = expandBehaviors(current);
-  return current;
+  return expandPasses(current);
+}
+
+/**
+ * Passes 1b–4 under one `$repeat` node budget, so the limit is per compile
+ * rather than per block, instance or pass.
+ */
+function expandPasses(comp: unknown): unknown {
+  return withRepeatBudget(() => {
+    let current = expandRepeats(comp);
+    current = expandTemplates(current);
+    current = expandSceneInstances(current);
+    return expandBehaviors(current);
+  });
 }
 
 // ──────────────── Source-map-emitting pipeline ────────────────
@@ -199,13 +208,15 @@ async function precompileWithSourceMap(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
-  current = expandRepeats(current);
-  // Root `$repeat` products carry the block's __source; the instances and
-  // behavior blocks among them need the same prefix lookups as authored ones.
-  collectRepeatProductSources(current, instanceSources, behaviorSources);
-  current = expandTemplates(current);
-  current = expandSceneInstances(current);
-  current = expandBehaviors(current);
+  current = withRepeatBudget(() => {
+    let expanded = expandRepeats(current);
+    // Root `$repeat` products carry the block's __source; the instances and
+    // behavior blocks among them need the same prefix lookups as authored ones.
+    collectRepeatProductSources(expanded, instanceSources, behaviorSources);
+    expanded = expandTemplates(expanded);
+    expanded = expandSceneInstances(expanded);
+    return expandBehaviors(expanded);
+  });
 
   // Step 3 + 4: Extract __source into the SourceMap, derive missing entries
   // from id-prefix matching, and strip __source from the resolved comp.

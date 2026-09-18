@@ -99,6 +99,7 @@ import { substitute, type SubstitutionContext } from "./params.js";
 import {
   expandRepeatItems,
   expandRepeatTweens,
+  withRepeatBudget,
   describeItemIds,
   replaceGroupRepeatRefs,
 } from "./repeat.js";
@@ -302,6 +303,16 @@ export function expandSceneInstance(
   instance: SceneInstance,
   options: ExpandSceneOptions = {},
 ): ExpandedScene {
+  // One `$repeat` budget per instance (nested scenes included), or the
+  // enclosing compile's.
+  return withRepeatBudget(() => expandSceneInstanceInScope(instanceId, instance, options));
+}
+
+function expandSceneInstanceInScope(
+  instanceId: string,
+  instance: SceneInstance,
+  options: ExpandSceneOptions,
+): ExpandedScene {
   if (typeof instanceId !== "string" || instanceId.length === 0) {
     throw new MCPToolError(
       "E_INVALID_VALUE",
@@ -400,7 +411,7 @@ export function expandSceneInstance(
         "E_REPEAT_INVALID",
         `Bad $repeat at scenes.${def.id}.items: it produced a $template instance ("${localId}"), but templates inside a scene expand before the scene's params bind.`,
         "Repeat the template instance at the composition root instead, or repeat the template's items inside the template definition.",
-        { details: { path: `scenes.${def.id}.items`, reason: "template instance inside a scene $repeat" } },
+        { details: { path: `scenes.${def.id}.items`, reason: "shape" } },
       );
     }
     const prefixedId = `${instanceId}__${localId}`;

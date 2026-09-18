@@ -713,8 +713,12 @@ The loop variable (`as`, default `i`) is in scope for every expression in the
 body; `params['label' + (i + 1)]` looks a param up by computed name. Item ids
 default to `${key}__r${i}` (or the `id` pattern); layer and group references to
 the key expand to the produced ids. A constant tween `id` gets `__r${i}`
-appended. Blocks nest up to 4 deep (distinct `as` names), `count` is 0–500 and
-one list may produce at most 2000 entries (`E_REPEAT_INVALID`). A `$repeat`
+appended. Blocks nest up to 4 deep (distinct `as` names). All `$repeat` blocks
+of one compile — root, template, scene and behavior bodies together — produce
+at most 10,000 entries, so a single `count` is 0–10,000 (enough for a per-frame
+counter on a 5-minute 30 fps clip); `apply_template` / `add_scene_instance` /
+`apply_behavior` get the same budget per call. Over it is `E_REPEAT_INVALID`,
+and `list_engine_capabilities.repeat` reports the limits. A `$repeat`
 inside a scene can't produce `$template` instances. Source maps attribute the
 products to the block with `originKind: "repeat"`.
 
@@ -873,7 +877,7 @@ handle:
 | `E_BEHAVIOR_UNKNOWN` / `E_BEHAVIOR_PARAM_MISSING` / `E_BEHAVIOR_PARAM_TYPE` | Bad behavior name / missing or mistyped param |
 | `E_TEMPLATE_UNKNOWN` / `E_TEMPLATE_PARAM_MISSING` / `E_TEMPLATE_PARAM_TYPE` | Same for templates |
 | `E_TEMPLATE_EXPR` | A `${…}` expression in a template or scene is malformed or mistyped — `details` has `path`, `expression`, `position` |
-| `E_REPEAT_INVALID` | A `$repeat` block is malformed — bad `count` / `as` / `id`, nested too deep, or produces too many entries — `details` has `path`, `reason` |
+| `E_REPEAT_INVALID` | A `$repeat` block is malformed — bad `count` / `as` / `id`, nested too deep, or the compile's blocks produce more than 10,000 entries — `details` has `path` and `reason` (`count` \| `budget` \| `depth` \| `as` \| `id` \| `shape`) |
 | `E_SCENE_UNKNOWN` / `E_SCENE_RECURSION` / `E_SCENE_INSTANCE_DEEP_TARGET` | Scene placement failures |
 | `E_TIME_MAPPING_INVALID` / `E_TIME_MAPPING_TWEEN_SPLIT` | Bad `time` block / a `clip` boundary cut through a tween |
 | `E_ASSET_CONFLICT` | Two assets with the same id but different content |

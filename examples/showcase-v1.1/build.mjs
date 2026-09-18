@@ -485,15 +485,12 @@ tw("rvE", "transform.opacity", 0, 1, 28.4, 0.3, "easeOutQuad");
 // HUD — frame counter ($repeat ×900 with enter/exit windows), act captions via
 // an inline template, and a timeline bar.
 // ════════════════════════════════════════════════════════════════════════════
-// ($repeat caps count at 500, so the 900 frames come from two blocks)
-for (const [key, base] of [["hudA", 0], ["hudB", 450]]) {
-  items[key] = {
-    $repeat: { count: 450, as: "i", id: `frame\${i + ${base}}` },
-    item: text(`frame \${i + ${base + 1}} / 900`, MONO, 22, "#5d6690", T(1856, 62), {
-      align: "right", enter: `\${(i + ${base}) / 30}`, exit: `\${(i + ${base + 1}) / 30}`,
-    }),
-  };
-}
+items.hud = {
+  $repeat: { count: 900, as: "i", id: "frame${i}" },
+  item: text("frame ${i + 1} / 900", MONO, 22, "#5d6690", T(1856, 62), {
+    align: "right", enter: "${i / 30}", exit: "${(i + 1) / 30}",
+  }),
+};
 items.rec = circle(12, "#ff3b4e", C(1588, 55));
 tw("rec", "transform.opacity", 1, 0.15, 0, 30, { steps: 30 });
 items.timebar = rect(0, 4, CYAN, T(0, 1076, { o: 0.8 }));
@@ -598,7 +595,7 @@ const composition = {
         "footage", "no0", "no1", "no2", "screen", "reveal",
       ],
     },
-    { id: "hud", z: 20, opacity: 1, blendMode: "normal", name: "hud", items: ["hudA", "hudB", "rec", "timebar", ...captionIds] },
+    { id: "hud", z: 20, opacity: 1, blendMode: "normal", name: "hud", items: ["hud", "rec", "timebar", ...captionIds] },
     { id: "fx", z: 30, opacity: 1, blendMode: "normal", name: "fx", items: ["shock1", "shock1Flash", "shock2", "shock2Flash", "fadeOut"] },
   ],
   items,
