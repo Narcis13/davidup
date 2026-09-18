@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>memo prototype</title>
+<canvas id="c" width="1080" height="1080"></canvas>
+<script src="core.js"></script>
+<script>
+'use strict';
+// PROTOTYPE: assets as functions in a tree, memoised by their inputs.
+// Because every draw call is seeded and drawFrame is pure, a subtree with unchanged inputs paints identical pixels,
+// so we can paint it once into a layer and blit it until an input changes.
+usePalette('paperInk');
+
+const _memo = new Map();
+let HITS = 0, MISSES = 0;
+// asset(name, draw, opts): draw(c, inputs) paints in LOCAL coords inside a box [x,y,w,h] (logical units).
+// The returned function takes (c, inputs) and either blits the cached layer or repaints it.
+function asset(name, draw, { box, memo = true } = {}) {
+  return (c, inputs = {}) => {
+    if (!memo || window.__memoOff) return draw(c, inputs);
+    const key = name + '|' + JSON.stringify(inputs) + '|' + S + '|' + PAL.finish + PAL.paper;
+    let L = _memo.get(key);
+    if (!L) { MISSES++; L = layer(box[2], box[3]); const g = L.getContext('2d'); g.setTransform(S, 0, 0, S, -box[0] * S, -box[1] * S); draw(g, inputs); _memo.set(key, L); }
+    else HITS++;
+    c.drawImage(L, box[0], box[1], box[2], box[3]);
+  };
+}
+
+// --- leaf assets ---
+const ground = asset('ground', (c) => {                         // heavy: 3 hatch layers + 7000 grain, changes never
+  const peach = circPath(560, 980, 700), pbox = [-140, 280, 1400, 1400];
+  c.fillStyle = PAL.fills[0]; c.fill(peach); c.save(); c.clip(peach);
+  hatch(c, circPath(300, 560, 420), [-120, 140, 840, 840], { angle: .8, gap: 6, len: 16, color: PAL.light, alpha: .6, width: 1.4, seed: 2 });
+  hatch(c, circPath(820, 1150, 620), [200, 530, 1240, 1240], { angle: -.6, gap: 5, len: 18, color: PAL.blush, alpha: .38, seed: 3 });
+  c.restore(); grain(c, peach, pbox, 7000, PAL.shade, .35, 6, 2);
+  c.strokeStyle = PAL.ink; c.lineWidth = 3; wob(c, ellPts(560, 980, 700, 700, 0, 120), 2.5, 7, true);
+}, { box: [0, 0, 1080, 1080] });
+
+const BALL = circPath(0, 0, 90);
+const ball = asset('ball', (c, { twitch }) => {                  // changes only when `twitch` changes: 2 distinct states
+  c.translate(100, 100); c.fillStyle = PAL.fills[2]; c.fill(BALL); surface(c, BALL, [-90, -90, 180, 180], { seed: 3 });
+  c.strokeStyle = PAL.ink; c.lineWidth = 2.6; wob(c, ellPts(0, 0, 90 + twitch * 6, 90), 1.8, 4, true);
+}, { box: [0, 0, 200, 200] });
+
+// --- a composite asset: the tree. Position is applied by the parent, so a moving child stays cacheable. ---
+function scene(c, tau, i) {
+  paper(c);                                                     // could itself be an asset('paper')
+  ground(c);
+  const x = lerp(CX - 400, CX + 300, sm(0, 1.6, tau, easeOut));
+  c.save(); c.translate(Math.round(x) - 100, CY - 100); ball(c, { twitch: pulse(i, 6) ? 1 : 0 }); c.restore();
+}
+defineFilm({ timeline: [{ name: 'memo', dur: 2, fn: scene }] });
+
+// benchmark + equality check, exposed for puppeteer
+window.__bench = () => {
+  const cv = document.getElementById('c'), g = cv.getContext('2d');
+  const hash = () => { const d = g.getImageData(0, 0, cv.width, cv.height).data; let h = 2166136261; for (let k = 0; k < d.length; k += 7) h = Math.imul(h ^ d[k], 16777619); return (h >>> 0).toString(16); };
+  const run = (memo) => { _memo.clear(); HITS = MISSES = 0; const hs = []; const t = performance.now();
+    for (let i = 0; i < 24; i++) { if (!memo) _memo.clear(); window.__drawFrame(i); g.getImageData(0, 0, 1, 1); hs.push(hash()); }
+    return { ms: (performance.now() - t) / 24, hashes: hs, hits: HITS, misses: MISSES }; };
+  const raw = run(false), mem = run(true);
+  const same = raw.hashes.every((h, k) => h === mem.hashes[k]);
+  return { rawMs: raw.ms, memoMs: mem.ms, identical: same, hits: mem.hits, misses: mem.misses, distinct: new Set(raw.hashes).size };
+};
+</script>
