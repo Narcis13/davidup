@@ -4,7 +4,7 @@
 > One canonical JSON composition runs in the **browser** (live preview via
 > Canvas2D + `requestAnimationFrame`), on the **server** (frame-by-frame render
 > with [`skia-canvas`](https://github.com/samizdatco/skia-canvas) piped to
-> `ffmpeg` → MP4), inside an **AI agent** loop (58 atomic MCP tools), from the
+> `ffmpeg` → MP4), inside an **AI agent** loop (59 atomic MCP tools), from the
 > **CLI** (`davidup render`), or in a **human editor** (`davidup edit`).
 > Same input → same pixels, every host.
 
@@ -18,7 +18,7 @@
             │                        │                        │
     ┌───────▼───────┐       ┌────────▼────────┐      ┌────────▼────────┐
     │ browser/      │       │ drivers/node    │      │ mcp server      │
-    │ attach()      │       │ renderToFile()  │      │ 58 tools, stdio │
+    │ attach()      │       │ renderToFile()  │      │ 59 tools, stdio │
     │ live preview  │       │ → mp4 (+audio)  │      │ for AI agents   │
     └───────────────┘       └────────┬────────┘      └────────┬────────┘
                                      │                        │
@@ -764,7 +764,7 @@ Component roster (see `apps/editor/inertia/components/`):
 | `SaveDefinitionDialog` | Save a template / behavior / scene to the project or global library |
 | `CompositionSettingsDialog` | Size / fps / duration / background |
 | `RenderDialog` / `RenderStrip` / `RenderHistory` | Filename + quality preset (Draft crf 30 / Web crf 23 / Final crf 18); live progress, ETA; past renders with rename / delete / reveal |
-| `SourceDrawer` | Read-only authored JSON with the selection's JSON pointer highlighted |
+| `SourceDrawer` | Authored JSON with the selection's JSON pointer highlighted; **Edit** saves the whole document via `replace_composition` (one undo step) |
 | `StatusBar` | Validation error / warning counts; click an issue to select the item |
 | `OnboardingOverlay` / `HelpOverlay` | First-run tour + shortcut cheatsheet + MCP tool catalog (`?`) |
 | `Toasts` | Async feedback, structured-error display |
@@ -789,7 +789,7 @@ render preset) at `~/.davidup/state.json`.
 ## The MCP server — full reference for agents
 
 **Transport**: stdio. **Entry**: `dist/mcp/bin.js` (the `davidup-mcp` bin,
-Node shebang) or `bun run src/mcp/bin.ts` from a checkout. **Tools**: 58
+Node shebang) or `bun run src/mcp/bin.ts` from a checkout. **Tools**: 59
 atomic tools, all returning structured results with `{error: {code, message,
 hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 
@@ -808,7 +808,7 @@ the TTL.
 
 | § | Category | Tools |
 |---|---|---|
-| 4.1 | Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset` |
+| 4.1 | Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset`, `replace_composition` (whole-document swap, validated) |
 | 4.2 | Assets | `register_asset` (image / font / audio / video; audio+video are ffprobed), `list_assets`, `remove_asset` |
 | 4.3 | Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 | Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
@@ -1190,8 +1190,11 @@ Things v1.0 does not do. Each is either an open ledger item in
 - The stage draws video frames from the render extraction cache: exact when
   paused or scrubbing, best-effort while playing (frames can lag or blink in
   until cached). The first view of a new clip waits on extraction.
-- No keyframe curve editor; the source drawer is read-only.
-- Reveal in Finder / QuickTime are macOS-only.
+- No keyframe curve editor.
+- Saving from the source drawer rewrites composition.json in canonical form
+  (authoring constructs are expanded, as with any editor edit); `$ref`s must
+  be inlined first.
+- Reveal on Linux opens the containing folder (no portable "select file").
 - In dev mode (`bun run cli -- edit`), a stray `bin/server.js` can outlive
   the session (bug 2.2); the packaged path is unaffected.
 
@@ -1243,7 +1246,7 @@ src/
     node/         renderToFile via skia-canvas + ffmpeg,          (§5.6, §6)
                   video pre-extraction cache, audio mux, ffprobe
     browser/      attach() — RAF preview + pick + bounds + source (§5.6)
-  mcp/            server + 58 tools + in-memory store + bin       (§4)
+  mcp/            server + 59 tools + in-memory store + bin       (§4)
   cli/            bin + commands (new / edit / render / list) + scaffold templates
 
 apps/

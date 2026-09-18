@@ -11,7 +11,7 @@ import {
 
 const ALLOWED_KINDS: LibraryItemKind[] = ['template', 'behavior', 'scene', 'asset', 'font']
 const ALLOWED_SCOPES: LibraryScope[] = ['project', 'global']
-const PROMOTABLE_KINDS: LibraryItemKind[] = ['template', 'behavior', 'scene']
+const PROMOTABLE_KINDS: LibraryItemKind[] = ['template', 'behavior', 'scene', 'asset', 'font']
 
 function isAllowedKind(value: string): value is LibraryItemKind {
   return (ALLOWED_KINDS as readonly string[]).includes(value)
@@ -114,11 +114,12 @@ export default class LibraryController {
   }
 
   /**
-   * POST /api/library/promote — copy a project-scoped library definition
-   * into the global pool, then delete it from the project. Body:
-   *   { kind: 'template'|'behavior'|'scene', id: string, force?: boolean }
+   * POST /api/library/promote — copy a project-scoped library item into
+   * the global pool, then delete it from the project. Body:
+   *   { kind: 'template'|'behavior'|'scene'|'asset'|'font', id: string, force?: boolean }
    *
-   * Out of scope today: `asset`, `font`, and inline (index.json) entries.
+   * Assets and fonts move their index.json entry plus binary (v1.1 S29).
+   * Out of scope: inline (index.json) template/behavior/scene definitions.
    * The library watcher picks the file move up on its own; this handler
    * also calls `libraryIndex.flush()` so the response already reflects
    * the merged catalog.

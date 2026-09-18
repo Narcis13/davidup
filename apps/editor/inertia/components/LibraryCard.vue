@@ -43,14 +43,16 @@ const emit = defineEmits<{
   (event: 'remove', item: LibraryItem): void
 }>()
 
-// Promotion is only meaningful for JSON definitions authored as standalone
-// files inside the project library. Inline entries (index.json) and
-// asset/font binaries are out of scope for v1.
-const PROMOTABLE_KINDS = new Set(['template', 'behavior', 'scene'])
+// Definitions promote when authored as standalone files (inline index.json
+// definitions don't); assets and fonts always live in index.json and
+// promote with their binary (v1.1 S29).
+const DEFINITION_KINDS = new Set(['template', 'behavior', 'scene'])
+const INDEX_KINDS = new Set(['asset', 'font'])
 
 const canPromote = computed(() => {
   if (props.item.scope !== 'project') return false
-  if (!PROMOTABLE_KINDS.has(props.item.kind)) return false
+  if (INDEX_KINDS.has(props.item.kind)) return true
+  if (!DEFINITION_KINDS.has(props.item.kind)) return false
   if (!props.item.source || props.item.source === 'index.json') return false
   return true
 })

@@ -8,12 +8,10 @@
 //
 //   • Filename + relative size + relative mtime
 //   • A direct video link (opens in a new tab)
-//   • "Reveal in Finder" → POST /api/renders/shell { action: 'reveal' }
-//   • "Play in QuickTime" → POST /api/renders/shell { action: 'play' }
-//
-// Shell actions are macOS-only (the server short-circuits on other
-// platforms); the buttons stay visible but the toast will surface the
-// platform error if invoked from non-darwin.
+//   • "Reveal" → POST /api/renders/shell { action: 'reveal' } (Finder /
+//     Explorer / the Linux file manager, via the server's `shellCommandFor`)
+//   • "Play" → POST /api/renders/shell { action: 'play' } (QuickTime on
+//     macOS, the default player elsewhere)
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRender } from '~/composables/useRender'
@@ -366,14 +364,14 @@ async function doShell(filename: string, action: 'reveal' | 'play'): Promise<voi
                 type="button"
                 class="row-btn"
                 data-testid="render-history-reveal"
-                title="Reveal in Finder"
+                title="Reveal in file manager"
                 @click="doShell(file.filename, 'reveal')"
               >Reveal</button>
               <button
                 type="button"
                 class="row-btn row-btn-play"
                 data-testid="render-history-play"
-                title="Play in QuickTime"
+                title="Play in the default player"
                 @click="doShell(file.filename, 'play')"
               >Play</button>
             </template>

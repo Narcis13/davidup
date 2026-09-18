@@ -54,7 +54,12 @@ export default class CommandsController {
       }
       if (err instanceof CommandRejectedError) {
         return response.status(409).send({
-          error: { code: err.code, message: err.message, hint: err.hint },
+          error: {
+            code: err.code,
+            message: err.message,
+            hint: err.hint,
+            ...(err.issues ? { issues: err.issues } : {}),
+          },
         })
       }
       if (err instanceof PostValidationError) {

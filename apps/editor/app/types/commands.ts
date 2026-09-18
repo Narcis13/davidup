@@ -248,6 +248,19 @@ const setCompositionProperty = z.object({
   source: SOURCE,
 })
 
+// v1.1 S29 — whole-document swap (the Source drawer's save path). DUAL of
+// engine `replace_composition`: `json` passes through untouched; the tool
+// lowers authoring constructs and runs the full validator, so no shape is
+// duplicated here.
+const replaceComposition = z.object({
+  kind: z.literal('replace_composition'),
+  payload: z.object({
+    json: z.record(z.string(), z.unknown()),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
 // DUAL of engine `register_asset` (src/mcp/tools.ts). `audio` (v0.2 §S2) and
 // `video` (§S6) are admitted here too or the command is silently stripped
 // before reaching the MCP tool. Probed metadata (audio: duration/sampleRate/
@@ -687,6 +700,7 @@ const removeSceneInstance = z.object({
 
 export const CommandSchema = z.discriminatedUnion('kind', [
   setCompositionProperty,
+  replaceComposition,
   registerAsset,
   removeAsset,
   addLayer,
@@ -723,6 +737,7 @@ export type CommandSource = z.infer<typeof SOURCE>
 // table in apply_command.ts; missing or extra keys are a TS error.
 export const COMMAND_TO_TOOL: { readonly [K in CommandKind]: string } = {
   set_composition_property: 'set_composition_property',
+  replace_composition: 'replace_composition',
   register_asset: 'register_asset',
   remove_asset: 'remove_asset',
   add_layer: 'add_layer',

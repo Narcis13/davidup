@@ -143,6 +143,18 @@ watch(
   }
 )
 
+// v1.1 S29 — the drawer's Save: one `replace_composition` command, so the
+// whole-document edit is validated server-side and undoes as a single step.
+// Rejections already raise a toast via the bus; the drawer also shows the
+// message inline and keeps the draft open for fixing.
+async function onSourceSave(json: Record<string, unknown>): Promise<string | null> {
+  await bus.apply({ kind: 'replace_composition', payload: { json } })
+  const report = bus.errorReport.value
+  if (bus.error.value === null) return null
+  const first = report?.issues?.[0] ?? report?.details?.errors?.[0]
+  return first ? `${report?.message} ${first.path ? `${first.path}: ` : ''}${first.message}` : bus.error.value
+}
+
 function onDrawerClose(): void {
   drawerOpen.value = false
   manualSourcePointer.value = null
@@ -967,6 +979,7 @@ onBeforeUnmount(() => {
     :pick-source-json-pointer="manualSourcePointer?.jsonPointer ?? selection.lastPickSource.value?.jsonPointer ?? null"
     :pick-source-file="manualSourcePointer?.file ?? selection.lastPickSource.value?.file ?? null"
     :open="drawerOpen"
+    :on-save="onSourceSave"
     @close="onDrawerClose"
   />
 

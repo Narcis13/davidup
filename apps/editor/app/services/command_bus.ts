@@ -27,7 +27,11 @@ import {
   type Command,
   type CommandSource,
 } from '#types/commands'
-import { applyCommandWithResult, ApplyCommandError } from '#services/apply_command'
+import {
+  applyCommandWithResult,
+  ApplyCommandError,
+  type CommandIssue,
+} from '#services/apply_command'
 
 const DEFAULT_UNDO_DEPTH = 50
 // v1.1 S26 — how long after the last coalesced apply a matching
@@ -49,11 +53,13 @@ export class CommandValidationError extends Error {
 export class CommandRejectedError extends Error {
   readonly code: string
   readonly hint: string | undefined
-  constructor(code: string, message: string, hint?: string) {
+  readonly issues: ReadonlyArray<CommandIssue> | undefined
+  constructor(code: string, message: string, hint?: string, issues?: ReadonlyArray<CommandIssue>) {
     super(message)
     this.name = 'CommandRejectedError'
     this.code = code
     this.hint = hint
+    this.issues = issues
   }
 }
 
@@ -210,7 +216,7 @@ export class CommandBus {
       toolResult = applied.toolResult
     } catch (err) {
       if (err instanceof ApplyCommandError) {
-        throw new CommandRejectedError(err.code, err.message, err.hint)
+        throw new CommandRejectedError(err.code, err.message, err.hint, err.issues)
       }
       throw err
     }

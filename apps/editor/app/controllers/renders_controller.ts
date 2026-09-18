@@ -26,6 +26,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 
 import projectStore from '#services/project_store'
+import { shellCommandFor } from '#services/shell_open'
 import renderJobs, {
   containerExtensionFor,
   RenderJob,
@@ -390,12 +391,10 @@ export default class RendersController {
   }
 
   /**
-   * POST /api/renders/shell — open a render file in Finder ("reveal") or
-   * QuickTime Player ("play"). Filename is constrained to the project's
-   * `renders/` directory; no arbitrary paths.
-   *
-   * Only available on macOS (uses the `open` shell). Other platforms get a
-   * 501.
+   * POST /api/renders/shell — reveal a render file in the platform's file
+   * manager ("reveal") or open it in the default / QuickTime player ("play").
+   * Filename is constrained to the project's `renders/` directory; no
+   * arbitrary paths. Per-platform commands live in `shellCommandFor`.
    */
   async shell({ request, response }: HttpContext) {
     const project = projectStore.project
@@ -404,18 +403,16 @@ export default class RendersController {
         error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
       })
     }
-    if (process.platform !== 'darwin') {
-      return response.status(501).json({
-        error: {
-          code: 'E_UNSUPPORTED_PLATFORM',
-          message: 'Reveal-in-Finder / Play-in-QuickTime are macOS-only',
-        },
-      })
-    }
     const body = (request.body() ?? {}) as { filename?: unknown; action?: unknown }
     const filename = typeof body.filename === 'string' ? body.filename : ''
     const action = body.action === 'reveal' || body.action === 'play' ? body.action : null
-    if (!filename || filename.includes('..') || isAbsolute(filename) || filename.includes('/')) {
+    if (
+      !filename ||
+      filename.includes('..') ||
+      isAbsolute(filename) ||
+      filename.includes('/') ||
+      filename.includes('\\')
+    ) {
       return response.badRequest({
         error: { code: 'E_BAD_REQUEST', message: 'Invalid filename' },
       })
@@ -438,15 +435,15 @@ export default class RendersController {
       })
     }
 
-    const args = action === 'reveal' ? ['-R', target] : ['-a', 'QuickTime Player', target]
+    const { command, args } = shellCommandFor(process.platform, action, target)
     try {
-      const proc = spawn('open', args, { stdio: 'ignore', detached: true })
+      const proc = spawn(command, args, { stdio: 'ignore', detached: true })
       proc.on('error', (err) => {
         logger.warn({ err, action, target }, 'renders_controller: open shell failed')
       })
       proc.unref()
     } catch (err) {
-      logger.warn({ err, action, target }, 'renders_controller: failed to spawn open')
+      logger.warn({ err, action, target }, 'renders_controller: failed to spawn shell command')
       return response.internalServerError({
         error: { code: 'E_SPAWN_FAILED', message: (err as Error).message },
       })

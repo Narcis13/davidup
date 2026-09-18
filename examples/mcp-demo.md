@@ -28,7 +28,7 @@ with `bun run src/mcp/bin.ts` (or via the `davidup-mcp` bin shim defined
 in `package.json`), the process:
 
 - attaches to `stdin`/`stdout` as an MCP transport (JSON-RPC framed);
-- registers the 58 tools from the design doc §4.1–4.9 against an in-memory
+- registers the 59 tools from the design doc §4.1–4.9 against an in-memory
   `CompositionStore`;
 - never logs to `stdout` — diagnostic output goes to `stderr` so the protocol
   framing stays uncorrupted.
@@ -46,7 +46,7 @@ MCP registries.
 
 | Group | Tools |
 |---|---|
-| 4.1 Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset` |
+| 4.1 Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset`, `replace_composition` |
 | 4.2 Assets | `register_asset`, `list_assets`, `remove_asset` |
 | 4.3 Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
@@ -117,7 +117,7 @@ Notes:
   `node --experimental-strip-types` and adjust the entry path. Bun is the
   primary supported runtime per the implementation plan.
 
-Reload Claude Code (`/mcp` to verify) and the 58 tools become callable.
+Reload Claude Code (`/mcp` to verify) and the 59 tools become callable.
 
 ### 2.2 Programmatic registration (`claude mcp add`)
 

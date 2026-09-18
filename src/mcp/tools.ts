@@ -611,6 +611,39 @@ const resetTool = defineTool({
   },
 });
 
+const replaceComposition = defineTool({
+  name: "replace_composition",
+  title: "Replace composition document",
+  description:
+    "Swap the whole composition for `json` — a full CompositionJSON document, e.g. an edited copy of " +
+    "`get_composition().json`. Authoring constructs (`$template` items, `type: \"scene\"` instances, " +
+    "`$behavior` tweens, `$repeat`) are lowered first; `$ref` is not supported here. The result must pass " +
+    "`validate`: on failure nothing changes and E_VALIDATION_FAILED lists every error in `issues`. Creates the " +
+    "composition when `compositionId` names one that doesn't exist. Returns `{ compositionId }` plus any " +
+    "validator `warnings`. Prefer the atomic tools for small edits — this is for bulk rewrites.",
+  inputSchema: {
+    json: z
+      .record(z.string(), z.unknown())
+      .describe("The complete composition document ({ version, composition, assets, layers, items, tweens, audio? })."),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, { store }) => {
+    let lowered: unknown;
+    try {
+      lowered = await precompile(args.json);
+    } catch (err) {
+      if (err instanceof MCPToolError) throw err;
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Could not lower the document: ${(err as Error).message}`,
+        "Inline `$ref`s before calling replace_composition.",
+      );
+    }
+    const { compositionId, warnings } = store.replaceComposition(lowered, args.compositionId);
+    return { compositionId, ...(warnings.length > 0 ? { warnings } : {}) };
+  },
+});
+
 // ──────────────── 4.2 Assets ────────────────
 
 // Video warning policy (v0.2 §S6). All bounds are advisory — the asset still
@@ -3083,6 +3116,7 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   setCompositionProperty,
   validateTool,
   resetTool,
+  replaceComposition,
   // 4.2
   registerAsset,
   listAssets,

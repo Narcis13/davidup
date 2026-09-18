@@ -172,6 +172,7 @@ const mcpGroups: McpGroup[] = [
       'set_composition_property',
       'validate',
       'reset',
+      'replace_composition',
     ],
   },
   { group: 'Assets', tools: ['register_asset', 'list_assets', 'remove_asset'] },

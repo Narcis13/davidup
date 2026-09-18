@@ -8,6 +8,28 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Editable source drawer, `replace_composition`, reveal off macOS, asset promote
+
+- MCP `replace_composition` (tool 59): swap a whole composition for a
+  CompositionJSON document. `$template` / scene / `$behavior` / `$repeat`
+  constructs are lowered first (`$ref` is refused); the result must pass
+  `validate`, else E_VALIDATION_FAILED lists every error in `issues` and
+  nothing changes. Creates the composition if `compositionId` is new.
+- The editor's Source drawer (⌘J) gains **Edit**: a text view of
+  composition.json with Save (⌘S) / Cancel (Esc). Save dispatches
+  `replace_composition` — one validated command, one undo step. JSON syntax
+  errors and validator issues show inline and keep the draft open. The same
+  command is what an agent's `replace_composition` routes through in the
+  editor. Rejected commands now carry the tool's `issues` in the 409 body.
+- Render history Reveal / Play work on Windows (`explorer /select,`, default
+  app) and Linux (`xdg-open` on the folder / file); they were macOS-only (501).
+- Library **Promote** covers project assets and fonts: the `index.json` entry
+  moves to the global pool and its file is copied to
+  `<global>/{assets,fonts}/`, with the src rewritten to `global:…`. The project
+  copy is deleted unless the open composition still uses it.
+- Fix: layer `name` no longer disappears on the first editor command after a
+  load.
+
 ### Editor timeline zoom and snapping
 
 - Horizontal zoom: ⌘+ / ⌘−, pinch (or ⌘-scroll, anchored at the cursor) and

@@ -21,6 +21,7 @@
     "set_composition_property",
     "validate",
     "reset",
+    "replace_composition",
     "register_asset",
     "list_assets",
     "remove_asset",

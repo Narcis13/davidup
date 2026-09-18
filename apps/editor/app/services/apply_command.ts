@@ -31,14 +31,19 @@ const TOOL_BY_NAME: ReadonlyMap<string, ToolDef<z.ZodRawShape>> = new Map(
 
 const HYDRATION_ID = '__editor_session__'
 
+export type CommandIssue = { message: string; path?: string; code?: string }
+
 export class ApplyCommandError extends Error {
   readonly code: string
   readonly hint: string | undefined
-  constructor(code: string, message: string, hint?: string) {
+  /** The tool's per-rule failures (e.g. replace_composition's validator errors). */
+  readonly issues: ReadonlyArray<CommandIssue> | undefined
+  constructor(code: string, message: string, hint?: string, issues?: ReadonlyArray<CommandIssue>) {
     super(message)
     this.name = 'ApplyCommandError'
     this.code = code
     this.hint = hint
+    this.issues = issues
   }
 }
 
@@ -91,7 +96,12 @@ export async function applyCommandWithResult(
 
   const result = await dispatchTool(tool, args, { store })
   if (!result.ok) {
-    throw new ApplyCommandError(result.error.code, result.error.message, result.error.hint)
+    throw new ApplyCommandError(
+      result.error.code,
+      result.error.message,
+      result.error.hint,
+      result.error.issues
+    )
   }
 
   return { next: store.toJSON(HYDRATION_ID), toolResult: result.result }
@@ -144,6 +154,7 @@ export function hydrateStore(
         blendMode: layer.blendMode,
         ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
         ...(layer.locked !== undefined ? { locked: layer.locked } : {}),
+        ...(layer.name !== undefined ? { name: layer.name } : {}),
       },
       compositionId
     )

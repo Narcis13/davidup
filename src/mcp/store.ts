@@ -627,6 +627,73 @@ export class CompositionStore {
     };
   }
 
+  /**
+   * Swap the whole document of one composition for `doc` (v1.1 S29,
+   * `replace_composition`). `doc` must be canonical and pass `validate`;
+   * otherwise nothing changes and E_VALIDATION_FAILED carries the issues.
+   * Targets `compositionId` (or the default); when that composition doesn't
+   * exist yet it is created, becoming the default if none is set. Scene-instance
+   * bookkeeping is dropped — the document has no record of it, so a replaced
+   * composition's instances are plain items from here on.
+   */
+  replaceComposition(
+    doc: unknown,
+    compositionId?: string,
+  ): { compositionId: string; warnings: ValidationResult["warnings"] } {
+    const result = validate(doc);
+    if (!result.valid) {
+      throw new MCPToolError(
+        "E_VALIDATION_FAILED",
+        `Replacement composition is invalid (${result.errors.length} error(s)).`,
+        "Fix every entry in `issues`; the current composition was left untouched.",
+        {
+          issues: result.errors.map((e) => ({
+            code: e.code,
+            message: e.message,
+            ...(e.path !== undefined ? { path: e.path } : {}),
+          })),
+        },
+      );
+    }
+    const composition = doc as Composition;
+    const id = compositionId ?? this.defaultId ?? this.nextCompositionId();
+
+    // Build into a scratch store with the ordinary raw primitives, so the
+    // swap below is all-or-nothing.
+    const scratch = new CompositionStore();
+    const meta = composition.composition;
+    scratch.createComposition({
+      id,
+      width: meta.width,
+      height: meta.height,
+      fps: meta.fps,
+      duration: meta.duration,
+      ...(meta.background !== undefined ? { background: meta.background } : {}),
+      ...(meta.audioMaster !== undefined ? { audioMaster: meta.audioMaster } : {}),
+    });
+    for (const asset of composition.assets) scratch.registerAssetUnchecked(asset, id);
+    const target = scratch.requireComposition(id);
+    for (const layer of composition.layers) {
+      target.layers.set(layer.id, cloneLayer({ ...layer, items: [] }));
+    }
+    const placed = new Set<string>();
+    for (const layer of composition.layers) {
+      for (const itemId of layer.items) {
+        scratch.addRawItem({ id: itemId, layerId: layer.id, item: composition.items[itemId] }, id);
+        placed.add(itemId);
+      }
+    }
+    for (const [itemId, item] of Object.entries(composition.items)) {
+      if (!placed.has(itemId)) scratch.addRawSubItem({ id: itemId, item }, id);
+    }
+    for (const tween of composition.tweens) scratch.addRawTween(tween, id);
+    for (const track of composition.audio ?? []) scratch.addRawAudioTrack(track, id);
+
+    this.compositions.set(id, target);
+    if (this.defaultId === null) this.defaultId = id;
+    return { compositionId: id, warnings: result.warnings };
+  }
+
   // ──────────────── Assets ────────────────
 
   registerAsset(input: RegisterAssetInput, compositionId?: string): void {

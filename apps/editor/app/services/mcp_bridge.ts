@@ -699,7 +699,12 @@ function mapBusErrorToDispatch(err: unknown): DispatchResult {
     )
   }
   if (err instanceof CommandRejectedError) {
-    return errorResult(narrowMcpCode(err.code), err.message, err.hint)
+    return errorResult(
+      narrowMcpCode(err.code),
+      err.message,
+      err.hint,
+      err.issues ? { issues: err.issues } : undefined,
+    )
   }
   if (err instanceof PostValidationError) {
     const first = err.result.errors[0]?.message
