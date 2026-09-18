@@ -286,23 +286,47 @@ function defaultSpawnServer(input: SpawnServerInput): ChildProcess {
  * failure is logged to stderr but doesn't block boot, matching how the dev
  * path already tolerates preload failures.
  */
-function spawnPackagedServer(input: SpawnServerInput): ChildProcess {
-  const dbDir = join(homedir(), ".davidup");
+// Process primitives spawnPackagedServer touches — injectable so tests can
+// assert the boot sequence without spawning node or writing to ~/.davidup.
+export interface PackagedSpawnIO {
+  spawn: typeof spawn;
+  spawnSync: typeof spawnSync;
+  mkdirSync: (dir: string, opts: { recursive: true }) => unknown;
+  homedir: () => string;
+  env: NodeJS.ProcessEnv;
+  warn: (msg: string) => void;
+}
+
+const DEFAULT_PACKAGED_SPAWN_IO: PackagedSpawnIO = {
+  spawn,
+  spawnSync,
+  mkdirSync,
+  homedir,
+  env: process.env,
+  warn: (msg) => process.stderr.write(msg),
+};
+
+export function spawnPackagedServer(
+  input: SpawnServerInput,
+  io: PackagedSpawnIO = DEFAULT_PACKAGED_SPAWN_IO,
+): ChildProcess {
+  const dbDir = join(io.homedir(), ".davidup");
   try {
-    mkdirSync(dbDir, { recursive: true });
+    io.mkdirSync(dbDir, { recursive: true });
   } catch {
     /* best-effort — migration/db-open below will surface a real error */
   }
+  const parentEnv = io.env;
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...parentEnv,
     DAVIDUP_PROJECT: input.projectDir,
     PORT: String(input.port),
     HOST: input.host,
     NODE_ENV: "production",
-    APP_KEY: process.env.APP_KEY ?? randomBytes(24).toString("base64"),
-    LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
-    SESSION_DRIVER: process.env.SESSION_DRIVER ?? "cookie",
-    DAVIDUP_DB_PATH: process.env.DAVIDUP_DB_PATH ?? join(dbDir, "editor.sqlite3"),
+    APP_KEY: parentEnv.APP_KEY ?? randomBytes(24).toString("base64"),
+    LOG_LEVEL: parentEnv.LOG_LEVEL ?? "info",
+    SESSION_DRIVER: parentEnv.SESSION_DRIVER ?? "cookie",
+    DAVIDUP_DB_PATH: parentEnv.DAVIDUP_DB_PATH ?? join(dbDir, "editor.sqlite3"),
   };
 
   // `node ace.js migration:run --force` runs the migration to completion
@@ -317,7 +341,7 @@ function spawnPackagedServer(input: SpawnServerInput): ChildProcess {
   // (no signal — the command actually ran and failed) is surfaced, matching
   // the "best-effort, non-fatal" tolerance the rest of the boot sequence
   // (preloads) already has.
-  const migration = spawnSync("node", ["ace.js", "migration:run", "--force"], {
+  const migration = io.spawnSync("node", ["ace.js", "migration:run", "--force"], {
     cwd: input.editorAppDir,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -325,13 +349,13 @@ function spawnPackagedServer(input: SpawnServerInput): ChildProcess {
     killSignal: "SIGKILL",
   });
   if (migration.status !== 0 && migration.signal === null) {
-    process.stderr.write(
+    io.warn(
       `davidup edit · warning: migration:run exited ${migration.status} — ` +
         `${(migration.stderr?.toString() ?? "").trim() || (migration.stdout?.toString() ?? "").trim()}\n`,
     );
   }
 
-  return spawn("node", ["bin/server.js"], {
+  return io.spawn("node", ["bin/server.js"], {
     cwd: input.editorAppDir,
     env,
     stdio: "inherit",

@@ -279,6 +279,27 @@ describe("validate — tween property checks", () => {
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.code === "E_VALUE_KIND")).toBe(true);
   });
+
+  it.each([
+    ["from", "magenta", "#ff0000"],
+    ["to", "#ffffff", "#gggggg"],
+  ])("flags an unparseable color string on %s (E_COLOR_INVALID)", (end, from, to) => {
+    const comp = baseComposition();
+    comp.tweens.push({
+      id: "title-color-shift",
+      target: "title-text",
+      property: "color",
+      from,
+      to,
+      start: 0,
+      duration: 1,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    const err = result.errors.find((e) => e.code === "E_COLOR_INVALID");
+    expect(err?.path).toBe(`tweens.title-color-shift.${end}`);
+  });
 });
 
 describe("validate — tween overlap (E_TWEEN_OVERLAP)", () => {

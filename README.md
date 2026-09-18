@@ -966,8 +966,8 @@ clip's frames to a PNG cache with ffmpeg and decode them → one reused
 RGBA, `stdin.write` with `drain` backpressure → close with stderr-tail
 captured → (if `audio[]`) second ffmpeg pass copies the video stream and
 mixes the tracks in. Signal-killed ffmpeg fails loudly. Output container is
-chosen by the `outPath` extension; **MP4 is the tested path** (H.264 /
-H.265, `yuv420p`).
+chosen by the `outPath` extension; **MP4 and MOV are the tested paths**
+(H.264 / H.265, `yuv420p`; AAC audio in both).
 
 **Alpha export.** Set `composition.background` to `"transparent"` (nothing
 is painted, so untouched pixels stay alpha 0) and pick an alpha codec:

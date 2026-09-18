@@ -4,7 +4,13 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ChildProcess } from "node:child_process";
-import { runEdit, EditError, type EditDeps } from "../../src/cli/edit.js";
+import {
+  runEdit,
+  EditError,
+  spawnPackagedServer,
+  type EditDeps,
+  type PackagedSpawnIO,
+} from "../../src/cli/edit.js";
 
 const tmps: string[] = [];
 afterEach(async () => {
@@ -198,5 +204,140 @@ describe("cli · runEdit", () => {
         deps,
       ),
     ).rejects.toMatchObject({ code: "E_SERVER_TIMEOUT" });
+  });
+});
+
+describe("cli · spawnPackagedServer", () => {
+  const input = {
+    editorAppDir: "/pkg/editor-dist",
+    projectDir: "/work/clip",
+    port: 4444,
+    host: "127.0.0.1",
+  };
+
+  interface Call {
+    cmd: string;
+    args: readonly string[];
+    opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number; killSignal?: string };
+  }
+
+  function fakeIO(
+    env: NodeJS.ProcessEnv,
+    migration: { status: number | null; signal: NodeJS.Signals | null; stderr?: string } = {
+      status: 0,
+      signal: null,
+    },
+  ) {
+    const syncCalls: Call[] = [];
+    const spawnCalls: Call[] = [];
+    const mkdirs: string[] = [];
+    const warnings: string[] = [];
+    const child = new FakeChild();
+    const io: PackagedSpawnIO = {
+      spawn: ((cmd: string, args: readonly string[], opts: Call["opts"]) => {
+        spawnCalls.push({ cmd, args, opts });
+        return child as unknown as ChildProcess;
+      }) as unknown as PackagedSpawnIO["spawn"],
+      spawnSync: ((cmd: string, args: readonly string[], opts: Call["opts"]) => {
+        syncCalls.push({ cmd, args, opts });
+        return {
+          status: migration.status,
+          signal: migration.signal,
+          stdout: Buffer.from(""),
+          stderr: Buffer.from(migration.stderr ?? ""),
+        };
+      }) as unknown as PackagedSpawnIO["spawnSync"],
+      mkdirSync: (dir) => {
+        mkdirs.push(dir);
+      },
+      homedir: () => "/home/u",
+      env,
+      warn: (msg) => {
+        warnings.push(msg);
+      },
+    };
+    return { io, syncCalls, spawnCalls, mkdirs, warnings, child };
+  }
+
+  it("migrates, then starts bin/server.js in production with a generated APP_KEY", () => {
+    const { io, syncCalls, spawnCalls, mkdirs, warnings, child } = fakeIO({ PATH: "/bin" });
+    const out = spawnPackagedServer(input, io);
+
+    expect(out).toBe(child);
+    expect(mkdirs).toEqual(["/home/u/.davidup"]);
+
+    expect(syncCalls).toHaveLength(1);
+    expect(syncCalls[0]!.cmd).toBe("node");
+    expect(syncCalls[0]!.args).toEqual(["ace.js", "migration:run", "--force"]);
+    expect(syncCalls[0]!.opts).toMatchObject({
+      cwd: "/pkg/editor-dist",
+      timeout: 3_000,
+      killSignal: "SIGKILL",
+    });
+
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]!.cmd).toBe("node");
+    expect(spawnCalls[0]!.args).toEqual(["bin/server.js"]);
+    expect(spawnCalls[0]!.opts.cwd).toBe("/pkg/editor-dist");
+
+    const env = spawnCalls[0]!.opts.env!;
+    expect(env).toMatchObject({
+      PATH: "/bin",
+      DAVIDUP_PROJECT: "/work/clip",
+      PORT: "4444",
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      LOG_LEVEL: "info",
+      SESSION_DRIVER: "cookie",
+      DAVIDUP_DB_PATH: "/home/u/.davidup/editor.sqlite3",
+    });
+    expect(Buffer.from(env.APP_KEY!, "base64")).toHaveLength(24);
+    // Migration and server share one env, so they agree on APP_KEY + db path.
+    expect(syncCalls[0]!.opts.env).toEqual(env);
+    expect(warnings).toEqual([]);
+  });
+
+  it("respects operator overrides from the parent env", () => {
+    const { io, spawnCalls } = fakeIO({
+      APP_KEY: "fixed-key",
+      LOG_LEVEL: "debug",
+      SESSION_DRIVER: "memory",
+      DAVIDUP_DB_PATH: "/tmp/db.sqlite3",
+      NODE_ENV: "development",
+    });
+    spawnPackagedServer(input, io);
+    expect(spawnCalls[0]!.opts.env).toMatchObject({
+      APP_KEY: "fixed-key",
+      LOG_LEVEL: "debug",
+      SESSION_DRIVER: "memory",
+      DAVIDUP_DB_PATH: "/tmp/db.sqlite3",
+      // The packaged editor always runs in production mode.
+      NODE_ENV: "production",
+    });
+  });
+
+  it("treats a migration timeout kill as success", () => {
+    const { io, spawnCalls, warnings } = fakeIO({}, { status: null, signal: "SIGKILL" });
+    spawnPackagedServer(input, io);
+    expect(warnings).toEqual([]);
+    expect(spawnCalls).toHaveLength(1);
+  });
+
+  it("warns on a genuine migration failure but still boots the server", () => {
+    const { io, spawnCalls, warnings } = fakeIO({}, { status: 1, signal: null, stderr: "no such table" });
+    spawnPackagedServer(input, io);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("migration:run exited 1");
+    expect(warnings[0]).toContain("no such table");
+    expect(spawnCalls).toHaveLength(1);
+  });
+
+  it("boots even when the ~/.davidup directory cannot be created", () => {
+    const { io, spawnCalls } = fakeIO({});
+    io.mkdirSync = () => {
+      throw new Error("EACCES");
+    };
+    spawnPackagedServer(input, io);
+    expect(spawnCalls).toHaveLength(1);
   });
 });

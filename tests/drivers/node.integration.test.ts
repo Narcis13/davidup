@@ -7,9 +7,10 @@
 // scale pop), zero filesystem dependencies.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -17,6 +18,7 @@ import { renderToFile } from "../../src/drivers/node/index.js";
 import type { Composition } from "../../src/schema/types.js";
 
 interface ProbeStream {
+  codec_type?: string;
   codec_name?: string;
   width?: number;
   height?: number;
@@ -33,7 +35,7 @@ interface ProbeStream {
 
 interface ProbeOutput {
   streams: ProbeStream[];
-  format: { duration?: string };
+  format: { duration?: string; format_name?: string };
 }
 
 let ffmpegPath: string | undefined;
@@ -271,5 +273,65 @@ describe("renderToFile — colour-space tagging (v1.1 S8, integration)", () => {
     expect(video).toBeDefined();
     expect(video!.color_space).toBeUndefined();
     expect(video!.color_primaries).toBeUndefined();
+  }, 30_000);
+});
+
+describe("renderToFile — H.264 in a .mov container (v1.1 S30, integration)", () => {
+  const VOICEOVER = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "audio",
+    "tone-mono.wav",
+  );
+  let workDir: string;
+
+  beforeAll(() => {
+    workDir = mkdtempSync(join(tmpdir(), "davidup-mov-"));
+  });
+
+  afterAll(() => {
+    rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("writes a QuickTime file with the same h264 stream the MP4 path produces", async () => {
+    const comp = helloWorldComposition();
+    const outPath = join(workDir, "hello-world.mov");
+
+    const result = await renderToFile(comp, outPath, {
+      ffmpegPath,
+      preset: "ultrafast",
+      movflagsFaststart: true,
+    });
+    expect(result.frameCount).toBe(6);
+
+    const probe = ffprobe(outPath);
+    // ffprobe names the mov/mp4 demuxer family "mov,mp4,m4a,3gp,3g2,mj2";
+    // the brand is what tells QuickTime from MP4.
+    expect(probe.format.format_name).toContain("mov");
+    const video = probe.streams.find((s) => s.codec_type === "video");
+    expect(video?.codec_name).toBe("h264");
+    expect(video?.width).toBe(comp.composition.width);
+    expect(video?.height).toBe(comp.composition.height);
+    expect(video?.pix_fmt).toBe("yuv420p");
+    expect(video?.color_space).toBe("bt709");
+    expect(parseRational(video?.avg_frame_rate ?? "")).toBeCloseTo(comp.composition.fps, 5);
+    if (video?.nb_frames !== undefined) expect(Number(video.nb_frames)).toBe(6);
+  }, 30_000);
+
+  it("muxes AAC audio into the .mov and cleans up the silent temp video", async () => {
+    const comp = helloWorldComposition();
+    comp.assets = [
+      { id: "vo", type: "audio", src: VOICEOVER, duration: 0.5, sampleRate: 48000, channels: 1 },
+    ];
+    comp.audio = [{ id: "vo", asset: "vo", start: 0 }];
+    const dir = mkdtempSync(join(workDir, "mux-"));
+    const outPath = join(dir, "with-audio.mov");
+
+    await renderToFile(comp, outPath, { ffmpegPath, preset: "ultrafast" });
+
+    const streams = ffprobe(outPath).streams;
+    expect(streams.find((s) => s.codec_type === "video")?.codec_name).toBe("h264");
+    expect(streams.find((s) => s.codec_type === "audio")?.codec_name).toBe("aac");
+    expect(readdirSync(dir)).toEqual(["with-audio.mov"]);
   }, 30_000);
 });
