@@ -8,7 +8,8 @@
 //   1. user clicks a toolbar button → setTool({ kind: 'rect' })
 //   2. (for text/sprite the toolbar collects additional input first)
 //   3. user clicks the Stage → Stage reads activeTool, dispatches the
-//      matching add_* command, calls clearTool()
+//      matching add_* command, calls clearTool() (the polygon tool instead
+//      collects vertices until Enter / double-click closes it)
 //   4. Escape from anywhere also calls clearTool()
 
 import { computed, reactive, readonly, type ComputedRef } from 'vue'
@@ -16,6 +17,9 @@ import { computed, reactive, readonly, type ComputedRef } from 'vue'
 export type PlaceTool =
   | { kind: 'shape-rect' }
   | { kind: 'shape-circle' }
+  // v1.1 S26 — multi-click: each Stage click adds a vertex; Enter or a
+  // double-click closes it (≥ 3 points) and dispatches add_shape polygon.
+  | { kind: 'shape-polygon' }
   | { kind: 'text'; text: string }
   | { kind: 'sprite'; asset: string }
 

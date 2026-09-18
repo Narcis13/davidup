@@ -42,6 +42,11 @@ export const runnerHooks: Required<Pick<Config, 'setup' | 'teardown'>> = {
         await rm(testStateDir, { recursive: true, force: true })
         testStateDir = null
       }
+      // Close the global-library FSWatcher (attached at boot by
+      // start/preload_global_library.ts) before deleting its directory —
+      // left open it keeps the runner alive, spinning, after the suite ends.
+      const { default: libraryIndex } = await import('#services/library_index')
+      await libraryIndex.detachGlobal()
       // The throwaway global-library root minted by bin/test.ts.
       const libDir = process.env.DAVIDUP_LIBRARY
       if (libDir && libDir.includes('davidup-test-library-')) {

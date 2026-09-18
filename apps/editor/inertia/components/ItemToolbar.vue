@@ -121,19 +121,16 @@ function closePopovers(): void {
 }
 
 // ── button handlers ────────────────────────────────────────────────────
-function pickShape(kind: 'rect' | 'circle'): void {
+function pickShape(kind: 'rect' | 'circle' | 'polygon'): void {
   closePopovers()
   // Toggle: clicking the active tool again cancels it. Lets users back out
   // without having to find the Escape key.
-  const current = toolbar.activeTool.value
-  if (
-    (kind === 'rect' && current?.kind === 'shape-rect') ||
-    (kind === 'circle' && current?.kind === 'shape-circle')
-  ) {
+  const toolKind = `shape-${kind}` as const
+  if (toolbar.activeTool.value?.kind === toolKind) {
     toolbar.clearTool()
     return
   }
-  toolbar.setTool({ kind: kind === 'rect' ? 'shape-rect' : 'shape-circle' })
+  toolbar.setTool({ kind: toolKind })
 }
 
 function startText(): void {
@@ -280,7 +277,7 @@ watch(
 function onFocusToolbarEvent(event: Event): void {
   const detail = (event as CustomEvent).detail as { kind?: string } | null
   const kind = detail?.kind
-  if (kind === 'rect' || kind === 'circle') {
+  if (kind === 'rect' || kind === 'circle' || kind === 'polygon') {
     pickShape(kind)
   } else if (kind === 'text') {
     startText()
@@ -310,7 +307,7 @@ onBeforeUnmount(() => {
 
 // ── button metadata ────────────────────────────────────────────────────
 interface ToolButton {
-  id: 'rect' | 'circle' | 'text' | 'sprite' | 'video' | 'audio'
+  id: 'rect' | 'circle' | 'polygon' | 'text' | 'sprite' | 'video' | 'audio'
   label: string
   glyph: string
   active: boolean
@@ -337,6 +334,15 @@ const buttons = computed<ToolButton[]>(() => [
     disabled: targetLayerId.value === null,
     title: 'Add circle — click to enter place mode, then click on the stage',
     onClick: () => pickShape('circle'),
+  },
+  {
+    id: 'polygon',
+    label: 'Polygon',
+    glyph: '⬠',
+    active: isToolActive('shape-polygon'),
+    disabled: targetLayerId.value === null,
+    title: 'Add polygon — click the stage to place each vertex, Enter or double-click to close',
+    onClick: () => pickShape('polygon'),
   },
   {
     id: 'text',
@@ -446,7 +452,11 @@ const buttons = computed<ToolButton[]>(() => [
       class="place-banner"
       data-testid="item-toolbar-place-banner"
     >
-      <span>Click stage to place</span>
+      <span>{{
+        isToolActive('shape-polygon')
+          ? 'Click to add points · Enter to close'
+          : 'Click stage to place'
+      }}</span>
       <button
         type="button"
         class="place-cancel"

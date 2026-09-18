@@ -23,6 +23,8 @@ export interface Command {
   kind: string
   payload: Record<string, unknown>
   source?: 'ui' | 'mcp'
+  /** v1.1 S26 — `update_item` only: same key in a burst → one undo step. */
+  coalesceKey?: string
 }
 
 /**

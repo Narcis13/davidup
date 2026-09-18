@@ -166,9 +166,10 @@ bun run cli -- edit ./my-clip
 
 The browser opens to the editor. You get:
 
-- **ItemToolbar** (left rail) — Rectangle, Circle, Text, Sprite, Video, Audio,
-  plus Group / Ungroup. Polygons, scene instances, and templates come from
-  the Library panel, not the toolbar.
+- **ItemToolbar** (left rail) — Rectangle, Circle, Polygon, Text, Sprite,
+  Video, Audio, plus Group / Ungroup. Polygon: click the stage once per
+  vertex, then Enter or double-click to close (≥ 3 points). Scene instances
+  and templates come from the Library panel, not the toolbar.
 - **Stage** — drag bodies to move, corner handles for scale, top handle for
   rotation, marquee-drag empty space to multi-select. Drop files or library
   cards straight onto it.
@@ -190,8 +191,9 @@ The browser opens to the editor. You get:
 - **SourceDrawer** (⌘J) — the authored `composition.json` with the
   selection's JSON pointer highlighted (read-only).
 
-Shortcuts: `Space` play/pause · `Backspace` delete (tween if a bar is
-selected, else item) · ⌘Z / ⌘⇧Z undo/redo · ⌘G / ⌘⇧G group/ungroup ·
+Shortcuts: `Space` play/pause · `Backspace` / `Delete` delete (tween if a
+bar is selected, else item) · arrows nudge the selection 1 px (⇧ 10 px; a
+burst of presses is one undo step) · ⌘Z / ⌘⇧Z undo/redo · ⌘G / ⌘⇧G group/ungroup ·
 ⌘R render · ⌘J source drawer · ⌘0 seek to start · `V` add video · `A` add
 audio · `?` help · `Esc` cancel. ⌘S only shows a "Saved" toast — every
 command is already persisted to disk.
@@ -764,14 +766,11 @@ Component roster (see `apps/editor/inertia/components/`):
 | `Toasts` | Async feedback, structured-error display |
 
 Keyboard shortcuts are listed in [Quickstart A](#a--human-in-the-editor-recommended-for-authoring).
-`Delete` is deliberately unbound (use `Backspace`); there is no arrow-key
-nudge.
 
 Behind the scenes: server-side undo/redo history (depth 50), debounced
 atomic writes of `composition.json` (500 ms), `fs.watch` on both library
-roots, SSE for render progress and project switches. The editor does **not**
-watch `composition.json` itself — edits made by an external tool are picked
-up on the next reload.
+roots and on `composition.json` itself (an external edit reloads the stage
+and becomes one undo step), SSE for render progress and project switches.
 
 The editor manages `<project>/composition.json` plus `<project>/library/`
 (local overrides), `<project>/assets/`, `<project>/renders/`,
@@ -1187,9 +1186,8 @@ Things v1.0 does not do. Each is either an open ledger item in
 - The stage draws video frames from the render extraction cache: exact when
   paused or scrubbing, best-effort while playing (frames can lag or blink in
   until cached). The first view of a new clip waits on extraction.
-- No keyframe curve editor, no timeline zoom, no arrow-key nudge, no
-  polygon tool; the source drawer is read-only.
-- External edits to `composition.json` are not watched.
+- No keyframe curve editor, no timeline zoom; the source drawer is
+  read-only.
 - Reveal in Finder / QuickTime are macOS-only.
 - In dev mode (`bun run cli -- edit`), a stray `bin/server.js` can outlive
   the session (bug 2.2); the packaged path is unaffected.

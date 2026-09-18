@@ -4,7 +4,8 @@
 // play/pause). 20.20 expands it into the registry the PRD calls for:
 //
 //   Space      → play/pause
-//   Backspace  → delete current selection
+//   Backspace / Delete → delete current selection (v1.1 S26 binds Delete)
+//   ←↑→↓      → nudge the stage selection 1 px (⇧ = 10 px) (v1.1 S26)
 //   ⌘0  / Ctrl+0 → fit timeline (seek to t=0; the timeline already
 //                  auto-fits the panel width, so "fit" collapses to the
 //                  canonical reset action — playhead to start)
@@ -33,12 +34,19 @@
 // didn't supply one — so consumers can wire whichever subset they need.
 
 import { onBeforeUnmount, onMounted } from 'vue'
+import { arrowDelta, nudgeStep } from './useNudge.js'
 
 export interface UseShortcutsOptions {
   /** Space — toggle stage play/pause. */
   togglePlay?: () => void | Promise<void>
-  /** Backspace — delete the active selection (item, tween, etc). */
+  /** Backspace / Delete — delete the active selection (item, tween, etc). */
   deleteSelection?: () => void | Promise<void>
+  /**
+   * Arrow keys — nudge the selection by (dx, dy) composition px (⇧ ×10).
+   * Returns true when it acted; only then is the key claimed, so arrows
+   * still scroll panels when nothing on stage is selected.
+   */
+  nudge?: (dx: number, dy: number) => boolean
   /** ⌘0 / Ctrl+0 — reset the timeline view (seek to start). */
   fitTimeline?: () => void | Promise<void>
   /** ⌘J / Ctrl+J — toggle the reveal-in-source drawer. */
@@ -111,13 +119,31 @@ export function useShortcuts(options: UseShortcutsOptions): void {
       return
     }
 
-    // ── Backspace ── modifier-free delete. Plain Delete is left alone so
-    // platform-native behaviours (e.g. macOS "forward delete") aren't claimed.
-    if (event.key === 'Backspace') {
+    // ── Backspace / Delete ── modifier-free delete. v1.0 left Delete
+    // unbound; S26 binds it identically — outside text fields (already
+    // excluded above) forward-delete has no native behaviour to preserve.
+    if (event.key === 'Backspace' || event.key === 'Delete') {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
       if (!options.deleteSelection) return
       event.preventDefault()
       invoke(options.deleteSelection)
+      return
+    }
+
+    // ── Arrows ── nudge (⇧ = 10 px). Alt / Ctrl / Meta variants stay free
+    // for OS / browser navigation.
+    const arrow = arrowDelta(event.key)
+    if (arrow) {
+      if (event.altKey || event.ctrlKey || event.metaKey) return
+      if (!options.nudge) return
+      const step = nudgeStep(event.shiftKey)
+      let acted = false
+      try {
+        acted = options.nudge(arrow.dx * step, arrow.dy * step)
+      } catch {
+        /* never let one shortcut take down the rest of the page */
+      }
+      if (acted) event.preventDefault()
       return
     }
 

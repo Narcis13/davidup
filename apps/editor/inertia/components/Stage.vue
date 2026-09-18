@@ -39,6 +39,11 @@ import {
   type HandleKind,
 } from '~/composables/useStageHandle'
 import type { ItemGeom } from '~/composables/stageHandleMath'
+import {
+  buildPolygonShapePayload,
+  canClosePolygon,
+  type Point,
+} from '~/composables/polygonToolMath'
 
 interface PickHit {
   itemId: string
@@ -241,6 +246,10 @@ function buildPlaceCommand(
         },
         source: 'ui',
       }
+    case 'shape-polygon':
+      // Multi-click tool — vertices accumulate in `polygonDraft` and
+      // `closePolygon()` dispatches; a single click never places one.
+      return null
     case 'sprite':
       return {
         kind: 'add_sprite',
@@ -831,6 +840,14 @@ function onCanvasClick(event: MouseEvent): void {
   // diffs the composition once the bus response lands and promotes the
   // new id to the active selection (UX_FINDINGS §5).
   const tool = itemToolbar.activeTool.value
+  if (tool?.kind === 'shape-polygon') {
+    const coords = clickCoordsToCanvas(event)
+    if (coords) {
+      polygonDraft.value = [...polygonDraft.value, [coords.x, coords.y]]
+      drawSelectionRing()
+    }
+    return
+  }
   if (tool) {
     const layerId = layerForDropId.value
     const coords = clickCoordsToCanvas(event)
@@ -873,6 +890,97 @@ function onCanvasClick(event: MouseEvent): void {
     // Additive empty clicks preserve the existing multi-selection.
     selection.setSelectionFromPick(null)
   }
+}
+
+// ──────────────── Polygon tool (v1.1 S26) ────────────────
+//
+// While the `shape-polygon` tool is active every canvas click appends a
+// vertex (composition px) to `polygonDraft`; the overlay draws the open
+// path plus a rubber-band edge to the cursor. Enter or a double-click
+// closes it — needs ≥ 3 distinct vertices (the dblclick's own two clicks
+// are de-duplicated) — and dispatches one `add_shape kind:polygon`.
+// Escape (ItemToolbar) or switching tools drops the draft.
+
+const polygonDraft = ref<Point[]>([])
+const polygonCursor = ref<Point | null>(null)
+
+function resetPolygonDraft(): void {
+  polygonDraft.value = []
+  polygonCursor.value = null
+}
+
+function closePolygon(): boolean {
+  if (itemToolbar.activeTool.value?.kind !== 'shape-polygon') return false
+  if (!canClosePolygon(polygonDraft.value)) return false
+  const layerId = layerForDropId.value
+  const payload = layerId ? buildPolygonShapePayload(layerId, polygonDraft.value) : null
+  itemToolbar.clearTool()
+  resetPolygonDraft()
+  drawSelectionRing()
+  if (payload) placeAndSelect({ kind: 'add_shape', payload, source: 'ui' })
+  return true
+}
+
+function onCanvasDblClick(): void {
+  closePolygon()
+}
+
+function onCanvasPointerMove(event: PointerEvent): void {
+  if (itemToolbar.activeTool.value?.kind !== 'shape-polygon') return
+  if (polygonDraft.value.length === 0) return
+  const coords = clickCoordsToCanvas(event)
+  polygonCursor.value = coords ? [coords.x, coords.y] : null
+  drawSelectionRing()
+}
+
+function onPolygonKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter') return
+  if (itemToolbar.activeTool.value?.kind !== 'shape-polygon') return
+  const target = event.target
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  ) {
+    return
+  }
+  if (closePolygon()) event.preventDefault()
+}
+
+watch(
+  () => itemToolbar.activeTool.value?.kind,
+  (kind) => {
+    if (kind !== 'shape-polygon' && polygonDraft.value.length > 0) {
+      resetPolygonDraft()
+      drawSelectionRing()
+    }
+  },
+)
+
+function drawPolygonDraft(ctx: CanvasRenderingContext2D, lineWidth: number, scaleX: number): void {
+  const pts = polygonDraft.value
+  if (pts.length === 0) return
+  ctx.save()
+  ctx.lineWidth = lineWidth
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = '#5b7cfa'
+  ctx.fillStyle = 'rgba(91, 124, 250, 0.12)'
+  ctx.beginPath()
+  ctx.moveTo(pts[0]![0], pts[0]![1])
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]![0], pts[i]![1])
+  const cursor = polygonCursor.value
+  if (cursor) ctx.lineTo(cursor[0], cursor[1])
+  if (pts.length >= 2) ctx.fill()
+  ctx.stroke()
+  // Vertex dots; the first is larger — it's where the shape will close.
+  ctx.fillStyle = '#ffffff'
+  for (let i = 0; i < pts.length; i++) {
+    const r = (i === 0 ? 5 : 3.5) * Math.max(scaleX, 1)
+    ctx.beginPath()
+    ctx.arc(pts[i]![0], pts[i]![1], r, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+  ctx.restore()
 }
 
 // ──────────────── Selection ring (step 20.18) ────────────────
@@ -970,6 +1078,8 @@ function drawSelectionRing(): void {
       ctx.restore()
     }
   }
+
+  drawPolygonDraft(ctx, lineWidth, scaleX)
 }
 
 let unsubscribeTick: (() => void) | null = null
@@ -980,6 +1090,7 @@ onMounted(() => {
   if (props.onTick) {
     unsubscribeTick = props.onTick(drawSelectionRing)
   }
+  window.addEventListener('keydown', onPolygonKeydown)
 })
 
 // Composition swaps change the overlay's internal width/height; redraw so the
@@ -1040,6 +1151,7 @@ onBeforeUnmount(() => {
     unsubscribeTick = null
   }
   cancelMarquee()
+  window.removeEventListener('keydown', onPolygonKeydown)
   clearOverlay()
 })
 </script>
@@ -1066,7 +1178,9 @@ onBeforeUnmount(() => {
       :height="canvasHeight"
       :style="{ aspectRatio: aspect }"
       @pointerdown="onCanvasPointerDown"
+      @pointermove="onCanvasPointerMove"
       @click="onCanvasClick"
+      @dblclick="onCanvasDblClick"
     />
     <!--
       Selection-ring overlay (step 20.18). Position is synced to the

@@ -424,6 +424,11 @@ const updateItem = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  // Editor-only undo hint (v1.1 S26). Consecutive update_items carrying the
+  // same key within CommandBus's coalesce window fold into ONE undo step —
+  // arrow-key nudges use it so a burst of presses undoes in one ⌘Z. Never
+  // reaches the engine/MCP tool (it sits beside `payload`, not inside it).
+  coalesceKey: z.string().min(1).max(200).optional(),
 })
 
 const moveItemToLayer = z.object({

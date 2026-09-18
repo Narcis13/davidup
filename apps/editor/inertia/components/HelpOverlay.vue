@@ -38,6 +38,10 @@ interface Shortcut {
 const shortcuts = computed<Shortcut[]>(() => [
   { keys: ['Space'], label: 'Play / pause the stage' },
   { keys: ['Backspace'], label: 'Delete the current selection (item — or tween when a Timeline bar is selected)' },
+  { keys: ['Delete'], label: 'Same as Backspace' },
+  { keys: ['←↑→↓'], label: 'Nudge the selection 1 px (a burst of presses is one undo step)' },
+  { keys: ['⇧', '←↑→↓'], label: 'Nudge the selection 10 px' },
+  { keys: ['Enter'], label: 'Polygon tool — close the shape (or double-click; needs 3+ points)' },
   { keys: [`${modKey.value}`, 'Z'], label: 'Undo the most recent edit' },
   { keys: [`${modKey.value}`, '⇧', 'Z'], label: 'Redo the most recently undone edit' },
   { keys: [`${modKey.value}`, 'G'], label: 'Group selection (2+ items on same layer)' },

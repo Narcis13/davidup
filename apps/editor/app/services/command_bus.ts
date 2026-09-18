@@ -30,6 +30,11 @@ import {
 import { applyCommandWithResult, ApplyCommandError } from '#services/apply_command'
 
 const DEFAULT_UNDO_DEPTH = 50
+// v1.1 S26 — how long after the last coalesced apply a matching
+// `coalesceKey` still folds into the same undo step. Long enough for held
+// arrow-key repeat and deliberate tap-tap-tap nudging; short enough that a
+// nudge a few seconds later is its own step.
+const DEFAULT_COALESCE_WINDOW_MS = 1000
 
 export class CommandValidationError extends Error {
   readonly code = 'E_INVALID_COMMAND'
@@ -108,6 +113,10 @@ type Subscriber = (event: ChangeEvent) => void
 interface UndoEntry {
   snapshot: Composition
   command: Command | null
+  /** v1.1 S26 — the command's `coalesceKey`, if any. */
+  coalesceKey?: string
+  /** Wall-clock ms of the most recent apply folded into this entry. */
+  at?: number
 }
 
 // Redo entry — produced when `undo()` pops a snapshot. We keep the *forward*
@@ -122,6 +131,7 @@ interface RedoEntry {
 export class CommandBus {
   readonly #projectStore: ProjectStore
   readonly #undoDepth: number
+  readonly #coalesceWindowMs: number
   readonly #undoStack: UndoEntry[] = []
   readonly #redoStack: RedoEntry[] = []
   readonly #subscribers = new Set<Subscriber>()
@@ -132,9 +142,12 @@ export class CommandBus {
   // to completion (success or failure) before the next reads composition.
   #queue: Promise<unknown> = Promise.resolve()
 
-  constructor(opts: { projectStore?: ProjectStore; undoDepth?: number } = {}) {
+  constructor(
+    opts: { projectStore?: ProjectStore; undoDepth?: number; coalesceWindowMs?: number } = {}
+  ) {
     this.#projectStore = opts.projectStore ?? projectStoreSingleton
     this.#undoDepth = opts.undoDepth ?? DEFAULT_UNDO_DEPTH
+    this.#coalesceWindowMs = opts.coalesceWindowMs ?? DEFAULT_COALESCE_WINDOW_MS
   }
 
   /** Number of snapshots currently available for undo (max = undoDepth). */
@@ -207,7 +220,7 @@ export class CommandBus {
       throw new PostValidationError(result)
     }
 
-    this.#pushUndo(current, command)
+    this.#pushOrCoalesceUndo(current, command)
     // A new forward edit makes the previously-undone branch unreachable —
     // linear history (FR-09). Clearing here keeps undo/redo semantics simple
     // and matches user expectation from every other editor on the planet.
@@ -356,6 +369,33 @@ export class CommandBus {
   recordExternalChange(prev: Composition): void {
     this.#pushUndo(prev, null)
     this.#redoStack.length = 0
+  }
+
+  // v1.1 S26 — a forward apply whose `coalesceKey` matches the top undo
+  // entry's (within the window, nothing undone in between) extends that
+  // entry instead of pushing a new one: the entry keeps its pre-burst
+  // snapshot, so one undo reverts the whole burst.
+  #pushOrCoalesceUndo(snapshot: Composition, command: Command): void {
+    const key = 'coalesceKey' in command ? command.coalesceKey : undefined
+    const now = Date.now()
+    const top = this.#undoStack[this.#undoStack.length - 1]
+    if (
+      key !== undefined &&
+      top?.coalesceKey === key &&
+      top.at !== undefined &&
+      now - top.at <= this.#coalesceWindowMs &&
+      this.#redoStack.length === 0
+    ) {
+      top.command = command
+      top.at = now
+      return
+    }
+    this.#pushUndo(snapshot, command)
+    if (key !== undefined) {
+      const entry = this.#undoStack[this.#undoStack.length - 1]!
+      entry.coalesceKey = key
+      entry.at = now
+    }
   }
 
   #pushUndo(snapshot: Composition, command: Command | null): void {

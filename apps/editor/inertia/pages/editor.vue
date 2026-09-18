@@ -25,6 +25,7 @@ import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
 import { useRender } from '~/composables/useRender'
 import { useShortcuts } from '~/composables/useShortcuts'
+import { useNudge } from '~/composables/useNudge'
 import { useToasts } from '~/composables/useToasts'
 import { useGroupActions } from '~/composables/useGroupActions'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
@@ -643,9 +644,17 @@ const groupActions = useGroupActions({
   apply: bus.apply,
 })
 
+// v1.1 S26 — arrow-key nudge; a burst of presses is one undo step.
+const nudger = useNudge({
+  getComposition: () => bus.composition.value,
+  getSelectedIds: () => selection.selectedItemIds.value,
+  apply: bus.apply,
+})
+
 useShortcuts({
   togglePlay: () => stage.togglePlay(),
   deleteSelection,
+  nudge: nudger.nudge,
   fitTimeline,
   toggleSourceDrawer,
   render: startRender,
