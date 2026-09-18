@@ -666,6 +666,54 @@ test.group('applyCommand · group compositing (v1.1 S18)', () => {
   })
 })
 
+test.group('applyCommand · effects (v1.1 S21)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  // `effects` is the dual-schema risk: the bus strips undeclared props, so an
+  // Inspector edit would silently drop the stack.
+  test('update_item carries an effects stack through the dual schema and survives rehydration', async ({
+    assert,
+  }) => {
+    const effects = [
+      { type: 'blur', radius: 3 },
+      { type: 'shadow', color: '#000000', blur: 8, offsetX: 2, offsetY: 4 },
+      { type: 'glow', color: '#40c8ff', radius: 6 },
+    ]
+    const a = await applyCommand(
+      cloneComp(),
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { effects } }, source: 'ui' })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { x: 10 } }, source: 'ui' })
+    )
+    assert.deepEqual((b.items.logo as Record<string, unknown>).effects, effects)
+
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { effects: null } }, source: 'ui' })
+    )
+    assert.notProperty(c.items.logo as Record<string, unknown>, 'effects')
+  })
+
+  test('dual schema rejects malformed effects', async ({ assert }) => {
+    for (const bad of [
+      [{ type: 'blur', radius: -1 }],
+      [{ type: 'glow', radius: 4 }],
+      [{ type: 'sepia', amount: 1 }],
+    ]) {
+      assert.isFalse(
+        CommandSchema.safeParse({
+          kind: 'update_item',
+          payload: { id: 'logo', props: { effects: bad } },
+          source: 'ui',
+        }).success,
+        JSON.stringify(bad)
+      )
+    }
+  })
+})
+
 // ──────────────── CommandBus ────────────────
 
 test.group('CommandBus · in-process', (group) => {

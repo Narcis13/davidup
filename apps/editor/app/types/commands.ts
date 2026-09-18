@@ -18,7 +18,7 @@
 */
 
 import { z } from 'zod'
-import { BlendModeSchema, EasingSchema, idSchema } from 'davidup/schema'
+import { BlendModeSchema, EasingSchema, EffectSchema, idSchema } from 'davidup/schema'
 
 // ──────────────── Reusable fragments ────────────────
 
@@ -123,6 +123,9 @@ const ITEM_PROPS = z
     // put the group back on the default multiplicative path.
     isolate: z.boolean(),
     blendMode: BlendModeSchema,
+    // Per-item effects (v1.1 S21), every item type. DUAL of `effects` on
+    // update_item: replaces the whole stack; `null` / `[]` removes it.
+    effects: z.array(EffectSchema).nullable(),
     // §M flags (engine-honored visibility, editor-only lock).
     visible: z.boolean(),
     locked: z.boolean(),

@@ -43,7 +43,7 @@
 //                                              → W_VIDEO_NO_AUDIO_STREAM
 
 import type { Composition, Item, Layer } from "./types.js";
-import { getTweenable } from "./tweenable.js";
+import { getItemTweenable, parseEffectPath } from "./tweenable.js";
 import { CompositionSchema } from "./zod.js";
 import { parseColor } from "../color/index.js";
 
@@ -811,11 +811,11 @@ function validateTweens(
     }
 
     const item = comp.items[tween.target]!;
-    const desc = getTweenable(item.type, tween.property);
+    const desc = getItemTweenable(item, tween.property);
     if (!desc) {
       errors.push({
         code: "E_PROPERTY_INVALID",
-        message: `Property "${tween.property}" is not tweenable on ${item.type} "${tween.target}".`,
+        message: `Property "${tween.property}" is not tweenable on ${item.type} "${tween.target}"${effectHint(item, tween.property)}.`,
         path: `tweens.${tween.id}.property`,
       });
       continue;
@@ -953,4 +953,17 @@ function canonicalCycle(cycle: readonly string[]): string {
     if (ring[i]! < ring[minIdx]!) minIdx = i;
   }
   return [...ring.slice(minIdx), ...ring.slice(0, minIdx)].join(",");
+}
+
+// Why an `effects.<i>.<field>` tween was rejected (v1.1 S21): the index is
+// out of range, or that effect's type has no such field.
+function effectHint(item: Item, property: string): string {
+  const fx = parseEffectPath(property);
+  if (!fx) return "";
+  const effect = item.effects?.[fx.index];
+  if (!effect) {
+    const n = item.effects?.length ?? 0;
+    return ` (it has ${n} effect${n === 1 ? "" : "s"}, so there is no effects[${fx.index}])`;
+  }
+  return ` (effects[${fx.index}] is a ${effect.type} effect, which has no "${fx.field}")`;
 }

@@ -94,7 +94,14 @@ export type Call =
       dh: number;
       alpha: number;
       composite: string;
-    };
+      // Shadow state at the draw (v1.1 S21 shadow/glow effects).
+      shadowColor: string;
+      shadowBlur: number;
+      shadowOffsetX: number;
+      shadowOffsetY: number;
+    }
+  | { op: "getImageData"; x: number; y: number; w: number; h: number }
+  | { op: "putImageData"; x: number; y: number; image: unknown };
 
 // The affine CTM, tracked for real (v1.1 S18) so `getTransform` hands back
 // the matrix the renderer actually built. Isolated groups copy it onto their
@@ -436,6 +443,7 @@ export class FakeContext implements Canvas2DContext {
         dh: d,
         alpha: this.state.globalAlpha,
         composite: this.state.globalCompositeOperation,
+        ...this.effectState(),
       });
     } else {
       // 9-arg: a..d = source crop, e..h = destination rect.
@@ -452,8 +460,26 @@ export class FakeContext implements Canvas2DContext {
         dh: h,
         alpha: this.state.globalAlpha,
         composite: this.state.globalCompositeOperation,
+        ...this.effectState(),
       });
     }
+  }
+  // Raw pixel access (v1.1 S21 blur). The fake holds no pixels: reads hand
+  // back a transparent buffer, writes are only recorded.
+  getImageData(x: number, y: number, w: number, h: number) {
+    this.calls.push({ op: "getImageData", x, y, w, h });
+    return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
+  }
+  putImageData(image: unknown, x: number, y: number): void {
+    this.calls.push({ op: "putImageData", x, y, image });
+  }
+  private effectState() {
+    return {
+      shadowColor: this.state.shadowColor,
+      shadowBlur: this.state.shadowBlur,
+      shadowOffsetX: this.state.shadowOffsetX,
+      shadowOffsetY: this.state.shadowOffsetY,
+    };
   }
 }
 

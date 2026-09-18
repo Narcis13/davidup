@@ -422,6 +422,43 @@ isolation changes how the group composites, not what animates. Clicking
 inside an isolated group in the editor still selects the child, not the
 group.
 
+### Effects
+
+Any item can carry `effects`, an ordered stack of blur, drop shadow and glow:
+
+```json
+"effects": [
+  { "type": "blur", "radius": 4 },
+  { "type": "shadow", "color": "rgba(0,0,0,0.6)", "blur": 12, "offsetX": 0, "offsetY": 6 },
+  { "type": "glow", "color": "#40c8ff", "radius": 8 }
+]
+```
+
+The item is first painted onto a scratch surface as a whole (a group with all
+its children, at full alpha), then each effect applies to the result of the
+one before it, and the outcome is composited once with the item's opacity.
+Order matters: a shadow listed after a blur is cast by the blurred item, and
+two glows stack into a stronger halo. The item and its shadow fade together,
+and a group with effects is flattened as if `isolate: true`.
+
+| Effect | Fields |
+|---|---|
+| `blur` | `radius` — Gaussian σ in px, as in CSS `blur()` |
+| `shadow` | `color`, `blur?` (Canvas2D `shadowBlur`, i.e. 2σ — same units as the text `shadow`), `offsetX?`, `offsetY?` |
+| `glow` | `color`, `radius` — σ in px, like `blur` |
+
+Lengths are canvas pixels applied after the item's transform, so they don't
+scale or rotate with the item (the text shadow's convention). Every numeric
+field and colour tweens as `effects.<index>.<field>` — `effects.0.radius`
+10 → 0 is a focus pull. Set or replace the stack with `update_item`
+(`effects: null` removes it) or from the editor Inspector's Effects section.
+Blur runs in the engine rather than through `ctx.filter`, because skia-canvas
+blurs at half Chromium's σ and the editor and the export would disagree.
+Shadow and glow use the Canvas2D shadow state, which both hosts rasterize
+alike. Clicking a blur fringe or a halo in the editor doesn't select the
+item; only its own shape is a hit. See
+[`examples/effects/`](./examples/effects/).
+
 ### Transform fields
 
 `x`, `y`, `scaleX`, `scaleY`, `rotation` (radians, clockwise), `anchorX`,
@@ -1038,6 +1075,7 @@ exact catalog or to add your own.
 | `examples/four-scenes-60s/`, `examples/ball-showcase-60s/` | Headless versions of the scene reels | `bun run examples/<dir>/render.ts` |
 | `examples/time-mapping-mcp/` | MCP-driven time-mapping demo | `bun run examples/time-mapping-mcp/render.ts` |
 | `examples/video-pip/`, `video-bg-text/`, `video-freeze-trim/` | Video-item samples, each with a real-ffmpeg integration test | `davidup render examples/video-pip -o out.mp4` |
+| `examples/effects/` | Per-item blur / drop shadow / glow, with tweened effect parameters | `bun run examples/effects/render.ts` |
 | `examples/editor-demo/` | Scaffolded project for editor onboarding | `davidup edit examples/editor-demo` |
 | `examples/launch-video/` | **The v1.0 launch video** — 26 s, 1080p30, music track; authored entirely by an AI agent over MCP | `davidup render examples/launch-video -o launch.mp4` |
 
@@ -1108,8 +1146,10 @@ Things v1.0 does not do. Each is either an open ledger item in
 - Text is single-style per item (no rich spans), wraps at word boundaries
   only, and has no stagger reveal or `measure_text` tool yet
   (`TEXT_V2_DESIGN.md`).
-- No visual effects (blur, glow, shadow). Easings are limited to the 19
-  names, cubic-bezier and steps (no springs).
+- Effects are limited to blur, drop shadow and glow (no colour filters,
+  masks or motion blur), and blur costs a pixel read-back per blurred item
+  per frame. Easings are limited to the 19 names, cubic-bezier and steps
+  (no springs).
 - Template params are whole-string substitution only; no arithmetic or
   `$repeat` (`REPEAT_EXPRESSIONS_DESIGN.md`).
 - A scene `clip` that cuts across a tween keeps the tween's original easing
@@ -1241,8 +1281,7 @@ Planned for v1.1 (designs written, no code yet):
 - Strict schema (R-23), per-session MCP state (R-29), bundled starter font
   (R-30), editable source drawer, template round-trip edits.
 
-Still open beyond that: frame-range parallelization,
-visual effects (blur, glow, drop shadow), video
+Still open beyond that: frame-range parallelization, video
 frames in the live preview. Full discussion: [`design-doc.md` §8](./design-doc.md).
 
 ---

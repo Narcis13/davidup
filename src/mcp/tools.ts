@@ -64,7 +64,7 @@ import {
   type VideoMetadata,
 } from "../drivers/node/index.js";
 import { EASING_NAMES, PARAMETRIC_EASINGS } from "../easings/index.js";
-import { listTweenable } from "../schema/tweenable.js";
+import { EFFECT_TWEENABLE, listTweenable } from "../schema/tweenable.js";
 import {
   checkDimensions,
   type ValidationError,
@@ -78,6 +78,7 @@ import {
   BLEND_MODES,
   BlendModeSchema,
   COMPOSITION_VERSION,
+  EFFECT_TYPES,
   EasingSchema,
   FpsSchema,
   isSupportedAudioSrc,
@@ -428,6 +429,38 @@ const TEXT_SHADOW = z
     offsetY: z.number().optional(),
   })
   .describe("Drop shadow cast by the fill. Offsets are canvas px, unaffected by rotation/scale.");
+// Per-item effects (v1.1 S21) — mirrors EffectSchema in src/schema/zod.ts.
+// Each variant spelled out here (not reused) so the tool JSON Schema carries
+// the descriptions instead of a bare `$ref`.
+const EFFECT = z
+  .discriminatedUnion("type", [
+    z.object({
+      type: z.literal("blur"),
+      radius: z.number().nonnegative().describe("Gaussian σ in canvas px (CSS blur() radius)"),
+    }),
+    z.object({
+      type: z.literal("shadow"),
+      color: HEX_COLOR,
+      blur: z.number().nonnegative().optional().describe("Canvas2D shadowBlur (2σ), like the text shadow"),
+      offsetX: z.number().optional(),
+      offsetY: z.number().optional(),
+    }),
+    z.object({
+      type: z.literal("glow"),
+      color: HEX_COLOR,
+      radius: z.number().nonnegative().describe("Halo σ in canvas px"),
+    }),
+  ])
+  .describe(
+    "One visual effect. Lengths are canvas px, unaffected by the item's rotation/scale.",
+  );
+const EFFECTS = z
+  .array(EFFECT)
+  .describe(
+    "Ordered effect stack, applied to the flattened item (a group with all its children) " +
+      "before its opacity: a shadow listed after a blur is cast by the blurred item; two glows stack. " +
+      "Tween a parameter with property `effects.<index>.<field>`, e.g. `effects.0.radius`.",
+  );
 const POINTS = z
   .array(z.tuple([z.number(), z.number()]))
   .describe("Polygon points as [[x,y], ...]");
@@ -1077,6 +1110,9 @@ const ITEM_PROP_SHAPE = z
     // put the group back on the default multiplicative path.
     isolate: z.boolean(),
     blendMode: BlendModeSchema,
+    // Per-item effects (v1.1 S21), every item type. Replaces the whole
+    // stack; `null` or `[]` removes it.
+    effects: EFFECTS.nullable(),
     // §M flags. Setting `visible: false` keeps the renderer from drawing the
     // item; `locked: true` is purely a hint to the editor.
     visible: z.boolean(),
@@ -1097,7 +1133,10 @@ const updateItem = defineTool({
     "Patch an item's transform fields and/or type-specific properties. Unknown keys for the item type error. " +
     "Text items accept the text v2 fields (maxWidth, lineHeight, letterSpacing, fontWeight, fontStyle, strokeColor, " +
     "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow. " +
-    "Group items accept `isolate` and `blendMode` (see add_group).",
+    "Group items accept `isolate` and `blendMode` (see add_group). " +
+    "Every item type accepts `effects`, an ordered stack of `{type:\"blur\",radius}`, " +
+    "`{type:\"shadow\",color,blur?,offsetX?,offsetY?}` and `{type:\"glow\",color,radius}` — it replaces the " +
+    "whole stack, and `null` or `[]` removes it. Tween an effect with property `effects.<index>.<field>`.",
   inputSchema: {
     id: z.string().min(1),
     props: ITEM_PROP_SHAPE,
@@ -1154,7 +1193,8 @@ const addTween = defineTool({
   name: "add_tween",
   title: "Add tween",
   description:
-    "Add a property tween. Errors if it overlaps another tween on the same (target, property).",
+    "Add a property tween. Errors if it overlaps another tween on the same (target, property). " +
+    "An item's effect parameters tween as `effects.<index>.<field>` (see update_item).",
   inputSchema: {
     target: z.string().min(1),
     property: z.string().min(1),
@@ -2926,6 +2966,20 @@ const listEngineCapabilitiesTool = defineTool({
         extensions: [...VIDEO_ASSET_EXTENSIONS],
         fitModes: [...VIDEO_FIT_MODES],
         loop: true,
+      },
+      // Per-item effects (v1.1 S21), on every item type via update_item.
+      // `tweenable` lists each type's fields, animated as
+      // `effects.<index>.<field>`. Blur runs in-engine so node and browser
+      // agree; shadow/glow are the Canvas2D shadow.
+      effects: {
+        types: [...EFFECT_TYPES],
+        tweenable: Object.fromEntries(
+          Object.entries(EFFECT_TWEENABLE).map(([type, ds]) => [
+            type,
+            ds.map((d) => ({ field: d.path, kind: d.kind })),
+          ]),
+        ),
+        propertyPattern: "effects.<index>.<field>",
       },
       tweenable: {
         sprite: listTweenable("sprite"),

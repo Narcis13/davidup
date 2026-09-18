@@ -354,6 +354,77 @@ describe("CompositionStore — group compositing (v1.1 S18)", () => {
   });
 });
 
+describe("CompositionStore — effects (v1.1 S21)", () => {
+  function shape(store: CompositionStore): string {
+    const layerId = store.addLayer({ z: 0 });
+    return store.addShape({ layerId, kind: "rect", x: 0, y: 0, width: 5, height: 5 });
+  }
+
+  it("update_item sets an effects stack on any item type and round-trips it", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    const effects = [
+      { type: "blur" as const, radius: 3 },
+      { type: "shadow" as const, color: "#000000", blur: 6, offsetY: 4 },
+      { type: "glow" as const, color: "#40c8ff", radius: 5 },
+    ];
+    store.updateItem(id, { effects });
+    expect(store.toJSON().items[id]!.effects).toEqual(effects);
+    // A copy, not the caller's array.
+    effects[0]!.radius = 99;
+    expect(store.toJSON().items[id]!.effects?.[0]).toEqual({ type: "blur", radius: 3 });
+
+    const layerId = store.addLayer({ z: 1 });
+    const group = store.addGroup({ layerId, x: 0, y: 0 });
+    store.updateItem(group, { effects: [{ type: "glow", color: "#fff", radius: 2 }] });
+    expect(store.toJSON().items[group]!.effects).toHaveLength(1);
+    expect(store.validate().errors).toEqual([]);
+  });
+
+  it("null and [] both remove the field", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    for (const clear of [null, []] as const) {
+      store.updateItem(id, { effects: [{ type: "blur", radius: 2 }] });
+      store.updateItem(id, { effects: clear });
+      expect("effects" in (store.toJSON().items[id] as object)).toBe(false);
+    }
+  });
+
+  it("leaves effects alone when a patch doesn't mention them", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    store.updateItem(id, { effects: [{ type: "blur", radius: 2 }] });
+    store.updateItem(id, { x: 10, fillColor: "#ff0000" });
+    expect(store.toJSON().items[id]!.effects).toEqual([{ type: "blur", radius: 2 }]);
+  });
+
+  it("add_tween checks effect paths against the item's actual effects", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    store.updateItem(id, { effects: [{ type: "blur", radius: 0 }] });
+    store.addTween({ target: id, property: "effects.0.radius", from: 0, to: 8, start: 0, duration: 1 });
+    expect(store.validate().errors).toEqual([]);
+    expect(() =>
+      store.addTween({ target: id, property: "effects.1.radius", from: 0, to: 8, start: 0, duration: 1 }),
+    ).toThrow(/not tweenable/);
+    expect(() =>
+      store.addTween({ target: id, property: "effects.0.color", from: "#000", to: "#fff", start: 0, duration: 1 }),
+    ).toThrow(/not tweenable/);
+  });
+
+  it("refuses to drop an effect a tween still animates", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    store.updateItem(id, { effects: [{ type: "blur", radius: 0 }] });
+    store.addTween({ target: id, property: "effects.0.radius", from: 0, to: 8, start: 0, duration: 1 });
+    expect(() => store.updateItem(id, { effects: null })).toThrow(/effects.0.radius/);
+    // Swapping in an effect that still has the field is fine.
+    store.updateItem(id, { effects: [{ type: "glow", color: "#fff", radius: 1 }] });
+    expect(store.validate().errors).toEqual([]);
+  });
+});
+
 describe("CompositionStore — tweens", () => {
   it("rejects overlapping tweens on (target, property)", () => {
     const { store } = makeStore();

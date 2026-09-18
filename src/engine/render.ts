@@ -28,9 +28,18 @@
 // `OffscreenSurface` factory and the optional `getTransform`/`setTransform`
 // pair on `Canvas2DContext`; a host missing either silently keeps the
 // multiplicative path (see `drawItem`).
+//
+// v1.1 S21 per-item `effects` (blur / shadow / glow) reuse that machinery: the
+// item is flattened onto a scratch surface at full alpha, each effect is
+// applied in order, and the result is composited once with the item's opacity
+// (see `drawWithEffects`). Shadow and glow are the Canvas2D shadow state,
+// which both hosts rasterize alike. Blur is in-engine (engine/blur.ts):
+// skia-canvas's `ctx.filter` blur on `drawImage` runs at half Chromium's σ,
+// so the editor and the export would disagree.
 
 import type {
   BlendMode,
+  Effect,
   GroupItem,
   Item,
   Layer,
@@ -56,6 +65,7 @@ import type {
   VideoFrameProvider,
   VideoFrameRequest,
 } from "./types.js";
+import { blurPixels } from "./blur.js";
 import {
   DEFAULT_LINE_HEIGHT,
   isBoxText,
@@ -202,6 +212,13 @@ export function drawItem(
   itemId?: string,
 ): void {
   const tr = item.transform;
+
+  // v1.1 S21: an item with effects is flattened and post-processed on scratch
+  // surfaces, then composited once. A host that can't isolate draws the item
+  // plainly — effects are decoration, the item itself must still show.
+  if (hasEffects(item) && canIsolate(ctx, dc)) {
+    if (drawWithEffects(ctx, item, scene, dc, itemId)) return;
+  }
 
   // v1.1 S18: an isolated group never enters the shared transform/alpha path
   // below — it flattens onto its own surface first, so the group's opacity and
@@ -718,6 +735,149 @@ function drawIsolatedGroup(
   ctx.drawImage(off.source, 0, 0, width, height);
   ctx.restore();
   return true;
+}
+
+function hasEffects(item: Item): boolean {
+  return item.effects !== undefined && item.effects.length > 0;
+}
+
+/**
+ * Draw `item` through its `effects` stack (v1.1 S21).
+ *
+ * 1. Flatten: paint the item onto a composition-sized scratch surface seeded
+ *    with the inherited CTM — exactly as `drawIsolatedGroup` does — at
+ *    `globalAlpha = 1` and source-over, via the ordinary `drawItem` path on a
+ *    copy with opacity 1 and no effects. A group copy also drops `isolate`
+ *    and `blendMode`: flattening already isolates its children, and the
+ *    group's blend mode belongs to the final composite.
+ * 2. Post-process, in order. A blur rewrites the current surface's pixels
+ *    in place (engine/blur.ts). A shadow or glow redraws the current surface
+ *    onto a cleared spare at the identity frame with the shadow state set —
+ *    the shadow lands under the redrawn pixels — then the two swap. Two
+ *    surfaces serve any stack depth.
+ * 3. Composite: the result goes onto the canvas at identity, carrying the
+ *    inherited alpha × the item's opacity, the inherited composite op (the
+ *    layer's blend mode), and a group's own `blendMode` if it has one.
+ *
+ * Effect lengths are therefore canvas pixels, unaffected by the item's (or an
+ * ancestor's) scale and rotation — the same convention as the text shadow.
+ *
+ * Returns false without drawing when the scratch surface can't take the
+ * inherited matrix, so the caller falls back to drawing the item plainly.
+ */
+function drawWithEffects(
+  ctx: Canvas2DContext,
+  item: Item,
+  scene: ResolvedScene,
+  dc: DrawContext,
+  itemId: string | undefined,
+): boolean {
+  const { width, height } = scene.composition;
+  let src = dc.createOffscreen!(width, height);
+  const oc = src.context;
+  if (typeof oc.setTransform !== "function") return false;
+
+  const m = ctx.getTransform!();
+  oc.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+  oc.globalAlpha = 1;
+  oc.globalCompositeOperation = COMPOSITE_NORMAL;
+  drawItem(oc, flattenCopy(item), scene, dc.assets, dc, itemId);
+
+  let spare: OffscreenSurface | undefined;
+  for (const effect of item.effects!) {
+    if (isNoOpEffect(effect)) continue;
+    if (effect.type === "blur") {
+      blurSurface(src.context, width, height, effect.radius);
+      continue;
+    }
+    spare ??= dc.createOffscreen!(width, height);
+    const sc = spare.context;
+    sc.setTransform!(1, 0, 0, 1, 0, 0);
+    sc.clearRect(0, 0, width, height);
+    sc.save();
+    sc.globalAlpha = 1;
+    sc.globalCompositeOperation = COMPOSITE_NORMAL;
+    applyShadowState(sc, effect);
+    sc.drawImage(src.source, 0, 0, width, height);
+    sc.restore();
+    const done = spare;
+    spare = src;
+    src = done;
+  }
+
+  ctx.save();
+  ctx.setTransform!(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = ctx.globalAlpha * item.transform.opacity;
+  if (item.type === "group" && item.blendMode !== undefined) {
+    applyBlendMode(ctx, item.blendMode);
+  }
+  ctx.drawImage(src.source, 0, 0, width, height);
+  ctx.restore();
+  return true;
+}
+
+// The item as painted onto the flatten surface: full opacity (applied at the
+// composite instead) and no effects (or `drawItem` would recurse forever).
+function flattenCopy(item: Item): Item {
+  const transform = { ...item.transform, opacity: 1 };
+  if (item.type === "group") {
+    const { effects: _e, isolate: _i, blendMode: _b, ...rest } = item;
+    return { ...rest, transform };
+  }
+  const { effects: _e, ...rest } = item;
+  return { ...rest, transform } as Item;
+}
+
+// Effects that would redraw the surface unchanged — skipped so a tween parked
+// at radius 0 (or a transparent shadow) costs no extra surface pass.
+function isNoOpEffect(effect: Effect): boolean {
+  switch (effect.type) {
+    case "blur":
+      return !(effect.radius > 0);
+    case "shadow":
+      return false;
+    case "glow":
+      // Un-offset and unblurred, the halo would sit exactly under the item
+      // and only tint its anti-aliased edge.
+      return !(effect.radius > 0);
+  }
+}
+
+// Blur a composition-sized scratch surface in place. A host without pixel
+// access leaves the surface unblurred — the item still shows, just sharp.
+function blurSurface(
+  ctx: Canvas2DContext,
+  width: number,
+  height: number,
+  sigma: number,
+): void {
+  if (typeof ctx.getImageData !== "function" || typeof ctx.putImageData !== "function") {
+    return;
+  }
+  const img = ctx.getImageData(0, 0, width, height);
+  blurPixels(img, sigma);
+  ctx.putImageData(img, 0, 0);
+}
+
+function applyShadowState(
+  ctx: Canvas2DContext,
+  effect: Exclude<Effect, { type: "blur" }>,
+): void {
+  switch (effect.type) {
+    case "shadow":
+      ctx.shadowColor = effect.color;
+      ctx.shadowBlur = effect.blur ?? 0;
+      ctx.shadowOffsetX = effect.offsetX ?? 0;
+      ctx.shadowOffsetY = effect.offsetY ?? 0;
+      return;
+    case "glow":
+      // Canvas2D's shadowBlur is 2σ; `radius` is σ, matching the blur effect.
+      ctx.shadowColor = effect.color;
+      ctx.shadowBlur = effect.radius * 2;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      return;
+  }
 }
 
 function drawGroupChildren(

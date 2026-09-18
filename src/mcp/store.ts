@@ -20,6 +20,7 @@ import type {
   BlendMode,
   Composition,
   CompositionMeta,
+  Effect,
   GroupItem,
   Item,
   Layer,
@@ -40,7 +41,7 @@ import {
   isSupportedAudioSrc,
   isSupportedVideoSrc,
 } from "../schema/zod.js";
-import { getTweenable } from "../schema/tweenable.js";
+import { getItemTweenable, parseEffectPath } from "../schema/tweenable.js";
 import { isRationalFps, type Fps } from "../schema/fps.js";
 import {
   getBehaviorDescriptor,
@@ -305,6 +306,9 @@ export interface UpdateItemProps {
   // default multiplicative path rather than dropping the field.
   isolate?: boolean;
   blendMode?: BlendMode;
+  // v1.1 S21 effects stack (all item types). Replaces the whole list; `null`
+  // or `[]` removes it.
+  effects?: ReadonlyArray<Effect> | null;
   // §M flags (all item types).
   visible?: boolean;
   locked?: boolean;
@@ -1203,6 +1207,7 @@ export class CompositionStore {
         "Inspect get_composition().items for existing item ids, or add_sprite/add_text/add_shape/add_group first.",
       );
     const next = applyItemUpdate(item, props);
+    if (props.effects !== undefined) assertEffectTweensStillValid(comp.tweens, id, next);
     comp.items.set(id, next);
   }
 
@@ -1254,7 +1259,7 @@ export class CompositionStore {
         `Tween target item "${input.target}" not found.`,
       );
     }
-    const desc = getTweenable(item.type, input.property);
+    const desc = getItemTweenable(item, input.property);
     if (!desc) {
       throw new MCPToolError(
         "E_INVALID_PROPERTY",
@@ -1339,7 +1344,7 @@ export class CompositionStore {
         `Tween target item "${target}" not found.`,
       );
     }
-    const desc = getTweenable(item.type, property);
+    const desc = getItemTweenable(item, property);
     if (!desc) {
       throw new MCPToolError(
         "E_INVALID_PROPERTY",
@@ -1800,7 +1805,7 @@ export class CompositionStore {
         `Tween target item "${tween.target}" not found.`,
       );
     }
-    const desc = getTweenable(item.type, tween.property);
+    const desc = getItemTweenable(item, tween.property);
     if (!desc) {
       throw new MCPToolError(
         "E_INVALID_PROPERTY",
@@ -2408,6 +2413,7 @@ function cloneItem(item: Item): Item {
   // §M flags + lifespan propagate through every clone path so toJSON
   // round-trips them.
   const flags = {
+    ...(item.effects !== undefined ? { effects: item.effects.map(cloneEffect) } : {}),
     ...(item.visible !== undefined ? { visible: item.visible } : {}),
     ...(item.locked !== undefined ? { locked: item.locked } : {}),
     ...(item.enter !== undefined ? { enter: item.enter } : {}),
@@ -2556,7 +2562,41 @@ function cloneAudioTrack(track: AudioTrack): AudioTrack {
   };
 }
 
+function cloneEffect(effect: Effect): Effect {
+  return { ...effect };
+}
+
+// Replacing an item's effects can orphan a tween on `effects.<i>.<field>` —
+// the index is gone, or now names an effect type without that field. Refuse
+// the update rather than leave a composition that fails validation.
+function assertEffectTweensStillValid(
+  tweens: ReadonlyMap<string, Tween>,
+  itemId: string,
+  item: Item,
+): void {
+  for (const tween of tweens.values()) {
+    if (tween.target !== itemId || parseEffectPath(tween.property) === undefined) continue;
+    if (getItemTweenable(item, tween.property) === undefined) {
+      throw new MCPToolError(
+        "E_INVALID_PROPERTY",
+        `Tween "${tween.id}" animates "${tween.property}", which the new effects list no longer has.`,
+        `remove_tween("${tween.id}") first, or keep an effect of the same type at that index.`,
+      );
+    }
+  }
+}
+
+// v1.1 S21: `effects` applies to every item type, on top of the per-type
+// patch. `null` / `[]` drop the field so an effect-free item stays byte-for-
+// byte what it was before effects existed.
 function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
+  const next = applyTypedItemUpdate(item, props);
+  if (props.effects === null || props.effects?.length === 0) delete next.effects;
+  else if (props.effects !== undefined) next.effects = props.effects.map(cloneEffect);
+  return next;
+}
+
+function applyTypedItemUpdate(item: Item, props: UpdateItemProps): Item {
   const transform = { ...item.transform };
   if (props.x !== undefined) transform.x = props.x;
   if (props.y !== undefined) transform.y = props.y;
@@ -2590,7 +2630,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
     ensurePositive("exit", props.exit);
     flagPatch.exit = props.exit;
   }
-  const COMMON_ALLOWED = ["visible", "locked", "name", "enter", "exit"] as const;
+  const COMMON_ALLOWED = ["visible", "locked", "name", "enter", "exit", "effects"] as const;
 
   switch (item.type) {
     case "sprite": {

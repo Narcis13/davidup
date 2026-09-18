@@ -11,7 +11,11 @@
 
 import { lerpColorString, lerpNumber } from "../color/index.js";
 import { getEasing } from "../easings/index.js";
-import { getTweenable, type TweenValueKind } from "../schema/tweenable.js";
+import {
+  getItemTweenable,
+  parseEffectPath,
+  type TweenValueKind,
+} from "../schema/tweenable.js";
 import type { Composition, Item, Layer, Tween } from "../schema/types.js";
 
 export interface ResolvedScene {
@@ -78,7 +82,7 @@ export function computeStateAt(
     const property = key.slice(sep + 2);
     const item = items[targetId];
     if (!item) continue;
-    const desc = getTweenable(item.type, property);
+    const desc = getItemTweenable(item, property);
     if (!desc) continue;
     const value = resolveValue(bucket, t, desc.kind);
     if (value === undefined) continue;
@@ -200,33 +204,46 @@ function clampForProperty(property: string, value: number | string): number | st
       if (value > 1) return 1;
     } else if (NON_NEGATIVE_PROPS.has(property) && value < 0) {
       return 0;
+    } else if (value < 0 && isEffectRadius(property)) {
+      return 0;
     }
   }
   return value;
 }
 
+// An effect's blur radius (`blur.radius`, `glow.radius`, `shadow.blur`) —
+// negative from an overshooting easing would throw in `ctx.filter` parsing.
+function isEffectRadius(property: string): boolean {
+  const fx = parseEffectPath(property);
+  return fx !== undefined && (fx.field === "radius" || fx.field === "blur");
+}
+
 function cloneItem(item: Item): Item {
-  // Shallow clone with a fresh transform. Tweenable surface in v0.1 is
-  // transform.* + a few flat numeric/color props on the item itself, none of
-  // which are deeply nested, so this is sufficient. Group.items and
-  // shape.points are aliased — neither is mutated by the resolver.
+  // Shallow clone with a fresh transform. The tweenable surface is
+  // transform.* + a few flat numeric/color props on the item itself, plus
+  // (v1.1 S21) the fields of each `effects[]` entry — so effects get fresh
+  // objects too. Group.items and shape.points are aliased — neither is
+  // mutated by the resolver.
+  const effects = item.effects?.map((e) => ({ ...e }));
+  const extra = effects !== undefined ? { effects } : {};
   switch (item.type) {
     case "sprite":
-      return { ...item, transform: { ...item.transform } };
+      return { ...item, transform: { ...item.transform }, ...extra };
     case "text":
-      return { ...item, transform: { ...item.transform } };
+      return { ...item, transform: { ...item.transform }, ...extra };
     case "shape":
-      return { ...item, transform: { ...item.transform } };
+      return { ...item, transform: { ...item.transform }, ...extra };
     case "group":
-      return { ...item, transform: { ...item.transform } };
+      return { ...item, transform: { ...item.transform }, ...extra };
     case "video":
-      return { ...item, transform: { ...item.transform } };
+      return { ...item, transform: { ...item.transform }, ...extra };
   }
 }
 
 function setByPath(item: Item, path: string, value: number | string): void {
-  // Every tweenable today is either a flat item property (`width`, `fontSize`,
-  // `tint`, …) or lives directly under `transform.*` — see schema/tweenable.ts.
+  // Every tweenable today is a flat item property (`width`, `fontSize`,
+  // `tint`, …), lives directly under `transform.*`, or is an effect field —
+  // see schema/tweenable.ts.
   // Anything else means a tweenable was added without updating this writer.
   const dot = path.indexOf(".");
   if (dot < 0) {
@@ -235,6 +252,14 @@ function setByPath(item: Item, path: string, value: number | string): void {
   }
   if (path.slice(0, dot) === "transform") {
     (item.transform as Record<string, unknown>)[path.slice(dot + 1)] = value;
+    return;
+  }
+  // `effects.<index>.<field>` (v1.1 S21). The caller already checked, via
+  // getItemTweenable, that the effect exists and carries the field.
+  const fx = parseEffectPath(path);
+  if (fx !== undefined) {
+    const effect = item.effects?.[fx.index];
+    if (effect) (effect as Record<string, unknown>)[fx.field] = value;
     return;
   }
   throw new Error(`resolver.setByPath: unsupported tweenable path "${path}"`);

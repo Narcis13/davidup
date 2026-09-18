@@ -679,6 +679,9 @@ function cornersForItem(
 //     straight into the children, because isolation only changes how the
 //     group's pixels are composited, never which child owns them. A click
 //     inside an isolated group still resolves to the child, not the group.
+//     Effects (v1.1 S21) are ignored the same way: the ID buffer paints the
+//     item's own shape, so a blur's soft fringe or a shadow/glow halo is not
+//     a hit — only the item itself is.
 //   - Sprites pick by their bounding rect (the destination size from
 //     `drawImage`). Pixel-perfect alpha picking on sprites would require
 //     re-decoding the image into the ID buffer, which is overkill for the

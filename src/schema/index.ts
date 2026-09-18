@@ -15,6 +15,11 @@ export {
   CompositionMetaSchema,
   CompositionSchema,
   EasingSchema,
+  BlurEffectSchema,
+  EFFECT_TYPES,
+  EffectSchema,
+  GlowEffectSchema,
+  ShadowEffectSchema,
   FpsSchema,
   FontAssetSchema,
   GroupItemSchema,
@@ -34,8 +39,11 @@ export {
   VideoItemSchema,
 } from "./zod.js";
 export {
+  EFFECT_TWEENABLE,
+  getItemTweenable,
   getTweenable,
   listTweenable,
+  parseEffectPath,
   type PropertyDescriptor,
   type TweenValueKind,
 } from "./tweenable.js";

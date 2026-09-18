@@ -252,6 +252,50 @@ export const TransformSchema = z.object({
   opacity: z.number().min(0).max(1),
 });
 
+// Per-item visual effects (v1.1 S21). `effects` is an ordered stack: the item
+// is first painted onto a scratch surface as a whole (a group with all its
+// children, at full alpha), each effect is then applied to the result of the
+// one before it, and the outcome is composited once with the item's opacity.
+// So a shadow listed after a blur is cast by the blurred item, and two glows
+// stack into a stronger halo. Effects imply isolation: a group carrying
+// effects is flattened exactly as with `isolate: true`.
+//
+// All lengths are canvas pixels, applied after the item's transform — like
+// the text shadow, they do not grow or rotate with the item's scale/rotation.
+//   blur   — Gaussian blur; `radius` is the CSS `blur()` radius (σ, px).
+//   shadow — drop shadow, same fields and units as the text `shadow`
+//            (`blur` is the Canvas2D `shadowBlur`, i.e. 2σ).
+//   glow   — an un-offset halo in `color`; `radius` is σ like `blur`.
+// Tweenable as `effects.<index>.<field>` — see schema/tweenable.ts.
+//
+// DUAL: mirror in apps/editor/app/types/commands.ts.
+export const BlurEffectSchema = z.object({
+  type: z.literal("blur"),
+  radius: z.number().nonnegative(),
+});
+
+export const ShadowEffectSchema = z.object({
+  type: z.literal("shadow"),
+  color: z.string(),
+  blur: z.number().nonnegative().optional(),
+  offsetX: z.number().optional(),
+  offsetY: z.number().optional(),
+});
+
+export const GlowEffectSchema = z.object({
+  type: z.literal("glow"),
+  color: z.string(),
+  radius: z.number().nonnegative(),
+});
+
+export const EffectSchema = z.discriminatedUnion("type", [
+  BlurEffectSchema,
+  ShadowEffectSchema,
+  GlowEffectSchema,
+]);
+
+export const EFFECT_TYPES = ["blur", "shadow", "glow"] as const;
+
 // Per UX_GAPS §M: `visible` and `locked` are optional booleans on every item
 // (and layer). Absent ≡ visible & unlocked, keeping older project JSON valid
 // without a migration. The engine skips drawing when `visible === false`;
@@ -270,12 +314,16 @@ export const TransformSchema = z.object({
 // the item (or layer). Either bound omitted means "from the start" /
 // "until the end" respectively, keeping legacy projects with no lifespan
 // fields fully valid.
+//
+// Effects (v1.1 S21): an optional, ordered stack of visual effects on any
+// item — see `EffectSchema` below.
 export const ItemFlagsSchema = {
   visible: z.boolean().optional(),
   locked: z.boolean().optional(),
   name: z.string().max(80).optional(),
   enter: z.number().nonnegative().optional(),
   exit: z.number().positive().optional(),
+  effects: z.array(EffectSchema).optional(),
 } as const;
 
 export const SpriteItemSchema = z.object({

@@ -22,7 +22,10 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { renderFrameRawAt } from "./support/renderSingleFrame.js";
-import { buildParityComposition } from "./parity/fixture.js";
+import {
+  buildEffectsParityComposition,
+  buildParityComposition,
+} from "./parity/fixture.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FONT_PATH = resolve(HERE, "../../examples/fonts/BebasNeue-Regular.ttf");
@@ -162,6 +165,42 @@ describe("determinism — node↔browser pixel parity", () => {
       diff,
       `mean per-channel pixel diff ${diff.toFixed(2)} exceeded ${MAX_MEAN_CHANNEL_DIFF} — ` +
         `likely a real node↔browser rendering divergence, not AA noise`,
+    ).toBeLessThan(MAX_MEAN_CHANNEL_DIFF);
+  }, 30_000);
+
+  // v1.1 S21. Effects are the one place the two hosts' own primitives were
+  // measured to disagree: skia-canvas blurs a `drawImage` through
+  // `ctx.filter` at half Chromium's σ. Blur therefore runs in-engine
+  // (engine/blur.ts) and this pins that the editor stage and the export
+  // still agree once blur, shadow, glow and a stack are all in play. Same
+  // threshold as the shapes/text case — soft effect edges are *less*
+  // sensitive to AA disagreement, not more.
+  it("agrees within tolerance on per-item effects", async (ctx) => {
+    if (!chromiumAvailable) {
+      ctx.skip();
+      return;
+    }
+
+    const fontBytes = await readFile(FONT_PATH);
+    const dataUri = `data:font/ttf;base64,${fontBytes.toString("base64")}`;
+    const [nodeFrame, bundle] = await Promise.all([
+      renderFrameRawAt(buildEffectsParityComposition(FONT_PATH), 0),
+      bundleBrowserEntry(),
+    ]);
+    const browserPixels = await renderInBrowser(
+      bundle,
+      buildEffectsParityComposition(dataUri),
+      0,
+      nodeFrame.width,
+      nodeFrame.height,
+    );
+
+    expect(browserPixels.length).toBe(nodeFrame.data.length);
+    const diff = meanChannelDiff(nodeFrame.data, browserPixels);
+    console.log(`[nodeBrowserParity] effects mean per-channel diff: ${diff.toFixed(3)}`);
+    expect(
+      diff,
+      `effects mean per-channel pixel diff ${diff.toFixed(2)} exceeded ${MAX_MEAN_CHANNEL_DIFF}`,
     ).toBeLessThan(MAX_MEAN_CHANNEL_DIFF);
   }, 30_000);
 });

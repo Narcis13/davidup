@@ -120,3 +120,79 @@ export function buildParityComposition(fontSrc: string): Composition {
     tweens: [],
   };
 }
+
+/**
+ * Per-item effects (v1.1 S21) through both drivers: an in-engine blur (the
+ * path chosen because skia-canvas's own `ctx.filter` blur runs at half
+ * Chromium's σ), a drop shadow and a glow — each on the Canvas2D shadow
+ * state — plus a stacked blur-then-shadow and a glowing text label. Same
+ * font handling as {@link buildParityComposition}.
+ */
+export function buildEffectsParityComposition(fontSrc: string): Composition {
+  const t = (x: number, y: number, opacity = 1) => ({
+    x,
+    y,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity,
+  });
+  return {
+    version: "0.1",
+    composition: { width: 240, height: 135, fps: 10, duration: 1, background: "#0c1220" },
+    assets: [{ id: "parity-font", type: "font", src: fontSrc, family: PARITY_FONT_FAMILY }],
+    layers: [
+      {
+        id: "fx",
+        z: 0,
+        opacity: 1,
+        blendMode: "normal",
+        items: ["blurred", "shadowed", "stacked", "glowing"],
+      },
+    ],
+    items: {
+      blurred: {
+        type: "shape",
+        kind: "circle",
+        width: 50,
+        fillColor: "#ff5a5f",
+        effects: [{ type: "blur", radius: 6 }],
+        transform: t(15, 15),
+      },
+      shadowed: {
+        type: "shape",
+        kind: "rect",
+        width: 60,
+        height: 40,
+        cornerRadius: 6,
+        fillColor: "#f4f1ea",
+        effects: [{ type: "shadow", color: "rgba(0, 0, 0, 0.7)", blur: 10, offsetX: 4, offsetY: 6 }],
+        transform: t(90, 20, 0.9),
+      },
+      stacked: {
+        type: "shape",
+        kind: "rect",
+        width: 40,
+        height: 40,
+        fillColor: "#ffd166",
+        effects: [
+          { type: "blur", radius: 3 },
+          { type: "shadow", color: "#40c8ff", blur: 4, offsetX: 5, offsetY: 5 },
+        ],
+        transform: t(180, 20),
+      },
+      glowing: {
+        type: "text",
+        text: "GLOW",
+        font: PARITY_FONT_FAMILY,
+        fontSize: 36,
+        color: "#ffffff",
+        effects: [{ type: "glow", color: "#5b7cfa", radius: 6 }],
+        transform: t(70, 115),
+      },
+    },
+    tweens: [],
+  };
+}

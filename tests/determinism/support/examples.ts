@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Composition } from "../../../src/schema/types.js";
+import { buildEffectsComposition } from "../../../examples/effects/composition.js";
 import { buildVideoBgTextComposition } from "../../../examples/video-bg-text/composition.js";
 import { buildVideoFreezeTrimComposition } from "../../../examples/video-freeze-trim/composition.js";
 import { buildVideoPipComposition } from "../../../examples/video-pip/composition.js";
@@ -337,4 +338,6 @@ export const GOLDEN_EXAMPLES: readonly GoldenExample[] = [
   { name: "video-bg-text", build: buildVideoBgTextComposition },
   { name: "video-freeze-trim", build: buildVideoFreezeTrimComposition },
   { name: "text-v2", build: textV2Composition },
+  // v1.1 S21 per-item effects: blur, shadow, glow, stacks, effect tweens.
+  { name: "effects", build: buildEffectsComposition },
 ];

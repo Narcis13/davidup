@@ -6,6 +6,7 @@ import type {
   BlendModeSchema,
   CompositionMetaSchema,
   CompositionSchema,
+  EffectSchema,
   FontAssetSchema,
   GroupItemSchema,
   ImageAssetSchema,
@@ -35,6 +36,8 @@ export type AudioAsset = z.infer<typeof AudioAssetSchema>;
 export type VideoAsset = z.infer<typeof VideoAssetSchema>;
 
 export type Transform = z.infer<typeof TransformSchema>;
+export type Effect = z.infer<typeof EffectSchema>;
+export type EffectType = Effect["type"];
 
 export type Item = z.infer<typeof ItemSchema>;
 export type SpriteItem = z.infer<typeof SpriteItemSchema>;

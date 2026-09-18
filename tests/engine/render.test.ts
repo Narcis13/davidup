@@ -1202,6 +1202,245 @@ describe("drawItem — group blendMode (v1.1 S18)", () => {
   });
 });
 
+// ──────────── v1.1 S21 — per-item effects ────────────
+//
+// An item with `effects` is flattened onto a scratch surface, each effect is
+// applied surface-to-surface, and the result composites once with the item's
+// opacity. Pixel-level proof lives in tests/engine/effects.pixels.test.ts.
+
+function fxDc(createOffscreen: (w: number, h: number) => { context: FakeContext; source: unknown }) {
+  return { assets: undefined, createOffscreen, time: 0, video: undefined };
+}
+
+function fxScene(items: Record<string, ShapeItem | GroupItem>): ResolvedScene {
+  return {
+    composition: { width: 200, height: 100, fps: 30, duration: 1, background: "#000" },
+    layers: [],
+    items,
+  };
+}
+
+describe("drawItem — effects (v1.1 S21)", () => {
+  it("flattens the item at full alpha, blurs it in place, then composites once at the item's opacity", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({
+      effects: [{ type: "blur", radius: 4 }],
+      transform: {
+        x: 10,
+        y: 20,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.6,
+      },
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    // One composition-sized surface: blur works on its pixels in place.
+    expect(surfaces.map((s) => [s.w, s.h])).toEqual([[200, 100]]);
+    const off = surfaces[0]!.ctx.calls;
+    // The item itself lands undimmed, then the whole surface is read back
+    // and rewritten.
+    const fillAt = off.findIndex((c) => c.op === "fill");
+    const readAt = off.findIndex((c) => c.op === "getImageData");
+    const writeAt = off.findIndex((c) => c.op === "putImageData");
+    const fill = off[fillAt];
+    expect(fill?.op === "fill" && fill.alpha).toBe(1);
+    expect(fillAt).toBeLessThan(readAt);
+    expect(readAt).toBeLessThan(writeAt);
+    const read = off[readAt];
+    if (read?.op === "getImageData") expect([read.x, read.y, read.w, read.h]).toEqual([0, 0, 200, 100]);
+    // Nothing but the composite touches the canvas, and it carries opacity.
+    expect(ctx.calls.some((c) => c.op === "fill")).toBe(false);
+    const composites = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(composites.length).toBe(1);
+    const composite = composites[0]!;
+    if (composite.op === "drawImage") {
+      expect(composite.image).toBe(surfaces[0]!.source);
+      expect(composite.alpha).toBeCloseTo(0.6, 10);
+      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 200, 100]);
+    }
+  });
+
+  it("applies a stack in order, ping-ponging shadow passes between two surfaces", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({
+      effects: [
+        { type: "blur", radius: 2 },
+        { type: "shadow", color: "#000000", blur: 6, offsetX: 3, offsetY: 5 },
+        { type: "glow", color: "#40c8ff", radius: 8 },
+      ],
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    // Three effects, still only two surfaces.
+    expect(surfaces.length).toBe(2);
+    // Blur first, in place on the flatten surface, before any redraw.
+    expect(surfaces[0]!.ctx.calls.some((c) => c.op === "putImageData")).toBe(true);
+    // Shadow: surface 0 → surface 1.
+    const shadow = surfaces[1]!.ctx.calls.find((c) => c.op === "drawImage");
+    if (shadow?.op !== "drawImage") throw new Error("no shadow pass");
+    expect(shadow.image).toBe(surfaces[0]!.source);
+    expect([shadow.shadowColor, shadow.shadowBlur, shadow.shadowOffsetX, shadow.shadowOffsetY]).toEqual([
+      "#000000",
+      6,
+      3,
+      5,
+    ]);
+    // Glow: surface 1 → surface 0, which is cleared first so the flattened
+    // item doesn't survive underneath.
+    const glowCalls = surfaces[0]!.ctx.calls;
+    const glowAt = glowCalls.findIndex((c) => c.op === "drawImage");
+    const glow = glowCalls[glowAt];
+    if (glow?.op !== "drawImage") throw new Error("no glow pass");
+    expect(glow.image).toBe(surfaces[1]!.source);
+    // Glow's radius is σ; Canvas2D's shadowBlur is 2σ.
+    expect([glow.shadowColor, glow.shadowBlur, glow.shadowOffsetX, glow.shadowOffsetY]).toEqual([
+      "#40c8ff",
+      16,
+      0,
+      0,
+    ]);
+    const clearAt = glowCalls.findIndex((c) => c.op === "clearRect");
+    expect(clearAt).toBeGreaterThan(-1);
+    expect(clearAt).toBeLessThan(glowAt);
+    // The last surface written is the one composited.
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite?.op === "drawImage" && composite.image).toBe(surfaces[0]!.source);
+    expect(composite?.op === "drawImage" && composite.shadowBlur).toBe(0);
+  });
+
+  it("skips zero-radius blur and glow passes", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({
+      effects: [
+        { type: "blur", radius: 0 },
+        { type: "glow", color: "#ffffff", radius: 0 },
+      ],
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    // Only the flatten surface, never read back; it composites straight on.
+    expect(surfaces.length).toBe(1);
+    expect(surfaces[0]!.ctx.calls.some((c) => c.op === "getImageData")).toBe(false);
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite?.op === "drawImage" && composite.image).toBe(surfaces[0]!.source);
+  });
+
+  it("flattens a group with effects like an isolated group, carrying its blendMode on the composite", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group: GroupItem = {
+      type: "group",
+      items: ["a", "b"],
+      blendMode: "screen",
+      effects: [{ type: "glow", color: "#ffffff", radius: 5 }],
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.5,
+      },
+    };
+    const scene = fxScene({ g: group, a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, fxDc(createOffscreen), "g");
+
+    // Children at full alpha and default operator on the flatten surface —
+    // not dimmed by the group, not blended per child.
+    const offFills = surfaces[0]!.ctx.calls.filter((c) => c.op === "fill");
+    expect(offFills.length).toBe(2);
+    for (const f of offFills) {
+      if (f.op === "fill") {
+        expect(f.alpha).toBe(1);
+        expect(f.composite).toBe("source-over");
+      }
+    }
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    if (composite?.op !== "drawImage") throw new Error("no composite");
+    expect(composite.alpha).toBeCloseTo(0.5, 10);
+    expect(composite.composite).toBe("screen");
+  });
+
+  it("keeps the layer's blend mode on the composite", () => {
+    const ctx = new FakeContext();
+    ctx.globalCompositeOperation = "multiply";
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({ effects: [{ type: "blur", radius: 3 }] });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    const fill = surfaces[0]!.ctx.calls.find((c) => c.op === "fill");
+    expect(fill?.op === "fill" && fill.composite).toBe("source-over");
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite?.op === "drawImage" && composite.composite).toBe("multiply");
+  });
+
+  it("seeds the flatten surface with the inherited matrix and composites at identity", () => {
+    const ctx = new FakeContext();
+    ctx.translate(30, 40);
+    ctx.scale(2, 2);
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({ effects: [{ type: "blur", radius: 3 }] });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    const seed = surfaces[0]!.ctx.calls.find((c) => c.op === "setTransform");
+    if (seed?.op !== "setTransform") throw new Error("flatten surface was not seeded");
+    expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 30, 40]);
+    const reset = ctx.calls.find((c) => c.op === "setTransform");
+    if (reset?.op !== "setTransform") throw new Error("composite not at identity");
+    expect([reset.a, reset.b, reset.c, reset.d, reset.e, reset.f]).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(ctx.getTransform()).toEqual({ a: 2, b: 0, c: 0, d: 2, e: 30, f: 40 });
+  });
+
+  it("draws the item plainly when the host wires no offscreen factory", () => {
+    const ctx = new FakeContext();
+    const item = tinyShape({
+      effects: [{ type: "blur", radius: 4 }],
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.5,
+      },
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined);
+
+    expect(ctx.calls.some((c) => c.op === "drawImage")).toBe(false);
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill?.op === "fill" && fill.alpha).toBeCloseTo(0.5, 10);
+  });
+
+  it("an empty effects list takes the ordinary path", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({ effects: [] });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    expect(surfaces.length).toBe(0);
+    expect(ctx.calls.some((c) => c.op === "fill")).toBe(true);
+  });
+});
+
 describe("drawScene integrates with the resolver", () => {
   it("draws a scene whose tween-resolved properties are reflected in the calls", () => {
     const ctx = new FakeContext();

@@ -6,7 +6,8 @@
 // tint, text shows text/font/fontSize/color/align plus the text v2 layout and
 // paint fields (maxWidth, lineHeight, letterSpacing, weight/style, stroke,
 // shadow — v1.1 S14), shape shows kind-specific
-// geometry + colours, and every item type shows its 8 transform params.
+// geometry + colours, and every item type shows its 8 transform params and
+// its effects stack (blur / shadow / glow — v1.1 S21).
 //
 // Each edit dispatches a single `update_item` command via `useCommandBus`.
 // The server runs the existing MCP handler (`apply_item_update`) so UI and
@@ -47,6 +48,7 @@ import PercentInput from '~/components/inputs/Percent.vue'
 import RawJsonInput from '~/components/inputs/RawJson.vue'
 import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
 import ShadowInput from '~/components/inputs/Shadow.vue'
+import EffectsInput from '~/components/inputs/Effects.vue'
 import EasingInput from '~/components/inputs/Easing.vue'
 
 type ItemLike = {
@@ -377,6 +379,7 @@ type FieldKind =
   | 'json'
   | 'asset'
   | 'shadow'
+  | 'effects'
 
 interface FieldDef {
   key: string
@@ -426,6 +429,13 @@ const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
 const LIFESPAN_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'enter', label: 'enter', kind: 'time', path: 'enter', min: 0, step: 0.05 },
   { key: 'exit', label: 'exit', kind: 'time', path: 'exit', min: 0, step: 0.05 },
+]
+
+// Per-item effects (v1.1 S21), every item type. One compound field: the
+// whole ordered stack goes out in a single `update_item`, and an emptied
+// stack is sent as `null` (removes the field).
+const EFFECTS_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'effects', label: 'stack', kind: 'effects', path: 'effects' },
 ]
 
 const SPRITE_FIELDS: ReadonlyArray<FieldDef> = [
@@ -735,6 +745,7 @@ const INPUT_FOR_KIND = {
   json: RawJsonInput,
   asset: AssetPickerInput,
   shadow: ShadowInput,
+  effects: EffectsInput,
 } as const
 
 function inputFor(field: FieldDef) {
@@ -1690,6 +1701,40 @@ function deleteSelectedAudioTrack(): void {
                   :data-testid="`inspector-animated-${field.key}`"
                   :title="`Animated · ${field.label} resolves to ${formatBaseValue(valueFor(field))} at this playhead.`"
                 >Animated</span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <section class="section" data-testid="inspector-effects-section">
+        <header class="section-header">
+          <span class="section-title">Effects</span>
+          <span class="section-meta">applied in order</span>
+        </header>
+        <div class="fields">
+          <template v-for="field in EFFECTS_FIELDS" :key="`fx-${field.key}`">
+            <div
+              class="field-row"
+              :class="{ mixed: isMixed(field) }"
+              :data-field="field.key"
+              :data-mixed="isMixed(field) ? 'true' : 'false'"
+            >
+              <div class="field-row-input">
+                <component
+                  :is="inputFor(field)"
+                  :model-value="valueFor(field)"
+                  :label="field.label"
+                  :overridden="isOverridden(field)"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => dispatchEdit(field, v)"
+                />
+                <span
+                  v-if="isMixed(field)"
+                  class="mixed-badge"
+                  :data-testid="`inspector-mixed-${field.key}`"
+                  title="Selected items have different effects. Editing will set them all to the same stack."
+                >Mixed</span>
               </div>
             </div>
           </template>

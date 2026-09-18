@@ -8,6 +8,53 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Per-item effects: blur, drop shadow, glow
+
+- Every item type takes an optional `effects` stack of
+  `{ type: "blur", radius }`, `{ type: "shadow", color, blur?, offsetX?, offsetY? }`
+  and `{ type: "glow", color, radius }`. The item (a group with all its
+  children) is flattened onto a scratch surface at full alpha, the effects
+  apply in order, each to the result of the one before, and the outcome
+  composites once with the item's opacity and the layer's (or the group's)
+  blend mode. A shadow therefore fades with its item instead of showing
+  through it, and a group with effects is implicitly isolated. Two surfaces
+  serve any stack depth.
+- Lengths are canvas px applied after the transform, like the text shadow:
+  `blur.radius` and `glow.radius` are σ (CSS `blur()`), and `shadow.blur` is
+  Canvas2D's `shadowBlur` (2σ), the same units as the text shadow's `blur`.
+- **Blur is in-engine** (`src/engine/blur.ts`). Measured this session:
+  skia-canvas applies a `ctx.filter` blur on `drawImage` at half the σ
+  Chromium uses (its `blur(8px)` matches Chromium's `blur(4px)`), so the
+  editor stage and the export would disagree. The engine instead runs the
+  Filter Effects spec's three-box approximation of a Gaussian on
+  premultiplied pixels via `getImageData`/`putImageData`, and it matches
+  Chromium's own `blur()` to within 1/255 at σ = 1–12. On the new
+  node↔browser effects parity fixture it scores a mean per-channel diff of
+  0.88 (`ctx.filter`: 3.11). Shadow and glow stay on the Canvas2D shadow
+  state; skia-canvas and Chromium agree on it (checked both on `drawImage`
+  and on direct fills).
+- Tweenable as `effects.<index>.<field>` on any item: numbers and colours.
+  The validator and `add_tween` check the index exists and that effect's
+  type has the field (`E_PROPERTY_INVALID` names which), and `update_item`
+  refuses to replace a stack out from under a tween that animates it. An
+  overshooting radius is clamped at 0; a zero-radius blur or glow is skipped
+  outright.
+- `Canvas2DContext` gains optional `getImageData` / `putImageData`. A host
+  without them draws blur as a no-op, and a host that can't isolate (no
+  offscreen factory or no `getTransform`/`setTransform`) draws the item
+  plainly.
+- MCP: `update_item` accepts `effects` on every item type (`null` or `[]`
+  removes the stack); `list_engine_capabilities` adds `effects` (types, their
+  tweenable fields, the property pattern). Editor: the dual command schema
+  mirrors `effects`, and the Inspector has an Effects section to add, edit,
+  reorder and remove entries. Picking ignores effects, so a blur fringe or a
+  halo is not a hit.
+- New sample `examples/effects/` (focus pull, lifted card, stacked glows,
+  blur-then-shadow), registered as the `effects` golden example.
+- **Not pixel-changing**: `effects` is absent by default and every existing
+  golden hash is unchanged. The new `effects` golden entry is committed for
+  `darwin-x64` only; other platforms skip it until regenerated there.
+
 ### Scene `clip` auto-trims straddling tweens; `reverse` time mapping
 
 - A scene-instance `clip { fromTime, toTime }` no longer rejects a tween that

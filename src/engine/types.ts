@@ -3,6 +3,8 @@
 // We list only the methods/properties the renderer actually uses so we are
 // not coupled to DOM lib types or to skia-canvas-specific extensions.
 
+import type { PixelBuffer } from "./blur.js";
+
 /**
  * The six affine components of a Canvas2D transform matrix, in the order
  * `setTransform` takes them. `DOMMatrix` (browser) and skia-canvas's matrix
@@ -82,6 +84,14 @@ export interface Canvas2DContext {
   // Only `width` is consumed (text layout); both hosts return a richer
   // TextMetrics that satisfies this structurally.
   measureText(text: string): { width: number };
+
+  // Raw pixel access (v1.1 S21 blur effect, see engine/blur.ts). Optional: a
+  // host without it draws blur effects as a no-op rather than throwing. Both
+  // production hosts implement these, and `ImageData` satisfies
+  // `PixelBuffer` structurally. Only ever called on scratch surfaces, at the
+  // identity frame, so transform/alpha/composite state never applies.
+  getImageData?(sx: number, sy: number, sw: number, sh: number): PixelBuffer;
+  putImageData?(image: PixelBuffer, dx: number, dy: number): void;
 
   // Both Canvas2D overloads. The 5-arg form scales the whole image into the
   // destination box (sprites); the 9-arg form crops a source rect first, which
