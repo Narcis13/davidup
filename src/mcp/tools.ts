@@ -63,6 +63,11 @@ import {
   type AudioMetadata,
   type VideoMetadata,
 } from "../drivers/node/index.js";
+import {
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_FONT_ID,
+  isBundledFontId,
+} from "../assets/bundled.js";
 import { EASING_NAMES, PARAMETRIC_EASINGS } from "../easings/index.js";
 import { EFFECT_TWEENABLE, listTweenable } from "../schema/tweenable.js";
 import {
@@ -920,10 +925,10 @@ const addText = defineTool({
   name: "add_text",
   title: "Add text item",
   description:
-    "Add a text item to a layer. `font` is the `id` of a font asset already registered via `register_asset` " +
+    "Add a text item to a layer. `font` is optional: omit it (or pass `\"font:default\"`) to use the bundled Inter Regular, " +
+    "which needs no `register_asset`. Otherwise `font` is the `id` of a font asset registered via `register_asset` " +
     '(`type: "font"`) or present in the editor Library — NOT a CSS font-family name like "Arial" or "sans-serif". ' +
-    "Call `list_fonts` first to see what's registered/available; if it comes back empty, its `hint` field explains " +
-    "how to register one. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. " +
+    "`list_fonts` shows what's available. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. " +
     "`text` may contain `\\n` line breaks. Layout has two modes: POINT mode (no `maxWidth`, anchor 0,0) puts the first line's " +
     "baseline at (x, y) with lines aligned around x per `align`; BOX mode (`maxWidth` set, or any non-zero anchor) makes (x, y) the " +
     "top-left of the text block, word-wraps at `maxWidth`, and `anchorX`/`anchorY` become fractions of the measured block " +
@@ -933,7 +938,7 @@ const addText = defineTool({
   inputSchema: {
     layerId: z.string().min(1),
     text: z.string(),
-    font: z.string().min(1),
+    font: z.string().min(1).optional(),
     fontSize: z.number().positive(),
     color: HEX_COLOR,
     x: z.number(),
@@ -960,7 +965,7 @@ const addText = defineTool({
       {
         layerId: args.layerId,
         text: args.text,
-        font: args.font,
+        font: args.font ?? DEFAULT_FONT_ID,
         fontSize: args.fontSize,
         color: args.color,
         x: args.x,
@@ -2876,16 +2881,26 @@ const listFontsTool = defineTool({
   name: "list_fonts",
   title: "List fonts",
   description:
-    "List fonts available to `add_text`. `composition` lists font assets currently registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`. " +
-    "If both arrays come back empty (a fresh standalone server ships with zero fonts registered), the response carries a `hint` explaining how to register one — `add_text`'s `font` will otherwise reject with E_NOT_FOUND/E_INVALID_VALUE against an id that doesn't exist yet.",
+    "List fonts available to `add_text`. `bundled` is the font that ships with davidup — `font:default` (Inter Regular, `bundled: true`), usable from any composition with no `register_asset`; it is also what `add_text` uses when `font` is omitted. `composition` lists font assets registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`. " +
+    "When only the bundled font is available, the response carries a `hint` explaining how to register another typeface.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
   },
   handler: async (args, deps) => {
-    const composition = deps.store
-      .listAssets(args.compositionId)
+    const assets = deps.store.listAssets(args.compositionId);
+    const composition = assets
       .filter((a): a is FontAsset => a.type === "font")
       .map((a) => ({ id: a.id, family: a.family, src: a.src }));
+    // R-30 — the bundled default font is always resolvable. A composition
+    // asset that reuses the `font:default` id shadows it.
+    const bundled = [
+      {
+        id: DEFAULT_FONT_ID,
+        family: DEFAULT_FONT_FAMILY,
+        bundled: true as const,
+        ...(isBundledFontId(DEFAULT_FONT_ID, assets) ? {} : { overridden: true }),
+      },
+    ];
     const library: {
       id: string;
       name?: string;
@@ -2910,20 +2925,19 @@ const listFontsTool = defineTool({
         // not block composition-scoped discovery.
       }
     }
-    // R-30 — an agent hitting an empty catalog had no signal beyond "the
-    // arrays are empty"; it had to go hunting for a .ttf on disk before it
-    // could call add_text at all. Spell out the fix inline instead.
     if (composition.length === 0 && library.length === 0) {
       return {
+        bundled,
         composition,
         library,
         hint:
-          "No fonts are registered yet. Call `register_asset` with " +
+          'Only the bundled font is available: omit `font` in `add_text` (or pass "font:default") ' +
+          "to use Inter Regular. For another typeface call `register_asset` with " +
           '`type: "font"`, a `family` name, and `src` pointing at a .ttf/.otf/.woff(2) file on ' +
           "disk, then pass that asset's `id` (not `family`) as `add_text`'s `font` field.",
       };
     }
-    return { composition, library };
+    return { bundled, composition, library };
   },
 });
 

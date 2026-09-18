@@ -56,9 +56,8 @@ const activeLayer = useActiveLayer()
 const targetLayerId = computed<string | null>(() => activeLayer.resolveTarget(props.composition))
 
 // ── derived: font assets registered on the composition ─────────────────
-// `add_text` requires a `font` field naming an asset of type 'font'. In a
-// fresh project there are no fonts, so we disable the text button with a
-// tooltip rather than dispatching a command the validator will flag.
+// Placed text uses the first registered font; with none it falls back to the
+// bundled `font:default` (R-30), so the text tool is never gated on fonts.
 const fontAssets = computed<Array<{ id: string; family?: string }>>(() => {
   const assets = props.composition?.assets
   if (!Array.isArray(assets)) return []
@@ -139,7 +138,6 @@ function pickShape(kind: 'rect' | 'circle'): void {
 
 function startText(): void {
   closePopovers()
-  if (fontAssets.value.length === 0) return
   // If text is already pending placement, a second click cancels.
   if (toolbar.activeTool.value?.kind === 'text') {
     toolbar.clearTool()
@@ -345,10 +343,10 @@ const buttons = computed<ToolButton[]>(() => [
     label: 'Text',
     glyph: 'T',
     active: isToolActive('text') || textInputOpen.value,
-    disabled: targetLayerId.value === null || fontAssets.value.length === 0,
+    disabled: targetLayerId.value === null,
     title:
       fontAssets.value.length === 0
-        ? 'Add a font asset to the composition before placing text — open the Library → Fonts tab and click "+ Add" on a font card'
+        ? 'Add text (bundled Inter font) — type, then click on the stage'
         : 'Add text — type, then click on the stage',
     onClick: startText,
   },

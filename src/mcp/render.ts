@@ -11,7 +11,11 @@
 // module can be imported safely in environments where the native build is
 // missing. Tests inject a fake module.
 
-import { NodeAssetLoader, type SkiaCanvasModule } from "../assets/index.js";
+import {
+  NodeAssetLoader,
+  withBundledAssets,
+  type SkiaCanvasModule,
+} from "../assets/index.js";
 import {
   buildVideoFrameProvider,
   collectVideoExtractSpecs,
@@ -117,7 +121,7 @@ export async function renderPreviewFrame(
   const skia = options.skiaCanvas ?? (await loadSkia());
   const loader = options.loader ?? getCachedLoader(skia, comp.assets);
 
-  await loader.preloadAll(comp.assets);
+  await loader.preloadAll(withBundledAssets(comp));
   const warnings: string[] = [];
   const video = await getVideoProvider(comp, skia, options.preExtract, warnings);
 
@@ -167,7 +171,7 @@ export async function renderThumbnailStrip(
   // is also cached across MCP calls (see getCachedLoader) so agents iterating
   // on a 20-PNG comp don't re-decode every asset on each preview.
   const loader = options.loader ?? getCachedLoader(skia, comp.assets);
-  await loader.preloadAll(comp.assets);
+  await loader.preloadAll(withBundledAssets(comp));
   // One provider for the whole strip — extraction + decode happen at most once.
   const warnings: string[] = [];
   const video = await getVideoProvider(comp, skia, options.preExtract, warnings);

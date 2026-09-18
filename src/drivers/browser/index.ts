@@ -36,6 +36,7 @@
 // editor's Stage component) can light up the inspector + reveal-in-source.
 
 import { BrowserAssetLoader } from "../../assets/browser.js";
+import { withBundledAssets } from "../../assets/bundled.js";
 import type { AssetLoader } from "../../assets/loader.js";
 import { precompile } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
@@ -216,7 +217,7 @@ export async function attach(
 
   const ownsLoader = options.loader === undefined;
   const loader = options.loader ?? new BrowserAssetLoader();
-  await loader.preloadAll(compiled.assets);
+  await loader.preloadAll(withBundledAssets(compiled));
 
   const now = options.now ?? defaultNow;
   const raf = options.requestAnimationFrame ?? defaultRaf;

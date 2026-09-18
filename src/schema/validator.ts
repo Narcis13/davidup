@@ -49,6 +49,7 @@ import { getItemTweenable, parseEffectPath } from "./tweenable.js";
 import { realUnknownKeys, safeParseWithExtensions } from "./strict.js";
 import { CompositionSchema } from "./zod.js";
 import { parseColor } from "../color/index.js";
+import { withBundledAssets } from "../assets/bundled.js";
 
 export type ValidationErrorCode =
   | "E_SCHEMA"
@@ -120,7 +121,9 @@ export function validate(input: unknown): ValidationResult {
   }
 
   const comp: Composition = parsed.data;
-  const assetMap = new Map(comp.assets.map((a) => [a.id, a]));
+  // The bundled default font (`font:default`, R-30) resolves without a
+  // registered asset — see assets/bundled.ts.
+  const assetMap = new Map(withBundledAssets(comp).map((a) => [a.id, a]));
   const itemIds = new Set(Object.keys(comp.items));
 
   const dims = checkDimensions(comp.composition.width, comp.composition.height);

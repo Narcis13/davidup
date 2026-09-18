@@ -6,7 +6,9 @@
 
 import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FontAsset, ImageAsset } from "../schema/types.js";
+import { bundledFileName } from "./bundled.js";
 import { BaseAssetLoader, type LoadedImage } from "./loader.js";
 
 export interface SkiaCanvasModule {
@@ -168,8 +170,10 @@ export class NodeAssetLoader extends BaseAssetLoader {
  * Resolve an asset `src` to a filesystem path the way the Node loader does.
  *
  * `global:<rest>` → an absolute path under the global library root
- * ($DAVIDUP_LIBRARY, default ~/.davidup/library). Any other `src` is returned
- * unchanged (skia-canvas and ffmpeg both accept plain filesystem paths).
+ * ($DAVIDUP_LIBRARY, default ~/.davidup/library). `bundled:<file>` → the
+ * package's own `fonts/` directory (the bundled default font, R-30). Any other
+ * `src` is returned unchanged (skia-canvas and ffmpeg both accept plain
+ * filesystem paths).
  *
  * Shared with the audio mux pipeline (v0.2 §S4), which needs the same
  * resolution to hand audio asset paths to ffmpeg.
@@ -179,7 +183,18 @@ export function resolveGlobalSrc(src: string, globalLibraryRoot?: string): strin
     const rest = src.slice("global:".length).replace(/^\/+/, "");
     return nodePath.join(globalLibraryRoot ?? defaultGlobalLibraryRoot(), rest);
   }
+  const bundled = bundledFileName(src);
+  if (bundled !== undefined) return nodePath.join(bundledFontsDir(), bundled);
   return src;
+}
+
+/**
+ * Absolute path of the package's `fonts/` directory. This module sits at
+ * `src/assets/` (bun / vitest) or `dist/assets/` (built), both two levels
+ * below the package root that ships `fonts/`.
+ */
+export function bundledFontsDir(): string {
+  return fileURLToPath(new URL("../../fonts/", import.meta.url));
 }
 
 /** Env-or-default global library root: $DAVIDUP_LIBRARY, else ~/.davidup/library. */

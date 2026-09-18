@@ -546,6 +546,15 @@ available; without it the asset still registers (with a warning). The
 browser asset loader understands `global:assets/...` and `global:fonts/...`
 URLs that resolve out of `~/.davidup/library` (or the project-local pool).
 
+**Bundled default font.** davidup ships Inter Regular (OFL, Latin subset) in
+`fonts/`. Any text item can use `"font": "font:default"` without registering
+an asset — the validator and both loaders resolve it (family `Inter`), and
+MCP `add_text` uses it when `font` is omitted. Nothing is added to
+`assets[]`; defining your own asset with id `font:default` overrides it. The
+Node loader reads the file from the installed package; the browser loader
+fetches `bundled:` files from `/bundled-fonts/` (the editor serves that
+route) or from `new BrowserAssetLoader({ bundledBaseUrl })`.
+
 ### Audio tracks (`audio[]`)
 
 `{ id?, asset, start, end?, trimIn?, volume? (0–2), fadeIn?, fadeOut?, loop? }`.
@@ -896,9 +905,9 @@ User-defined templates, scenes, and behaviors (`define_user_template`,
 `CompositionStore` instance. **A standalone server process keeps its state
 for its whole lifetime** — a second conversation talking to the same
 long-lived process inherits the previous composition until `reset` is
-called. `reset` clears compositions but not the user registries. Fonts are
-not bundled: `add_text` needs a `register_asset(font)` first (the editor's
-seeded library covers this; standalone agents must register one).
+called. `reset` clears compositions but not the user registries. `add_text`
+works with no setup: omit `font` to use the bundled Inter (`font:default`);
+`register_asset(font)` only when you want another typeface.
 
 ---
 
@@ -1172,8 +1181,6 @@ Things v1.0 does not do. Each is either an open ledger item in
 - A scene `clip` that cuts across a tween keeps the tween's original easing
   over the shorter span rather than the re-normalised sub-curve, so only the
   values at the two cut points are exact (all of it is exact for `linear`).
-- Fonts are not bundled; a standalone MCP session must `register_asset` a
-  font before `add_text` (R-30).
 
 **Editor**
 
@@ -1252,6 +1259,7 @@ tests/            Vitest unit + integration tests: schema, engine, compose,
                   drivers (real ffmpeg), mcp, cli, determinism, e2e editor smoke
 examples/         hello-world + browser demos + video samples + MCP transcript
                   + editor demo + launch video
+fonts/            bundled default font (Inter Regular, OFL) behind `font:default`
 dist/, editor-dist/   build outputs (committed for the packaged CLI path)
 
 design-doc.md            Spec (live document)
@@ -1293,7 +1301,7 @@ Shipped in v1.0:
 
 Planned for v1.1 (designs written, no code yet):
 
-- Bundled starter font (R-30), editable source drawer, template round-trip edits.
+- Editable source drawer, template round-trip edits.
 
 Still open beyond that: frame-range parallelization, video
 frames in the live preview. Full discussion: [`design-doc.md` §8](./design-doc.md).

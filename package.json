@@ -37,6 +37,7 @@
   "files": [
     "dist",
     "editor-dist",
+    "fonts",
     "README.md"
   ],
   "exports": {

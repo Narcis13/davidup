@@ -25,6 +25,7 @@ router.get('/editor', [EditorController, 'show'])
 router.get('/project-files/*', [EditorController, 'file'])
 router.get('/project-video-frames/:itemId/:frame', [VideoFramesController, 'frame'])
 router.get('/library-files/*', [EditorController, 'libraryFile'])
+router.get('/bundled-fonts/:file', [EditorController, 'bundledFont'])
 router.get('/project-renders/:filename', [RendersController, 'file'])
 
 router

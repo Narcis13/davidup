@@ -8,6 +8,21 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Bundled default font (R-30)
+
+- davidup ships `fonts/Inter-Regular.ttf` (Inter 4.001, SIL OFL — see
+  `fonts/Inter-OFL.txt`; Latin + Latin Extended-A subset, 58 KB). Text items
+  can reference the virtual asset id `font:default` (family `Inter`) without
+  a `register_asset`; the validator, the Node loader and the browser loader
+  all resolve it. It is loaded only when a text item uses it, so existing
+  compositions render exactly as before.
+- MCP `add_text`: `font` is optional and defaults to `font:default`.
+  `list_fonts` returns a `bundled` array (`bundled: true`) next to
+  `composition` / `library`.
+- Browser loader: `bundled:<file>` srcs resolve to `/bundled-fonts/<file>`,
+  overridable with `bundledBaseUrl`. The editor serves that route, and its
+  Text tool no longer needs a registered font.
+
 ### ⚠ Breaking: strict composition schema with `$` / `x-` extension keys (R-23)
 
 - Every object in the composition schema now rejects keys it doesn't know.

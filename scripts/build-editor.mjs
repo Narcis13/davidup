@@ -21,7 +21,7 @@
 //   3. Rewrite `editor-dist/package.json`: drop devDependencies and the
 //      `file:../..` self-dependency (editor-dist resolves `davidup` via the
 //      vendored copy below, not a workspace link).
-//   4. Vendor `dist/` + a matching `package.json` at
+//   4. Vendor `dist/` + `fonts/` + a matching `package.json` at
 //      `editor-dist/node_modules/davidup/` so `davidup/schema`, `davidup/mcp`,
 //      etc. resolve via plain Node module resolution once editor-dist is
 //      nested inside the real davidup package.
@@ -92,6 +92,9 @@ console.log("build-editor: vendoring davidup into editor-dist/node_modules/david
 const vendorDir = join(EDITOR_DIST_DIR, "node_modules", "davidup");
 await mkdir(vendorDir, { recursive: true });
 await cp(ROOT_DIST_DIR, join(vendorDir, "dist"), { recursive: true });
+// The bundled default font (R-30) resolves relative to dist/assets/, so the
+// vendored copy needs its own fonts/ sibling.
+await cp(join(REPO_ROOT, "fonts"), join(vendorDir, "fonts"), { recursive: true });
 
 const rootPkg = JSON.parse(
   await readFile(join(REPO_ROOT, "package.json"), "utf8"),

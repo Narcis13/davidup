@@ -6,6 +6,7 @@
 // the family. Crossorigin is set to "anonymous" so canvas stays untainted.
 
 import type { FontAsset, ImageAsset } from "../schema/types.js";
+import { bundledFileName } from "./bundled.js";
 import { BaseAssetLoader } from "./loader.js";
 
 export interface BrowserAssetLoaderOptions {
@@ -14,6 +15,11 @@ export interface BrowserAssetLoaderOptions {
   // Optional base URL prepended to relative asset srcs. Useful when assets
   // live on a separate origin from the page.
   baseUrl?: string;
+  // Where the package's bundled fonts (`bundled:<file>` srcs — the default
+  // font, R-30) are served from. Defaults to `/bundled-fonts/`, the route the
+  // editor server exposes; other hosts serve davidup's `fonts/` directory
+  // somewhere and point this at it.
+  bundledBaseUrl?: string;
 }
 
 export class BrowserAssetLoader extends BaseAssetLoader {
@@ -78,6 +84,11 @@ export class BrowserAssetLoader extends BaseAssetLoader {
     if (src.startsWith("global:")) {
       const rest = src.slice("global:".length).replace(/^\/+/, "");
       return `/library-files/${rest}`;
+    }
+    const bundled = bundledFileName(src);
+    if (bundled !== undefined) {
+      const base = this.options.bundledBaseUrl ?? "/bundled-fonts/";
+      return `${base.endsWith("/") ? base : `${base}/`}${bundled}`;
     }
     if (!this.options.baseUrl) return src;
     if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith("data:") || src.startsWith("/")) {

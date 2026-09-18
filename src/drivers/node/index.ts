@@ -25,6 +25,7 @@ import type { Writable } from "node:stream";
 
 import {
   NodeAssetLoader,
+  withBundledAssets,
   type AssetLoader,
   type SkiaCanvasModule,
 } from "../../assets/index.js";
@@ -364,7 +365,7 @@ export async function renderToFile(
   const skia = opts.skiaCanvas ?? (await importSkiaCanvas());
   const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
 
-  await loader.preloadAll(compiled.assets);
+  await loader.preloadAll(withBundledAssets(compiled));
 
   // Pre-extract phase (v0.2 §S7) + frame binding (§S8): materialise/refresh the
   // cached PNG sequence for every distinct video clip, then bind those frames

@@ -345,7 +345,8 @@ const addText = z.object({
   payload: z.object({
     layerId: ID,
     text: z.string(),
-    font: ID,
+    // Optional: the add_text tool defaults to the bundled `font:default` (R-30).
+    font: ID.optional(),
     fontSize: POSITIVE,
     color: z.string(),
     x: z.number(),

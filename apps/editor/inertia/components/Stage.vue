@@ -228,11 +228,9 @@ function buildPlaceCommand(
         payload: {
           layerId,
           text: tool.text,
-          // The toolbar gates the text button on `fontAssets.length > 0`, so
-          // there is always at least one font registered. We rely on the
-          // composition we read at click time having one too; on the off
-          // chance it doesn't, the server validator will surface the issue.
-          font: firstFontAssetId() ?? 'default',
+          // First registered font, else the bundled `font:default` (R-30)
+          // that resolves without any registered asset.
+          font: firstFontAssetId() ?? 'font:default',
           fontSize: 48,
           color: '#ffffff',
           x,
