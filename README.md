@@ -1209,10 +1209,9 @@ server.json              MCP server manifest
 .mcp.json                Repo-local MCP client config
 ```
 
-CI (`.github/workflows/ci.yml`) runs root typecheck + the full vitest suite
-(including ffmpeg integration, determinism, and the editor smoke test) and
-the editor's `vue-tsc` + `ace test` on every push. `eval-nightly.yml` runs
-the agent benchmark nightly; it is informational, not a gate.
+There is no hosted CI. Verify locally: root `bun run typecheck` +
+`bunx vitest run`, then the editor's `vue-tsc` + `ace test`. The agent
+benchmark runs on demand with `bun run eval:agents`.
 
 ---
 
