@@ -251,5 +251,7 @@ items:  { ti: { $template: "t", params: {} }, si: { type: "scene", scene: "s", t
 covers the repro, nesting, `$repeat` products, nested scene instances,
 templates inside scenes, and a pixel paint-count check. ⚠ pixel-changing for
 affected content only: `SCENE_EXPANSION_VERSION` 5, `TEMPLATE_EXPANSION_VERSION`
-2. The validator warning `W_ITEM_MULTI_PARENT` and the `apply_template` path
-follow in Session F2.
+2. Session F2 closed the rest: `validate` warns `W_ITEM_MULTI_PARENT` on any
+item listed under more than one layer/group (warning in v1.x, error in the next
+major), and `apply_template` puts only top-level ids in the layer, adding group
+children via `addRawSubItem` before their groups.

@@ -49,6 +49,7 @@ import {
   type TemplateParamDescriptor,
 } from "../compose/templates.js";
 import { RefResolutionError } from "../compose/imports.js";
+import { topLevelIds } from "../compose/ownership.js";
 import {
   renderToFile,
   checkContainerCodec,
@@ -1742,6 +1743,25 @@ const TEMPLATE_PARAM_DESCRIPTOR = z.object({
   description: z.string().optional(),
 });
 
+// `order` rearranged so every group comes after the items it lists (post-order
+// walk). Top-level ids keep their relative declaration order, which is the
+// order they land in the layer.
+function childrenFirst(items: Record<string, unknown>, order: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const visit = (id: string): void => {
+    if (seen.has(id) || !(id in items)) return;
+    seen.add(id);
+    const item = items[id] as { type?: unknown; items?: unknown } | undefined;
+    if (item?.type === "group" && Array.isArray(item.items)) {
+      for (const child of item.items) if (typeof child === "string") visit(child);
+    }
+    out.push(id);
+  };
+  for (const id of order) visit(id);
+  return out;
+}
+
 const applyTemplate = defineTool({
   name: "apply_template",
   title: "Apply template",
@@ -1780,18 +1800,25 @@ const applyTemplate = defineTool({
       }) as { tweens: Tween[] }
     ).tweens;
 
+    // Single-parent invariant (B-3): only the template's top-level items go
+    // into the layer; a child of a template-internal group is reachable
+    // through that group alone. Children are added before the groups that
+    // own them, so nothing ever needs detaching.
+    const allIds = Object.keys(expanded.items);
+    const topLevel = new Set(topLevelIds(expanded.items, allIds));
     const itemIds: string[] = [];
     const tweenIds: string[] = [];
     try {
-      for (const localId of Object.keys(expanded.items)) {
-        store.addRawItem(
-          {
-            id: localId,
-            layerId: args.layerId,
-            item: expanded.items[localId],
-          },
-          args.compositionId,
-        );
+      for (const localId of childrenFirst(expanded.items, allIds)) {
+        const item = expanded.items[localId];
+        if (topLevel.has(localId)) {
+          store.addRawItem(
+            { id: localId, layerId: args.layerId, item },
+            args.compositionId,
+          );
+        } else {
+          store.addRawSubItem({ id: localId, item }, args.compositionId);
+        }
         itemIds.push(localId);
       }
       for (const t of literalTweens) {

@@ -433,24 +433,6 @@
      "strokeColor": "#ffffff26",
      "strokeWidth": 2
     },
-    "ring2": {
-     "type": "shape",
-     "kind": "circle",
-     "width": 128,
-     "height": 128,
-     "transform": {
-      "x": 150,
-      "y": 150,
-      "scaleX": 1,
-      "scaleY": 1,
-      "rotation": 0,
-      "anchorX": 0.5,
-      "anchorY": 0.5,
-      "opacity": 1
-     },
-     "strokeColor": "#ffffff14",
-     "strokeWidth": 2
-    },
     "sun": {
      "type": "shape",
      "kind": "circle",
@@ -475,6 +457,23 @@
       }
      ]
     },
+    "arm": {
+     "type": "group",
+     "items": [
+      "planet",
+      "moonArm"
+     ],
+     "transform": {
+      "x": 150,
+      "y": 150,
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotation": 0,
+      "anchorX": 0,
+      "anchorY": 0,
+      "opacity": 1
+     }
+    },
     "planet": {
      "type": "shape",
      "kind": "circle",
@@ -482,12 +481,12 @@
      "height": 30,
      "fillColor": "#3de8ff",
      "transform": {
-      "x": 150,
-      "y": 150,
+      "x": 110,
+      "y": 0,
       "scaleX": 1,
       "scaleY": 1,
       "rotation": 0,
-      "anchorX": -3.1666666666666665,
+      "anchorX": 0.5,
       "anchorY": 0.5,
       "opacity": 1
      },
@@ -499,19 +498,54 @@
       }
      ]
     },
-    "moon": {
-     "type": "shape",
-     "kind": "circle",
-     "width": 14,
-     "height": 14,
-     "fillColor": "#eef1ff",
+    "moonArm": {
+     "type": "group",
+     "items": [
+      "ring2",
+      "moon"
+     ],
      "transform": {
-      "x": 150,
-      "y": 150,
+      "x": 110,
+      "y": 0,
       "scaleX": 1,
       "scaleY": 1,
       "rotation": 0,
-      "anchorX": -4.071428571428571,
+      "anchorX": 0,
+      "anchorY": 0,
+      "opacity": 1
+     }
+    },
+    "ring2": {
+     "type": "shape",
+     "kind": "circle",
+     "width": 56,
+     "height": 56,
+     "transform": {
+      "x": 0,
+      "y": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotation": 0,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "opacity": 1
+     },
+     "strokeColor": "#ffffff1a",
+     "strokeWidth": 2
+    },
+    "moon": {
+     "type": "shape",
+     "kind": "circle",
+     "width": 12,
+     "height": 12,
+     "fillColor": "#eef1ff",
+     "transform": {
+      "x": 28,
+      "y": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotation": 0,
+      "anchorX": 0.5,
       "anchorY": 0.5,
       "opacity": 1
      }
@@ -556,7 +590,7 @@
    "tweens": [
     {
      "id": "orbit",
-     "target": "planet",
+     "target": "arm",
      "property": "transform.rotation",
      "from": 0,
      "to": 6.283185307179586,
@@ -566,7 +600,7 @@
     },
     {
      "id": "moonOrbit",
-     "target": "moon",
+     "target": "moonArm",
      "property": "transform.rotation",
      "from": 0,
      "to": -12.566370614359172,
@@ -2476,7 +2510,7 @@
   },
   "rvC": {
    "type": "text",
-   "text": "→ 79 KB authored, compiled to\n   1,385 items · 1,199 tweens\n→ 900 frames, deterministic\n→ written by an AI agent",
+   "text": "__STATS__",
    "font": "font-mono",
    "fontSize": 26,
    "color": "#8a93b8",

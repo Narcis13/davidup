@@ -890,8 +890,10 @@ handle:
 H.264/yuv420p encoder needs even sizes); warnings `W_DIMENSION_LARGE` (either
 axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 `W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES`,
-`W_VIDEO_NO_AUDIO_STREAM` (`keepAudio` on a source with no audio stream).
-Warnings never fail a call. The schema is strict: an unknown key such as
+`W_VIDEO_NO_AUDIO_STREAM` (`keepAudio` on a source with no audio stream),
+`W_ITEM_MULTI_PARENT` (an item listed under more than one layer/group, or twice
+in one list — it paints once per reference; this becomes an error in the next
+major). Warnings never fail a call. The schema is strict: an unknown key such as
 `opacty` is an `E_SCHEMA` error at its full path (`items.logo.transform.opacty`)
 with a "did you mean" suggestion. Keys starting with `$` (`$comment`, `$ref`,
 …) or `x-` (your own extensions) are allowed on any object and ignored by the

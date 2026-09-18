@@ -429,3 +429,103 @@ describe("define_user_template tool", () => {
     expect((apply.result as { items: string[] }).items).toEqual(["tc__stub"]);
   });
 });
+
+describe("apply_template — group ownership (B-3)", () => {
+  const T = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+  const box = { type: "shape", kind: "rect", width: 10, height: 10, fillColor: "#ffffff", transform: T };
+
+  it("keeps group children out of the layer, even when the group is declared first", async () => {
+    const { deps } = await setup();
+    const define = await dispatchTool(
+      getTool("define_user_template"),
+      {
+        id: "orbit",
+        params: [],
+        // Groups declared before their children, and a nested group, so the
+        // store must add leaves first.
+        items: {
+          arm: { type: "group", items: ["moonArm", "planet"], transform: T },
+          moonArm: { type: "group", items: ["moon"], transform: T },
+          planet: box,
+          moon: box,
+          sun: box,
+        },
+        tweens: [
+          { target: "arm", property: "transform.rotation", from: 0, to: 6.28, start: 0, duration: 2 },
+        ],
+      },
+      deps,
+    );
+    expect(define.ok).toBe(true);
+
+    const apply = await dispatchTool(
+      getTool("apply_template"),
+      { templateId: "orbit", layerId: "main", id: "o" },
+      deps,
+    );
+    expect(apply.ok).toBe(true);
+    if (!apply.ok) return;
+    expect((apply.result as { items: string[] }).items.sort()).toEqual(
+      ["o__arm", "o__moon", "o__moonArm", "o__planet", "o__sun"],
+    );
+
+    const get = await dispatchTool(getTool("get_composition"), {}, deps);
+    if (!get.ok) throw new Error("get_composition failed");
+    const json = (get.result as {
+      json: {
+        layers: Array<{ id: string; items: string[] }>;
+        items: Record<string, { type: string; items?: string[] }>;
+      };
+    }).json;
+    expect(json.layers.find((l) => l.id === "main")?.items).toEqual(["o__arm", "o__sun"]);
+    expect(json.items["o__arm"]?.items).toEqual(["o__moonArm", "o__planet"]);
+    expect(json.items["o__moonArm"]?.items).toEqual(["o__moon"]);
+
+    const valid = await dispatchTool(getTool("validate"), {}, deps);
+    if (!valid.ok) throw new Error("validate failed");
+    const result = valid.result as { valid: boolean; warnings: Array<{ code: string }> };
+    expect(result.valid).toBe(true);
+    expect(result.warnings.filter((w) => w.code === "W_ITEM_MULTI_PARENT")).toEqual([]);
+  });
+
+  it("rolls back group children too when a later step fails", async () => {
+    const { deps } = await setup();
+    await dispatchTool(
+      getTool("define_user_template"),
+      {
+        id: "grp",
+        params: [],
+        items: { g: { type: "group", items: ["kid"], transform: T }, kid: box },
+        tweens: [],
+      },
+      deps,
+    );
+    // Pre-existing `x__g` makes the group insert (added after its child) fail.
+    const pre = await dispatchTool(
+      getTool("add_shape"),
+      { id: "x__g", layerId: "main", kind: "rect", x: 0, y: 0, width: 5, height: 5, fillColor: "#000000" },
+      deps,
+    );
+    expect(pre.ok).toBe(true);
+    const apply = await dispatchTool(
+      getTool("apply_template"),
+      { templateId: "grp", layerId: "main", id: "x" },
+      deps,
+    );
+    expect(apply.ok).toBe(false);
+    if (!apply.ok) expect(apply.error.code).toBe("E_DUPLICATE_ID");
+    const get = await dispatchTool(getTool("get_composition"), {}, deps);
+    if (!get.ok) throw new Error("get_composition failed");
+    const json = (get.result as { json: { items: Record<string, unknown> } }).json;
+    expect(Object.keys(json.items)).not.toContain("x__kid");
+  });
+});

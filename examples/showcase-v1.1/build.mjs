@@ -332,22 +332,22 @@ const orrery = {
   size: { width: 300, height: 360 },
   background: "transparent",
   params: [],
-  // Orbits pivot on an anchor outside the body's own box (anchorX < 0), so no
-  // nested groups are needed inside the scene.
+  // `arm` pivots on the sun and carries the planet; the nested `moonArm`
+  // pivots on the planet and carries the moon and its orbit ring.
   items: {
     ring: circle(220, null, C(150, 150), { strokeColor: "#ffffff26", strokeWidth: 2 }),
-    ring2: circle(128, null, C(150, 150), { strokeColor: "#ffffff14", strokeWidth: 2 }),
     sun: circle(56, AMB, C(150, 150), { effects: [{ type: "glow", color: AMB, radius: 18 }] }),
-    planet: circle(30, CYAN, T(150, 150, { ax: 0.5 - 110 / 30, ay: 0.5 }), {
-      effects: [{ type: "glow", color: CYAN, radius: 10 }],
-    }),
-    moon: circle(14, INK, T(150, 150, { ax: 0.5 - 64 / 14, ay: 0.5 })),
+    arm: group(["planet", "moonArm"], T(150, 150)),
+    planet: circle(30, CYAN, C(110, 0), { effects: [{ type: "glow", color: CYAN, radius: 10 }] }),
+    moonArm: group(["ring2", "moon"], T(110, 0)),
+    ring2: circle(56, null, C(0, 0), { strokeColor: "#ffffff1a", strokeWidth: 2 }),
+    moon: circle(12, INK, C(28, 0)),
     barBg: rect(240, 6, "#ffffff1a", T(30, 320), { cornerRadius: 3 }),
     bar: rect(0, 6, MAG, T(30, 320), { cornerRadius: 3 }),
   },
   tweens: [
-    { id: "orbit", target: "planet", property: "transform.rotation", from: 0, to: 2 * Math.PI, start: 0, duration: ORR, easing: "easeInOutSine" },
-    { id: "moonOrbit", target: "moon", property: "transform.rotation", from: 0, to: -4 * Math.PI, start: 0, duration: ORR, easing: "linear" },
+    { id: "orbit", target: "arm", property: "transform.rotation", from: 0, to: 2 * Math.PI, start: 0, duration: ORR, easing: "easeInOutSine" },
+    { id: "moonOrbit", target: "moonArm", property: "transform.rotation", from: 0, to: -4 * Math.PI, start: 0, duration: ORR, easing: "linear" },
     { id: "clock", target: "bar", property: "width", from: 0, to: 240, start: 0, duration: ORR, easing: "linear" },
   ],
 };

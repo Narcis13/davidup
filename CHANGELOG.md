@@ -9,6 +9,18 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### `W_ITEM_MULTI_PARENT`; `apply_template` honours group ownership (B-3 follow-up)
+
+- New `validate` warning `W_ITEM_MULTI_PARENT`: an item id listed more than
+  once across all `layer.items` and `group.items` (including twice in one
+  list). The message names every parent; `path` points at the extra
+  reference. It is a warning because a hand-written v1.x composition may rely
+  on the duplicate draw; it becomes an error in the next major.
+- `apply_template` (MCP, and the editor Library panel through it) now puts
+  only the template's top-level items in the layer. Children of a
+  template-internal group are added layer-less, before their group, so they
+  are drawn once, through the group. Rollback is unchanged.
+
 ### Groups inside scenes and templates own their children (B-3) ⚠ pixel-changing
 
 - Fix: a group inside a scene or a template no longer paints its children

@@ -973,3 +973,81 @@ describe("validate — keepAudio on a silent source (W_VIDEO_NO_AUDIO_STREAM)", 
     expect(flagged(withClip(false, false))).toEqual([]);
   });
 });
+
+describe("validate — single-parent invariant (W_ITEM_MULTI_PARENT, B-3)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+  const kid = {
+    type: "shape" as const,
+    kind: "rect" as const,
+    width: 10,
+    height: 10,
+    fillColor: "#ffffff",
+    transform,
+  };
+
+  const multi = (comp: ReturnType<typeof baseComposition>) =>
+    validate(comp).warnings.filter((w) => w.code === "W_ITEM_MULTI_PARENT");
+
+  it("warns when an item is listed in a layer and in a group (the pre-F1 compile output)", () => {
+    const comp = baseComposition();
+    comp.items["kid"] = kid;
+    comp.items["g"] = { type: "group", items: ["kid"], transform };
+    comp.layers[1]!.items.push("g", "kid");
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warns = multi(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.message).toMatch(/"kid"/);
+    expect(warns[0]!.message).toMatch(/layer "foreground-layer"/);
+    expect(warns[0]!.message).toMatch(/group "g"/);
+    // Layers are walked before groups, so the group's reference is the second.
+    expect(warns[0]!.path).toBe("items.g.items.0");
+  });
+
+  it("warns when an item sits in two groups", () => {
+    const comp = baseComposition();
+    comp.items["kid"] = kid;
+    comp.items["g1"] = { type: "group", items: ["kid"], transform };
+    comp.items["g2"] = { type: "group", items: ["kid"], transform };
+    comp.layers[1]!.items.push("g1", "g2");
+    const warns = multi(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.path).toBe("items.g2.items.0");
+  });
+
+  it("warns when a group lists the same child twice", () => {
+    const comp = baseComposition();
+    comp.items["kid"] = kid;
+    comp.items["g"] = { type: "group", items: ["kid", "kid"], transform };
+    comp.layers[1]!.items.push("g");
+    const warns = multi(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.path).toBe("items.g.items.1");
+  });
+
+  it("warns when two layers list the same item", () => {
+    const comp = baseComposition();
+    comp.layers[0]!.items.push("title-text");
+    const warns = multi(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.path).toBe("layers.foreground-layer.items.1");
+  });
+
+  it("does not warn for a properly nested group", () => {
+    const comp = baseComposition();
+    comp.items["kid"] = kid;
+    comp.items["inner"] = { type: "group", items: ["kid"], transform };
+    comp.items["outer"] = { type: "group", items: ["inner"], transform };
+    comp.layers[1]!.items.push("outer");
+    expect(multi(comp)).toEqual([]);
+  });
+});

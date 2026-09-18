@@ -43,6 +43,11 @@
 //      and stays an error — not duplicated here.
 //  16. keepAudio video whose asset was probed with no audio stream
 //                                              → W_VIDEO_NO_AUDIO_STREAM
+//  17. Item listed under more than one parent (layer.items / group.items,
+//      or twice in one list)                   → W_ITEM_MULTI_PARENT
+//      (B-3: the renderer paints it once per reference. A warning, not an
+//      error, because a hand-written v1.x composition may rely on the
+//      duplicate draw; flips to an error in the next major.)
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
@@ -73,7 +78,8 @@ export type ValidationWarningCode =
   | "W_ITEM_OFF_CANVAS"
   | "W_FONT_UNREGISTERED"
   | "W_SCENE_INSTANCE_OUTLIVES"
-  | "W_VIDEO_NO_AUDIO_STREAM";
+  | "W_VIDEO_NO_AUDIO_STREAM"
+  | "W_ITEM_MULTI_PARENT";
 
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
@@ -146,8 +152,50 @@ export function validate(input: unknown): ValidationResult {
   validateFontResolution(comp, assetMap, warnings);
   validateSceneInstanceLifespans(comp, warnings);
   validateKeepAudioStreams(comp, assetMap, warnings);
+  validateSingleParent(comp, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Single-parent invariant (B-3, W_ITEM_MULTI_PARENT). Every item has exactly
+// one parent — a layer or a group — and the renderer walks layers → items →
+// group children, so an id referenced from two places (or twice from one
+// list) is painted once per reference. One warning per extra reference; its
+// `path` points at that reference, the message names every parent.
+function validateSingleParent(
+  comp: Composition,
+  warnings: ValidationWarning[],
+): void {
+  const refs = new Map<string, { parent: string; path: string }[]>();
+  const note = (itemId: string, parent: string, path: string): void => {
+    const list = refs.get(itemId);
+    if (list === undefined) refs.set(itemId, [{ parent, path }]);
+    else list.push({ parent, path });
+  };
+  for (const layer of comp.layers) {
+    layer.items.forEach((itemId, i) =>
+      note(itemId, `layer "${layer.id}"`, `layers.${layer.id}.items.${i}`),
+    );
+  }
+  for (const [groupId, item] of Object.entries(comp.items)) {
+    if (item.type !== "group") continue;
+    item.items.forEach((itemId, i) =>
+      note(itemId, `group "${groupId}"`, `items.${groupId}.items.${i}`),
+    );
+  }
+  for (const [itemId, list] of refs) {
+    if (list.length < 2 || !(itemId in comp.items)) continue;
+    const parents = list.map((r) => r.parent).join(", ");
+    for (const extra of list.slice(1)) {
+      warnings.push({
+        code: "W_ITEM_MULTI_PARENT",
+        message:
+          `Item "${itemId}" is listed ${list.length} times (${parents}); it is painted once per reference. ` +
+          "Keep it under a single layer or group.",
+        path: extra.path,
+      });
+    }
+  }
 }
 
 // Largest axis, in px, below which W_DIMENSION_LARGE stays quiet. Above it
