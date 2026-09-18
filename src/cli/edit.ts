@@ -120,6 +120,10 @@ export async function runEdit(
     exited = true;
     exitInfo = { code, signal };
   });
+  // Last-resort cleanup if the CLI exits without close() (uncaught error,
+  // process.exit elsewhere): a detached group would otherwise outlive us.
+  const killOnExit = () => signalTree(child, "SIGKILL");
+  process.once("exit", killOnExit);
 
   const ready = deps.waitForServer(url, readyTimeoutMs).catch((err) => {
     if (exited) {
@@ -135,6 +139,7 @@ export async function runEdit(
   try {
     await ready;
   } catch (err) {
+    process.off("exit", killOnExit);
     await terminate(child);
     throw err;
   }
@@ -174,6 +179,7 @@ export async function runEdit(
     url,
     async close() {
       stopWatch?.();
+      process.off("exit", killOnExit);
       await terminate(child);
     },
   };
@@ -209,27 +215,64 @@ async function assertEditorAppDir(editorAppDir: string): Promise<void> {
   }
 }
 
-async function terminate(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((res) => {
-    const done = () => res();
-    child.once("exit", done);
+// Children spawned as their own process group (dev-mode `ace serve --hmr`,
+// which forks a long-lived `bin/server.js` grandchild). Signals to these go
+// to the whole group so the grandchild dies with its supervisor — bug 2.2.
+const processGroupLeaders = new WeakSet<ChildProcess>();
+
+function isAlive(child: ChildProcess): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Send `signal` to the child's whole process group if it leads one, else to the child. */
+function signalTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (processGroupLeaders.has(child) && child.pid !== undefined) {
     try {
-      child.kill("SIGTERM");
-    } catch {
-      res();
+      process.kill(-child.pid, signal);
       return;
+    } catch {
+      /* group already gone — fall through to the direct kill */
     }
-    setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          /* ignore */
-        }
-      }
-    }, 3000).unref();
-  });
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function terminate(child: ChildProcess): Promise<void> {
+  const pgid = processGroupLeaders.has(child) ? child.pid : undefined;
+  if (isAlive(child)) {
+    await new Promise<void>((res) => {
+      child.once("exit", () => res());
+      signalTree(child, "SIGTERM");
+      setTimeout(() => {
+        if (isAlive(child)) signalTree(child, "SIGKILL");
+      }, 3000).unref();
+    });
+  }
+  if (pgid === undefined) return;
+  // The supervisor exiting doesn't mean its grandchildren have: give them
+  // the same 3s grace to finish their own SIGTERM shutdown, then SIGKILL.
+  const deadline = Date.now() + 3000;
+  while (groupAlive(pgid) && Date.now() < deadline) await sleep(50);
+  if (groupAlive(pgid)) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 // --- Default dependency implementations --------------------------------------
@@ -257,21 +300,62 @@ function isDevEditorSource(editorAppDir: string): boolean {
 }
 
 function defaultSpawnServer(input: SpawnServerInput): ChildProcess {
-  if (isDevEditorSource(input.editorAppDir)) {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      DAVIDUP_PROJECT: input.projectDir,
-      PORT: String(input.port),
-      HOST: input.host,
-      NODE_ENV: process.env.NODE_ENV ?? "development",
-    };
-    return spawn("node", ["ace", "serve", "--hmr"], {
-      cwd: input.editorAppDir,
-      env,
-      stdio: "inherit",
-    });
-  }
+  if (isDevEditorSource(input.editorAppDir)) return spawnDevServer(input);
   return spawnPackagedServer(input);
+}
+
+/**
+ * Port for the Vite HMR websocket. In middleware mode Vite otherwise binds a
+ * fixed 24678, so two `davidup edit` sessions collide — follow `--port`
+ * instead (`port + 1`, or `port - 1` at the top of the range), unless
+ * `DAVIDUP_HMR_PORT` pins it. Read by `apps/editor/vite.config.ts` — R-22.
+ */
+export function hmrPortFor(port: number, env: NodeJS.ProcessEnv): number {
+  const pinned = Number.parseInt(env.DAVIDUP_HMR_PORT ?? "", 10);
+  if (Number.isInteger(pinned) && pinned > 0 && pinned <= 65_535) return pinned;
+  return port < 65_535 ? port + 1 : port - 1;
+}
+
+export interface DevSpawnIO {
+  spawn: typeof spawn;
+  env: NodeJS.ProcessEnv;
+  platform: NodeJS.Platform;
+}
+
+const DEFAULT_DEV_SPAWN_IO: DevSpawnIO = {
+  spawn,
+  env: process.env,
+  platform: platform(),
+};
+
+/**
+ * Boot the editor from source via `node ace serve --hmr`. That process is a
+ * supervisor that forks its own `bin/server.js`, so it's spawned `detached`
+ * (a new process group) and `terminate()` signals the whole group. Ctrl+C in
+ * the terminal therefore reaches only the CLI, whose SIGINT handler tears the
+ * group down. Windows has no process groups; there it's a plain spawn.
+ */
+export function spawnDevServer(
+  input: SpawnServerInput,
+  io: DevSpawnIO = DEFAULT_DEV_SPAWN_IO,
+): ChildProcess {
+  const env: NodeJS.ProcessEnv = {
+    ...io.env,
+    DAVIDUP_PROJECT: input.projectDir,
+    PORT: String(input.port),
+    HOST: input.host,
+    DAVIDUP_HMR_PORT: String(hmrPortFor(input.port, io.env)),
+    NODE_ENV: io.env.NODE_ENV ?? "development",
+  };
+  const detached = io.platform !== "win32";
+  const child = io.spawn("node", ["ace", "serve", "--hmr"], {
+    cwd: input.editorAppDir,
+    env,
+    stdio: "inherit",
+    detached,
+  });
+  if (detached) processGroupLeaders.add(child);
+  return child;
 }
 
 /**

@@ -18,6 +18,15 @@ export default defineConfig({
   },
 
   /**
+   * The Adonis Vite dev server runs in middleware mode, where Vite binds its
+   * HMR websocket on a fixed 24678 unless told otherwise — so a second
+   * editor on another `--port` collided with the first. `davidup edit`
+   * passes `DAVIDUP_HMR_PORT` (its `--port + 1`); a bare `node ace serve`
+   * falls back to `PORT + 1`, then to Vite's default.
+   */
+  server: { hmr: hmrPort() === undefined ? true : { port: hmrPort() } },
+
+  /**
    * `davidup` is a workspace package consumed as TypeScript source.
    * Excluding its subpath entries from optimizeDeps avoids the stale
    * pre-bundle cache that otherwise served an older `davidup/schema`
@@ -31,3 +40,11 @@ export default defineConfig({
     exclude: ['davidup', 'davidup/schema', 'davidup/engine', 'davidup/easings', 'davidup/assets', 'davidup/browser', 'davidup/compose'],
   },
 })
+
+function hmrPort(): number | undefined {
+  const pinned = Number.parseInt(process.env.DAVIDUP_HMR_PORT ?? '', 10)
+  if (Number.isInteger(pinned) && pinned > 0 && pinned <= 65_535) return pinned
+  const port = Number.parseInt(process.env.PORT ?? '', 10)
+  if (!Number.isInteger(port) || port <= 0 || port > 65_535) return undefined
+  return port < 65_535 ? port + 1 : port - 1
+}

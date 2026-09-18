@@ -41,7 +41,7 @@ review's finding numbers stable as cross-reference anchors).
 | R-19 | P2 | Doc drift, systemic: stale "not implemented" claim, README roadmap contradiction, version strings stuck at 0.1.0, `KNOWN_BUGS.md` misnamed, incomplete error-code list | **CLOSED** — Session 9 (this session) | cited per-file in the finding |
 | R-20 | P2 | Group opacity multiplies alpha instead of offscreen compositing — overlapping semi-transparent children double-blend | **CLOSED** — v1.1 Session 18: fixed as an opt-in. `isolate: true` on a group flattens the children onto a canvas-sized scratch surface and composites once; `Canvas2DContext` gained optional `getTransform`/`setTransform` so the surface can take the inherited matrix verbatim. Default stays multiplicative, so no existing frame moved. (v1.0 Session 28 had closed this as intentional for the reason the new contract removes.) | `src/engine/render.ts`, `src/engine/types.ts`, `src/schema/zod.ts` |
 | R-21 | P2 | Scene/template `color` params accepted any non-empty string (`rgb(999,0,0)` parsed unclamped); polygons with <3 points validated | **CLOSED** — Session 4 (`ee90fea`) | `src/compose/scenes.ts`, `src/color/index.ts` |
-| R-22 | P2 | Editor HMR websocket port not derived from `--port`; editor package still named `adonisjs-inertia-starter-kit@0.0.0`; three lockfile ecosystems in one app dir | **OPEN** — deferred to v1.1 (cosmetic/dev-ergonomics, no user-facing correctness impact). Package rename to `@davidup/editor@1.0.0` landed in v1.1 Session 1; HMR port + lockfiles remain (v1.1 Session 31) | `apps/editor` config |
+| R-22 | P2 | Editor HMR websocket port not derived from `--port`; editor package still named `adonisjs-inertia-starter-kit@0.0.0`; three lockfile ecosystems in one app dir | **FIXED** v1.1 Session 31 — package renamed to `@davidup/editor@1.0.0` in Session 1; the Vite HMR websocket now binds `--port + 1` (or `DAVIDUP_HMR_PORT`) via `apps/editor/vite.config.ts`; the pnpm lockfiles/workspace files and the stale `package-lock.json` are deleted — `bun.lock` is the only lockfile. | `apps/editor` config |
 | R-23 | P2 | Composition schema is not `.strict()` — typo'd keys silently stripped, agents never learn they misspelled a property | **FIXED** v1.1 Session 23 — every composition object is `.strict()`; an unknown key is `E_SCHEMA` at its full path with a Levenshtein "did you mean" over the sibling keys. Forward compatibility goes through `$…` / `x-…` keys, always allowed and ignored (`src/schema/strict.ts`). MCP `update_item` / `update_video` props are strict too and report `E_INVALID_PROPERTY`. | `src/schema/zod.ts` |
 | R-24 | P0 (live-drive) | Scene expansion silently alphabetized paint order (`Object.keys(def.items).sort()`), discarding declaration order | **CLOSED** — Session 6 (`c3d13f2`) | `src/compose/scenes.ts` |
 | R-25 | P1 (live-drive) | MCP-layer tween overlap check had no epsilon — abutting tweens rejected, `colorCycle` could self-collide | **CLOSED** — Session 7 (`4889ed8`) | `src/mcp/store.ts` |
@@ -138,9 +138,13 @@ Needs care: `stdio: "inherit"` plus `detached: true` changes how the child's
 own signal handling and terminal attachment behave, so verify `Ctrl+C` on
 the CLI itself still tears the whole tree down cleanly.
 
-**Status:** OPEN — P2, deferred to v1.1 (dev-source `davidup edit` only; the
-packaged/npx path is unaffected, and CI containers reap the orphan with the
-job).
+**Status:** FIXED — v1.1 Session 31. `spawnDevServer` spawns `ace serve
+--hmr` with `detached: true` (POSIX); `terminate()` signals the process group
+(SIGTERM, SIGKILL after 3s, then a sweep for grandchildren that outlived the
+supervisor), and a `process.on("exit")` hook SIGKILLs the group if the CLI
+dies without `close()`. Ctrl+C now reaches only the CLI, whose handler tears
+the group down. `tests/cli/edit.test.ts` drives the real spawn/terminate path
+with a stand-in supervisor whose grandchild ignores SIGTERM.
 
 ### 2.3 B-1: video `fit` is a no-op — every value stretches
 

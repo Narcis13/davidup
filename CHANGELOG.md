@@ -8,6 +8,20 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### `davidup edit` dev mode: no orphaned server, HMR port follows `--port`, one lockfile
+
+- Fix (bug 2.2): stopping a dev-mode `davidup edit` (Ctrl+C, SIGTERM, or
+  `handle.close()`) no longer leaves `bin/server.js` running. `node ace serve
+  --hmr` is spawned as its own process group and teardown signals the whole
+  group — SIGTERM, then SIGKILL for anything still alive after 3s. Unchanged
+  on Windows (no process groups).
+- The Vite HMR websocket now binds `--port + 1` instead of the fixed 24678, so
+  two editors on different ports no longer collide. `DAVIDUP_HMR_PORT`
+  overrides it (R-22).
+- bun is the only package manager: `pnpm-lock.yaml`, `pnpm-workspace.yaml`
+  (root and `apps/editor`) and the stale `apps/editor/package-lock.json` are
+  gone. `bun install` at the root installs the editor too.
+
 ### Editable source drawer, `replace_composition`, reveal off macOS, asset promote
 
 - MCP `replace_composition` (tool 59): swap a whole composition for a

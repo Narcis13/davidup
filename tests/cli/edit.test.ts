@@ -3,11 +3,15 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import {
   runEdit,
   EditError,
+  hmrPortFor,
+  spawnDevServer,
   spawnPackagedServer,
+  type DevSpawnIO,
   type EditDeps,
   type PackagedSpawnIO,
 } from "../../src/cli/edit.js";
@@ -340,4 +344,146 @@ describe("cli · spawnPackagedServer", () => {
     spawnPackagedServer(input, io);
     expect(spawnCalls).toHaveLength(1);
   });
+});
+
+describe("cli · hmrPortFor", () => {
+  it("follows --port + 1", () => {
+    expect(hmrPortFor(3333, {})).toBe(3334);
+    expect(hmrPortFor(4000, {})).toBe(4001);
+  });
+
+  it("steps down at the top of the port range", () => {
+    expect(hmrPortFor(65_535, {})).toBe(65_534);
+  });
+
+  it("honours a valid DAVIDUP_HMR_PORT and ignores a bogus one", () => {
+    expect(hmrPortFor(3333, { DAVIDUP_HMR_PORT: "5173" })).toBe(5173);
+    expect(hmrPortFor(3333, { DAVIDUP_HMR_PORT: "nope" })).toBe(3334);
+    expect(hmrPortFor(3333, { DAVIDUP_HMR_PORT: "70000" })).toBe(3334);
+  });
+});
+
+describe("cli · spawnDevServer", () => {
+  const input = {
+    editorAppDir: "/fake/editor",
+    projectDir: "/fake/project",
+    port: 4100,
+    host: "127.0.0.1",
+  };
+
+  function capture(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = {}) {
+    const calls: Array<{ cmd: string; args: readonly string[]; opts: Record<string, unknown> }> = [];
+    const io: DevSpawnIO = {
+      env,
+      platform,
+      spawn: ((cmd: string, args: readonly string[], opts: Record<string, unknown>) => {
+        calls.push({ cmd, args, opts });
+        return new FakeChild() as unknown as ChildProcess;
+      }) as unknown as DevSpawnIO["spawn"],
+    };
+    return { io, calls };
+  }
+
+  it("spawns `ace serve --hmr` detached with the HMR port in env", () => {
+    const { io, calls } = capture("darwin");
+    spawnDevServer(input, io);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args).toEqual(["ace", "serve", "--hmr"]);
+    expect(calls[0]!.opts.detached).toBe(true);
+    expect(calls[0]!.opts.env).toMatchObject({
+      DAVIDUP_PROJECT: "/fake/project",
+      PORT: "4100",
+      HOST: "127.0.0.1",
+      DAVIDUP_HMR_PORT: "4101",
+      NODE_ENV: "development",
+    });
+  });
+
+  it("does not detach on Windows (no process groups)", () => {
+    const { io, calls } = capture("win32");
+    spawnDevServer(input, io);
+    expect(calls[0]!.opts.detached).toBe(false);
+  });
+});
+
+// Bug 2.2: `ace serve --hmr` is a supervisor that forks `bin/server.js`;
+// closing the edit handle must take the grandchild down too. This drives the
+// real spawnDevServer/terminate path with a stand-in supervisor script.
+describe.skipIf(process.platform === "win32")("cli · dev-mode teardown (bug 2.2)", () => {
+  function alive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitFor<T>(fn: () => Promise<T | null>, timeoutMs = 10_000): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const v = await fn();
+      if (v !== null) return v;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error("timed out");
+  }
+
+  it("leaves no child processes behind after close()", async () => {
+    const project = await makeProject();
+    const pidFile = join(project, "grandchild.pid");
+    // Supervisor forks a long-lived grandchild into its own process group
+    // (the default for child_process) and — like the real assembler loop —
+    // does nothing to forward signals to it.
+    // The grandchild writes its own pid once its SIGTERM handler is armed,
+    // so the test can't race it into dying from the default handler.
+    const grandchild = `
+      process.on("SIGTERM", () => {});
+      require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+      setInterval(() => {}, 1000);
+    `;
+    const supervisor = `
+      const { spawn } = require("node:child_process");
+      spawn(process.execPath, ["-e", ${JSON.stringify(grandchild)}], { stdio: "ignore" });
+      setInterval(() => {}, 1000);
+    `;
+    const io: DevSpawnIO = {
+      env: process.env,
+      platform: process.platform,
+      // Keep spawnDevServer's options (detached, env) but swap the command.
+      spawn: ((_cmd: string, _args: readonly string[], opts: Parameters<typeof spawn>[2]) =>
+        spawn(process.execPath, ["-e", supervisor], { ...opts, stdio: "ignore" })) as unknown as DevSpawnIO["spawn"],
+    };
+
+    let supervisorPid: number | undefined;
+    const handle = await runEdit(
+      { projectDir: project, editorAppDir: EDITOR_APP_DIR, noOpen: true, noWatch: true },
+      {
+        log: () => {},
+        spawnServer: (input) => {
+          const child = spawnDevServer(input, io);
+          supervisorPid = child.pid;
+          return child;
+        },
+        waitForServer: async () => {},
+        openBrowser: async () => {},
+        watchProject: () => () => {},
+        reloadProject: async () => {},
+      },
+    );
+
+    const grandchildPid = await waitFor(async () => {
+      const raw = await readFile(pidFile, "utf8").catch(() => "");
+      return raw ? Number(raw) : null;
+    });
+    expect(alive(supervisorPid!)).toBe(true);
+    expect(alive(grandchildPid)).toBe(true);
+
+    await handle.close();
+
+    expect(alive(supervisorPid!)).toBe(false);
+    // The grandchild ignores SIGTERM, so this also exercises the SIGKILL sweep.
+    await waitFor(async () => (alive(grandchildPid) ? null : true), 2_000);
+    expect(alive(grandchildPid)).toBe(false);
+  }, 20_000);
 });

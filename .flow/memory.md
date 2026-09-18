@@ -3,9 +3,9 @@
 Durable, verified, non-obvious facts about this repo, earned during tasks.
 One bullet per fact, with its consequence. Delete anything proven wrong.
 
-- The editor app (`apps/editor`) is **pnpm, not npm** — `package-lock.json` is
-  stale → editor dependency changes must update `pnpm-lock.yaml` AND the root
-  `bun.lock`, or CI breaks.
+- **bun is the only package manager** (v1.1 S31 deleted every pnpm file and the
+  editor's `package-lock.json`) → editor dependency changes: edit
+  `apps/editor/package.json`, run `bun install` at the root, commit `bun.lock`.
 - `apps/editor` links a **frozen ~May-2025 snapshot of davidup** — its tsc
   errors (AudioTrack, DOM types) are pre-existing → don't chase them as
   regressions from your change.

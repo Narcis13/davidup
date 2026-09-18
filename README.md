@@ -1195,8 +1195,6 @@ Things v1.0 does not do. Each is either an open ledger item in
   (authoring constructs are expanded, as with any editor edit); `$ref`s must
   be inlined first.
 - Reveal on Linux opens the containing folder (no portable "select file").
-- In dev mode (`bun run cli -- edit`), a stray `bin/server.js` can outlive
-  the session (bug 2.2); the packaged path is unaffected.
 
 **MCP standalone server**
 
