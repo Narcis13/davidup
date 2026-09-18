@@ -8,6 +8,19 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Publishable package: `npx davidup`
+
+- `package.json` is no longer `"private"`: it gains `license: MIT` (new
+  `LICENSE`), `repository` / `homepage` / `bugs`, and
+  `publishConfig.access: public`. The tarball now also ships `src/` (the
+  `bun` export condition points there), `LICENSE` and `CHANGELOG.md`.
+- New `.github/workflows/release.yml`: on a `v*` tag it packs once with bun,
+  installs the tarball on an `ubuntu-latest` runner without bun, runs
+  `davidup new` + `davidup render`, then publishes that tarball with
+  `npm publish --provenance`. A manual run stops at `npm publish --dry-run`.
+- README install section leads with `npx davidup`; `bun link` stays as the
+  contributor path.
+
 ### `davidup edit` dev mode: no orphaned server, HMR port follows `--port`, one lockfile
 
 - Fix (bug 2.2): stopping a dev-mode `davidup edit` (Ctrl+C, SIGTERM, or

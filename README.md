@@ -109,7 +109,20 @@ every button dispatches the same command an agent would.
 
 ## Install & verify
 
-Requirements:
+**Users — from npm.** Only Node ≥ 20.6 is needed; `ffmpeg` / `ffprobe` come
+bundled via `ffmpeg-static` / `ffprobe-static`:
+
+```bash
+npx davidup new ./clip
+npx davidup render ./clip -o out.mp4
+npx davidup edit ./clip          # packaged editor in the browser
+```
+
+Or install globally with `npm install -g davidup` to get the `davidup` and
+`davidup-mcp` commands on `$PATH`. The MCP server is `npx -y -p davidup
+davidup-mcp` (see [quickstart D](#d--ai-agent-driving-the-engine-via-mcp)).
+
+**Contributors — from a checkout.** Requirements:
 
 - [Bun](https://bun.com/) ≥ 1.1 for development (tests, scripts, the `bun`
   export condition that runs `src/` directly).
@@ -140,17 +153,21 @@ The editor has its own suite:
 cd apps/editor && npm run typecheck && node ace test   # 316 tests
 ```
 
-**Installing the CLI globally.** The package is `"private": true` and is not
-published to npm, so there is no `npx davidup` yet. From a checkout:
+**Running your checkout as the global CLI** (contributor path):
 
 ```bash
 bun run build && bun run build:editor   # dist/ + editor-dist/
 bun link                                 # exposes `davidup` and `davidup-mcp`
 ```
 
-`npm pack` produces a tarball that installs and runs on a plain Node machine
-(no Bun) — `davidup new`, `davidup render`, and `davidup edit` all work from
-it; this is how the packaged path is verified.
+**Releasing.** Bump `version` in `package.json` (and `server.json`), add a
+`CHANGELOG.md` heading, then push a `v<version>` tag.
+`.github/workflows/release.yml` builds the tarball with `npm pack` (whose
+`prepack` builds `dist/` + `editor-dist/`), installs it on an `ubuntu-latest`
+runner **without Bun**, runs `davidup new` + `davidup render`, and only then
+publishes that same tarball with `npm publish --provenance` (needs the
+`NPM_TOKEN` repo secret). Running the workflow manually does everything
+except the publish, which becomes `npm publish --dry-run`.
 
 ---
 
@@ -305,6 +322,7 @@ Bun; from a built package, run the Node bin:
       "args": ["run", "/absolute/path/to/davidup/src/mcp/bin.ts"]
       // or after `bun run build`:  "command": "node", "args": ["/abs/path/dist/mcp/bin.js"]
       // or after `bun link`:       "command": "davidup-mcp"
+      // or from npm:               "command": "npx", "args": ["-y", "-p", "davidup", "davidup-mcp"]
     }
   }
 }

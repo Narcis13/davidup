@@ -2,8 +2,27 @@
   "name": "davidup",
   "version": "1.0.0",
   "description": "Deterministic 2D programmatic video engine with MCP tools for AI agents",
+  "license": "MIT",
+  "author": "Narcis Brindusescu",
+  "homepage": "https://github.com/Narcis13/davidup#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Narcis13/davidup.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Narcis13/davidup/issues"
+  },
+  "keywords": [
+    "video",
+    "animation",
+    "motion-graphics",
+    "mcp",
+    "model-context-protocol",
+    "ffmpeg",
+    "canvas",
+    "ai-agents"
+  ],
   "type": "module",
-  "private": true,
   "workspaces": [
     "apps/*"
   ],
@@ -31,14 +50,17 @@
     "eval:agents": "bun run scripts/eval-agents/runner.ts"
   },
   "bin": {
-    "davidup-mcp": "./dist/mcp/bin.js",
-    "davidup": "./dist/cli/bin.js"
+    "davidup-mcp": "dist/mcp/bin.js",
+    "davidup": "dist/cli/bin.js"
   },
   "files": [
     "dist",
     "editor-dist",
     "fonts",
-    "README.md"
+    "src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": {
@@ -134,5 +156,8 @@
     "ffmpeg-static",
     "skia-canvas",
     "better-sqlite3"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
