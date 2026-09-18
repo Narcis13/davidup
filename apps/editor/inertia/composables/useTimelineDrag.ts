@@ -19,6 +19,12 @@
 // element itself* so the trailing click doesn't also mutate selection on top
 // of the drag commit. Scoping to the bar (not `document`) prevents an
 // unrelated click elsewhere on the page from being swallowed.
+//
+// v1.1 S27 — the lane can be wider than the viewport (timeline zoom); the
+// px → seconds conversion reads the lane's own rect so it stays exact at any
+// zoom. Bars also magnetise to other bars' edges (`edges`) within
+// EDGE_SNAP_PX screen pixels, and the whole snap can be switched off
+// (`snapEnabled`, the timeline's Snap toggle) — Alt still bypasses per-drag.
 
 import { ref, type Ref } from 'vue'
 import {
@@ -26,6 +32,7 @@ import {
   roundTime,
   type DragMode,
 } from '~/composables/timelineDragMath'
+import { EDGE_SNAP_PX } from '~/composables/timelineZoomMath'
 
 export type { DragMode } from '~/composables/timelineDragMath'
 export {
@@ -63,6 +70,10 @@ export interface UseTimelineDragOptions {
   snapStep?: Ref<number> | number
   /** Smallest duration a tween may be shrunk to. Defaults to one snap step. */
   minDuration?: number
+  /** Snap master switch (the Snap toggle). Defaults to on. */
+  snapEnabled?: Ref<boolean>
+  /** Snap targets for a drag of `id` — other bars' edges, in seconds. */
+  edges?: (id: string) => number[]
   /** Fires once on pointerup with the final, snapped delta. */
   onCommit: (tweenId: string, patch: { start?: number; duration?: number }) => void
 }
@@ -98,6 +109,7 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
   let armed = false
   let altPressed = false
   let lastClientX = 0
+  let edges: number[] = []
 
   function readStep(): number {
     const s = opts.snapStep
@@ -113,6 +125,8 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
     const d = opts.duration.value
     const timeDelta = ((lastClientX - pending.startX) / rect.width) * d
     const step = readStep()
+    const snap = !altPressed && (opts.snapEnabled?.value ?? true)
+    const pxPerSecond = d > 0 ? rect.width / d : 0
     const next = computeDragValues({
       mode: pending.mode,
       originalStart: pending.tween.start,
@@ -121,13 +135,15 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
       compositionDuration: d,
       snapStep: step,
       minDuration: Math.max(opts.minDuration ?? step, 0.001),
-      snap: !altPressed,
+      snap,
+      edges,
+      edgeThreshold: pxPerSecond > 0 ? EDGE_SNAP_PX / pxPerSecond : 0,
     })
     active.value = {
       ...active.value,
       currentStart: next.start,
       currentDuration: next.duration,
-      snapped: !altPressed && step > 0,
+      snapped: snap && step > 0,
     }
   }
 
@@ -162,6 +178,7 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
   function arm(): void {
     if (!pending) return
     armed = true
+    edges = opts.edges ? opts.edges(pending.tween.id) : []
     document.body.style.cursor = pending.mode === 'move' ? 'grabbing' : 'col-resize'
     document.body.style.userSelect = 'none'
     active.value = {
@@ -172,7 +189,7 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
       originalDuration: pending.tween.duration,
       currentStart: pending.tween.start,
       currentDuration: pending.tween.duration,
-      snapped: !altPressed,
+      snapped: !altPressed && (opts.snapEnabled?.value ?? true),
     }
   }
 
@@ -206,6 +223,7 @@ export function useTimelineDrag(opts: UseTimelineDragOptions): UseTimelineDragRe
     active.value = null
     pending = null
     armed = false
+    edges = []
   }
 
   function suppressNextClick(e: MouseEvent): void {

@@ -6,9 +6,10 @@
 //   Space      → play/pause
 //   Backspace / Delete → delete current selection (v1.1 S26 binds Delete)
 //   ←↑→↓      → nudge the stage selection 1 px (⇧ = 10 px) (v1.1 S26)
-//   ⌘0  / Ctrl+0 → fit timeline (seek to t=0; the timeline already
-//                  auto-fits the panel width, so "fit" collapses to the
-//                  canonical reset action — playhead to start)
+//   ⌘0  / Ctrl+0 → fit the whole composition in the timeline (v1.1 S27;
+//                  previously only seeked to t=0)
+//   ⌘+ / ⌘= / Ctrl+= → zoom the timeline in; ⌘− / Ctrl+− → zoom out
+//                  (v1.1 S27 — intercepts browser page zoom)
 //   ⌘J  / Ctrl+J → toggle the source drawer (previously lived in
 //                  editor.vue; moved here so the editor has exactly
 //                  one keydown listener)
@@ -47,8 +48,12 @@ export interface UseShortcutsOptions {
    * still scroll panels when nothing on stage is selected.
    */
   nudge?: (dx: number, dy: number) => boolean
-  /** ⌘0 / Ctrl+0 — reset the timeline view (seek to start). */
+  /** ⌘0 / Ctrl+0 — fit the whole composition in the timeline. */
   fitTimeline?: () => void | Promise<void>
+  /** ⌘+ / ⌘= — zoom the timeline in. */
+  zoomTimelineIn?: () => void | Promise<void>
+  /** ⌘− — zoom the timeline out. */
+  zoomTimelineOut?: () => void | Promise<void>
   /** ⌘J / Ctrl+J — toggle the reveal-in-source drawer. */
   toggleSourceDrawer?: () => void | Promise<void>
   /** ⌘R / Ctrl+R — start a render. Intercepts page reload. */
@@ -216,6 +221,21 @@ export function useShortcuts(options: UseShortcutsOptions): void {
         event.preventDefault()
         invoke(options.group)
       }
+      return
+    }
+
+    // ⌘+ / ⌘= → zoom in, ⌘− → zoom out (v1.1 S27). `+` is Shift+= on US
+    // layouts, so this also sits before the Shift gate.
+    if (event.key === '=' || event.key === '+') {
+      if (!options.zoomTimelineIn) return
+      event.preventDefault()
+      invoke(options.zoomTimelineIn)
+      return
+    }
+    if (event.key === '-' || event.key === '_') {
+      if (!options.zoomTimelineOut) return
+      event.preventDefault()
+      invoke(options.zoomTimelineOut)
       return
     }
 

@@ -194,8 +194,11 @@ The browser opens to the editor. You get:
 Shortcuts: `Space` play/pause · `Backspace` / `Delete` delete (tween if a
 bar is selected, else item) · arrows nudge the selection 1 px (⇧ 10 px; a
 burst of presses is one undo step) · ⌘Z / ⌘⇧Z undo/redo · ⌘G / ⌘⇧G group/ungroup ·
-⌘R render · ⌘J source drawer · ⌘0 seek to start · `V` add video · `A` add
-audio · `?` help · `Esc` cancel. ⌘S only shows a "Saved" toast — every
+⌘R render · ⌘J source drawer · ⌘0 fit timeline · ⌘+ / ⌘− (or pinch) zoom
+the timeline · `V` add video · `A` add audio · `?` help · `Esc` cancel.
+Timeline drags snap to frame boundaries and other bars' edges (the **Snap**
+toggle turns it off, ⌥ bypasses it for one drag); zoom level and Snap
+persist across reloads. ⌘S only shows a "Saved" toast — every
 command is already persisted to disk.
 
 ### B — Human writing JS (live preview in the browser)
@@ -1186,8 +1189,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 - The stage draws video frames from the render extraction cache: exact when
   paused or scrubbing, best-effort while playing (frames can lag or blink in
   until cached). The first view of a new clip waits on extraction.
-- No keyframe curve editor, no timeline zoom; the source drawer is
-  read-only.
+- No keyframe curve editor; the source drawer is read-only.
 - Reveal in Finder / QuickTime are macOS-only.
 - In dev mode (`bun run cli -- edit`), a stray `bin/server.js` can outlive
   the session (bug 2.2); the packaged path is unaffected.

@@ -1,8 +1,8 @@
 // useEditorPrefs — UX_GAPS §N + §S.
 //
 // Thin wrapper over `GET / PUT /api/editor-state` for the non-layout slices
-// of editor state: render preferences (preset + filename) and the
-// onboarding-dismissed flag. The panel layout has its own composable
+// of editor state: render preferences (preset + filename), the
+// onboarding-dismissed flag, and timeline zoom/snap (v1.1 S27). The panel layout has its own composable
 // (usePanelLayout) because it ships a heap of resize-handle plumbing this
 // doesn't need.
 //
@@ -22,11 +22,23 @@ export interface OnboardingState {
   dismissed: boolean
 }
 
+export interface TimelinePrefs {
+  /** Horizontal zoom in px per second; `null` ≡ fit the whole composition. */
+  pxPerSecond: number | null
+  /** Snap drags to frame boundaries and other bars' edges. */
+  snap: boolean
+}
+
 const DEFAULT_RENDER_PREFS: RenderPrefs = { preset: 'web', filename: '' }
 const DEFAULT_ONBOARDING: OnboardingState = { dismissed: false }
+const DEFAULT_TIMELINE: TimelinePrefs = { pxPerSecond: null, snap: true }
+/** Zoom changes stream in (slider, pinch) — coalesce the PUTs. */
+const TIMELINE_PERSIST_DEBOUNCE_MS = 400
 
 const renderPrefs: Ref<RenderPrefs> = ref({ ...DEFAULT_RENDER_PREFS })
 const onboarding: Ref<OnboardingState> = ref({ ...DEFAULT_ONBOARDING })
+const timelinePrefs: Ref<TimelinePrefs> = ref({ ...DEFAULT_TIMELINE })
+let timelinePersistTimer: ReturnType<typeof setTimeout> | null = null
 const hydrated = ref(false)
 let hydratePromise: Promise<void> | null = null
 
@@ -44,6 +56,10 @@ async function hydrate(): Promise<void> {
       const body = (await res.json()) as {
         renderPrefs?: Partial<RenderPrefs>
         onboarding?: Partial<OnboardingState>
+        timeline?: Partial<TimelinePrefs>
+      }
+      if (body.timeline) {
+        timelinePrefs.value = { ...DEFAULT_TIMELINE, ...body.timeline }
       }
       if (body.renderPrefs) {
         renderPrefs.value = { ...DEFAULT_RENDER_PREFS, ...body.renderPrefs }
@@ -64,6 +80,7 @@ async function hydrate(): Promise<void> {
 async function persist(patch: {
   renderPrefs?: Partial<RenderPrefs>
   onboarding?: Partial<OnboardingState>
+  timeline?: Partial<TimelinePrefs>
 }): Promise<void> {
   if (typeof fetch === 'undefined') return
   try {
@@ -83,6 +100,15 @@ async function setRenderPrefs(next: Partial<RenderPrefs>): Promise<void> {
   await persist({ renderPrefs: renderPrefs.value })
 }
 
+function setTimelinePrefs(next: Partial<TimelinePrefs>): void {
+  timelinePrefs.value = { ...timelinePrefs.value, ...next }
+  if (timelinePersistTimer) clearTimeout(timelinePersistTimer)
+  timelinePersistTimer = setTimeout(() => {
+    timelinePersistTimer = null
+    void persist({ timeline: timelinePrefs.value })
+  }, TIMELINE_PERSIST_DEBOUNCE_MS)
+}
+
 async function dismissOnboarding(): Promise<void> {
   if (onboarding.value.dismissed) return
   onboarding.value = { dismissed: true }
@@ -97,9 +123,12 @@ async function resetOnboarding(): Promise<void> {
 export interface EditorPrefsApi {
   renderPrefs: Ref<RenderPrefs>
   onboarding: Ref<OnboardingState>
+  timelinePrefs: Ref<TimelinePrefs>
   hydrated: Ref<boolean>
   hydrate: () => Promise<void>
   setRenderPrefs: (next: Partial<RenderPrefs>) => Promise<void>
+  /** Update timeline zoom/snap in memory now; persists debounced. */
+  setTimelinePrefs: (next: Partial<TimelinePrefs>) => void
   dismissOnboarding: () => Promise<void>
   resetOnboarding: () => Promise<void>
   /** True once hydration completes (defaults shown until then). */
@@ -113,9 +142,11 @@ export function useEditorPrefs(): EditorPrefsApi {
   api = {
     renderPrefs,
     onboarding,
+    timelinePrefs,
     hydrated,
     hydrate,
     setRenderPrefs,
+    setTimelinePrefs,
     dismissOnboarding,
     resetOnboarding,
     isReady: computed(() => hydrated.value) as Ref<boolean>,

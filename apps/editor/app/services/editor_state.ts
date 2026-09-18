@@ -1,5 +1,5 @@
-// Persistent editor UI state — currently just the three-panel layout sizes,
-// stored in `~/.davidup/state.json`. Step 08 of the editor build plan.
+// Persistent editor UI state — panel layout sizes, render prefs, onboarding,
+// and timeline zoom/snap (v1.1 S27), stored in `~/.davidup/state.json`. Step 08 of the editor build plan.
 //
 // Lives outside the project directory because layout preferences belong to
 // the user, not to the composition. Atomic writes (tmp + rename) so a torn
@@ -33,10 +33,18 @@ export type OnboardingState = {
   dismissed: boolean
 }
 
+export type TimelinePrefs = {
+  /** Horizontal zoom in px per second; `null` ≡ fit the whole composition. */
+  pxPerSecond: number | null
+  /** Snap to frame boundaries and other bars' edges (v1.1 S27). */
+  snap: boolean
+}
+
 export type EditorState = {
   panelLayout: PanelLayout
   renderPrefs: RenderPrefs
   onboarding: OnboardingState
+  timeline: TimelinePrefs
 }
 
 export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
@@ -54,6 +62,14 @@ export const DEFAULT_ONBOARDING: OnboardingState = {
   dismissed: false,
 }
 
+export const DEFAULT_TIMELINE: TimelinePrefs = {
+  pxPerSecond: null,
+  snap: true,
+}
+
+/** Mirrors MIN/MAX in inertia/composables/timelineZoomMath.ts. */
+export const TIMELINE_PX_PER_SECOND_LIMITS = { min: 1, max: 2400 } as const
+
 export const PANEL_LIMITS = {
   leftWidth: { min: 180, max: 600 },
   rightWidth: { min: 180, max: 600 },
@@ -66,6 +82,7 @@ const DEFAULT_STATE: EditorState = {
   panelLayout: { ...DEFAULT_PANEL_LAYOUT },
   renderPrefs: { ...DEFAULT_RENDER_PREFS },
   onboarding: { ...DEFAULT_ONBOARDING },
+  timeline: { ...DEFAULT_TIMELINE },
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -108,6 +125,19 @@ function normalizeOnboarding(input: unknown): OnboardingState {
   const src = (input ?? {}) as Partial<Record<keyof OnboardingState, unknown>>
   return {
     dismissed: src.dismissed === true,
+  }
+}
+
+function normalizeTimeline(input: unknown): TimelinePrefs {
+  const src = (input ?? {}) as Partial<Record<keyof TimelinePrefs, unknown>>
+  const raw = src.pxPerSecond
+  const pxPerSecond =
+    typeof raw === 'number' && Number.isFinite(raw) && raw > 0
+      ? clamp(raw, TIMELINE_PX_PER_SECOND_LIMITS.min, TIMELINE_PX_PER_SECOND_LIMITS.max)
+      : null
+  return {
+    pxPerSecond,
+    snap: typeof src.snap === 'boolean' ? src.snap : DEFAULT_TIMELINE.snap,
   }
 }
 
@@ -161,11 +191,13 @@ export class EditorStateStore {
       panelLayout?: unknown
       renderPrefs?: unknown
       onboarding?: unknown
+      timeline?: unknown
     }
     this.#state = {
       panelLayout: normalizePanelLayout(root.panelLayout),
       renderPrefs: normalizeRenderPrefs(root.renderPrefs),
       onboarding: normalizeOnboarding(root.onboarding),
+      timeline: normalizeTimeline(root.timeline),
     }
     this.#loaded = true
     return this.#state
@@ -180,6 +212,7 @@ export class EditorStateStore {
     panelLayout?: Partial<PanelLayout>
     renderPrefs?: Partial<RenderPrefs>
     onboarding?: Partial<OnboardingState>
+    timeline?: Partial<TimelinePrefs>
   }): Promise<EditorState> {
     const current = await this.read()
     const nextLayout = normalizePanelLayout({ ...current.panelLayout, ...patch.panelLayout })
@@ -188,10 +221,12 @@ export class EditorStateStore {
       ...current.onboarding,
       ...patch.onboarding,
     })
+    const nextTimeline = normalizeTimeline({ ...current.timeline, ...patch.timeline })
     const next: EditorState = {
       panelLayout: nextLayout,
       renderPrefs: nextRender,
       onboarding: nextOnboarding,
+      timeline: nextTimeline,
     }
     await this.#write(next)
     this.#state = next

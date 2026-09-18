@@ -41,6 +41,8 @@ export interface UseVideoTrimDragOptions {
   /** Composition duration in seconds — used only to size the lane→time conversion. */
   duration: Ref<number>
   snapStep?: Ref<number> | number
+  /** Snap master switch (the timeline's Snap toggle, v1.1 S27). Defaults to on. */
+  snapEnabled?: Ref<boolean>
   onCommit: (itemId: string, patch: { trimIn?: number; trimOut?: number }) => void
 }
 
@@ -84,7 +86,7 @@ export function useVideoTrimDrag(opts: UseVideoTrimDragOptions): UseVideoTrimDra
     const d = opts.duration.value
     const timeDelta = ((lastClientX - pending.startX) / rect.width) * d
     const step = readStep()
-    const snap = !altPressed
+    const snap = !altPressed && (opts.snapEnabled?.value ?? true)
     let next: number
     if (pending.mode === 'trim-in') {
       next = computeTrimIn({

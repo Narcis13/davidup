@@ -508,13 +508,13 @@ function videoSpanTitle(): string {
   position: relative;
   height: 26px;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
-  background: repeating-linear-gradient(
+  /* Grid stripes follow the ruler's major ticks (v1.1 S27). */
+  background-image: linear-gradient(
     to right,
-    transparent 0,
-    transparent calc(25% - 1px),
-    rgba(255, 255, 255, 0.03) calc(25% - 1px),
-    rgba(255, 255, 255, 0.03) 25%
+    transparent calc(100% - 1px),
+    rgba(255, 255, 255, 0.03) calc(100% - 1px)
   );
+  background-size: var(--lane-grid-px, 25%) 100%;
 }
 
 .video-span-bar {
@@ -603,6 +603,15 @@ function videoSpanTitle(): string {
   background: rgba(91, 124, 250, 0.12);
 }
 
+/* The sticky label is opaque — re-apply the row tints on top of it. */
+.track:hover .track-label {
+  background: linear-gradient(rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.025)), #121212;
+}
+
+.track.selected .track-label {
+  background: linear-gradient(rgba(91, 124, 250, 0.12), rgba(91, 124, 250, 0.12)), #121212;
+}
+
 /* Library drag hit-zone affordances (step 14). */
 .track[data-library-drag-active='true'] {
   outline: 1px dashed rgba(91, 124, 250, 0.18);
@@ -635,7 +644,11 @@ function videoSpanTitle(): string {
   font-size: 12px;
   color: #e5e5e5;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  /* v1.1 S27 — opaque + sticky so lanes scroll under it when zoomed. */
+  background: #121212;
+  position: sticky;
+  left: 0;
+  z-index: 4;
   min-width: 0;
 }
 
@@ -689,13 +702,13 @@ function videoSpanTitle(): string {
 .track-lane {
   position: relative;
   height: 24px;
-  background: repeating-linear-gradient(
+  /* Grid stripes follow the ruler's major ticks (v1.1 S27). */
+  background-image: linear-gradient(
     to right,
-    transparent 0,
-    transparent calc(25% - 1px),
-    rgba(255, 255, 255, 0.04) calc(25% - 1px),
-    rgba(255, 255, 255, 0.04) 25%
+    transparent calc(100% - 1px),
+    rgba(255, 255, 255, 0.04) calc(100% - 1px)
   );
+  background-size: var(--lane-grid-px, 25%) 100%;
 }
 
 .bar {

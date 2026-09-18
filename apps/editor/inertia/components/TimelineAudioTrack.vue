@@ -193,6 +193,15 @@ function barTitle(): string {
   background: rgba(6, 214, 160, 0.1);
 }
 
+/* The sticky label is opaque — re-apply the row tints on top of it. */
+.audio-track:hover .audio-track-label {
+  background: linear-gradient(rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.025)), #121212;
+}
+
+.audio-track.selected .audio-track-label {
+  background: linear-gradient(rgba(6, 214, 160, 0.1), rgba(6, 214, 160, 0.1)), #121212;
+}
+
 .audio-track-label {
   display: flex;
   align-items: center;
@@ -201,7 +210,11 @@ function barTitle(): string {
   font-size: 12px;
   color: #e5e5e5;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  /* v1.1 S27 — opaque + sticky so lanes scroll under it when zoomed. */
+  background: #121212;
+  position: sticky;
+  left: 0;
+  z-index: 4;
   min-width: 0;
 }
 
@@ -247,13 +260,13 @@ function barTitle(): string {
 .audio-track-lane {
   position: relative;
   height: 24px;
-  background: repeating-linear-gradient(
+  /* Grid stripes follow the ruler's major ticks (v1.1 S27). */
+  background-image: linear-gradient(
     to right,
-    transparent 0,
-    transparent calc(25% - 1px),
-    rgba(255, 255, 255, 0.04) calc(25% - 1px),
-    rgba(255, 255, 255, 0.04) 25%
+    transparent calc(100% - 1px),
+    rgba(255, 255, 255, 0.04) calc(100% - 1px)
   );
+  background-size: var(--lane-grid-px, 25%) 100%;
 }
 
 .audio-bar {

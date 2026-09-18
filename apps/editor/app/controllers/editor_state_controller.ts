@@ -3,13 +3,14 @@ import editorState, {
   type OnboardingState,
   type PanelLayout,
   type RenderPrefs,
+  type TimelinePrefs,
 } from '#services/editor_state'
 
 /**
  * GET /api/editor-state — return the persisted UI state (panel sizes etc.).
  * PUT /api/editor-state — merge a partial state into stored state and rewrite
  * `~/.davidup/state.json`. Mutable keys: `panelLayout`, `renderPrefs`
- * (UX_GAPS §N), `onboarding` (UX_GAPS §S).
+ * (UX_GAPS §N), `onboarding` (UX_GAPS §S), `timeline` (v1.1 S27 zoom/snap).
  */
 export default class EditorStateController {
   async show({ response }: HttpContext) {
@@ -22,6 +23,7 @@ export default class EditorStateController {
       panelLayout?: Partial<PanelLayout> | null
       renderPrefs?: Partial<RenderPrefs> | null
       onboarding?: Partial<OnboardingState> | null
+      timeline?: Partial<TimelinePrefs> | null
     }
     if (body.panelLayout && typeof body.panelLayout !== 'object') {
       return response.badRequest({
@@ -38,10 +40,16 @@ export default class EditorStateController {
         error: { code: 'E_BAD_REQUEST', message: '`onboarding` must be an object' },
       })
     }
+    if (body.timeline && typeof body.timeline !== 'object') {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: '`timeline` must be an object' },
+      })
+    }
     const next = await editorState.update({
       panelLayout: body.panelLayout ?? undefined,
       renderPrefs: body.renderPrefs ?? undefined,
       onboarding: body.onboarding ?? undefined,
+      timeline: body.timeline ?? undefined,
     })
     return response.ok(next)
   }

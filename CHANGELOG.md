@@ -8,6 +8,18 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Editor timeline zoom and snapping
+
+- Horizontal zoom: ⌘+ / ⌘−, pinch (or ⌘-scroll, anchored at the cursor) and
+  a header slider, down to frame precision; the ruler re-ticks to the zoom
+  (frame ticks once frames are wide enough). ⌘0 now fits the whole
+  composition (it used to only seek to 0). Zoom level persists in
+  `~/.davidup/state.json` (`timeline.pxPerSecond`, `null` = fit).
+- Bar drags snap to frame boundaries (1/fps, rational fps included) and
+  magnetise to other bars' edges and the playhead; a **Snap** toggle
+  (persisted) turns it off, ⌥ still bypasses it per drag. Ruler clicks seek
+  to a frame boundary when Snap is on.
+
 ### Editor reloads external `composition.json` edits
 
 - The editor watches the open project's `composition.json`. When an agent,

@@ -291,12 +291,24 @@ function addAudioTrackViaShortcut(): void {
   window.dispatchEvent(new CustomEvent('davidup:focus-toolbar-button', { detail: { kind: 'audio' } }))
 }
 
+// v1.1 S27 — the Timeline owns zoom state; the shortcut registry reaches it
+// through the component's exposed API.
+const timelineRef = ref<{
+  zoomIn: () => void
+  zoomOut: () => void
+  fitToWindow: () => void
+} | null>(null)
+
 function fitTimeline(): void {
-  // The timeline already auto-fits the panel width (no zoom state yet), so
-  // "fit" collapses to the canonical reset action: seek the playhead back to
-  // the start. Cheap, observable, and on-message with what ⌘0 means in most
-  // media tools ("reset view").
-  stage.seek(0)
+  timelineRef.value?.fitToWindow()
+}
+
+function zoomTimelineIn(): void {
+  timelineRef.value?.zoomIn()
+}
+
+function zoomTimelineOut(): void {
+  timelineRef.value?.zoomOut()
 }
 
 // ─── UX_GAPS §N: render configuration dialog ─────────────────────────────
@@ -656,6 +668,8 @@ useShortcuts({
   deleteSelection,
   nudge: nudger.nudge,
   fitTimeline,
+  zoomTimelineIn,
+  zoomTimelineOut,
   toggleSourceDrawer,
   render: startRender,
   forceFlush,
@@ -922,6 +936,7 @@ onBeforeUnmount(() => {
 
     <template #timeline>
       <Timeline
+        ref="timelineRef"
         :composition="bus.composition.value"
         :playhead="stage.playhead.value"
         :status="bus.composition.value ? stage.status.value : null"

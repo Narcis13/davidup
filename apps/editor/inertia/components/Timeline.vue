@@ -21,14 +21,39 @@
 // heuristic (only behavior expansion mints `_<behaviorName>_` substrings) and,
 // failing that, treat them as plain literals — the dominant case for
 // hand-authored single tweens.
+//
+// v1.1 S27 — zoom + snapping. The body is one scroll container; the lanes
+// are `duration × pxPerSecond` wide (or 100% in "fit" mode, pxPerSecond =
+// null) and every bar keeps its %-of-lane positioning, so zoom is purely a
+// width change. Zoom via ⌘+/⌘− (exposed to the page's shortcut registry),
+// pinch / ⌘-wheel (anchored at the cursor) and the header slider; ⌘0 fits
+// the whole composition. The level persists in editor-state. Drags snap to
+// frame boundaries (1/fps) and magnetise to other bars' edges and the
+// playhead; the Snap toggle turns both off, ⌥ bypasses per drag.
 
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import type { Easing } from 'davidup/easings'
 import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
 import { useVideoTrimDrag } from '~/composables/useVideoTrimDrag'
 import { useValidation } from '~/composables/useValidation'
+import { useEditorPrefs } from '~/composables/useEditorPrefs'
+import {
+  anchoredScrollLeft,
+  buildRulerTicks,
+  clampPxPerSecond,
+  collectEdges,
+  effectivePxPerSecond,
+  fitPxPerSecond,
+  formatTickLabel,
+  fpsToNumber,
+  rulerTickSpec,
+  sliderToZoom,
+  snapToFrame,
+  zoomStep,
+  zoomToSlider,
+} from '~/composables/timelineZoomMath'
 import {
   buildCommandsForNewTrackDrop,
   buildCommandsForTrackDrop,
@@ -66,7 +91,7 @@ const props = defineProps<{
   playhead: number
   /** Stage status string — controls the playhead indicator label. */
   status?: string | null
-  /** Snap step in seconds. Defaults to 0.25. */
+  /** Snap grid in seconds. Defaults to one frame (1/fps). */
   snapStep?: number
   /**
    * Precompile source map (PRD step 15). When present, each bar's colour
@@ -95,10 +120,38 @@ const duration = computed<number>(() => {
   return typeof d === 'number' && d > 0 ? d : 0
 })
 
+const fps = computed<number>(() => fpsToNumber(props.composition?.composition?.fps))
+
+// v1.1 S27 — frame-boundary grid; 0.25 s only when fps is unknown.
 const snapStepRef = computed<number>(() => {
   const s = props.snapStep
-  return typeof s === 'number' && s > 0 ? s : 0.25
+  if (typeof s === 'number' && s > 0) return s
+  return fps.value > 0 ? 1 / fps.value : 0.25
 })
+
+const prefs = useEditorPrefs()
+const snapEnabled = computed<boolean>(() => prefs.timelinePrefs.value.snap)
+
+function toggleSnap(): void {
+  prefs.setTimelinePrefs({ snap: !snapEnabled.value })
+}
+
+// Every bar on the timeline as a span — the magnetic snap targets. The
+// playhead rides along as a zero-length span so bars catch it too.
+const allSpans = computed<Array<{ id: string; start: number; end: number }>>(() => {
+  const out: Array<{ id: string; start: number; end: number }> = []
+  for (const row of rows.value) {
+    for (const t of row.tweens) out.push({ id: t.id, start: t.start, end: t.start + t.duration })
+    if (row.videoSpan) out.push({ id: row.id, start: row.videoSpan.start, end: row.videoSpan.end })
+  }
+  for (const a of audioRows.value) out.push({ id: a.id, start: a.start, end: a.end })
+  out.push({ id: '\u0000playhead', start: props.playhead, end: props.playhead })
+  return out
+})
+
+function edgesFor(id: string): number[] {
+  return collectEdges(allSpans.value, id)
+}
 
 // Step 11 — drag/resize coordinator. `onCommit` only fires once per drag
 // (pointerup), so we issue exactly one `update_tween` per gesture. The
@@ -107,6 +160,8 @@ const snapStepRef = computed<number>(() => {
 const drag = useTimelineDrag({
   duration,
   snapStep: snapStepRef,
+  snapEnabled,
+  edges: edgesFor,
   onCommit(tweenId, patch) {
     emit('apply', {
       kind: 'update_tween',
@@ -131,6 +186,8 @@ function onBarPointerDown(payload: BarPointerDownPayload): void {
 const audioDrag = useTimelineDrag({
   duration,
   snapStep: snapStepRef,
+  snapEnabled,
+  edges: edgesFor,
   onCommit(trackId, patch) {
     const row = audioRows.value.find((r) => r.id === trackId)
     if (!row) return
@@ -161,6 +218,8 @@ function onAudioBarPointerDown(payload: AudioBarPointerDownPayload): void {
 const videoSpanDrag = useTimelineDrag({
   duration,
   snapStep: snapStepRef,
+  snapEnabled,
+  edges: edgesFor,
   onCommit(itemId, patch) {
     const row = rows.value.find((r) => r.id === itemId)
     const span = row?.videoSpan
@@ -199,6 +258,7 @@ function onVideoSpanPointerDown(payload: VideoSpanPointerDownPayload): void {
 const videoTrimDrag = useVideoTrimDrag({
   duration,
   snapStep: snapStepRef,
+  snapEnabled,
   onCommit(itemId, patch) {
     emit('apply', {
       kind: 'update_item',
@@ -454,24 +514,144 @@ const tweenCount = computed<number>(() =>
   rows.value.reduce((acc, r) => acc + r.tweens.length, 0),
 )
 
-// Ruler ticks: one major tick per second, minor tick every 0.25s. Snap the
-// number of major ticks to ceil(duration) so the rightmost tick is the
-// composition's end (the playhead can reach it).
-const rulerTicks = computed<Array<{ t: number; major: boolean }>>(() => {
-  const d = duration.value
-  if (d <= 0) return []
-  const ticks: Array<{ t: number; major: boolean }> = []
-  // 0 through ceil(d) majors.
-  const lastMajor = Math.ceil(d)
-  for (let i = 0; i <= lastMajor; i += 1) {
-    if (i > d + 1e-9) break
-    ticks.push({ t: i, major: true })
-    if (i + 0.25 < d) ticks.push({ t: i + 0.25, major: false })
-    if (i + 0.5 < d) ticks.push({ t: i + 0.5, major: false })
-    if (i + 0.75 < d) ticks.push({ t: i + 0.75, major: false })
-  }
-  return ticks
+// ─── v1.1 S27: zoom ─────────────────────────────────────────────────────
+// `bodyEl` is the single scroll container (both axes). Its visible lane
+// width (minus the label gutter) defines the "fit" zoom level.
+const RULER_GUTTER_PX = 160
+const bodyEl: Ref<HTMLDivElement | null> = ref(null)
+const viewportLaneWidth = ref(0)
+let resizeObserver: ResizeObserver | null = null
+
+function measureViewport(): void {
+  const el = bodyEl.value
+  viewportLaneWidth.value = el ? Math.max(0, el.clientWidth - RULER_GUTTER_PX) : 0
+}
+
+const fitPps = computed<number>(() => fitPxPerSecond(viewportLaneWidth.value, duration.value))
+const zoomPps = computed<number | null>(() => {
+  const z = prefs.timelinePrefs.value.pxPerSecond
+  // A persisted zoom narrower than this composition's fit level ≡ fit.
+  return z === null ? null : clampPxPerSecond(z, fitPps.value)
 })
+const pxPerSecond = computed<number>(() => effectivePxPerSecond(zoomPps.value, fitPps.value))
+const isFit = computed<boolean>(() => zoomPps.value === null)
+
+/** Canvas width: gutter + lanes. `100%` in fit mode tracks panel resizes. */
+const canvasWidth = computed<string>(() => {
+  if (isFit.value || duration.value <= 0) return '100%'
+  return `${RULER_GUTTER_PX + Math.ceil(duration.value * pxPerSecond.value)}px`
+})
+
+const zoomLabel = computed<string>(() => {
+  if (isFit.value) return 'Fit'
+  const perFrame = fps.value > 0 ? pxPerSecond.value / fps.value : 0
+  return perFrame >= 4 ? `${perFrame.toFixed(0)} px/f` : `${pxPerSecond.value.toFixed(0)} px/s`
+})
+
+/**
+ * Apply a new zoom, keeping the time under `anchorPx` (lane-relative px in
+ * the viewport) fixed on screen. Default anchor: the playhead when it's in
+ * view, else the viewport centre.
+ */
+function setZoom(next: number | null, anchorPx?: number): void {
+  const el = bodyEl.value
+  const oldPps = pxPerSecond.value
+  const newPps = effectivePxPerSecond(next, fitPps.value)
+  const scrollLeft = el?.scrollLeft ?? 0
+  let anchor = anchorPx
+  if (anchor === undefined) {
+    const playheadPx = props.playhead * oldPps - scrollLeft
+    anchor =
+      playheadPx >= 0 && playheadPx <= viewportLaneWidth.value
+        ? playheadPx
+        : viewportLaneWidth.value / 2
+  }
+  prefs.setTimelinePrefs({ pxPerSecond: next })
+  if (!el) return
+  const target = next === null ? 0 : anchoredScrollLeft({ scrollLeft, anchorPx: anchor, oldPps, newPps })
+  void nextTick(() => {
+    el.scrollLeft = target
+  })
+}
+
+function zoomIn(): void {
+  if (duration.value <= 0) return
+  setZoom(zoomStep(zoomPps.value, fitPps.value, 1))
+}
+
+function zoomOut(): void {
+  if (duration.value <= 0) return
+  setZoom(zoomStep(zoomPps.value, fitPps.value, -1))
+}
+
+/** ⌘0 — the whole composition fits the visible lane width. */
+function fitToWindow(): void {
+  setZoom(null)
+}
+
+const SLIDER_STEPS = 1000
+const sliderValue = computed<number>(() =>
+  Math.round(zoomToSlider(zoomPps.value, fitPps.value) * SLIDER_STEPS),
+)
+
+function onSliderInput(event: Event): void {
+  const v = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(v)) return
+  setZoom(sliderToZoom(v / SLIDER_STEPS, fitPps.value))
+}
+
+// Pinch (trackpads report it as a ctrl-wheel) and ⌘-wheel zoom around the
+// cursor. Plain wheel falls through to native scrolling.
+function onBodyWheel(event: WheelEvent): void {
+  if (!event.ctrlKey && !event.metaKey) return
+  if (duration.value <= 0) return
+  event.preventDefault()
+  const el = bodyEl.value
+  if (!el) return
+  const factor = Math.exp(-event.deltaY * 0.01)
+  const next = clampPxPerSecond(pxPerSecond.value * factor, fitPps.value)
+  const rect = el.getBoundingClientRect()
+  const anchorPx = Math.max(0, event.clientX - rect.left - RULER_GUTTER_PX)
+  setZoom(next, anchorPx)
+}
+
+// While playing zoomed-in, page the view so the playhead never runs off.
+watch(
+  () => props.playhead,
+  (t) => {
+    const el = bodyEl.value
+    if (!el || isFit.value || props.status !== 'playing') return
+    const x = t * pxPerSecond.value
+    const w = viewportLaneWidth.value
+    if (w <= 0) return
+    if (x < el.scrollLeft || x > el.scrollLeft + w) el.scrollLeft = Math.max(0, x - w * 0.1)
+  },
+)
+
+onMounted(() => {
+  void prefs.hydrate()
+  measureViewport()
+  if (typeof ResizeObserver !== 'undefined' && bodyEl.value) {
+    resizeObserver = new ResizeObserver(() => measureViewport())
+    resizeObserver.observe(bodyEl.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+})
+
+defineExpose({ zoomIn, zoomOut, fitToWindow })
+
+// Ruler ticks adapt to the zoom: majors ≥ 64 px apart, minors subdivide them
+// and drop to single frames once a frame is wide enough to hit.
+const tickSpec = computed(() => rulerTickSpec(pxPerSecond.value, fps.value))
+const rulerTicks = computed<Array<{ t: number; major: boolean }>>(() =>
+  buildRulerTicks(duration.value, tickSpec.value),
+)
+/** Lane grid stripes follow the major ticks (see TimelineTrack CSS). */
+const laneGridPx = computed<string>(() => `${tickSpec.value.major * pxPerSecond.value}px`)
 
 function pct(t: number): string {
   const d = duration.value
@@ -666,7 +846,9 @@ function onRulerClick(event: MouseEvent): void {
   const rect = el.getBoundingClientRect()
   if (rect.width <= 0) return
   const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-  emit('seek', ratio * d)
+  const t = ratio * d
+  // v1.1 S27 — with Snap on, seeking lands on a frame boundary.
+  emit('seek', snapEnabled.value && !event.altKey ? Math.min(d, snapToFrame(t, fps.value)) : t)
 }
 
 // Library drag-and-drop (step 14). Two zones:
@@ -755,7 +937,7 @@ function onNewTrackDrop(event: DragEvent): void {
 
 function roundToSnap(t: number): number {
   const step = snapStepRef.value
-  if (!step || step <= 0) return t
+  if (!snapEnabled.value || !step || step <= 0) return t
   return Math.round(t / step) * step
 }
 
@@ -837,6 +1019,64 @@ watch(
       <span class="meta-tween-count">{{ tweenCount }} tween{{ tweenCount === 1 ? '' : 's' }}</span>
       <span class="meta-duration">{{ duration.toFixed(2) }}s</span>
       <span class="meta-playhead">{{ playheadLabel }}</span>
+      <div class="zoom-controls" role="group" aria-label="Timeline zoom and snapping">
+        <button
+          type="button"
+          class="transport-btn snap-toggle"
+          data-testid="timeline-snap-toggle"
+          :aria-pressed="snapEnabled ? 'true' : 'false'"
+          :data-snap="snapEnabled ? 'on' : 'off'"
+          title="Snap to frames and bar edges (hold ⌥ to bypass)"
+          @click="toggleSnap"
+        >
+          Snap
+        </button>
+        <button
+          type="button"
+          class="transport-btn zoom-btn"
+          data-testid="timeline-zoom-out"
+          title="Zoom out (⌘−)"
+          aria-label="Zoom out"
+          :disabled="duration <= 0 || isFit"
+          @click="zoomOut"
+        >
+          −
+        </button>
+        <input
+          type="range"
+          class="zoom-slider"
+          data-testid="timeline-zoom-slider"
+          aria-label="Timeline zoom"
+          min="0"
+          :max="SLIDER_STEPS"
+          step="1"
+          :value="sliderValue"
+          :disabled="duration <= 0"
+          @input="onSliderInput"
+        />
+        <button
+          type="button"
+          class="transport-btn zoom-btn"
+          data-testid="timeline-zoom-in"
+          title="Zoom in (⌘+)"
+          aria-label="Zoom in"
+          :disabled="duration <= 0"
+          @click="zoomIn"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          class="transport-btn zoom-fit"
+          data-testid="timeline-zoom-fit"
+          :aria-pressed="isFit ? 'true' : 'false'"
+          title="Fit whole composition (⌘0)"
+          :disabled="duration <= 0"
+          @click="fitToWindow"
+        >
+          {{ zoomLabel }}
+        </button>
+      </div>
       <span class="legend">
         <span class="legend-item"><span class="swatch swatch-template" />template</span>
         <span class="legend-item"><span class="swatch swatch-behavior" />behavior</span>
@@ -844,7 +1084,14 @@ watch(
         <span class="legend-item"><span class="swatch swatch-plain" />plain</span>
       </span>
     </header>
-    <div class="timeline-body">
+    <div
+      ref="bodyEl"
+      class="timeline-body"
+      data-testid="timeline-body"
+      :data-zoom="isFit ? 'fit' : pxPerSecond.toFixed(2)"
+      @wheel="onBodyWheel"
+    >
+      <div class="timeline-canvas" :style="{ width: canvasWidth, '--lane-grid-px': laneGridPx }">
       <div class="ruler-row">
         <div class="ruler-gutter">tracks</div>
         <div
@@ -857,10 +1104,14 @@ watch(
             v-for="tick in rulerTicks"
             :key="tick.t"
             class="tick"
-            :class="{ major: tick.major }"
+            :class="{ major: tick.major, 'tick--end': tick.t >= duration - 1e-6 }"
             :style="{ left: pct(tick.t) }"
           >
-            <span v-if="tick.major" class="tick-label">{{ tick.t }}s</span>
+            <span
+              v-if="tick.major"
+              class="tick-label"
+              :class="{ 'tick-label--end': tick.t >= duration - 1e-6 }"
+            >{{ formatTickLabel(tick.t) }}</span>
           </div>
           <div
             class="playhead playhead-head"
@@ -958,6 +1209,7 @@ watch(
             Drag an audio asset here from the Library, or click <strong>+ Add Audio Track…</strong> in the toolbar.
           </p>
         </div>
+      </div>
       </div>
     </div>
 
@@ -1132,12 +1384,63 @@ watch(
   background: rgba(91, 124, 250, 0.55);
 }
 
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.zoom-btn {
+  width: 22px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.snap-toggle,
+.zoom-fit {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-feature-settings: 'tnum';
+}
+
+.zoom-fit {
+  min-width: 58px;
+  text-transform: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0;
+}
+
+.snap-toggle[aria-pressed='true'],
+.zoom-fit[aria-pressed='true'] {
+  color: #9fb2ff;
+  background: rgba(91, 124, 250, 0.14);
+}
+
+.zoom-slider {
+  width: 90px;
+  accent-color: #5b7cfa;
+}
+
+/* v1.1 S27 — one scroll container for both axes. The canvas is as wide as
+   the zoomed lanes; the ruler sticks to the top and every label gutter to
+   the left so they stay put while the lanes scroll under them. */
 .timeline-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
+}
+
+.timeline-canvas {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .ruler-row {
@@ -1146,7 +1449,10 @@ watch(
   align-items: stretch;
   flex: 0 0 auto;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: #121212;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .ruler-gutter {
@@ -1158,6 +1464,10 @@ watch(
   display: flex;
   align-items: center;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #121212;
 }
 
 .ruler {
@@ -1189,12 +1499,20 @@ watch(
   font-feature-settings: 'tnum';
 }
 
+/* The last tick sits on the lane's right edge — draw it and its label inward
+   so they don't widen the scroll area. */
+.tick--end {
+  margin-left: -1px;
+}
+
+.tick-label--end {
+  left: auto;
+  right: 4px;
+}
+
 .tracks {
   position: relative;
   flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 .playhead {
@@ -1275,6 +1593,11 @@ watch(
   background: rgba(6, 214, 160, 0.02);
 }
 
+.audio-section-title {
+  position: sticky;
+  left: 8px;
+}
+
 .audio-section-header {
   display: grid;
   grid-template-columns: var(--ruler-gutter-width) 1fr;
@@ -1296,8 +1619,6 @@ watch(
 
 .audio-lane {
   position: relative;
-  max-height: 160px;
-  overflow-y: auto;
 }
 
 .audio-lane[data-drop-active='true'] {
