@@ -1,0 +1,226 @@
+{
+ "$comment": "Overlay for the vertical showcase's footage act; rendered with a transparent background to ProRes 4444.",
+ "version": "0.1",
+ "composition": {
+  "width": 1080,
+  "height": 300,
+  "fps": 30,
+  "duration": 3,
+  "background": "transparent"
+ },
+ "assets": [
+  {
+   "id": "f-anton",
+   "type": "font",
+   "src": "global:fonts/anton-400.woff2",
+   "family": "Anton"
+  },
+  {
+   "id": "f-mono",
+   "type": "font",
+   "src": "global:fonts/jetbrains-mono-500.woff2",
+   "family": "JetBrains Mono"
+  }
+ ],
+ "layers": [
+  {
+   "id": "L",
+   "z": 0,
+   "opacity": 1,
+   "blendMode": "normal",
+   "items": [
+    "bar",
+    "ring",
+    "title",
+    "sub"
+   ]
+  }
+ ],
+ "items": {
+  "bar": {
+   "type": "shape",
+   "kind": "rect",
+   "width": 0,
+   "height": 150,
+   "fillColor": "#0b0e1acc",
+   "transform": {
+    "x": 60,
+    "y": 75,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0,
+    "anchorY": 0,
+    "opacity": 1
+   },
+   "cornerRadius": 22,
+   "strokeColor": "#7dff9a",
+   "strokeWidth": 3
+  },
+  "ring": {
+   "type": "shape",
+   "kind": "circle",
+   "width": 96,
+   "height": 96,
+   "transform": {
+    "x": 142,
+    "y": 150,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   },
+   "strokeColor": "#7dff9a",
+   "strokeWidth": 10
+  },
+  "title": {
+   "type": "text",
+   "text": "PRORES 4444 · ALPHA",
+   "font": "f-anton",
+   "fontSize": 64,
+   "color": "#eef1ff",
+   "transform": {
+    "x": 214,
+    "y": 150,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0,
+    "anchorY": 0.5,
+    "opacity": 0
+   },
+   "letterSpacing": 3
+  },
+  "sub": {
+   "type": "text",
+   "text": "rendered by davidup, composited back in",
+   "font": "f-mono",
+   "fontSize": 26,
+   "color": "#7dff9a",
+   "transform": {
+    "x": 216,
+    "y": 202,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  }
+ },
+ "tweens": [
+  {
+   "id": "b0",
+   "target": "bar",
+   "property": "width",
+   "from": 0,
+   "to": 960,
+   "start": 0,
+   "duration": 0.5,
+   "easing": "easeOutExpo"
+  },
+  {
+   "id": "r0",
+   "target": "ring",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.2,
+   "duration": 0.2,
+   "easing": "easeOutQuad"
+  },
+  {
+   "id": "r1",
+   "target": "ring",
+   "property": "transform.scaleX",
+   "from": 0.2,
+   "to": 1,
+   "start": 0.2,
+   "duration": 0.5,
+   "easing": "easeOutBack"
+  },
+  {
+   "id": "r2",
+   "target": "ring",
+   "property": "transform.scaleY",
+   "from": 0.2,
+   "to": 1,
+   "start": 0.2,
+   "duration": 0.5,
+   "easing": "easeOutBack"
+  },
+  {
+   "id": "t0",
+   "target": "title",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.3,
+   "duration": 0.3,
+   "easing": "easeOutQuad"
+  },
+  {
+   "id": "t1",
+   "target": "title",
+   "property": "letterSpacing",
+   "from": 20,
+   "to": 3,
+   "start": 0.3,
+   "duration": 0.6,
+   "easing": "easeOutExpo"
+  },
+  {
+   "id": "s0",
+   "target": "sub",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.5,
+   "duration": 0.3,
+   "easing": "easeOutQuad"
+  },
+  {
+   "id": "b1",
+   "target": "bar",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.6,
+   "duration": 0.3,
+   "easing": "easeInQuad"
+  },
+  {
+   "id": "r3",
+   "target": "ring",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.6,
+   "duration": 0.3,
+   "easing": "easeInQuad"
+  },
+  {
+   "id": "t2",
+   "target": "title",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.6,
+   "duration": 0.3,
+   "easing": "easeInQuad"
+  },
+  {
+   "id": "s1",
+   "target": "sub",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.6,
+   "duration": 0.3,
+   "easing": "easeInQuad"
+  }
+ ]
+}
