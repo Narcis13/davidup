@@ -36,6 +36,16 @@ export interface CreateServerOptions {
   // Optional router — intercepts a tool call after input validation. The
   // editor uses this to redirect mutating tools through its CommandBus.
   router?: DispatchRouter;
+  // R-29 — idle TTL in seconds. When > 0, the server auto-`reset`s the
+  // default store (compositions AND user registries) after this many seconds
+  // without a tool call, so a long-lived standalone process doesn't hand one
+  // conversation's state to the next. 0 / omitted = never. Only meaningful
+  // for the default `{ store }` deps — embedders with a `depsFactory` own
+  // their own lifecycle.
+  sessionTtlSeconds?: number;
+  // Where the idle reset is logged. Defaults to stderr (stdout carries the
+  // JSON-RPC framing). Injected by tests.
+  log?: (message: string) => void;
 }
 
 export interface DavidupServer {
@@ -50,10 +60,18 @@ const DEFAULT_VERSION = "1.0.0";
 
 export function createServer(options: CreateServerOptions = {}): DavidupServer {
   const store = options.store ?? new CompositionStore();
-  const defaultDeps: ToolDeps = { store };
-  const depsFactory =
+  const sessionIdleSeconds = normaliseTtl(options.sessionTtlSeconds);
+  const defaultDeps: ToolDeps = { store, sessionIdleSeconds };
+  const baseFactory =
     options.depsFactory ?? ((_toolName: string) => defaultDeps);
   const router = options.router;
+  const idle = createIdleReset(store, sessionIdleSeconds, options.log);
+  const depsFactory = idle
+    ? (toolName: string) => {
+        idle.touch();
+        return baseFactory(toolName);
+      }
+    : baseFactory;
 
   const mcp = new McpServer(
     {
@@ -78,6 +96,7 @@ export function createServer(options: CreateServerOptions = {}): DavidupServer {
       await mcp.connect(transport);
     },
     async close() {
+      idle?.cancel();
       await mcp.close();
     },
   };
@@ -145,4 +164,73 @@ function jsonStringify(value: unknown): string {
   // Pretty-printed but compact: easier for humans inspecting tool output in
   // MCP clients, still trivial to parse on the consumer side.
   return JSON.stringify(value, null, 2);
+}
+
+// ──────────────── R-29 idle TTL ────────────────
+
+export const SESSION_TTL_ENV = "DAVIDUP_SESSION_TTL";
+
+function normaliseTtl(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export interface IdleReset {
+  // Re-arm the timer; called on every tool call.
+  touch(): void;
+  cancel(): void;
+}
+
+// Idle timer that wipes `store` (compositions + user registries) once
+// `seconds` pass without a `touch()`. Armed on the first call — an untouched
+// server has nothing to forget. Returns null when the TTL is disabled.
+export function createIdleReset(
+  store: CompositionStore,
+  seconds: number,
+  log: (message: string) => void = (m) => console.error(m),
+): IdleReset | null {
+  if (!(seconds > 0)) return null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cancel = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    touch() {
+      cancel();
+      timer = setTimeout(() => {
+        timer = null;
+        store.reset(undefined, "all");
+        log(`[davidup] session idle for ${seconds}s — state reset (compositions + user registries)`);
+      }, seconds * 1000);
+      // Never keep the process alive just to run the reset.
+      (timer as { unref?: () => void }).unref?.();
+    },
+    cancel,
+  };
+}
+
+// Resolve the TTL for the standalone bin: `--session-ttl <s>` /
+// `--session-ttl=<s>` wins over `DAVIDUP_SESSION_TTL`; absent → 0 (forever).
+// Throws on a malformed value so a typo doesn't silently disable the TTL.
+export function resolveSessionTtl(
+  argv: readonly string[],
+  env: Record<string, string | undefined> = {},
+): number {
+  let raw: string | undefined;
+  let source = "--session-ttl";
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--session-ttl") raw = argv[++i];
+    else if (arg.startsWith("--session-ttl=")) raw = arg.slice("--session-ttl=".length);
+  }
+  if (raw === undefined) {
+    raw = env[SESSION_TTL_ENV];
+    source = SESSION_TTL_ENV;
+  }
+  if (raw === undefined || raw.trim() === "") return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`${source} must be a non-negative number of seconds, got "${raw}"`);
+  }
+  return n;
 }

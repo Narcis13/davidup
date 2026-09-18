@@ -6,7 +6,7 @@
 // drive the same handlers directly from tests or programmatic code without
 // going through a transport.
 
-export { CompositionStore } from "./store.js";
+export { CompositionStore, type ResetScope } from "./store.js";
 export type {
   AddAudioTrackInput,
   AddAudioTrackResult,
@@ -76,7 +76,11 @@ export {
 
 export {
   createServer,
+  createIdleReset,
+  resolveSessionTtl,
+  SESSION_TTL_ENV,
   type CreateServerOptions,
+  type IdleReset,
   type DavidupServer,
 } from "./server.js";
 
@@ -90,8 +94,10 @@ export {
 } from "./render.js";
 
 export async function main(): Promise<void> {
-  const { createServer } = await import("./server.js");
-  const server = createServer();
+  const { createServer, resolveSessionTtl } = await import("./server.js");
+  const server = createServer({
+    sessionTtlSeconds: resolveSessionTtl(process.argv.slice(2), process.env),
+  });
   await server.start();
   // McpServer listens until the transport closes (stdin EOF). Process exit is
   // handled implicitly by the runtime once the event loop empties.

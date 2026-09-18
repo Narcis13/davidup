@@ -299,6 +299,9 @@ export interface ToolDeps {
   // Video metadata probe for `register_asset` (v0.2 §S6). Same injection
   // contract as `probeAudio`.
   probeVideo?: (src: string) => Promise<VideoMetadata>;
+  // R-29 idle TTL the standalone server was started with (`--session-ttl`);
+  // surfaced by `list_engine_capabilities.server.sessionIdleSeconds`.
+  sessionIdleSeconds?: number;
 }
 
 function requireProjectControls(deps: ToolDeps): ProjectControls {
@@ -472,10 +475,8 @@ const createComposition = defineTool({
   title: "Create composition",
   description:
     "Create a new composition. Becomes the default composition if none exists. Returns the assigned compositionId. " +
-    "On the standalone engine server, composition state lives in the long-running server process, not per MCP " +
-    "client connection — a new conversation attached to an already-running server can inherit compositions left " +
-    "over from a previous conversation. If this call fails with E_DUPLICATE_ID against an `id` you haven't used " +
-    "yet, that's almost certainly why: call `reset` (or pass a fresh `id`) to start clean. " +
+    "State lives in the server process, so an E_DUPLICATE_ID on an `id` you haven't used means a previous " +
+    "conversation left it behind — call `reset` (or pass a fresh `id`). " +
     "width and height must be EVEN (the H.264/yuv420p encoder rejects odd sizes); an odd or >4096px size still " +
     "creates the composition but the response carries `issues` (E_DIMENSION_ODD) / `warnings` (W_DIMENSION_LARGE) " +
     "— the same codes `validate` reports, and E_DIMENSION_ODD blocks rendering.",
@@ -584,17 +585,22 @@ const validateTool = defineTool({
 
 const resetTool = defineTool({
   name: "reset",
-  title: "Reset / drop composition",
+  title: "Reset server state",
   description:
-    "Clear the active (or specified) composition. Leaves other compositions untouched if compositionId is given. " +
-    "State is not scoped to your MCP client session: on the standalone engine server it lives in the server " +
-    "process and persists across separate conversations/connections until something calls `reset` or the " +
-    "process restarts. Call this at the start of a new session if you can't assume a clean slate.",
+    "Start clean. With no arguments, drops every composition AND the user templates, scenes and behaviors defined " +
+    "this session (`scope: \"compositions\"` keeps those registries). With `compositionId`, drops only that " +
+    "composition. State lives in the server process and can outlive a conversation (unless the server runs with " +
+    "an idle TTL — see `list_engine_capabilities.server.sessionIdleSeconds`), so call this first if you can't " +
+    "assume a clean slate.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
+    scope: z
+      .enum(["compositions", "all"])
+      .optional()
+      .describe('What to clear when no compositionId is given. Default "all" (compositions + user registries).'),
   },
   handler: (args, { store }) => {
-    store.reset(args.compositionId);
+    store.reset(args.compositionId, args.scope ?? "all");
     return { ok: true as const };
   },
 });
@@ -2934,6 +2940,9 @@ const listEngineCapabilitiesTool = defineTool({
         hasProjectLifecycle: Boolean(deps.projectControls),
         hasLibrary: Boolean(deps.libraryControls),
         hasRenderQueue: Boolean(deps.renderControls),
+        // R-29 — seconds of inactivity after which the server resets all
+        // state; 0 = never (the default, and always for the editor).
+        sessionIdleSeconds: deps.sessionIdleSeconds ?? 0,
       },
       schemaVersion: COMPOSITION_VERSION,
       easings: [...EASING_NAMES],

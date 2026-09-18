@@ -461,6 +461,8 @@ export interface AddVideoResult extends VideoMutationResult {
   itemId: string;
 }
 
+export type ResetScope = "compositions" | "all";
+
 export class CompositionStore {
   private readonly compositions = new Map<string, MutableComposition>();
   private defaultId: string | null = null;
@@ -518,7 +520,10 @@ export class CompositionStore {
     return id;
   }
 
-  reset(compositionId?: string): void {
+  // With `compositionId`: drop just that composition (registries untouched).
+  // Without: drop every composition, and with scope "all" (the default) also
+  // the session registries — user templates, scenes and behaviors (R-29).
+  reset(compositionId?: string, scope: ResetScope = "all"): void {
     if (compositionId !== undefined) {
       this.compositions.delete(compositionId);
       if (this.defaultId === compositionId) {
@@ -529,6 +534,11 @@ export class CompositionStore {
     this.compositions.clear();
     this.defaultId = null;
     this.autoSeq = 0;
+    if (scope === "all") {
+      this.userTemplates.clear();
+      this.userScenes.clear();
+      this.userBehaviors.clear();
+    }
   }
 
   hasComposition(compositionId?: string): boolean {

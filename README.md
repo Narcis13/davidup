@@ -781,6 +781,17 @@ Node shebang) or `bun run src/mcp/bin.ts` from a checkout. **Tools**: 58
 atomic tools, all returning structured results with `{error: {code, message,
 hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 
+**Session lifecycle**: stdio is one connection per process, but an MCP client
+may keep one server process alive across conversations. State (compositions
+plus the user templates / scenes / behaviors defined via MCP) lives in that
+process. `reset` with no arguments clears all of it (`scope: "compositions"`
+keeps the registries). Start the server with `--session-ttl <seconds>` (or
+`DAVIDUP_SESSION_TTL=<seconds>`) to auto-reset everything after that long
+without a tool call; the reset is logged to stderr, and
+`list_engine_capabilities.server.sessionIdleSeconds` reports the TTL
+(default 0 = never). The editor-hosted server shares one project and ignores
+the TTL.
+
 ### Tool catalog by category
 
 | § | Category | Tools |
@@ -1175,7 +1186,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 **MCP standalone server**
 
 - One process, one store: state persists across conversations until `reset`
-  (R-29). `reset` does not clear user-defined templates / scenes / behaviors.
+  or the idle TTL fires (`--session-ttl`, off by default).
 
 ---
 
@@ -1195,7 +1206,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 | `davidup` / `davidup-mcp` command not found or stale | `dist/` missing or out of date | `bun run build` (and `bun link --force` if bin paths moved) |
 | Editor's Library panel is empty | Global library not seeded | `bun run seed:library` |
 | Agent gets `E_FEATURE_UNAVAILABLE` from `list_library` / `current_project` / `get_render` | Tool requires the editor host | Use the tool from inside `davidup edit`, or inject `LibraryControls` / `ProjectControls` / `RenderControls` when calling `createServer()` |
-| Agent's new composition already has items from a previous chat | Standalone server state persisted (R-29) | Call `reset` first |
+| Agent's new composition already has items from a previous chat | Standalone server state persisted (R-29) | Call `reset` first, or start the server with `--session-ttl <s>` |
 | Tests time out on `registerAsset*` under full load | First ffprobe spawn on a saturated CPU exceeds the 5 s test timeout | Re-run; they pass in isolation in < 300 ms |
 
 More agent-side troubleshooting: [`examples/mcp-demo.md` §7](./examples/mcp-demo.md).
@@ -1278,7 +1289,7 @@ Shipped in v1.0:
 
 Planned for v1.1 (designs written, no code yet):
 
-- Strict schema (R-23), per-session MCP state (R-29), bundled starter font
+- Strict schema (R-23), bundled starter font
   (R-30), editable source drawer, template round-trip edits.
 
 Still open beyond that: frame-range parallelization, video

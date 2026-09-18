@@ -8,6 +8,18 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### MCP: `reset` clears everything; idle-TTL auto-reset (R-29)
+
+- `reset` with no `compositionId` now also drops the user templates, scenes
+  and behaviors defined this session. Pass `scope: "compositions"` for the old
+  behavior. `reset({ compositionId })` is unchanged.
+- The standalone server (`davidup-mcp`) takes `--session-ttl <seconds>` (or
+  `DAVIDUP_SESSION_TTL`): after that long without a tool call it resets all
+  state and logs to stderr. Default 0 = never. `list_engine_capabilities`
+  reports it as `server.sessionIdleSeconds`.
+- `createServer({ sessionTtlSeconds })` exposes the same TTL to embedders
+  using the default store.
+
 ### Per-item effects: blur, drop shadow, glow
 
 - Every item type takes an optional `effects` stack of
