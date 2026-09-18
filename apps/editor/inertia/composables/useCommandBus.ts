@@ -109,6 +109,15 @@ export interface UseCommandBusReturn {
   undo: () => Promise<void>
   /** Re-apply the most recently undone edit. */
   redo: () => Promise<void>
+  /**
+   * Adopt a composition that changed server-side without a command — a
+   * project switch or an external composition.json edit (v1.1 S25) — and
+   * resync the undo/redo stack sizes the server reported.
+   */
+  resync: (
+    next: Composition | null,
+    stacks?: { undoStackSize?: number; redoStackSize?: number }
+  ) => void
   /** Reactive size of the server's undo stack. 0 disables the undo button. */
   undoStackSize: Ref<number>
   /** Reactive size of the server's redo stack. 0 disables the redo button. */
@@ -287,6 +296,19 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     await callHistory('/api/command/redo')
   }
 
+  function resync(
+    next: Composition | null,
+    stacks: { undoStackSize?: number; redoStackSize?: number } = {}
+  ): void {
+    composition.value = next
+    error.value = null
+    errorReport.value = null
+    sink?.clearCommandError()
+    sink?.setComposition(next)
+    if (typeof stacks.undoStackSize === 'number') undoStackSize.value = stacks.undoStackSize
+    if (typeof stacks.redoStackSize === 'number') redoStackSize.value = stacks.redoStackSize
+  }
+
   return {
     composition,
     pending,
@@ -295,6 +317,7 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     apply,
     undo,
     redo,
+    resync,
     undoStackSize,
     redoStackSize,
     itemLastSource,

@@ -8,6 +8,16 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Editor reloads external `composition.json` edits
+
+- The editor watches the open project's `composition.json`. When an agent,
+  `git checkout` or a text editor rewrites it, the stage reloads, a
+  "composition.json changed on disk" toast appears, and the external state
+  lands as one undo step (⌘Z restores the pre-edit composition). The editor's
+  own saves are skipped by content hash; invalid or half-written files are
+  ignored until they load. `/api/projects/events` `changed` payloads now carry
+  `reason: 'switch' | 'external'`.
+
 ### Bundled default font (R-30)
 
 - davidup ships `fonts/Inter-Regular.ttf` (Inter 4.001, SIL OFL — see

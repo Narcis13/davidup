@@ -102,10 +102,12 @@ type Subscriber = (event: ChangeEvent) => void
 // undo can restore it, and we carry the command that produced the post-state.
 // That command's source is what `undo()` reports to subscribers — undoing an
 // MCP edit must look like an MCP-attributed change to the Inspector pill,
-// not get rewritten to 'ui' (the F5 bug this step closes).
+// not get rewritten to 'ui' (the F5 bug this step closes). `command` is null
+// for an external on-disk edit (v1.1 S25) — there is no command to attribute,
+// so undo/redo of that step restores the snapshot without emitting.
 interface UndoEntry {
   snapshot: Composition
-  command: Command
+  command: Command | null
 }
 
 // Redo entry — produced when `undo()` pops a snapshot. We keep the *forward*
@@ -114,7 +116,7 @@ interface UndoEntry {
 // forward `apply()` clears the redo stack (linear history; no branching).
 interface RedoEntry {
   snapshot: Composition
-  command: Command
+  command: Command | null
 }
 
 export class CommandBus {
@@ -255,7 +257,7 @@ export class CommandBus {
       this.#redoStack.push({ snapshot: deepClone(current), command: entry.command })
     }
     this.#projectStore.update(entry.snapshot)
-    if (current) {
+    if (current && entry.command) {
       const event: ChangeEvent = {
         command: entry.command,
         source: entry.command.source,
@@ -291,7 +293,7 @@ export class CommandBus {
       }
     }
     this.#projectStore.update(entry.snapshot)
-    if (current) {
+    if (current && entry.command) {
       const event: ChangeEvent = {
         command: entry.command,
         source: entry.command.source,
@@ -334,7 +336,29 @@ export class CommandBus {
     this.#redoStack.length = 0
   }
 
-  #pushUndo(snapshot: Composition, command: Command): void {
+  /**
+   * Run `fn` on the serialization queue, so it cannot interleave with an
+   * in-flight `apply()`. Used by the composition.json watcher (v1.1 S25):
+   * an external reload that landed mid-apply would otherwise be clobbered
+   * when the apply writes back its post-state.
+   */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.#queue.then(fn, fn)
+    this.#queue = next.catch(() => undefined)
+    return next
+  }
+
+  /**
+   * Record an external on-disk edit (agent, `git checkout`, text editor) as
+   * one undo step: `prev` is the in-memory composition the external state
+   * replaced, so ⌘Z restores it. Clears redo like any forward edit.
+   */
+  recordExternalChange(prev: Composition): void {
+    this.#pushUndo(prev, null)
+    this.#redoStack.length = 0
+  }
+
+  #pushUndo(snapshot: Composition, command: Command | null): void {
     this.#undoStack.push({ snapshot: deepClone(snapshot), command })
     while (this.#undoStack.length > this.#undoDepth) {
       this.#undoStack.shift()

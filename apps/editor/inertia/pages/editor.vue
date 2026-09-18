@@ -719,6 +719,22 @@ function onWindowDrop(event: DragEvent): void {
 // scroll position and other ephemeral UI state; only Inertia-provided props
 // are refetched.
 let projectEventSource: EventSource | null = null
+// Stack sizes carried by the last `changed` event, applied once the reloaded
+// props arrive.
+let pendingResyncStacks: { undoStackSize?: number; redoStackSize?: number } | null = null
+
+// `router.reload()` swaps the Inertia props but `useCommandBus` only seeds
+// from them once — push the fresh composition (and drawer source) into the
+// live state so the stage, timeline and inspector redraw.
+watch(
+  () => props.composition,
+  (next, prev) => {
+    if (next === prev) return
+    bus.resync(next, pendingResyncStacks ?? undefined)
+    pendingResyncStacks = null
+    compositionSource.value = props.compositionSource
+  }
+)
 
 onMounted(() => {
   if (typeof window !== 'undefined') {
@@ -746,23 +762,45 @@ onMounted(() => {
       projectEventSource = new EventSource('/api/projects/events')
       projectEventSource.addEventListener('changed', (ev) => {
         const data = (ev as MessageEvent).data
-        let projectName: string | null = null
+        let payload: {
+          reason?: string
+          root?: string
+          undoStackSize?: number
+          redoStackSize?: number
+        } = {}
         if (typeof data === 'string' && data.length > 0) {
           try {
-            const parsed = JSON.parse(data) as { root?: string }
-            if (typeof parsed?.root === 'string') {
-              const dir = parsed.root.replace(/[\\/]+$/, '')
-              const i = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'))
-              projectName = i >= 0 ? dir.slice(i + 1) : dir
-            }
+            payload = JSON.parse(data) as typeof payload
           } catch {
             /* not JSON */
           }
         }
-        toasts.info('Project switched', {
-          message: projectName ? `Loaded ${projectName}` : 'Reloading composition…',
-          dedupeKey: 'project:switched',
-        })
+        if (payload.reason === 'external') {
+          // v1.1 S25: composition.json was rewritten out-of-band (an agent,
+          // `git checkout`, a text editor). The server already adopted it as
+          // one undo step, so ⌘Z restores the pre-edit state.
+          pendingResyncStacks = {
+            undoStackSize: payload.undoStackSize,
+            redoStackSize: payload.redoStackSize,
+          }
+          toasts.info('composition.json changed on disk', {
+            message: 'Reloaded the external edit — ⌘Z to revert it.',
+            dedupeKey: 'project:external-edit',
+          })
+        } else {
+          // A project switch resets server-side history.
+          pendingResyncStacks = { undoStackSize: 0, redoStackSize: 0 }
+          let projectName: string | null = null
+          if (typeof payload.root === 'string') {
+            const dir = payload.root.replace(/[\\/]+$/, '')
+            const i = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'))
+            projectName = i >= 0 ? dir.slice(i + 1) : dir
+          }
+          toasts.info('Project switched', {
+            message: projectName ? `Loaded ${projectName}` : 'Reloading composition…',
+            dedupeKey: 'project:switched',
+          })
+        }
         router.reload()
       })
     }
