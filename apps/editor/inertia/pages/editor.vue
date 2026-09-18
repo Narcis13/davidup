@@ -931,6 +931,7 @@ onBeforeUnmount(() => {
         :get-resolved-item-at="stage.getResolvedItemAt"
         @apply="bus.apply"
         @reveal-source="onRevealSourceFromInspector"
+        @seek="(t: number) => stage.seek(t)"
       />
     </template>
 

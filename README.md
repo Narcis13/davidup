@@ -180,7 +180,8 @@ The browser opens to the editor. You get:
 - **Outliner** — tree view of every item with group expansion.
 - **Inspector** — typed inputs per item type, "+ animate" to add a tween,
   tween editor on bar select (easing picker with cubic-bezier and steps
-  fields), audio-track and video-trim editors. Multi-select
+  fields, plus a curve preview with draggable bezier handles; dragging the
+  plot scrubs the playhead through the tween), audio-track and video-trim editors. Multi-select
   shows "Mixed" for diverging fields and writes back to the whole selection.
 - **Library** — templates / behaviors / scenes / assets / fonts from the
   global pool and a project-local override pool. Save your own via

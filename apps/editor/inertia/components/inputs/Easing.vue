@@ -7,7 +7,8 @@
 // easing (a name or the object), so one change is one `update_tween`. Number
 // fields commit on `change` (Enter / blur) like the Shadow input; a value the
 // engine would reject (x outside [0, 1], steps not an integer ≥ 1) reverts
-// the field instead of emitting. Visual curve editing is Session 28.
+// the field instead of emitting. The visual curve editor (`EasingCurve.vue`,
+// S28) sits under this picker in the tween panel.
 
 import { computed } from 'vue'
 import { EASING_NAMES } from 'davidup/easings'

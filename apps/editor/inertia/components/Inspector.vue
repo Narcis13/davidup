@@ -50,6 +50,7 @@ import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
 import ShadowInput from '~/components/inputs/Shadow.vue'
 import EffectsInput from '~/components/inputs/Effects.vue'
 import EasingInput from '~/components/inputs/Easing.vue'
+import EasingCurve from '~/components/EasingCurve.vue'
 
 type ItemLike = {
   type: 'sprite' | 'text' | 'shape' | 'group' | 'video'
@@ -109,6 +110,8 @@ const emit = defineEmits<{
   // Step 20.23: provenance line under the item header asks the page to
   // open the SourceDrawer at the picked location (same effect as ⌘J).
   (event: 'reveal-source'): void
+  // v1.1 S28: scrubbing the tween panel's easing curve moves the playhead.
+  (event: 'seek', t: number): void
 }>()
 
 const selection = useSelection()
@@ -1068,8 +1071,9 @@ function deleteSelectedTween(): void {
 // swaps its item editor for a minimal 6-field tween panel:
 //   property · from · to · start · duration · easing
 // Edits dispatch a single `update_tween` per change (no diffing — the
-// server's `applyTweenUpdate` accepts partial `props`). A full curve
-// editor is deferred to v1.1 per polish_plan §R-P1.
+// server's `applyTweenUpdate` accepts partial `props`). Under the easing
+// picker, `EasingCurve` (v1.1 S28) previews the curve, drags bezier handles
+// and scrubs the playhead through the tween.
 
 type TweenLike = {
   id: string
@@ -1462,6 +1466,13 @@ function deleteSelectedAudioTrack(): void {
           label="easing"
           :disabled="pending"
           @update:model-value="(v: Easing) => dispatchTweenEdit('easing', v)"
+        />
+        <EasingCurve
+          :tween="selectedTween"
+          :playhead="playhead"
+          :disabled="pending"
+          @apply="(c: Command) => emit('apply', c)"
+          @seek="(t: number) => emit('seek', t)"
         />
       </div>
     </section>
