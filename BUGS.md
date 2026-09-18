@@ -220,3 +220,36 @@ gaps).
 
 **Status:** OPEN — pre-existing, diagnosed during v1.1 Session 18 but out of
 its scope.
+
+### 2.6 B-3: a group inside a scene or template paints its children twice
+
+**Where:** `src/compose/scenes.ts` (`expandSceneInstance`, the synthetic
+wrapper's `groupChildren`), `src/compose/templates.ts` (`expandRootTemplates`,
+`expandedIds`). `apply_template` in `src/mcp/tools.ts` has the same shape
+(v1.2 Session F2).
+
+**What happens:** the engine assumes every item has one parent — a layer or a
+group. The scene wrapper listed every scene item and a root template instance
+put every expanded item in its layer, so a child of a group inside the
+definition was also a direct child of the wrapper / layer. It painted twice:
+through its group, and again frozen at its local coordinates. Found when the
+v1.1 showcase orrery drew its planet and moon a second time. `validate`
+accepted both.
+
+**Repro (verified 2026-09-18):**
+```ts
+templates: { t: { id: "t", params: [], items: { g: { type: "group", items: ["kid"], transform: T }, kid: box }, tweens: [] } },
+scenes:    { s: { id: "s", duration: 1, params: [], items: { g: { type: "group", items: ["kid"], transform: T }, kid: box }, tweens: [] } },
+layers: [{ id: "L", …, items: ["ti", "si"] }],
+items:  { ti: { $template: "t", params: {} }, si: { type: "scene", scene: "s", transform: T } }
+// precompile → layer L: ["ti__g", "ti__kid", "si"]   ← ti__kid twice (layer + group)
+//              items.si.items: ["si__g", "si__kid"] ← si__kid twice (wrapper + group)
+```
+
+**Status:** FIXED — v1.2 Session F1. Both passes emit only top-level ids
+(`topLevelIds`, `src/compose/ownership.ts`); `tests/compose/ownership.test.ts`
+covers the repro, nesting, `$repeat` products, nested scene instances,
+templates inside scenes, and a pixel paint-count check. ⚠ pixel-changing for
+affected content only: `SCENE_EXPANSION_VERSION` 5, `TEMPLATE_EXPANSION_VERSION`
+2. The validator warning `W_ITEM_MULTI_PARENT` and the `apply_template` path
+follow in Session F2.

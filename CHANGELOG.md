@@ -4,9 +4,28 @@ Entries that change existing render output are marked **⚠ pixel-changing**
 and cite the behavior/expansion version marker that moved
 (`BEHAVIOR_EXPANSION_VERSION` in `src/compose/behaviors.ts`,
 `SCENE_EXPANSION_VERSION` in `src/compose/scenes.ts`,
+`TEMPLATE_EXPANSION_VERSION` in `src/compose/templates.ts`,
 `TEXT_LAYOUT_VERSION` in `src/engine/textLayout.ts`).
 
 ## Unreleased
+
+### Groups inside scenes and templates own their children (B-3) ⚠ pixel-changing
+
+- Fix: a group inside a scene or a template no longer paints its children
+  twice. The scene's synthetic wrapper group used to list *every* scene item,
+  and a root template instance put *every* expanded item in its layer, so a
+  child of an inner group was drawn once through that group and again, frozen
+  at its local coordinates, as a direct child. Both passes now hand the parent
+  only the definition's top-level items (ids no group in the same definition
+  lists), via the new `topLevelIds` helper in `src/compose/ownership.ts`.
+- A group inside a scene that lists a `$template` instance key is now
+  `E_INVALID_VALUE` ("groups inside a scene can't reference a template
+  instance; list its emitted ids") instead of a bare `E_ITEM_MISSING`.
+- ⚠ **pixel-changing** for content that nests groups inside a scene or
+  template, and only that: `SCENE_EXPANSION_VERSION` 4 → 5, new
+  `TEMPLATE_EXPANSION_VERSION` = 2 (v1 = everything before). No built-in or
+  seed-library template and no example scene nests a group, so goldens do not
+  move; every affected composition goes from wrong to right.
 
 ### Publishable package: `npx davidup`
 

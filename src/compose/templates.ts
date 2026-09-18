@@ -25,6 +25,7 @@
 // params bound (repeat.ts); their products count as local items.
 
 import { MCPToolError } from "../engine/errors.js";
+import { topLevelIds } from "./ownership.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 import {
   expandRepeatItems,
@@ -32,6 +33,23 @@ import {
   describeItemIds,
   replaceGroupRepeatRefs,
 } from "./repeat.js";
+
+/**
+ * Template-expansion semantics version. Bumped when the ids an expansion hands
+ * to its parent (layer placement, paint order) change in a way that alters
+ * existing renders. See CHANGELOG.md.
+ *
+ *   v1: everything up to v1.1.
+ *
+ *   v1 → v2 (B-3): a root template instance places only the template's
+ *   *top-level* items in the layer. An item owned by a group inside the
+ *   template used to sit in the layer as well, so it painted twice. Only
+ *   templates that nest groups render differently, and each of them goes from
+ *   wrong to right. A group inside a scene that lists a `$template` instance
+ *   key is now an `E_INVALID_VALUE` naming the fix instead of a bare
+ *   `E_ITEM_MISSING`.
+ */
+export const TEMPLATE_EXPANSION_VERSION = 2;
 
 // ──────────────── Public types ────────────────
 
@@ -323,8 +341,8 @@ function expandRootTemplates(
     if (isPlainObject(v) && typeof v.$template === "string") {
       const instance = readTemplateInstance(key, v);
       const expanded = expandTemplate(key, instance, { templates: userTemplates });
-      const expandedIds = Object.keys(expanded.items);
-      for (const newId of expandedIds) {
+      const allIds = Object.keys(expanded.items);
+      for (const newId of allIds) {
         if (newId in newItems) {
           throw new MCPToolError(
             "E_DUPLICATE_ID",
@@ -334,10 +352,13 @@ function expandRootTemplates(
         newItems[newId] = expanded.items[newId];
       }
       for (const t of expanded.tweens) newTweenAdditions.push(t);
+      // Only top-level ids go into the layer; a group inside the template
+      // already owns its children (B-3). The duplicate check above still
+      // covers every expanded id.
       expansions.push({
         instanceId: key,
         layerId: instance.layerId,
-        expandedIds,
+        expandedIds: topLevelIds(expanded.items, allIds),
       });
     } else {
       if (key in newItems) {
@@ -459,6 +480,7 @@ function expandTemplatesInScene(
 
   const newItems: Record<string, unknown> = {};
   const newTweenAdditions: unknown[] = [];
+  rejectGroupRefsToTemplateInstances(itemsRaw, sceneId);
 
   for (const key of Object.keys(itemsRaw).sort()) {
     const v = itemsRaw[key];
@@ -492,6 +514,37 @@ function expandTemplatesInScene(
     : newTweenAdditions;
 
   return { ...scene, items: newItems, tweens: newTweens };
+}
+
+/**
+ * A `$template` instance key inside a scene is lowered to its `key__*` ids
+ * before the scene pass runs, so a scene group that lists the key would point
+ * at an id that no longer exists. Reject it with the fix in the message rather
+ * than guessing which emitted ids the author meant.
+ */
+function rejectGroupRefsToTemplateInstances(
+  items: Record<string, unknown>,
+  sceneId: string,
+): void {
+  const instanceKeys = new Set(
+    Object.keys(items).filter((k) => {
+      const v = items[k];
+      return isPlainObject(v) && typeof v.$template === "string";
+    }),
+  );
+  for (const [groupId, item] of Object.entries(items)) {
+    if (!isPlainObject(item) || item.type !== "group" || !Array.isArray(item.items)) continue;
+    for (const child of item.items) {
+      if (typeof child === "string" && instanceKeys.has(child)) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Scene "${sceneId}" group "${groupId}" lists template instance "${child}": groups inside a scene can't reference a template instance; list its emitted ids.`,
+          `Template instance "${child}" expands to ids prefixed "${child}__" (e.g. "${child}__<localId>"). List the ones this group should own.`,
+          { details: { path: `scenes.${sceneId}.items.${groupId}.items`, instance: child } },
+        );
+      }
+    }
+  }
 }
 
 function sceneHasTemplateInstance(scene: unknown): boolean {

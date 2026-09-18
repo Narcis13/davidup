@@ -24,6 +24,7 @@ export {
   type ExpandBehaviorOptions,
 } from "./behaviors.js";
 export {
+  TEMPLATE_EXPANSION_VERSION,
   expandTemplate,
   expandTemplates,
   getTemplateDefinition,

@@ -94,6 +94,7 @@ import {
   isBehaviorBlock,
   readBehaviorBlock,
 } from "./behaviors.js";
+import { topLevelIds } from "./ownership.js";
 import { substitute, type SubstitutionContext } from "./params.js";
 import {
   expandRepeatItems,
@@ -126,8 +127,14 @@ import {
  *   nothing that previously produced pixels changed. The bump marks the
  *   semantics change for anything keying on expansion behavior; pass
  *   `clip.strict: true` to keep the v3 rejection.
+ *
+ *   v4 → v5 (B-3): the synthetic group lists only the scene's *top-level*
+ *   items. An item owned by a group inside the scene used to be a direct
+ *   wrapper child as well, so it painted twice — once through its group and
+ *   once frozen at its local coordinates. Only scenes that nest groups render
+ *   differently, and each of them goes from wrong to right.
  */
-export const SCENE_EXPANSION_VERSION = 4;
+export const SCENE_EXPANSION_VERSION = 5;
 
 // ──────────────── Public types ────────────────
 
@@ -466,13 +473,17 @@ export function expandSceneInstance(
   }
 
   // 3. Build the synthetic group wrapper. Its item list contains the prefixed
-  //    *direct* children of the scene (top-level scene items) — nested-scene-
-  //    expanded items are owned by their wrapper group, not by us.
+  //    *top-level* scene items only — nested-scene-expanded items are owned by
+  //    their wrapper group, and an item listed by a group inside the scene is
+  //    owned by that group (B-3: listing it here too would paint it twice).
   const groupChildren: string[] = [];
   if (bgChildId !== undefined) groupChildren.push(bgChildId);
-  for (const localId of Object.keys(defItems.items)) {
-    groupChildren.push(`${instanceId}__${localId}`);
-  }
+  groupChildren.push(
+    ...topLevelIds(
+      items,
+      Object.keys(defItems.items).map((localId) => `${instanceId}__${localId}`),
+    ),
+  );
   const groupItem: Record<string, unknown> = {
     type: "group",
     items: groupChildren,
