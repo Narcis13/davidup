@@ -73,8 +73,12 @@ libx264 needs it.
 | lattices, particles | `hexPath`, `hexCells`, `hexLattice`, `aster`, `dotBurst`, `speedLines`, `loops` |
 | motifs | `seedDot`, `ripples`, `dashedRing`, `dottedArc`, `plant`, `tornEdge`, `section`, `stickyNote`, `thread`, `signOff` |
 | reveals, composition | `selfDraw`, `blot`, `iris`, `mosaic`, `montage`, `badges`, `flash` |
+| photos, doodles | `registerPhoto`, `PHOTOS`, `place`, `on`, `onAll`, `photo`, `photoFront`, `photoSheet`, `backdrop`, `nightfall`, `glow`, `chalkPalette`, `pastel`, `PASTELS`, `spline`, `splinePath`, `brush`, `wash`, `gouache`, `boil`, `doodle`, `pen`, `nightShot`, `rim`, `setView`, `viewT`, `whip` (see `doodle.md`) |
+| found motion (`assets/roto.js`) | `registerClip`, `CLIPS`, `roto`, `rotoPose`, `rotoSprite`, `drawSprite`, `rotoGap`, `rotoAirborne` (see `found-motion.md`) |
+| sand (`assets/sand.js`) | `sandFilm`, `sandFrame`, `sandAdvance`, `sandImage`, `sandRender`, `sandLive`, `sandLook`, `sandTint`, `sandToScreen`, `sandScale`, `G.*`, `scanFill`, `circlePts`, `spiralPts` (see `sand.md`) |
+| paper in space (`assets/paper3d.js`) | `cam3`, `proj3`, `tex3`, `quad3`, `shadeOf`, `shadow3`, `shadowsBegin`, `shadowsEnd`, `book3`, `V3` (see `paper3d.md`) |
 | sheets | `styleSheet`, `paletteSheet` |
-| runtime | `defineFilm({palette, timeline, score, format})`, `gridSheet(n, cellW)`, `note`, `noiseBurst`, `pentHz`; hooks `window.__frame(i)` (PNG data URL), `window.__grid(n)`, `window.__size`, `window.__ready` |
+| runtime | `defineFilm({palette, timeline, score, format})`, `gridSheet(n, cellW)`, `note`, `noiseBurst`, `pentHz`; hooks `window.__frame(i)` (PNG data URL), `window.__grid(n)`, `window.__size`, `window.__wav()` (base64 WAV of the score), `window.__ready` (set after every registered photo has decoded) |
 
 Signatures worth knowing by heart:
 
@@ -183,7 +187,11 @@ function sceneRoom(c, tau, i) {
   `puppeteer-core`, every drawn frame screenshotted, then ffmpeg packs the
   mp4 on twos and builds `out/<film>-contact.jpg` with two tiles per second.
   A frame that throws is reported with its number and time, and no mp4 is
-  built.
+  built. If the film defines a score, the page renders it through an
+  `OfflineAudioContext` and the script writes `out/<film>-score.wav` and
+  `out/<film>-final.mp4`.
+- Photos for the doodle look are data URLs inside `photos.js`. A photo loaded
+  from a file path would taint the canvas and `toDataURL` would throw.
 - Frames come from `canvas.toDataURL`, not from screenshots. Do not spawn one
   Chrome per frame with `--screenshot`; it hangs on the second frame.
 - Manual packing of PNGs exported from the page:
