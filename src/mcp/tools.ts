@@ -84,6 +84,7 @@ import {
   isSupportedAudioSrc,
   isSupportedVideoSrc,
 } from "../schema/zod.js";
+import { strictObject } from "../schema/strict.js";
 import { MCPToolError } from "./errors.js";
 import {
   renderPreviewFrame,
@@ -1080,8 +1081,10 @@ const addGroup = defineTool({
   },
 });
 
-const ITEM_PROP_SHAPE = z
-  .object({
+// Strict (v1.1 S23, R-23): a typo'd key (`opacty`) is E_INVALID_PROPERTY with
+// a "did you mean" instead of being silently dropped — see dispatch.ts.
+const ITEM_PROP_SHAPE = strictObject(
+  {
     x: z.number(),
     y: z.number(),
     scaleX: z.number(),
@@ -1129,14 +1132,16 @@ const ITEM_PROP_SHAPE = z
     // Out-of-window items are skipped by the renderer.
     enter: z.number().nonnegative(),
     exit: z.number().positive(),
-  })
-  .partial();
+  },
+  { extensions: false },
+).partial();
 
 const updateItem = defineTool({
   name: "update_item",
   title: "Update item",
   description:
-    "Patch an item's transform fields and/or type-specific properties. Unknown keys for the item type error. " +
+    "Patch an item's transform fields and/or type-specific properties. An unknown key, or one the item type " +
+    "doesn't take, is E_INVALID_PROPERTY (with a \"did you mean\" for typos). " +
     "Text items accept the text v2 fields (maxWidth, lineHeight, letterSpacing, fontWeight, fontStyle, strokeColor, " +
     "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow. " +
     "Group items accept `isolate` and `blendMode` (see add_group). " +
@@ -1488,11 +1493,11 @@ const updateVideo = defineTool({
   name: "update_video",
   title: "Update video item",
   description:
-    "Patch any field of a video item — spatial (`x`/`y`/`scaleX`/`scaleY`/`rotation`/`anchorX`/`anchorY`/`opacity`/`width`/`height`/`asset`), temporal (`start`/`end`/`trimIn`/`trimOut`), display (`fit`/`loop`), audio (`keepAudio`), and flags (`visible`/`locked`/`name`/`enter`/`exit`). Errors with E_NOT_FOUND if the id is unknown, E_INVALID_PROPERTY if it isn't a video item, E_ASSET_TYPE_MISMATCH if a new `asset` isn't video, and E_INVALID_VALUE on a bad trim/timing window. Returns `{ ok: true }`, plus a `warnings` array when the resulting window extends past the composition end.",
+    "Patch any field of a video item — spatial (`x`/`y`/`scaleX`/`scaleY`/`rotation`/`anchorX`/`anchorY`/`opacity`/`width`/`height`/`asset`), temporal (`start`/`end`/`trimIn`/`trimOut`), display (`fit`/`loop`), audio (`keepAudio`), and flags (`visible`/`locked`/`name`/`enter`/`exit`). Errors with E_NOT_FOUND if the id is unknown, E_INVALID_PROPERTY if it isn't a video item or a prop key is unknown, E_ASSET_TYPE_MISMATCH if a new `asset` isn't video, and E_INVALID_VALUE on a bad trim/timing window. Returns `{ ok: true }`, plus a `warnings` array when the resulting window extends past the composition end.",
   inputSchema: {
     id: z.string().min(1),
-    props: z
-      .object({
+    props: strictObject(
+      {
         x: z.number(),
         y: z.number(),
         scaleX: z.number(),
@@ -1516,8 +1521,9 @@ const updateVideo = defineTool({
         name: z.string().max(80),
         enter: z.number().nonnegative(),
         exit: z.number().positive(),
-      })
-      .partial(),
+      },
+      { extensions: false },
+    ).partial(),
     compositionId: COMPOSITION_ID,
   },
   handler: (args, { store }) => {

@@ -87,6 +87,8 @@ const TIME_MAPPING = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('reverse') }),
 ])
 
+// Strict, like the engine's update_item props (v1.1 S23, R-23): an unknown
+// key is rejected instead of silently stripped.
 const ITEM_PROPS = z
   .object({
     x: z.number(),
@@ -136,6 +138,7 @@ const ITEM_PROPS = z
     exit: POSITIVE,
   })
   .partial()
+  .strict()
 
 const SOURCE = z.enum(['ui', 'mcp']).default('ui')
 
@@ -501,7 +504,8 @@ const updateVideo = z.object({
         enter: NON_NEG,
         exit: POSITIVE,
       })
-      .partial(),
+      .partial()
+      .strict(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,

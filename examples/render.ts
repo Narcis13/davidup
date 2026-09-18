@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     }
   }
   // After this point we know `json` matches the Composition shape, so we can
-  // assert the type. Validate stripped any unknown keys (e.g. our $comment).
+  // assert the type. `$`/`x-` keys (e.g. our $comment) are allowed and ignored.
   const comp = json as Composition;
 
   // ── Step 3: poke the resolver (no canvas, no I/O) ────────────────────────

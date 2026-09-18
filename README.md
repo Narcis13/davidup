@@ -861,7 +861,13 @@ H.264/yuv420p encoder needs even sizes); warnings `W_DIMENSION_LARGE` (either
 axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 `W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES`,
 `W_VIDEO_NO_AUDIO_STREAM` (`keepAudio` on a source with no audio stream).
-Warnings never fail a call. `create_composition` and `set_composition_property`
+Warnings never fail a call. The schema is strict: an unknown key such as
+`opacty` is an `E_SCHEMA` error at its full path (`items.logo.transform.opacty`)
+with a "did you mean" suggestion. Keys starting with `$` (`$comment`, `$ref`,
+…) or `x-` (your own extensions) are allowed on any object and ignored by the
+engine. `update_item` / `update_video` reject an unknown prop the same way:
+`E_INVALID_PROPERTY` from the in-process dispatcher; over stdio the MCP SDK's
+own argument check answers first (error -32602) with the same message. `create_composition` and `set_composition_property`
 return the dimension codes eagerly as `issues[]` / `warnings[]` on their result.
 
 ### Render lifecycle
@@ -1166,8 +1172,6 @@ Things v1.0 does not do. Each is either an open ledger item in
 - A scene `clip` that cuts across a tween keeps the tween's original easing
   over the shorter span rather than the re-normalised sub-curve, so only the
   values at the two cut points are exact (all of it is exact for `linear`).
-- The composition schema is not strict: unknown keys are silently dropped
-  rather than reported (R-23).
 - Fonts are not bundled; a standalone MCP session must `register_asset` a
   font before `add_text` (R-30).
 
@@ -1289,8 +1293,7 @@ Shipped in v1.0:
 
 Planned for v1.1 (designs written, no code yet):
 
-- Strict schema (R-23), bundled starter font
-  (R-30), editable source drawer, template round-trip edits.
+- Bundled starter font (R-30), editable source drawer, template round-trip edits.
 
 Still open beyond that: frame-range parallelization, video
 frames in the live preview. Full discussion: [`design-doc.md` §8](./design-doc.md).

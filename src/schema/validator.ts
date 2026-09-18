@@ -3,6 +3,8 @@
 //
 // Rules implemented (per design-doc §3.5):
 //   1. Zod parse                            → E_SCHEMA
+//      Unknown keys are E_SCHEMA too, with a "did you mean" (v1.1 S23, R-23);
+//      `$…` / `x-…` extension keys are always allowed — see strict.ts.
 //   2. tween.target → existing item          → E_ITEM_MISSING
 //      layer.items[*] → existing item        → E_ITEM_MISSING
 //      group.items[*] → existing item        → E_ITEM_MISSING
@@ -44,6 +46,7 @@
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
+import { realUnknownKeys, safeParseWithExtensions } from "./strict.js";
 import { CompositionSchema } from "./zod.js";
 import { parseColor } from "../color/index.js";
 
@@ -101,13 +104,16 @@ export function validate(input: unknown): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
 
-  const parsed = CompositionSchema.safeParse(input);
+  const parsed = safeParseWithExtensions(CompositionSchema, input);
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
+      // A single unknown key is reported at its own path (`items.logo.opacty`).
+      const unknown = realUnknownKeys(issue);
+      const path = unknown.length === 1 ? [...issue.path, unknown[0]!] : issue.path;
       errors.push({
         code: "E_SCHEMA",
         message: issue.message,
-        path: issue.path.join("."),
+        path: path.join("."),
       });
     }
     return { valid: false, errors, warnings };

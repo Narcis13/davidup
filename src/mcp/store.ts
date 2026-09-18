@@ -41,6 +41,7 @@ import {
   isSupportedAudioSrc,
   isSupportedVideoSrc,
 } from "../schema/zod.js";
+import { safeParseWithExtensions } from "../schema/strict.js";
 import { getItemTweenable, parseEffectPath } from "../schema/tweenable.js";
 import { isRationalFps, type Fps } from "../schema/fps.js";
 import {
@@ -1193,7 +1194,7 @@ export class CompositionStore {
       );
     }
     this.ensureNoItem(comp, input.id);
-    const parsed = ItemSchema.safeParse(input.item);
+    const parsed = safeParseWithExtensions(ItemSchema, input.item);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const path = issue?.path?.join(".") ?? "";
@@ -1752,7 +1753,7 @@ export class CompositionStore {
       );
     }
     this.ensureNoItem(comp, input.id);
-    const parsed = ItemSchema.safeParse(input.item);
+    const parsed = safeParseWithExtensions(ItemSchema, input.item);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const path = issue?.path?.join(".") ?? "";

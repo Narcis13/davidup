@@ -39,6 +39,13 @@ export {
   VideoItemSchema,
 } from "./zod.js";
 export {
+  isExtensionKey,
+  safeParseWithExtensions,
+  strictObject,
+  suggestKey,
+  unknownKeysMessage,
+} from "./strict.js";
+export {
   EFFECT_TWEENABLE,
   getItemTweenable,
   getTweenable,

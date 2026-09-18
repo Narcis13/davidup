@@ -32,7 +32,8 @@ function dot(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: "shape",
     kind: "circle",
-    radius: 10,
+    width: 20,
+    height: 20,
     fillColor: "#ffffff",
     transform: { ...TRANSFORM, x: "${i * 40}" },
     ...extra,

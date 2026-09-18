@@ -50,11 +50,15 @@ export async function dispatchTool(
       path: issue.path.join("."),
       code: issue.code,
     }));
+    // An unknown key in a strict props object (update_item / update_video,
+    // v1.1 S23) is the same failure as a known key the item type can't take,
+    // so it shares that E_INVALID_PROPERTY code.
+    const unknownKey = parsed.error.issues.find((i) => i.code === "unrecognized_keys");
     return {
       ok: false,
       error: {
-        code: "E_INVALID_VALUE",
-        message: parsed.error.issues[0]?.message ?? "Invalid arguments.",
+        code: unknownKey ? "E_INVALID_PROPERTY" : "E_INVALID_VALUE",
+        message: (unknownKey ?? parsed.error.issues[0])?.message ?? "Invalid arguments.",
         hint: formatIssuePath(parsed.error.issues),
         issues,
       },

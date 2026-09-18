@@ -102,7 +102,7 @@ describe("validate — parametric easings (v1.1 S17)", () => {
   it("rejects an object carrying both forms instead of picking one", () => {
     const result = withEasing({ bezier: [0.25, 0.1, 0.25, 1], steps: 3 });
     expect(result.valid).toBe(false);
-    expect(result.errors[0]!.message).toMatch(/Unrecognized key/);
+    expect(result.errors[0]!.message).toMatch(/Unknown key "steps"/);
   });
 
   it("an unmatched value lists the names and both object forms", () => {

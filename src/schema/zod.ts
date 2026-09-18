@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EASING_NAMES } from "../easings/index.js";
 import { isRationalFps } from "./fps.js";
+import { strictObject } from "./strict.js";
 
 /**
  * Canonical composition schema version. Bumped when the validator's accepted
@@ -55,20 +56,16 @@ export const BlendModeSchema = z.enum(BLEND_MODES);
 // command schema (apps/editor/app/types/commands.ts). Each tuple slot is its
 // own schema instance: a reused instance becomes a `$ref` in the tool JSON
 // Schema that MCP clients see.
-export const BezierEasingSchema = z
-  .object({
-    bezier: z.tuple([
-      z.number().min(0).max(1),
-      z.number().finite(),
-      z.number().min(0).max(1),
-      z.number().finite(),
-    ]),
-  })
-  .strict();
+export const BezierEasingSchema = strictObject({
+  bezier: z.tuple([
+    z.number().min(0).max(1),
+    z.number().finite(),
+    z.number().min(0).max(1),
+    z.number().finite(),
+  ]),
+});
 
-export const StepsEasingSchema = z
-  .object({ steps: z.number().int().min(1) })
-  .strict();
+export const StepsEasingSchema = strictObject({ steps: z.number().int().min(1) });
 
 // A plain union reports a bare "Invalid input" when nothing matches (a typo'd
 // name, a 3-number bezier), where z.enum used to list the names. Out-of-range
@@ -120,7 +117,7 @@ export const FpsSchema = z.union([
   }),
 ]);
 
-export const CompositionMetaSchema = z.object({
+export const CompositionMetaSchema = strictObject({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   fps: FpsSchema,
@@ -133,21 +130,19 @@ export const CompositionMetaSchema = z.object({
   // voiceover can't clip. `targetLufs` adds a two-pass EBU R128 loudness
   // normalisation (an extra ffmpeg analysis pass over the mix) before the
   // limiter. Ignored when the composition has no `audio[]`.
-  audioMaster: z
-    .object({
-      limiter: z.boolean().optional(),
-      targetLufs: z.number().min(-70).max(-5).optional(),
-    })
-    .optional(),
+  audioMaster: strictObject({
+    limiter: z.boolean().optional(),
+    targetLufs: z.number().min(-70).max(-5).optional(),
+  }).optional(),
 });
 
-export const ImageAssetSchema = z.object({
+export const ImageAssetSchema = strictObject({
   id: z.string().min(1),
   type: z.literal("image"),
   src: z.string().min(1),
 });
 
-export const FontAssetSchema = z.object({
+export const FontAssetSchema = strictObject({
   id: z.string().min(1),
   type: z.literal("font"),
   src: z.string().min(1),
@@ -180,7 +175,7 @@ export function isSupportedAudioSrc(src: string): boolean {
 // AudioTrack.asset (resolved at mux time, S4). `duration` is seconds;
 // `sampleRate` is Hz; `channels` is the channel count; `codec` is ffprobe's
 // `codec_name` (e.g. "mp3", "aac", "pcm_s16le").
-export const AudioAssetSchema = z.object({
+export const AudioAssetSchema = strictObject({
   id: z.string().min(1),
   type: z.literal("audio"),
   src: z.string().min(1),
@@ -220,7 +215,7 @@ export function isSupportedVideoSrc(src: string): boolean {
 // ffprobe's `pix_fmt` (e.g. "yuv420p", "yuva420p"); `hasAudio` (v1.1 S11) is
 // whether the container carries at least one audio stream — it lets the
 // validator warn when a `keepAudio` clip has no sound to keep.
-export const VideoAssetSchema = z.object({
+export const VideoAssetSchema = strictObject({
   id: z.string().min(1),
   type: z.literal("video"),
   src: z.string().min(1),
@@ -228,6 +223,9 @@ export const VideoAssetSchema = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   fps: z.number().positive().optional(),
+  // The probed rate verbatim ("30000/1001"). Accepted so a `probeVideo()`
+  // result can be spread straight into an asset under the strict schema.
+  fpsRational: z.string().refine(isRationalFps).optional(),
   hasAlpha: z.boolean().optional(),
   codec: z.string().min(1).optional(),
   pixelFormat: z.string().min(1).optional(),
@@ -241,7 +239,7 @@ export const AssetSchema = z.discriminatedUnion("type", [
   VideoAssetSchema,
 ]);
 
-export const TransformSchema = z.object({
+export const TransformSchema = strictObject({
   x: z.number(),
   y: z.number(),
   scaleX: z.number(),
@@ -269,12 +267,12 @@ export const TransformSchema = z.object({
 // Tweenable as `effects.<index>.<field>` — see schema/tweenable.ts.
 //
 // DUAL: mirror in apps/editor/app/types/commands.ts.
-export const BlurEffectSchema = z.object({
+export const BlurEffectSchema = strictObject({
   type: z.literal("blur"),
   radius: z.number().nonnegative(),
 });
 
-export const ShadowEffectSchema = z.object({
+export const ShadowEffectSchema = strictObject({
   type: z.literal("shadow"),
   color: z.string(),
   blur: z.number().nonnegative().optional(),
@@ -282,7 +280,7 @@ export const ShadowEffectSchema = z.object({
   offsetY: z.number().optional(),
 });
 
-export const GlowEffectSchema = z.object({
+export const GlowEffectSchema = strictObject({
   type: z.literal("glow"),
   color: z.string(),
   radius: z.number().nonnegative(),
@@ -326,7 +324,7 @@ export const ItemFlagsSchema = {
   effects: z.array(EffectSchema).optional(),
 } as const;
 
-export const SpriteItemSchema = z.object({
+export const SpriteItemSchema = strictObject({
   type: z.literal("sprite"),
   asset: z.string().min(1),
   width: z.number().nonnegative(),
@@ -338,7 +336,7 @@ export const SpriteItemSchema = z.object({
 
 // Drop shadow cast by a text item's fill (v1.1 S13). Offsets are in canvas
 // pixels and, per Canvas2D, are not affected by the item's rotation/scale.
-export const TextShadowSchema = z.object({
+export const TextShadowSchema = strictObject({
   color: z.string(),
   blur: z.number().nonnegative().optional(),
   offsetX: z.number().optional(),
@@ -358,7 +356,7 @@ export const TextShadowSchema = z.object({
 //   fontStyle     — CSS font-style
 //   strokeColor / strokeWidth — outline drawn over the fill
 //   shadow        — drop shadow cast by the fill
-export const TextItemSchema = z.object({
+export const TextItemSchema = strictObject({
   type: z.literal("text"),
   text: z.string(),
   font: z.string().min(1),
@@ -379,7 +377,7 @@ export const TextItemSchema = z.object({
   ...ItemFlagsSchema,
 });
 
-export const ShapeItemSchema = z.object({
+export const ShapeItemSchema = strictObject({
   type: z.literal("shape"),
   kind: z.enum(["rect", "circle", "polygon"]),
   width: z.number().nonnegative().optional(),
@@ -412,7 +410,7 @@ export const ShapeItemSchema = z.object({
 //
 // DUAL: mirror both in apps/editor/app/types/commands.ts or they are silently
 // stripped off UI payloads.
-export const GroupItemSchema = z.object({
+export const GroupItemSchema = strictObject({
   type: z.literal("group"),
   items: z.array(z.string().min(1)),
   isolate: z.boolean().optional(),
@@ -458,7 +456,7 @@ export const VideoFitSchema = z.enum(VIDEO_FIT_MODES);
 // discriminatedUnion, and the `≤ asset.duration` bound needs the asset map.
 // DUAL: mirror any new field in apps/editor/app/types/commands.ts or it is
 // silently stripped off UI payloads.
-export const VideoItemSchema = z.object({
+export const VideoItemSchema = strictObject({
   type: z.literal("video"),
   asset: z.string().min(1),
   width: z.number().nonnegative(),
@@ -482,7 +480,7 @@ export const ItemSchema = z.discriminatedUnion("type", [
   VideoItemSchema,
 ]);
 
-export const LayerSchema = z.object({
+export const LayerSchema = strictObject({
   id: idSchema("Layer id"),
   z: z.number(),
   opacity: z.number().min(0).max(1),
@@ -491,7 +489,7 @@ export const LayerSchema = z.object({
   ...ItemFlagsSchema,
 });
 
-export const TweenSchema = z.object({
+export const TweenSchema = strictObject({
   id: idSchema("Tween id"),
   target: idSchema("Tween target"),
   property: idSchema("Tween property"),
@@ -522,24 +520,22 @@ export const TweenSchema = z.object({
 // when a track is created without it. Mirrored field-for-field in the editor's
 // command schema (apps/editor/app/types/commands.ts) — keep both in sync or new
 // fields are silently stripped off UI/MCP payloads.
-export const AudioTrackSchema = z
-  .object({
-    id: z.string().min(1).optional(),
-    asset: z.string().min(1),
-    start: z.number().nonnegative(),
-    end: z.number().optional(),
-    trimIn: z.number().nonnegative().optional(),
-    volume: z.number().min(0).max(2).optional(),
-    fadeIn: z.number().nonnegative().optional(),
-    fadeOut: z.number().nonnegative().optional(),
-    loop: z.boolean().optional(),
-  })
-  .refine((t) => t.end === undefined || t.end > t.start, {
-    message: "Audio track `end` must be greater than `start`.",
-    path: ["end"],
-  });
+export const AudioTrackSchema = strictObject({
+  id: z.string().min(1).optional(),
+  asset: z.string().min(1),
+  start: z.number().nonnegative(),
+  end: z.number().optional(),
+  trimIn: z.number().nonnegative().optional(),
+  volume: z.number().min(0).max(2).optional(),
+  fadeIn: z.number().nonnegative().optional(),
+  fadeOut: z.number().nonnegative().optional(),
+  loop: z.boolean().optional(),
+}).refine((t) => t.end === undefined || t.end > t.start, {
+  message: "Audio track `end` must be greater than `start`.",
+  path: ["end"],
+});
 
-export const CompositionSchema = z.object({
+export const CompositionSchema = strictObject({
   version: z.string(),
   composition: CompositionMetaSchema,
   assets: z.array(AssetSchema),

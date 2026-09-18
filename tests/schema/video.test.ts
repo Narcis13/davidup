@@ -178,13 +178,12 @@ describe("VideoItemSchema — field rules (Zod layer)", () => {
     expect(VideoItemSchema.safeParse(videoItem({ keepAudio: "yes" })).success).toBe(false);
   });
 
-  it("carries no per-track audio fields — audio-only keys are stripped, not stored", () => {
-    const parsed = VideoItemSchema.parse(
+  it("carries no per-track audio fields — audio-only keys are rejected (R-23)", () => {
+    const result = VideoItemSchema.safeParse(
       videoItem({ volume: 0.5, fadeIn: 1, fadeOut: 1 }),
-    ) as Record<string, unknown>;
-    expect("volume" in parsed).toBe(false);
-    expect("fadeIn" in parsed).toBe(false);
-    expect("fadeOut" in parsed).toBe(false);
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toMatch(/Unknown keys "volume", "fadeIn", "fadeOut"/);
   });
 });
 

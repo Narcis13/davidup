@@ -8,6 +8,27 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### ⚠ Breaking: strict composition schema with `$` / `x-` extension keys (R-23)
+
+- Every object in the composition schema now rejects keys it doesn't know.
+  A typo such as `opacty` or `cornerradius` used to be dropped silently; it
+  is now an `E_SCHEMA` error at its full path (`items.logo.transform.opacty`)
+  with a "did you mean" drawn from the valid sibling keys.
+- Forward-compatible escape hatch: keys starting with `$` (`$comment`, `$ref`,
+  `$behavior`, `$repeat`, …) or `x-` (user and tool extensions) are allowed on
+  any object and ignored, as every unknown key was before. Item ids are ids,
+  not keys: an item called `x-logo` is validated like any other.
+- MCP `update_item` / `update_video` reject an unknown key in `props` as
+  `E_INVALID_PROPERTY` (the code already used for a known prop the item type
+  can't take) instead of dropping it. Over stdio the MCP SDK validates tool
+  arguments before davidup sees them, so clients get its -32602 input error
+  carrying the same "did you mean" message. The editor's command schema
+  matches.
+- Video assets accept `fpsRational`, so a `probeVideo()` result can be spread
+  straight into an asset.
+- Migration: rename any custom keys in hand-written JSON to `x-…`; `validate`
+  names each one.
+
 ### MCP: `reset` clears everything; idle-TTL auto-reset (R-29)
 
 - `reset` with no `compositionId` now also drops the user templates, scenes
