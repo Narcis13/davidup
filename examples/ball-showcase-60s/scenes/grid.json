@@ -37,7 +37,7 @@
         "color": "#e8eaf0",
         "x": 280, "y1": 110, "y2": 160, "y3": 210,
         "fontSize": 28,
-        "stagger": 0.4, "stagger2": 0.8
+        "stagger": 0.4
       }
     },
     "ballA": {

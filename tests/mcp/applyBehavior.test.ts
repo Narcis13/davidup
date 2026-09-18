@@ -197,3 +197,235 @@ describe("apply_behavior tool", () => {
     ]);
   });
 });
+
+// ──────────── define_user_behavior with a body (v1.1 S19) ────────────
+
+const BOINGE_TWEENS = [
+  {
+    property: "transform.scaleX",
+    from: 1,
+    to: "${params.amount}",
+    duration: 0.2,
+    easing: "easeOutBack",
+    suffix: "out",
+  },
+  {
+    property: "transform.scaleX",
+    from: "${params.amount}",
+    to: 1,
+    start: "${$.start + 0.2}",
+    duration: 0.2,
+    easing: "easeInQuad",
+    suffix: "in",
+  },
+];
+
+async function defineBoinge(
+  deps: ToolDeps,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const out = await dispatchTool(
+    getTool("define_user_behavior"),
+    {
+      name: "myBoinge",
+      description: "Scale out and back.",
+      params: [{ name: "amount", type: "number", default: 1.2 }],
+      tweens: BOINGE_TWEENS,
+      ...extra,
+    },
+    deps,
+  );
+  expect(out.ok).toBe(true);
+}
+
+describe("define_user_behavior → apply_behavior", () => {
+  it("defines once and applies, emitting the body's tweens", async () => {
+    const { deps } = await setup();
+    await defineBoinge(deps);
+
+    const out = await dispatchTool(
+      getTool("apply_behavior"),
+      { target: "title", behavior: "myBoinge", start: 1, duration: 0.4 },
+      deps,
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect((out.result as { tweenIds: string[] }).tweenIds).toEqual([
+      "title_myBoinge_1__out",
+      "title_myBoinge_1__in",
+    ]);
+
+    const listed = await dispatchTool(getTool("list_tweens"), {}, deps);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const tweens = (listed.result as { tweens: Array<Record<string, unknown>> })
+      .tweens;
+    expect(tweens.map((t) => [t.id, t.start, t.duration, t.to])).toEqual([
+      ["title_myBoinge_1__out", 1, 0.2, 1.2],
+      ["title_myBoinge_1__in", 1.2, 0.2, 1],
+    ]);
+  });
+
+  it("reports the derived produces + executable back to the caller", async () => {
+    const { deps } = await setup();
+    const out = await dispatchTool(
+      getTool("define_user_behavior"),
+      {
+        name: "myBoinge",
+        params: [{ name: "amount", type: "number", default: 1.2 }],
+        // A wrong `produces` is ignored — the body is the source of truth.
+        produces: ["totally", "wrong"],
+        tweens: BOINGE_TWEENS,
+      },
+      deps,
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.result).toEqual({
+      name: "myBoinge",
+      executable: true,
+      produces: ["out", "in"],
+    });
+  });
+
+  it("applies the same definition N times under distinct ids", async () => {
+    const { deps } = await setup();
+    await defineBoinge(deps);
+    for (const start of [0, 1, 2]) {
+      const out = await dispatchTool(
+        getTool("apply_behavior"),
+        { target: "title", behavior: "myBoinge", start, duration: 0.4 },
+        deps,
+      );
+      expect(out.ok).toBe(true);
+    }
+    const listed = await dispatchTool(getTool("list_tweens"), {}, deps);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect((listed.result as { tweens: unknown[] }).tweens).toHaveLength(6);
+  });
+
+  it("list_behaviors marks bodyless definitions non-executable", async () => {
+    const { deps } = await setup();
+    await defineBoinge(deps);
+    await dispatchTool(
+      getTool("define_user_behavior"),
+      { name: "justACard", description: "catalog only" },
+      deps,
+    );
+    const out = await dispatchTool(getTool("list_behaviors"), {}, deps);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const behaviors = (
+      out.result as { behaviors: Array<{ name: string; executable?: boolean }> }
+    ).behaviors;
+    const byName = new Map(behaviors.map((b) => [b.name, b]));
+    expect(byName.get("myBoinge")?.executable).toBe(true);
+    expect(byName.get("justACard")?.executable).toBe(false);
+    // Built-ins stay executable and are still listed alongside.
+    expect(byName.get("fadeIn")?.executable).toBe(true);
+  });
+
+  it("applying a bodyless definition fails with a hint naming `tweens`", async () => {
+    const { deps } = await setup();
+    await dispatchTool(
+      getTool("define_user_behavior"),
+      { name: "justACard", description: "catalog only" },
+      deps,
+    );
+    const out = await dispatchTool(
+      getTool("apply_behavior"),
+      { target: "title", behavior: "justACard", start: 0, duration: 1 },
+      deps,
+    );
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe("E_BEHAVIOR_UNKNOWN");
+    expect(out.error.hint).toMatch(/tweens/);
+  });
+
+  it("a definition does not leak into another session's store", async () => {
+    const { deps } = await setup();
+    await defineBoinge(deps);
+    const other = await setup();
+    const out = await dispatchTool(
+      getTool("apply_behavior"),
+      { target: "title", behavior: "myBoinge", start: 0, duration: 0.4 },
+      other.deps,
+    );
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe("E_BEHAVIOR_UNKNOWN");
+  });
+
+  it("a session definition shadows a built-in for that session only", async () => {
+    const { deps } = await setup();
+    await dispatchTool(
+      getTool("define_user_behavior"),
+      {
+        name: "fadeIn",
+        description: "session fadeIn that slides instead",
+        tweens: [{ property: "transform.x", from: 0, to: 50, suffix: "x" }],
+      },
+      deps,
+    );
+    const mine = await dispatchTool(
+      getTool("apply_behavior"),
+      { target: "title", behavior: "fadeIn", start: 0, duration: 1, id: "f" },
+      deps,
+    );
+    expect(mine.ok).toBe(true);
+
+    const other = await setup();
+    const theirs = await dispatchTool(
+      getTool("apply_behavior"),
+      { target: "title", behavior: "fadeIn", start: 0, duration: 1, id: "f" },
+      other.deps,
+    );
+    expect(theirs.ok).toBe(true);
+
+    const listed = await dispatchTool(getTool("list_tweens"), {}, other.deps);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const tweens = (listed.result as { tweens: Array<{ property: string }> })
+      .tweens;
+    expect(tweens[0]?.property).toBe("transform.opacity");
+  });
+
+  it("rolls back atomically when a body tween clashes with an existing one", async () => {
+    const { deps } = await setup();
+    await defineBoinge(deps);
+    // Occupy the window the behavior's second tween wants.
+    const seed = await dispatchTool(
+      getTool("add_tween"),
+      {
+        id: "seed",
+        target: "title",
+        property: "transform.scaleX",
+        from: 0,
+        to: 1,
+        start: 1.25,
+        duration: 0.1,
+      },
+      deps,
+    );
+    expect(seed.ok).toBe(true);
+
+    const out = await dispatchTool(
+      getTool("apply_behavior"),
+      { target: "title", behavior: "myBoinge", start: 1, duration: 0.4 },
+      deps,
+    );
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe("E_TWEEN_OVERLAP");
+
+    // The first tween must not have survived the failed call.
+    const listed = await dispatchTool(getTool("list_tweens"), {}, deps);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(
+      (listed.result as { tweens: Array<{ id: string }> }).tweens.map((t) => t.id),
+    ).toEqual(["seed"]);
+  });
+});

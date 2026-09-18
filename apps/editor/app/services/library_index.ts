@@ -163,10 +163,20 @@ function readDefinitionItem(
   return item
 }
 
+/**
+ * The catalog id of an `index.json` `assets[]` / `fonts[]` entry. Exported so
+ * promotion (v1.1 S29) finds the same entry the catalog listed.
+ */
+export function indexEntryId(kind: 'asset' | 'font', obj: Record<string, unknown>): string | undefined {
+  return kind === 'asset'
+    ? (asString(obj.id) ?? asString(obj.name) ?? asString(obj.url))
+    : (asString(obj.id) ?? asString(obj.family) ?? asString(obj.name) ?? asString(obj.url))
+}
+
 function readAssetItem(raw: unknown, source: string, scope: LibraryScope): LibraryItem | null {
   const obj = asObject(raw)
   if (!obj) return null
-  const id = asString(obj.id) ?? asString(obj.name) ?? asString(obj.url)
+  const id = indexEntryId('asset', obj)
   if (!id) return null
   const item: LibraryItem = { kind: 'asset', id, source, scope, raw: obj }
   const name = asString(obj.name)
@@ -183,8 +193,7 @@ function readAssetItem(raw: unknown, source: string, scope: LibraryScope): Libra
 function readFontItem(raw: unknown, source: string, scope: LibraryScope): LibraryItem | null {
   const obj = asObject(raw)
   if (!obj) return null
-  const id =
-    asString(obj.id) ?? asString(obj.family) ?? asString(obj.name) ?? asString(obj.url)
+  const id = indexEntryId('font', obj)
   if (!id) return null
   const item: LibraryItem = { kind: 'font', id, source, scope, raw: obj }
   const name = asString(obj.name) ?? asString(obj.family)
@@ -720,12 +729,21 @@ function libraryBehaviorToDescriptor(
     if (Object.prototype.hasOwnProperty.call(po, 'default')) desc.default = po.default
     params.push(desc)
   }
-  return {
+  const out: BehaviorDescriptor = {
     name,
     description: asString(obj.description) ?? '',
     params,
     produces: 'dynamic',
   }
+  // A `tweens` body makes the card executable (v1.1 S19) — `registerBehavior`
+  // validates its shape, synthesizes the expansion, and derives `produces`
+  // from it. Bodyless cards stay catalog metadata. Passed through raw rather
+  // than via `asArray` so a malformed body reaches that validator (and lands
+  // in this file's error list) instead of being coerced to an empty one.
+  if (obj.tweens !== undefined) out.tweens = obj.tweens as ReadonlyArray<unknown>
+  const version = asString(obj.version)
+  if (version) out.version = version
+  return out
 }
 
 const libraryIndex = new LibraryIndex()

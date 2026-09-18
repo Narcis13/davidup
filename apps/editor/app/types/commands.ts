@@ -18,18 +18,33 @@
 */
 
 import { z } from 'zod'
-import { EASING_NAMES } from 'davidup/easings'
-import { BlendModeSchema } from 'davidup/schema'
+import { BlendModeSchema, EasingSchema, EffectSchema, idSchema } from 'davidup/schema'
 
 // ──────────────── Reusable fragments ────────────────
 
-const ID = z.string().min(1)
-const COMPOSITION_ID = z.string().min(1).optional()
+// DUAL of the engine's id restriction (src/schema/zod.ts `idSchema`): ids are
+// half of the resolver's `${target}::${property}` bucket key, so "::" must
+// never appear in one. Enforcing it here too means the editor rejects a bad
+// id at authoring time instead of only failing MCP-side validation later.
+const ID = idSchema('id')
+const COMPOSITION_ID = idSchema('id').optional()
 const UNIT = z.number().min(0).max(1)
 const NON_NEG = z.number().nonnegative()
 const POSITIVE = z.number().positive()
 const POINTS = z.array(z.tuple([z.number(), z.number()]))
 const TWEEN_VALUE = z.union([z.number(), z.string()])
+
+// Text v2 (v1.1 S14). DUAL of engine TextItemSchema / add_text (src/schema/zod.ts,
+// src/mcp/tools.ts) — mirror any new text field here or the bus strips it.
+const FONT_WEIGHT = z.union([z.enum(['normal', 'bold']), z.number().int().min(1).max(1000)])
+const FONT_STYLE = z.enum(['normal', 'italic', 'oblique'])
+export const TextShadowSchema = z.object({
+  color: z.string(),
+  blur: NON_NEG.optional(),
+  offsetX: z.number().optional(),
+  offsetY: z.number().optional(),
+})
+export type TextShadow = z.infer<typeof TextShadowSchema>
 
 const TRANSFORM_INPUT = {
   anchorX: z.number().optional(),
@@ -59,6 +74,7 @@ const TIME_MAPPING = z.discriminatedUnion('mode', [
     mode: z.literal('clip'),
     fromTime: NON_NEG,
     toTime: POSITIVE,
+    strict: z.boolean().optional(),
   }),
   z.object({
     mode: z.literal('loop'),
@@ -68,8 +84,11 @@ const TIME_MAPPING = z.discriminatedUnion('mode', [
     mode: z.literal('timeScale'),
     scale: POSITIVE,
   }),
+  z.object({ mode: z.literal('reverse') }),
 ])
 
+// Strict, like the engine's update_item props (v1.1 S23, R-23): an unknown
+// key is rejected instead of silently stripped.
 const ITEM_PROPS = z
   .object({
     x: z.number(),
@@ -89,12 +108,26 @@ const ITEM_PROPS = z
     fontSize: POSITIVE,
     color: z.string(),
     align: z.enum(['left', 'center', 'right']),
+    // Text v2. `null` clears maxWidth (point mode) / removes the shadow.
+    maxWidth: POSITIVE.nullable(),
+    lineHeight: POSITIVE,
+    letterSpacing: z.number(),
+    fontWeight: FONT_WEIGHT,
+    fontStyle: FONT_STYLE,
+    shadow: TextShadowSchema.nullable(),
     fillColor: z.string(),
     strokeColor: z.string(),
     strokeWidth: NON_NEG,
     cornerRadius: NON_NEG,
     points: POINTS,
     items: z.array(ID),
+    // Group compositing (v1.1 S18). `isolate: false` / `blendMode: 'normal'`
+    // put the group back on the default multiplicative path.
+    isolate: z.boolean(),
+    blendMode: BlendModeSchema,
+    // Per-item effects (v1.1 S21), every item type. DUAL of `effects` on
+    // update_item: replaces the whole stack; `null` / `[]` removes it.
+    effects: z.array(EffectSchema).nullable(),
     // §M flags (engine-honored visibility, editor-only lock).
     visible: z.boolean(),
     locked: z.boolean(),
@@ -105,26 +138,140 @@ const ITEM_PROPS = z
     exit: POSITIVE,
   })
   .partial()
+  .strict()
 
 const SOURCE = z.enum(['ui', 'mcp']).default('ui')
+
+// ──────────────── Composition-document fragments ────────────────
+
+// External audio track (v0.2 §S1). DUAL of engine `AudioTrackSchema`
+// (src/schema/zod.ts) — this UI-side copy is intentionally separate so the two
+// schemas can diverge per the dual-schema contract, but any new AudioTrack
+// field MUST be mirrored here too or it is silently stripped from UI payloads.
+// `[start, end)` seconds on the composition timeline; `end` omitted ⇒ play to
+// the asset's natural duration. `trimIn` (R-11, Session 28) is the in-source
+// offset in seconds, independent of timeline placement. `volume` is a linear
+// gain in [0, 2]; `fadeIn` / `fadeOut` are ramp lengths in seconds. `loop`
+// (v1.1 S10) repeats the source until `end` (or the composition end). `id` is
+// the addressing key used by the S3 MCP tools; optional in hand-authored JSON.
+export const AudioTrackSchema = z
+  .object({
+    id: ID.optional(),
+    asset: ID,
+    start: NON_NEG,
+    end: z.number().optional(),
+    trimIn: NON_NEG.optional(),
+    volume: z.number().min(0).max(2).optional(),
+    fadeIn: NON_NEG.optional(),
+    fadeOut: NON_NEG.optional(),
+    loop: z.boolean().optional(),
+  })
+  .refine((t) => t.end === undefined || t.end > t.start, {
+    message: 'Audio track `end` must be greater than `start`.',
+    path: ['end'],
+  })
+
+export type AudioTrack = z.infer<typeof AudioTrackSchema>
+
+// Video clip item (v0.2 §S5). DUAL of engine `VideoItemSchema`
+// (src/schema/zod.ts) — a separate UI-side copy per the dual-schema contract;
+// mirror any new field here or it is silently stripped from UI payloads.
+// Spatially a sprite (`transform` + `width`/`height` box); on top of that it
+// carries a temporal window (`start`, optional `end`) and a source trim
+// (`trimIn`/`trimOut`). `fit` defaults to 'contain', `loop` to false.
+// `keepAudio` (v1.1 S11) opts the clip's own audio stream into the render mux;
+// otherwise audio comes from external AudioTracks. The
+// add_video / update_video MCP commands arrive in §S9; this document fragment
+// exists now so the composition type is complete and the Inspector/Timeline
+// work (U4/U5) can bind to it. Cross-field invariants (trimIn < trimOut ≤
+// asset.duration, end > start) are enforced by the engine's semantic validator,
+// not here.
+const VIDEO_TRANSFORM = z.object({
+  x: z.number(),
+  y: z.number(),
+  scaleX: z.number(),
+  scaleY: z.number(),
+  rotation: z.number(),
+  anchorX: z.number(),
+  anchorY: z.number(),
+  opacity: UNIT,
+})
+
+export const VIDEO_FIT_MODES = ['cover', 'contain', 'fill', 'none'] as const
+
+export const VideoItemSchema = z.object({
+  type: z.literal('video'),
+  asset: ID,
+  width: NON_NEG,
+  height: NON_NEG,
+  start: NON_NEG,
+  end: POSITIVE.optional(),
+  trimIn: NON_NEG.optional(),
+  trimOut: POSITIVE.optional(),
+  fit: z.enum(VIDEO_FIT_MODES).default('contain'),
+  loop: z.boolean().default(false),
+  keepAudio: z.boolean().optional(),
+  transform: VIDEO_TRANSFORM,
+  // §M flags + §P friendly label, mirroring engine ItemFlagsSchema.
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  name: z.string().max(80).optional(),
+  // Lifespan: half-open [enter, exit) seconds on the composition timeline.
+  enter: NON_NEG.optional(),
+  exit: POSITIVE.optional(),
+})
+
+export type VideoItem = z.infer<typeof VideoItemSchema>
 
 // ──────────────── Per-tool payload schemas ────────────────
 
 const setCompositionProperty = z.object({
   kind: z.literal('set_composition_property'),
   payload: z.object({
-    property: z.enum(['width', 'height', 'fps', 'duration', 'background']),
-    value: z.union([z.number(), z.string()]),
+    property: z.enum(['width', 'height', 'fps', 'duration', 'background', 'audioMaster']),
+    // String covers `background` and a rational fps ("30000/1001", v1.1 S7).
+    // The object / null forms are `audioMaster` (v1.1 S10) — DUAL of the
+    // engine tool's value union; null resets it to the default.
+    value: z.union([
+      z.number(),
+      z.string(),
+      z
+        .object({
+          limiter: z.boolean().optional(),
+          targetLufs: z.number().min(-70).max(-5).optional(),
+        })
+        .strict(),
+      z.null(),
+    ]),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
 })
 
+// v1.1 S29 — whole-document swap (the Source drawer's save path). DUAL of
+// engine `replace_composition`: `json` passes through untouched; the tool
+// lowers authoring constructs and runs the full validator, so no shape is
+// duplicated here.
+const replaceComposition = z.object({
+  kind: z.literal('replace_composition'),
+  payload: z.object({
+    json: z.record(z.string(), z.unknown()),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+// DUAL of engine `register_asset` (src/mcp/tools.ts). `audio` (v0.2 §S2) and
+// `video` (§S6) are admitted here too or the command is silently stripped
+// before reaching the MCP tool. Probed metadata (audio: duration/sampleRate/
+// channels/codec; video: duration/width/height/fps/hasAlpha/codec/pixelFormat/hasAudio)
+// is NOT part of the payload — the engine derives it via ffprobe at
+// registration time.
 const registerAsset = z.object({
   kind: z.literal('register_asset'),
   payload: z.object({
     id: ID,
-    type: z.enum(['image', 'font']),
+    type: z.enum(['image', 'font', 'audio', 'video']),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
@@ -211,7 +358,8 @@ const addText = z.object({
   payload: z.object({
     layerId: ID,
     text: z.string(),
-    font: ID,
+    // Optional: the add_text tool defaults to the bundled `font:default` (R-30).
+    font: ID.optional(),
     fontSize: POSITIVE,
     color: z.string(),
     x: z.number(),
@@ -219,6 +367,14 @@ const addText = z.object({
     anchorX: z.number().optional(),
     anchorY: z.number().optional(),
     align: z.enum(['left', 'center', 'right']).optional(),
+    maxWidth: POSITIVE.optional(),
+    lineHeight: POSITIVE.optional(),
+    letterSpacing: z.number().optional(),
+    fontWeight: FONT_WEIGHT.optional(),
+    fontStyle: FONT_STYLE.optional(),
+    strokeColor: z.string().optional(),
+    strokeWidth: NON_NEG.optional(),
+    shadow: TextShadowSchema.optional(),
     rotation: z.number().optional(),
     opacity: UNIT.optional(),
     id: ID.optional(),
@@ -253,6 +409,10 @@ const addShape = z.object({
   source: SOURCE,
 })
 
+// DUAL of engine `add_group` (src/mcp/tools.ts). `isolate` / `blendMode`
+// (v1.1 S18) control group compositing: isolated, the children flatten onto a
+// scratch surface and composite once, so a faded group stops showing its
+// overlap seams.
 const addGroup = z.object({
   kind: z.literal('add_group'),
   payload: z.object({
@@ -260,6 +420,8 @@ const addGroup = z.object({
     x: z.number(),
     y: z.number(),
     childItemIds: z.array(ID).optional(),
+    isolate: z.boolean().optional(),
+    blendMode: BlendModeSchema.optional(),
     id: ID.optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
@@ -275,6 +437,11 @@ const updateItem = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  // Editor-only undo hint (v1.1 S26). Consecutive update_items carrying the
+  // same key within CommandBus's coalesce window fold into ONE undo step —
+  // arrow-key nudges use it so a burst of presses undoes in one ⌘Z. Never
+  // reaches the engine/MCP tool (it sits beside `payload`, not inside it).
+  coalesceKey: z.string().min(1).max(200).optional(),
 })
 
 const moveItemToLayer = z.object({
@@ -296,6 +463,73 @@ const removeItem = z.object({
   source: SOURCE,
 })
 
+// DUAL of engine `add_video` / `update_video` (src/mcp/tools.ts §S9). Every
+// field the MCP tools accept is mirrored here or the command bus strips it
+// before the call reaches the engine (see VideoItemSchema note above). Video is
+// spatially a sprite (transform + width/height box) plus a temporal window
+// (start/end), source trim (trimIn/trimOut), display (fit/loop), and
+// `keepAudio` (v1.1 S11). `layerId` is optional — omitted, the clip lands on the topmost layer.
+const addVideo = z.object({
+  kind: z.literal('add_video'),
+  payload: z.object({
+    layerId: ID.optional(),
+    asset: ID,
+    x: z.number(),
+    y: z.number(),
+    width: NON_NEG.optional(),
+    height: NON_NEG.optional(),
+    ...TRANSFORM_INPUT,
+    start: NON_NEG.optional(),
+    end: POSITIVE.optional(),
+    trimIn: NON_NEG.optional(),
+    trimOut: POSITIVE.optional(),
+    fit: z.enum(VIDEO_FIT_MODES).optional(),
+    loop: z.boolean().optional(),
+    keepAudio: z.boolean().optional(),
+    id: ID.optional(),
+    name: z.string().max(80).optional(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+const updateVideo = z.object({
+  kind: z.literal('update_video'),
+  payload: z.object({
+    id: ID,
+    props: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        scaleX: z.number(),
+        scaleY: z.number(),
+        rotation: z.number(),
+        anchorX: z.number(),
+        anchorY: z.number(),
+        opacity: UNIT,
+        width: NON_NEG,
+        height: NON_NEG,
+        asset: ID,
+        start: NON_NEG,
+        end: POSITIVE,
+        trimIn: NON_NEG,
+        trimOut: POSITIVE,
+        fit: z.enum(VIDEO_FIT_MODES),
+        loop: z.boolean(),
+        keepAudio: z.boolean(),
+        visible: z.boolean(),
+        locked: z.boolean(),
+        name: z.string().max(80),
+        enter: NON_NEG,
+        exit: POSITIVE,
+      })
+      .partial()
+      .strict(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
 const addTween = z.object({
   kind: z.literal('add_tween'),
   payload: z.object({
@@ -305,7 +539,8 @@ const addTween = z.object({
     to: TWEEN_VALUE,
     start: NON_NEG,
     duration: POSITIVE,
-    easing: z.enum(EASING_NAMES).optional(),
+    // DUAL of engine EasingSchema (v1.1 S17): a name, { bezier } or { steps }.
+    easing: EasingSchema.optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),
@@ -324,7 +559,7 @@ const updateTween = z.object({
         to: TWEEN_VALUE,
         start: NON_NEG,
         duration: POSITIVE,
-        easing: z.enum(EASING_NAMES),
+        easing: EasingSchema,
       })
       .partial(),
     compositionId: COMPOSITION_ID,
@@ -341,6 +576,57 @@ const removeTween = z.object({
   source: SOURCE,
 })
 
+// DUAL of engine `add_audio_track` (src/mcp/tools.ts §S3). Field ranges mirror
+// AudioTrackSchema; add a new field here too or the command bus strips it
+// before it reaches the MCP tool. `list_audio_tracks` is read-only, so — like
+// `list_tweens` — it is intentionally NOT a command.
+const addAudioTrack = z.object({
+  kind: z.literal('add_audio_track'),
+  payload: z.object({
+    asset: ID,
+    start: NON_NEG,
+    end: z.number().optional(),
+    trimIn: NON_NEG.optional(),
+    volume: z.number().min(0).max(2).optional(),
+    fadeIn: NON_NEG.optional(),
+    fadeOut: NON_NEG.optional(),
+    loop: z.boolean().optional(),
+    id: ID.optional(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+const updateAudioTrack = z.object({
+  kind: z.literal('update_audio_track'),
+  payload: z.object({
+    id: ID,
+    props: z
+      .object({
+        asset: ID,
+        start: NON_NEG,
+        end: z.number(),
+        trimIn: NON_NEG,
+        volume: z.number().min(0).max(2),
+        fadeIn: NON_NEG,
+        fadeOut: NON_NEG,
+        loop: z.boolean(),
+      })
+      .partial(),
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
+const removeAudioTrack = z.object({
+  kind: z.literal('remove_audio_track'),
+  payload: z.object({
+    id: ID,
+    compositionId: COMPOSITION_ID,
+  }),
+  source: SOURCE,
+})
+
 const applyBehavior = z.object({
   kind: z.literal('apply_behavior'),
   payload: z.object({
@@ -349,7 +635,7 @@ const applyBehavior = z.object({
     start: NON_NEG,
     duration: POSITIVE,
     params: z.record(z.string(), z.unknown()).optional(),
-    easing: z.enum(EASING_NAMES).optional(),
+    easing: EasingSchema.optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),
@@ -378,6 +664,8 @@ const addSceneInstance = z.object({
     params: z.record(z.string(), z.unknown()).optional(),
     transform: SCENE_TRANSFORM.optional(),
     time: TIME_MAPPING.optional(),
+    enter: NON_NEG.optional(),
+    exit: POSITIVE.optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),
@@ -392,6 +680,8 @@ const updateSceneInstance = z.object({
     transform: SCENE_TRANSFORM.optional(),
     start: NON_NEG.optional(),
     time: TIME_MAPPING.optional(),
+    enter: NON_NEG.optional(),
+    exit: POSITIVE.optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -410,6 +700,7 @@ const removeSceneInstance = z.object({
 
 export const CommandSchema = z.discriminatedUnion('kind', [
   setCompositionProperty,
+  replaceComposition,
   registerAsset,
   removeAsset,
   addLayer,
@@ -422,9 +713,14 @@ export const CommandSchema = z.discriminatedUnion('kind', [
   updateItem,
   moveItemToLayer,
   removeItem,
+  addVideo,
+  updateVideo,
   addTween,
   updateTween,
   removeTween,
+  addAudioTrack,
+  updateAudioTrack,
+  removeAudioTrack,
   applyBehavior,
   applyTemplate,
   addSceneInstance,
@@ -441,6 +737,7 @@ export type CommandSource = z.infer<typeof SOURCE>
 // table in apply_command.ts; missing or extra keys are a TS error.
 export const COMMAND_TO_TOOL: { readonly [K in CommandKind]: string } = {
   set_composition_property: 'set_composition_property',
+  replace_composition: 'replace_composition',
   register_asset: 'register_asset',
   remove_asset: 'remove_asset',
   add_layer: 'add_layer',
@@ -453,9 +750,14 @@ export const COMMAND_TO_TOOL: { readonly [K in CommandKind]: string } = {
   update_item: 'update_item',
   move_item_to_layer: 'move_item_to_layer',
   remove_item: 'remove_item',
+  add_video: 'add_video',
+  update_video: 'update_video',
   add_tween: 'add_tween',
   update_tween: 'update_tween',
   remove_tween: 'remove_tween',
+  add_audio_track: 'add_audio_track',
+  update_audio_track: 'update_audio_track',
+  remove_audio_track: 'remove_audio_track',
   apply_behavior: 'apply_behavior',
   apply_template: 'apply_template',
   add_scene_instance: 'add_scene_instance',

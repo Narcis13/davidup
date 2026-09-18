@@ -2,7 +2,22 @@
   "extends": "@adonisjs/tsconfig/tsconfig.app.json",
   "compilerOptions": {
     "rootDir": "./",
-    "outDir": "./build"
+    "outDir": "./build",
+    // Backend tests import inertia composables that touch DOM globals
+    // (XMLHttpRequest, window, DragEvent), so DOM libs are needed even in
+    // this server tsconfig.
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    // Mirror of inertia/tsconfig.json's `~/*` alias, for inertia files
+    // pulled into this program via test imports.
+    // The extra `*.ts` candidate is required because NodeNext resolution
+    // does not add extensions to extensionless mapped paths.
+    "paths": {
+      "~/*": ["./inertia/*", "./inertia/*.ts"]
+    },
+    // The frozen davidup engine snapshot under node_modules ships .ts source
+    // with unused locals; tsc follows those imports and skipLibCheck only
+    // covers .d.ts files. ESLint still flags unused vars in editor code.
+    "noUnusedLocals": false
   },
   "exclude": ["./inertia/**/*", "node_modules", "build"],
   "ts-node": {

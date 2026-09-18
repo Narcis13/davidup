@@ -9,6 +9,10 @@
 // definition fields (description, params, items, tweens, …). A richer
 // wizard can be layered on later — the endpoint shape will not need to
 // change.
+//
+// For behaviors the body's `tweens` array is executable (v1.1 S19): the
+// caller can seed it from the selected item's own tweens via `initialBody`,
+// which is what the Library's "from selection" button does.
 
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 
@@ -93,8 +97,14 @@ function defaultBody(k: DefinitionKind): string {
     '{',
     '  "description": "",',
     '  "params": [],',
-    '  "emits": [],',
-    '  "tweens": []',
+    '  "tweens": [',
+    '    {',
+    '      "property": "transform.opacity",',
+    '      "from": 0,',
+    '      "to": 1,',
+    '      "suffix": "opacity"',
+    '    }',
+    '  ]',
     '}',
     '',
   ].join('\n')

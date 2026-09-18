@@ -24,7 +24,7 @@ import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
-import { renderToFile } from 'davidup/node'
+import { renderToFile, resolveRenderRange } from 'davidup/node'
 import type { Composition } from 'davidup/schema'
 
 /**
@@ -47,7 +47,7 @@ async function resolveFfmpegPath(): Promise<string> {
   }
   try {
     // ffmpeg-static is an optional dep — dynamic import lets us soft-fail.
-    const mod = (await import('ffmpeg-static')) as { default?: string | null }
+    const mod = (await import('ffmpeg-static')) as unknown as { default?: string | null }
     if (mod.default && typeof mod.default === 'string') {
       cachedFfmpegPath = mod.default
       return mod.default
@@ -116,17 +116,29 @@ export interface RenderErrorEvent {
 
 export type RenderEvent = RenderProgressEvent | RenderDoneEvent | RenderErrorEvent
 
+/** Container per codec (v1.1 S9): ProRes 4444 → .mov, VP9 alpha → .webm. */
+export function containerExtensionFor(codec: string | undefined): string {
+  if (codec === 'prores_ks') return '.mov'
+  if (codec === 'libvpx-vp9') return '.webm'
+  return '.mp4'
+}
+
 export interface RenderJobRenderOptions {
-  codec?: 'libx264' | 'libx265'
+  /** `prores_ks` / `libvpx-vp9` keep alpha (v1.1 S9) and need .mov / .webm. */
+  codec?: 'libx264' | 'libx265' | 'prores_ks' | 'libvpx-vp9'
   crf?: number
   preset?: string
   pixFmt?: string
+  /** Output colour tagging (v1.1 S8). Engine default `bt709`. */
+  colorProfile?: 'bt709' | 'untagged'
   /**
    * Override the editor's default of `true`. MCP callers may pass `false`
    * when targeting a non-MP4 container, where ffmpeg refuses `-movflags
    * +faststart` and aborts the render.
    */
   movflagsFaststart?: boolean
+  /** Render only `[from, to)` seconds of the timeline (v1.1 S12). */
+  range?: { from?: number; to?: number }
 }
 
 export interface RenderJobOptions {
@@ -179,8 +191,7 @@ export class RenderJob extends EventEmitter {
     this.sourcePath = opts.sourcePath
     this.startedAt = Date.now()
     this.renderOptions = opts.renderOptions ?? {}
-    const meta = opts.composition.composition
-    this.totalFrames = Math.max(1, Math.ceil(meta.duration * meta.fps))
+    this.totalFrames = resolveRenderRange(opts.composition, this.renderOptions.range).frameCount
 
     this.#donePromise = new Promise((resolve) => {
       this.#resolveDone = resolve
@@ -237,6 +248,8 @@ export class RenderJob extends EventEmitter {
         ...(ro.crf !== undefined ? { crf: ro.crf } : {}),
         ...(ro.preset !== undefined ? { preset: ro.preset } : {}),
         ...(ro.pixFmt !== undefined ? { pixFmt: ro.pixFmt } : {}),
+        ...(ro.colorProfile !== undefined ? { colorProfile: ro.colorProfile } : {}),
+        ...(ro.range !== undefined ? { range: ro.range } : {}),
         onProgress: ({ frame, total }) => {
           lastFrame = frame
           const ev: RenderProgressEvent = {

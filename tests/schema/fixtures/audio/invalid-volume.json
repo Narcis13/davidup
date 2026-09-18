@@ -1,0 +1,21 @@
+{
+  "version": "0.2",
+  "composition": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 25,
+    "background": "#000000"
+  },
+  "assets": [],
+  "layers": [],
+  "items": {},
+  "tweens": [],
+  "audio": [
+    {
+      "asset": "music-bed",
+      "start": 0,
+      "volume": 2.5
+    }
+  ]
+}

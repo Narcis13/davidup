@@ -75,6 +75,7 @@ import {
 import { scaffoldProject, ScaffoldError } from 'davidup/cli/scaffold'
 
 import renderJobs, {
+  containerExtensionFor,
   RenderJob,
   type RenderJobRenderOptions,
 } from '../workers/render_worker.js'
@@ -138,7 +139,7 @@ export function createEditorMcpServer(
 
   return createServer({
     name: opts.name ?? 'davidup-editor',
-    version: opts.version ?? '0.1.0',
+    version: opts.version ?? '1.0.0',
     depsFactory: () => buildDeps(store, library),
     router: buildRouter(bus, store),
   })
@@ -408,6 +409,7 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
   function resolveOutputPath(
     projectRoot: string,
     requested: string,
+    codec: string | undefined,
   ): { absolute: string; relative: string } {
     if (requested.length === 0) {
       throw new MCPToolError(
@@ -435,9 +437,10 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
         '`outputPath` must resolve inside the active project directory.',
       )
     }
-    // Default to `.mp4` if the caller omitted an extension — same UX as the
-    // HTTP controller's filename handling.
-    const withExt = extname(absolute) ? absolute : `${absolute}.mp4`
+    // Default to the codec's container (.mp4, or .mov / .webm for the alpha
+    // codecs) if the caller omitted an extension — same UX as the HTTP
+    // controller's filename handling.
+    const withExt = extname(absolute) ? absolute : `${absolute}${containerExtensionFor(codec)}`
     return { absolute: withExt, relative: relative(projectRoot, withExt) }
   }
 
@@ -478,7 +481,7 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
     start: async (args: MCPRenderStartArgs): Promise<MCPRenderJobSnapshot> => {
       const project = projectOrThrow()
       const composition = store.composition as
-        | { composition: { duration: number; fps: number; width: number; height: number } }
+        | { composition: { duration: number; fps: number | string; width: number; height: number } }
         | null
       if (!composition) {
         throw new MCPToolError(
@@ -486,7 +489,7 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
           'No composition is loaded for the active project.',
         )
       }
-      const paths = resolveOutputPath(project.root, args.outputPath)
+      const paths = resolveOutputPath(project.root, args.outputPath, args.codec)
       await mkdir(resolvePath(paths.absolute, '..'), { recursive: true })
 
       const renderOptions: RenderJobRenderOptions = {}
@@ -494,19 +497,30 @@ export function buildRenderControls(store: ProjectStore): RenderControls {
       if (args.crf !== undefined) renderOptions.crf = args.crf
       if (args.preset !== undefined) renderOptions.preset = args.preset
       if (args.pixFmt !== undefined) renderOptions.pixFmt = args.pixFmt
+      if (args.colorProfile !== undefined) renderOptions.colorProfile = args.colorProfile
+      if (args.range !== undefined) renderOptions.range = args.range
       if (args.movflagsFaststart !== undefined) {
         renderOptions.movflagsFaststart = args.movflagsFaststart
       }
 
       const jobId = randomUUID()
-      const job = new RenderJob({
-        jobId,
-        composition: composition as never,
-        outputPath: paths.absolute,
-        relativeOutputPath: paths.relative,
-        sourcePath: project.compositionPath,
-        renderOptions,
-      })
+      let job: RenderJob
+      try {
+        job = new RenderJob({
+          jobId,
+          composition: composition as never,
+          outputPath: paths.absolute,
+          relativeOutputPath: paths.relative,
+          sourcePath: project.compositionPath,
+          renderOptions,
+        })
+      } catch (err) {
+        // An empty `from`/`to` window (v1.1 S12) is rejected up front.
+        if (err instanceof RangeError) {
+          throw new MCPToolError('E_INVALID_VALUE', err.message, 'Pick `from`/`to` inside the composition duration.')
+        }
+        throw err
+      }
       renderJobs.add(job)
 
       // Fire-and-forget: callers either poll via `get_render` or pass
@@ -685,7 +699,12 @@ function mapBusErrorToDispatch(err: unknown): DispatchResult {
     )
   }
   if (err instanceof CommandRejectedError) {
-    return errorResult(narrowMcpCode(err.code), err.message, err.hint)
+    return errorResult(
+      narrowMcpCode(err.code),
+      err.message,
+      err.hint,
+      err.issues ? { issues: err.issues } : undefined,
+    )
   }
   if (err instanceof PostValidationError) {
     const first = err.result.errors[0]?.message
@@ -733,6 +752,8 @@ const KNOWN_CODES = new Set<string>([
   'E_TEMPLATE_UNKNOWN',
   'E_TEMPLATE_PARAM_MISSING',
   'E_TEMPLATE_PARAM_TYPE',
+  'E_TEMPLATE_EXPR',
+  'E_REPEAT_INVALID',
   'E_SCENE_UNKNOWN',
   'E_SCENE_PARAM_MISSING',
   'E_SCENE_PARAM_TYPE',

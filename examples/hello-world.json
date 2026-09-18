@@ -14,10 +14,9 @@
     "Coordinate system: origin top-left, y-down (per §1). Anchor (0.5, 0.5) means the logo's transform",
     "x/y is its CENTER, and rotation/scale pivot around the center.",
     "",
-    "$comment is non-canonical metadata: the schema's catch-all (z.record on items, z.object passthrough",
-    "on the root) ignores unknown keys, so this comment block is preserved on parse but never rendered.",
-    "It exists purely so this file documents itself when read in isolation. Strip it if you copy the",
-    "JSON into an environment that complains about extra fields."
+    "$comment is non-canonical metadata: the schema is strict, but keys starting with '$' or 'x-' are",
+    "always allowed and ignored, so this comment block survives validation and is never rendered.",
+    "It exists purely so this file documents itself when read in isolation."
   ],
 
   "version": "0.1",

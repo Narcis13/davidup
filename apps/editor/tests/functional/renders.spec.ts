@@ -347,9 +347,9 @@ test.group('Renders · HTTP', (group) => {
       return
     }
     const dir = await makeProject()
-    const { default: testUtils } = await import('@adonisjs/core/services/test_utils')
-    const httpServer = testUtils.httpServer()
-    await httpServer.start()
+    // The functional suite's HTTP server is already listening (started by
+    // tests/bootstrap.ts configureSuite) — starting another here would
+    // EADDRINUSE. The raw fetch below talks to that shared server.
     try {
       await projectStore.load(dir)
       const composition = projectStore.composition as never
@@ -380,10 +380,7 @@ test.group('Renders · HTTP', (group) => {
     }
   }).timeout(30_000)
 
-  test('GET /project-renders/:filename serves a finished render file', async ({
-    client,
-    assert,
-  }) => {
+  test('GET /project-renders/:filename serves a finished render file', async ({ client }) => {
     const dir = await makeProject()
     try {
       await projectStore.load(dir)

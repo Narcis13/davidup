@@ -64,6 +64,63 @@ describe("validate — schema errors (E_SCHEMA)", () => {
   });
 });
 
+describe("validate — parametric easings (v1.1 S17)", () => {
+  function withEasing(easing: unknown) {
+    const comp = baseComposition() as unknown as Record<string, unknown>;
+    (comp.tweens as Array<Record<string, unknown>>)[0]!.easing = easing;
+    return validate(comp);
+  }
+
+  it("accepts { bezier } (y may overshoot) and { steps }", () => {
+    for (const easing of [
+      { bezier: [0.25, 0.1, 0.25, 1] },
+      { bezier: [0, -0.5, 1, 1.5] },
+      { steps: 1 },
+      { steps: 12 },
+    ]) {
+      const result = withEasing(easing);
+      expect(result.errors, JSON.stringify(easing)).toEqual([]);
+    }
+  });
+
+  it("rejects bezier x outside [0, 1] at the offending slot", () => {
+    const result = withEasing({ bezier: [0.25, 0.1, 1.2, 1] });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "E_SCHEMA", path: "tweens.0.easing.bezier.2" }),
+    ]);
+  });
+
+  it("rejects steps that are not an integer ≥ 1", () => {
+    for (const steps of [0, -2, 2.5]) {
+      const result = withEasing({ steps });
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toMatchObject({ code: "E_SCHEMA", path: "tweens.0.easing.steps" });
+    }
+  });
+
+  it("rejects an object carrying both forms instead of picking one", () => {
+    const result = withEasing({ bezier: [0.25, 0.1, 0.25, 1], steps: 3 });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]!.message).toMatch(/Unknown key "steps"/);
+  });
+
+  it("an unmatched value lists the names and both object forms", () => {
+    for (const easing of ["easeBogus", { bezier: [0.1, 0.2, 0.3] }, { cubic: [0, 0, 1, 1] }, 3]) {
+      const result = withEasing(easing);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      const { code, path, message } = result.errors[0]!;
+      expect(code).toBe("E_SCHEMA");
+      expect(path).toBe("tweens.0.easing");
+      expect(message).toContain("easeInOutExpo");
+      expect(message).toContain("{ bezier: [x1, y1, x2, y2] }");
+      expect(message).toContain("{ steps: n }");
+      expect(message).toContain(JSON.stringify(easing));
+    }
+  });
+});
+
 describe("validate — reference errors (E_ITEM_MISSING / E_ASSET_MISSING)", () => {
   it("flags layer pointing at unknown item", () => {
     const comp = baseComposition();
@@ -104,6 +161,62 @@ describe("validate — reference errors (E_ITEM_MISSING / E_ASSET_MISSING)", () 
     expect(
       result.errors.find((e) => e.code === "E_ASSET_MISSING")?.message,
     ).toMatch(/not "font"/);
+  });
+
+  it("flags video pointing at unknown asset (R-5)", () => {
+    const comp = baseComposition();
+    comp.items["intro-video"] = {
+      type: "video",
+      asset: "ghost-asset",
+      width: 640,
+      height: 360,
+      start: 0,
+      fit: "contain",
+      loop: false,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.find((e) => e.code === "E_ASSET_MISSING")?.message,
+    ).toMatch(/unknown asset "ghost-asset"/);
+  });
+
+  it("flags video pointing at a non-video asset (R-5)", () => {
+    const comp = baseComposition();
+    comp.items["intro-video"] = {
+      type: "video",
+      asset: "logo",
+      width: 640,
+      height: 360,
+      start: 0,
+      fit: "contain",
+      loop: false,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.find((e) => e.code === "E_ASSET_MISSING")?.message,
+    ).toMatch(/not "video"/);
   });
 
   it("flags tween targeting unknown item", () => {
@@ -165,6 +278,27 @@ describe("validate — tween property checks", () => {
     const result = validate(comp);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.code === "E_VALUE_KIND")).toBe(true);
+  });
+
+  it.each([
+    ["from", "magenta", "#ff0000"],
+    ["to", "#ffffff", "#gggggg"],
+  ])("flags an unparseable color string on %s (E_COLOR_INVALID)", (end, from, to) => {
+    const comp = baseComposition();
+    comp.tweens.push({
+      id: "title-color-shift",
+      target: "title-text",
+      property: "color",
+      from,
+      to,
+      start: 0,
+      duration: 1,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    const err = result.errors.find((e) => e.code === "E_COLOR_INVALID");
+    expect(err?.path).toBe(`tweens.title-color-shift.${end}`);
   });
 });
 
@@ -294,6 +428,156 @@ describe("validate — duration warning (W_TWEEN_TRUNCATED)", () => {
   });
 });
 
+describe("validate — ids forbid \"::\" (E_SCHEMA)", () => {
+  it("rejects an item id containing '::'", () => {
+    const comp = baseComposition() as unknown as {
+      items: Record<string, unknown>;
+    };
+    const item = comp.items["logo-sprite"];
+    delete comp.items["logo-sprite"];
+    comp.items["logo::sprite"] = item;
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a layer id containing '::'", () => {
+    const comp = baseComposition();
+    comp.layers[0]!.id = "background::layer";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a tween id containing '::'", () => {
+    const comp = baseComposition();
+    comp.tweens[0]!.id = "logo::fade-in";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a tween target containing '::'", () => {
+    const comp = baseComposition();
+    comp.tweens[0]!.target = "logo::sprite";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+
+  it("rejects a tween property containing '::'", () => {
+    const comp = baseComposition();
+    comp.tweens[0]!.property = "transform::opacity";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_SCHEMA")).toBe(true);
+  });
+});
+
+describe("validate — duplicate ids", () => {
+  it("flags duplicate layer ids (E_DUPLICATE_LAYER_ID)", () => {
+    const comp = baseComposition();
+    comp.layers[1]!.id = comp.layers[0]!.id;
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.code === "E_DUPLICATE_LAYER_ID"),
+    ).toBe(true);
+  });
+
+  it("flags duplicate tween ids (E_DUPLICATE_TWEEN_ID)", () => {
+    // Previously-"valid" composition: two tweens sharing an id used to parse
+    // and validate fine even though update_tween/remove_tween (addressed by
+    // tween.id) couldn't tell them apart.
+    const comp = baseComposition();
+    comp.tweens.push({
+      id: comp.tweens[0]!.id,
+      target: "title-text",
+      property: "transform.opacity",
+      from: 1,
+      to: 0,
+      start: 2,
+      duration: 1,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.code === "E_DUPLICATE_TWEEN_ID"),
+    ).toBe(true);
+  });
+});
+
+describe("validate — polygon points (E_POLYGON_INVALID)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("rejects a polygon with fewer than 3 points", () => {
+    const comp = baseComposition();
+    comp.items["triangle"] = {
+      type: "shape",
+      kind: "polygon",
+      points: [
+        [0, 0],
+        [10, 10],
+      ],
+      transform,
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_POLYGON_INVALID")).toBe(
+      true,
+    );
+  });
+
+  it("rejects a polygon with no points at all", () => {
+    const comp = baseComposition();
+    comp.items["triangle"] = { type: "shape", kind: "polygon", transform };
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_POLYGON_INVALID")).toBe(
+      true,
+    );
+  });
+
+  it("accepts a polygon with 3 or more points", () => {
+    const comp = baseComposition();
+    comp.items["triangle"] = {
+      type: "shape",
+      kind: "polygon",
+      points: [
+        [0, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      transform,
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+  });
+
+  it("does not require points on non-polygon shapes", () => {
+    const comp = baseComposition();
+    comp.items["box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 10,
+      height: 10,
+      transform,
+    };
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+  });
+});
+
 describe("validate — group cycles (E_GROUP_CYCLE)", () => {
   it("flags a self-referential group", () => {
     const comp = baseComposition();
@@ -361,5 +645,331 @@ describe("validate — group cycles (E_GROUP_CYCLE)", () => {
     };
     const result = validate(comp);
     expect(result.valid).toBe(true);
+  });
+});
+
+describe("validate — invisible opacity (W_ITEM_INVISIBLE_OPACITY)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("warns when an item's own opacity is 0 for its entire lifespan with no tween", () => {
+    const comp = baseComposition();
+    // Base fixture's logo-sprite starts at opacity 0 but is saved by the
+    // fade-in tween — drop it so the item really is permanently invisible.
+    comp.tweens = [];
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]!.code).toBe("W_ITEM_INVISIBLE_OPACITY");
+    expect(result.warnings[0]!.message).toMatch(/logo-sprite/);
+  });
+
+  it("does not warn when a tween drives the item's opacity away from 0", () => {
+    const comp = baseComposition();
+    const result = validate(comp);
+    expect(
+      result.warnings.some((w) => w.code === "W_ITEM_INVISIBLE_OPACITY"),
+    ).toBe(false);
+  });
+
+  it("warns when an ancestor group's opacity is permanently 0", () => {
+    const comp = baseComposition();
+    comp.tweens = [];
+    const logo = comp.items["logo-sprite"]!;
+    if (logo.type === "sprite") logo.transform.opacity = 1; // item itself is fine
+    comp.items["wrapper"] = {
+      type: "group",
+      items: ["logo-sprite"],
+      transform: { ...transform, opacity: 0 },
+    };
+    comp.layers[1]!.items = ["wrapper", "title-text"];
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find(
+      (w) => w.code === "W_ITEM_INVISIBLE_OPACITY",
+    );
+    expect(warn?.message).toMatch(/logo-sprite/);
+    expect(warn?.message).toMatch(/wrapper/);
+  });
+
+  it("warns when the item's layer opacity is 0", () => {
+    const comp = baseComposition();
+    comp.tweens = [];
+    const logo = comp.items["logo-sprite"]!;
+    if (logo.type === "sprite") logo.transform.opacity = 1;
+    comp.layers[1]!.opacity = 0;
+    const result = validate(comp);
+    const warn = result.warnings.find(
+      (w) =>
+        w.code === "W_ITEM_INVISIBLE_OPACITY" &&
+        w.path === "items.logo-sprite.transform.opacity",
+    );
+    expect(warn?.message).toMatch(/foreground-layer/);
+  });
+});
+
+describe("validate — off-canvas items (W_ITEM_OFF_CANVAS)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("warns when a static sprite never overlaps the canvas", () => {
+    const comp = baseComposition();
+    comp.items["offscreen-sprite"] = {
+      type: "sprite",
+      asset: "logo",
+      width: 100,
+      height: 100,
+      transform: { ...transform, x: 5000, y: 5000 },
+    };
+    comp.layers[1]!.items.push("offscreen-sprite");
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find((w) => w.code === "W_ITEM_OFF_CANVAS");
+    expect(warn?.message).toMatch(/offscreen-sprite/);
+  });
+
+  it("does not warn when a tween brings the item back on-canvas", () => {
+    const comp = baseComposition();
+    comp.items["moving-sprite"] = {
+      type: "sprite",
+      asset: "logo",
+      width: 100,
+      height: 100,
+      // y is already on-canvas; only x starts off-canvas and gets tweened back.
+      transform: { ...transform, x: 5000, y: 500 },
+    };
+    comp.layers[1]!.items.push("moving-sprite");
+    comp.tweens.push({
+      id: "moving-sprite-slide",
+      target: "moving-sprite",
+      property: "transform.x",
+      from: 5000,
+      to: 100,
+      start: 0,
+      duration: 2,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(
+      result.warnings.some(
+        (w) => w.code === "W_ITEM_OFF_CANVAS" && w.message.includes("moving-sprite"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn about an item off-canvas inside a group (ancestor transform out of scope)", () => {
+    const comp = baseComposition();
+    comp.items["nested-offscreen"] = {
+      type: "sprite",
+      asset: "logo",
+      width: 100,
+      height: 100,
+      transform: { ...transform, x: 5000, y: 5000 },
+    };
+    comp.items["wrapper"] = {
+      type: "group",
+      items: ["nested-offscreen"],
+      transform,
+    };
+    comp.layers[1]!.items.push("wrapper");
+    const result = validate(comp);
+    expect(result.warnings.some((w) => w.code === "W_ITEM_OFF_CANVAS")).toBe(
+      false,
+    );
+  });
+});
+
+describe("validate — unregistered font (W_FONT_UNREGISTERED)", () => {
+  it("warns (alongside E_ASSET_MISSING) when text.font doesn't resolve", () => {
+    const comp = baseComposition();
+    const text = comp.items["title-text"]!;
+    if (text.type === "text") text.font = "ghost-font";
+    const result = validate(comp);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.code === "E_ASSET_MISSING")).toBe(true);
+    const warn = result.warnings.find((w) => w.code === "W_FONT_UNREGISTERED");
+    expect(warn?.message).toMatch(/ghost-font/);
+  });
+
+  it("does not warn when the font resolves to a registered font asset", () => {
+    const comp = baseComposition();
+    const result = validate(comp);
+    expect(result.warnings.some((w) => w.code === "W_FONT_UNREGISTERED")).toBe(
+      false,
+    );
+  });
+});
+
+describe("validate — scene instance outliving its scene (W_SCENE_INSTANCE_OUTLIVES)", () => {
+  const transform = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  };
+
+  it("warns when a scene-instance wrapper stays visible long after its content's last tween", () => {
+    const comp = baseComposition();
+    comp.items["intro__box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 100,
+      height: 100,
+      fillColor: "#ffffff",
+      transform,
+    };
+    comp.items["intro"] = {
+      type: "group",
+      items: ["intro__box"],
+      transform,
+      enter: 0,
+      exit: 10,
+    };
+    comp.layers[1]!.items.push("intro");
+    comp.tweens.push({
+      id: "intro-box-fade",
+      target: "intro__box",
+      property: "transform.opacity",
+      from: 0,
+      to: 1,
+      start: 0,
+      duration: 2,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find(
+      (w) => w.code === "W_SCENE_INSTANCE_OUTLIVES",
+    );
+    expect(warn?.message).toMatch(/"intro"/);
+  });
+
+  it("does not warn when the wrapper's exit matches the content's last tween end", () => {
+    const comp = baseComposition();
+    comp.items["intro__box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 100,
+      height: 100,
+      fillColor: "#ffffff",
+      transform,
+    };
+    comp.items["intro"] = {
+      type: "group",
+      items: ["intro__box"],
+      transform,
+      enter: 0,
+      exit: 2,
+    };
+    comp.layers[1]!.items.push("intro");
+    comp.tweens.push({
+      id: "intro-box-fade",
+      target: "intro__box",
+      property: "transform.opacity",
+      from: 0,
+      to: 1,
+      start: 0,
+      duration: 2,
+      easing: "linear",
+    });
+    const result = validate(comp);
+    expect(
+      result.warnings.some((w) => w.code === "W_SCENE_INSTANCE_OUTLIVES"),
+    ).toBe(false);
+  });
+
+  it("does not warn on a scene-instance wrapper with no animation inside it", () => {
+    const comp = baseComposition();
+    comp.items["intro__box"] = {
+      type: "shape",
+      kind: "rect",
+      width: 100,
+      height: 100,
+      fillColor: "#ffffff",
+      transform,
+    };
+    comp.items["intro"] = {
+      type: "group",
+      items: ["intro__box"],
+      transform,
+      enter: 0,
+      exit: 100,
+    };
+    comp.layers[1]!.items.push("intro");
+    const result = validate(comp);
+    expect(
+      result.warnings.some((w) => w.code === "W_SCENE_INSTANCE_OUTLIVES"),
+    ).toBe(false);
+  });
+});
+
+describe("validate — keepAudio on a silent source (W_VIDEO_NO_AUDIO_STREAM)", () => {
+  function withClip(hasAudio: boolean | undefined, keepAudio: boolean) {
+    const comp = baseComposition();
+    comp.assets.push({
+      id: "clip",
+      type: "video",
+      src: "./clip.mp4",
+      duration: 5,
+      ...(hasAudio !== undefined ? { hasAudio } : {}),
+    });
+    comp.items["clip-item"] = {
+      type: "video",
+      asset: "clip",
+      width: 1920,
+      height: 1080,
+      start: 0,
+      fit: "contain",
+      loop: false,
+      keepAudio,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    comp.layers[0]!.items.push("clip-item");
+    return comp;
+  }
+  const flagged = (comp: ReturnType<typeof withClip>) =>
+    validate(comp).warnings.filter((w) => w.code === "W_VIDEO_NO_AUDIO_STREAM");
+
+  it("warns when keepAudio is set but ffprobe found no audio stream", () => {
+    const result = validate(withClip(false, true));
+    expect(result.valid).toBe(true);
+    const warn = result.warnings.find((w) => w.code === "W_VIDEO_NO_AUDIO_STREAM");
+    expect(warn?.path).toBe("items.clip-item.keepAudio");
+    expect(warn?.message).toMatch(/clip-item/);
+  });
+
+  it("stays quiet when the source has audio, is unprobed, or keepAudio is off", () => {
+    expect(flagged(withClip(true, true))).toEqual([]);
+    expect(flagged(withClip(undefined, true))).toEqual([]);
+    expect(flagged(withClip(false, false))).toEqual([]);
   });
 });

@@ -17,12 +17,15 @@ const EditorStateController = () => import('#controllers/editor_state_controller
 const LibraryController = () => import('#controllers/library_controller')
 const AssetsController = () => import('#controllers/assets_controller')
 const RendersController = () => import('#controllers/renders_controller')
+const VideoFramesController = () => import('#controllers/video_frames_controller')
 
 router.get('/', [HomeController, 'show'])
 
 router.get('/editor', [EditorController, 'show'])
 router.get('/project-files/*', [EditorController, 'file'])
+router.get('/project-video-frames/:itemId/:frame', [VideoFramesController, 'frame'])
 router.get('/library-files/*', [EditorController, 'libraryFile'])
+router.get('/bundled-fonts/:file', [EditorController, 'bundledFont'])
 router.get('/project-renders/:filename', [RendersController, 'file'])
 
 router
@@ -52,5 +55,6 @@ router
     router.post('/renders/rename', [RendersController, 'rename'])
     router.get('/renders/:id', [RendersController, 'show'])
     router.get('/renders/:id/events', [RendersController, 'events'])
+    router.get('/video-clips', [VideoFramesController, 'clips'])
   })
   .prefix('/api')

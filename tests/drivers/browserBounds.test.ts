@@ -391,3 +391,67 @@ describe("getItemBoundsAt", () => {
     expect(handle.getItemBoundsAt("a", 0)).toBeNull();
   });
 });
+
+// Text v2 (v1.1 S13): the ring uses real layout. FakeContext measures every
+// code point as 10px wide.
+function textComp(text: Record<string, unknown>): Composition {
+  return {
+    version: "0.1",
+    composition: { width: 400, height: 400, fps: 60, duration: 1, background: "#000" },
+    assets: [],
+    layers: [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["t"] }],
+    items: {
+      t: {
+        type: "text",
+        font: "f",
+        fontSize: 20,
+        color: "#fff",
+        transform: { x: 100, y: 100, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0, opacity: 1 },
+        ...text,
+      },
+    },
+    tweens: [],
+  } as Composition;
+}
+
+describe("getItemBoundsAt — text", () => {
+  it("centres a box-mode block on its anchor", async () => {
+    const comp = textComp({ text: "abcd\nab" });
+    const t = comp.items.t!;
+    t.transform.anchorX = 0.5;
+    t.transform.anchorY = 0.5;
+    const handle = await attachComp(comp);
+    // Block 40 × (2 × 1.2 × 20 = 48), centred on (100, 100).
+    approxCorners(handle.getItemBoundsAt("t", 0)!.corners, [
+      [80, 76],
+      [120, 76],
+      [120, 124],
+      [80, 124],
+    ]);
+    handle.stop();
+  });
+
+  it("uses maxWidth as the block width", async () => {
+    const handle = await attachComp(textComp({ text: "aa bb cc", maxWidth: 55 }));
+    // "aa bb" = 50 fits, "aa bb cc" = 80 does not → 2 lines, 48 tall.
+    approxCorners(handle.getItemBoundsAt("t", 0)!.corners, [
+      [100, 100],
+      [155, 100],
+      [155, 148],
+      [100, 148],
+    ]);
+    handle.stop();
+  });
+
+  it("hangs point-mode lines off the baseline, aligned around x", async () => {
+    const handle = await attachComp(textComp({ text: "abcd\nab", align: "center" }));
+    // Widest line 40 → x ∈ [80, 120]; top = 100 − 16; height = 24 + 20.
+    approxCorners(handle.getItemBoundsAt("t", 0)!.corners, [
+      [80, 84],
+      [120, 84],
+      [120, 128],
+      [80, 128],
+    ]);
+    handle.stop();
+  });
+});

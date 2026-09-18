@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFfmpegArgs,
+  checkContainerCodec,
   frameCount,
   renderToFile,
+  RenderOptionsError,
 } from "../../src/drivers/node/index.js";
 import type { Composition } from "../../src/schema/types.js";
 import { makeFakeSpawn } from "./fakeFfmpeg.js";
@@ -64,6 +66,16 @@ describe("buildFfmpegArgs", () => {
       "30",
       "-i",
       "pipe:0",
+      "-vf",
+      "scale=out_color_matrix=bt709:out_range=tv",
+      "-colorspace",
+      "bt709",
+      "-color_primaries",
+      "bt709",
+      "-color_trc",
+      "bt709",
+      "-color_range",
+      "tv",
       "-c:v",
       "libx264",
       "-preset",
@@ -72,6 +84,10 @@ describe("buildFfmpegArgs", () => {
       "18",
       "-pix_fmt",
       "yuv420p",
+      "-fflags",
+      "+bitexact",
+      "-flags:v",
+      "+bitexact",
       "/tmp/out.mp4",
     ]);
   });
@@ -93,6 +109,85 @@ describe("buildFfmpegArgs", () => {
     // Output path stays last.
     expect(args[args.length - 1]).toBe("/tmp/x.mp4");
   });
+
+  it("colorProfile untagged drops the matrix pin and colour tags (v1.1 S8)", () => {
+    const args = buildFfmpegArgs(tinyComp(), "/tmp/u.mp4", { colorProfile: "untagged" });
+    expect(args).not.toContain("-vf");
+    expect(args.some((a) => a.startsWith("-color"))).toBe(false);
+    expect(args.join(" ")).toContain("-i pipe:0 -c:v libx264");
+  });
+
+  it("passes a rational fps verbatim and keeps decimals decimal (v1.1 S7)", () => {
+    const rational = buildFfmpegArgs(tinyComp({ fps: "30000/1001" }), "/tmp/r.mp4", {});
+    expect(rational[rational.indexOf("-r") + 1]).toBe("30000/1001");
+    const decimal = buildFfmpegArgs(tinyComp({ fps: 29.97 }), "/tmp/d.mp4", {});
+    expect(decimal[decimal.indexOf("-r") + 1]).toBe("29.97");
+  });
+});
+
+describe("alpha codecs (v1.1 S9)", () => {
+  it("prores_ks → ProRes 4444, yuva444p10le, no crf/preset", () => {
+    const args = buildFfmpegArgs(tinyComp(), "/tmp/a.mov", {
+      codec: "prores_ks",
+      crf: 20,
+      preset: "slow",
+      movflagsFaststart: true,
+    });
+    const joined = args.join(" ");
+    expect(joined).toContain("-c:v prores_ks -profile:v 4444 -vendor apl0 -pix_fmt yuva444p10le");
+    expect(args).not.toContain("-crf");
+    expect(args).not.toContain("-preset");
+    // rawvideo input stays RGBA — alpha comes straight from the canvas.
+    expect(joined).toContain("-f rawvideo -pix_fmt rgba");
+    expect(joined).toContain("-movflags +faststart");
+    expect(args[args.length - 1]).toBe("/tmp/a.mov");
+  });
+
+  it("libvpx-vp9 → constant-quality yuva420p, no faststart in WebM", () => {
+    const args = buildFfmpegArgs(tinyComp(), "/tmp/a.webm", {
+      codec: "libvpx-vp9",
+      crf: 30,
+      movflagsFaststart: true,
+    });
+    const joined = args.join(" ");
+    expect(joined).toContain("-c:v libvpx-vp9 -crf 30 -b:v 0 -pix_fmt yuva420p");
+    expect(args).not.toContain("-preset");
+    expect(args).not.toContain("-movflags");
+  });
+
+  it("an explicit pixFmt still wins", () => {
+    const args = buildFfmpegArgs(tinyComp(), "/tmp/a.mov", {
+      codec: "prores_ks",
+      pixFmt: "yuva444p12le",
+    });
+    expect(args[args.indexOf("-pix_fmt", args.indexOf("-c:v")) + 1]).toBe("yuva444p12le");
+  });
+
+  it("checkContainerCodec pairs codecs with containers", () => {
+    expect(checkContainerCodec("/o/a.mov", "prores_ks")).toBeUndefined();
+    expect(checkContainerCodec("/o/a.MOV", "prores_ks")).toBeUndefined();
+    expect(checkContainerCodec("/o/a.webm", "libvpx-vp9")).toBeUndefined();
+    expect(checkContainerCodec("/o/a.mp4", "libx264")).toBeUndefined();
+    expect(checkContainerCodec("/o/a.mov", "libx265")).toBeUndefined();
+    expect(checkContainerCodec("/o/a.mp4")).toBeUndefined();
+    expect(checkContainerCodec("/o/noext", "prores_ks")).toBeUndefined();
+    expect(checkContainerCodec("/o/a.mp4", "prores_ks")).toMatch(/use \.mov/);
+    expect(checkContainerCodec("/o/a.mov", "libvpx-vp9")).toMatch(/use \.webm/);
+    expect(checkContainerCodec("/o/a.webm", "libx264")).toMatch(/use \.mp4/);
+  });
+
+  it("renderToFile rejects a mismatch with E_CONTAINER_CODEC before spawning", async () => {
+    const { spawn, calls } = makeFakeSpawn();
+    const err = await renderToFile(tinyComp(), "/tmp/a.mp4", {
+      codec: "prores_ks",
+      skiaCanvas: makeFakeSkia(),
+      spawn,
+      ffmpegPath: "ffmpeg",
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RenderOptionsError);
+    expect((err as RenderOptionsError).code).toBe("E_CONTAINER_CODEC");
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("frameCount", () => {
@@ -100,6 +195,11 @@ describe("frameCount", () => {
     expect(frameCount(tinyComp({ duration: 1, fps: 30 }))).toBe(30);
     expect(frameCount(tinyComp({ duration: 1.001, fps: 30 }))).toBe(31);
     expect(frameCount(tinyComp({ duration: 0, fps: 30 }))).toBe(1);
+  });
+
+  it("counts rational frame rates exactly (v1.1 S7)", () => {
+    expect(frameCount(tinyComp({ duration: 10, fps: "30000/1001" }))).toBe(300);
+    expect(frameCount(tinyComp({ duration: 1.001, fps: "24000/1001" }))).toBe(24);
   });
 });
 
@@ -209,6 +309,25 @@ describe("renderToFile — error paths", () => {
         spawn: harness.spawn,
       }),
     ).rejects.toThrow(/ffmpeg exited with code 1[\s\S]*Unknown encoder 'libx999'/);
+  });
+
+  it("fails loudly (never 'succeeds') when ffmpeg is killed by a signal (R-7)", async () => {
+    // `code === null` on close is how Node reports a signal-killed child (e.g.
+    // SIGABRT from a broken dylib) — this must reject, not resolve as if the
+    // silent temp/output file were valid.
+    const comp = tinyComp();
+    const skia = makeFakeSkia();
+    const harness = makeFakeSpawn({
+      signal: "SIGABRT",
+      stderr: "dyld: Library not loaded\n",
+    });
+
+    await expect(
+      renderToFile(comp, "/tmp/killed.mp4", {
+        skiaCanvas: skia,
+        spawn: harness.spawn,
+      }),
+    ).rejects.toThrow(/ffmpeg exited with signal SIGABRT[\s\S]*Library not loaded/);
   });
 });
 

@@ -1,34 +1,41 @@
 // Library promotion — move a project-scoped library definition into the
 // global pool so every project sees it.
 //
-// In scope for v1:
+// Supported:
 //   * `template`, `behavior`, `scene` — file-backed JSON definitions stored
 //     as `<id>.template.json` / `<id>.behavior.json` / `<id>.scene.json`.
+//     Read the project file's bytes, write them under the global root, then
+//     unlink the project copy.
+//   * `asset`, `font` (v1.1 S29) — `index.json` entries. The entry moves from
+//     the project index to the global one; its binary (when the src is a local
+//     file) is copied to `<global>/{assets,fonts}/<basename>` and the src is
+//     rewritten to `global:{assets,fonts}/<basename>`, the global pool's own
+//     encoding. The project copy of the binary is removed unless the open
+//     composition still loads it.
 //
-// Out of scope:
-//   * inline definitions written into `<root>/library/index.json` — they
-//     don't have a standalone file to move; promoting them would require
-//     surgical edits to two index files.
-//   * assets / fonts — promoting these means moving the binary AND its
-//     index.json entry, with hash/path rewrites. Deferred.
+// Out of scope: inline template/behavior/scene definitions written into
+// `<root>/library/index.json` — move them to their own file first.
 //
-// The flow is intentionally narrow: read the project file's bytes, write
-// them under the global root, then unlink the project copy. The library
-// watcher picks both events up within ~1s and the merged catalog converges.
+// The library watcher picks every write up within ~1s; we also force a
+// reload so the response reflects the merged catalog.
 
 import { promises as fs } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import libraryIndex, {
+  indexEntryId,
   type LibraryItem,
   type LibraryItemKind,
 } from '#services/library_index'
+import projectStore from '#services/project_store'
 
-export type PromotableKind = 'template' | 'behavior' | 'scene'
+export type PromotableKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
 
-const PROMOTABLE_KINDS: ReadonlySet<LibraryItemKind> = new Set([
+export const PROMOTABLE_KINDS: ReadonlySet<LibraryItemKind> = new Set([
   'template',
   'behavior',
   'scene',
+  'asset',
+  'font',
 ])
 
 export type PromoteErrorCode =
@@ -81,7 +88,7 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
   if (!PROMOTABLE_KINDS.has(kind)) {
     throw new PromoteError(
       'E_KIND_UNSUPPORTED',
-      `Promotion for kind "${kind}" is not implemented yet. Supported: template, behavior, scene.`,
+      `Promotion for kind "${kind}" is not supported. Supported: ${[...PROMOTABLE_KINDS].join(', ')}.`,
     )
   }
   const promotableKind = kind as PromotableKind
@@ -111,6 +118,9 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
       'E_ITEM_NOT_FOUND',
       `No ${promotableKind} with id "${id}" in the project library.`,
     )
+  }
+  if (promotableKind === 'asset' || promotableKind === 'font') {
+    return promoteIndexEntry(promotableKind, id, projectRoot, globalRoot, opts.force === true)
   }
   if (item.source === 'index.json') {
     throw new PromoteError(
@@ -169,6 +179,173 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
     from,
     to,
     toRelative: relative(globalRoot, to).split('\\').join('/'),
+  }
+}
+
+type IndexKind = 'asset' | 'font'
+type IndexDoc = Record<string, unknown>
+
+const INDEX_KEY: Record<IndexKind, 'assets' | 'fonts'> = { asset: 'assets', font: 'fonts' }
+const SRC_FIELDS = ['url', 'src', 'path'] as const
+
+async function readIndex(path: string): Promise<IndexDoc> {
+  const raw = await fs.readFile(path, 'utf8').catch((err) => {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new PromoteError('E_PROMOTE_FAILED', `Failed to read ${path}: ${(err as Error).message}`)
+  })
+  if (raw === null) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as IndexDoc
+  } catch {
+    /* fall through */
+  }
+  throw new PromoteError('E_PROMOTE_FAILED', `${path} is not a JSON object; fix it before promoting.`)
+}
+
+async function writeIndex(path: string, doc: IndexDoc): Promise<void> {
+  await fs.mkdir(dirname(path), { recursive: true })
+  const tmp = `${path}.tmp`
+  await fs.writeFile(tmp, `${JSON.stringify(doc, null, 2)}\n`, 'utf8')
+  await fs.rename(tmp, path)
+}
+
+function entriesOf(doc: IndexDoc, kind: IndexKind): Record<string, unknown>[] {
+  const list = doc[INDEX_KEY[kind]]
+  return Array.isArray(list) ? (list as Record<string, unknown>[]) : []
+}
+
+function findEntry(doc: IndexDoc, kind: IndexKind, id: string): number {
+  return entriesOf(doc, kind).findIndex(
+    (e) => !!e && typeof e === 'object' && indexEntryId(kind, e) === id,
+  )
+}
+
+function isRemoteSrc(src: string): boolean {
+  return /^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('global:')
+}
+
+/** Project library srcs resolve against the library root first, then the project root (as the thumbnailer does). */
+async function resolveLocalFile(libraryRoot: string, src: string): Promise<string | null> {
+  const stripped = src.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '')
+  const candidates = isAbsolute(src)
+    ? [src]
+    : [join(libraryRoot, stripped), join(dirname(libraryRoot), stripped)]
+  for (const c of candidates) {
+    const stat = await fs.stat(c).catch(() => null)
+    if (stat?.isFile()) return c
+  }
+  return null
+}
+
+/** True when the loaded composition registers an asset whose src is `file`. */
+function compositionUsesFile(file: string): boolean {
+  const project = projectStore.project
+  const assets = (project?.composition as { assets?: unknown } | null)?.assets
+  if (!project || !Array.isArray(assets)) return false
+  return assets.some((a) => {
+    const src = (a as { src?: unknown })?.src
+    return typeof src === 'string' && !isRemoteSrc(src) && resolve(project.root, src) === file
+  })
+}
+
+async function promoteIndexEntry(
+  kind: IndexKind,
+  id: string,
+  projectRoot: string,
+  globalRoot: string,
+  force: boolean,
+): Promise<PromoteResult> {
+  const projectIndexPath = join(projectRoot, 'index.json')
+  const globalIndexPath = join(globalRoot, 'index.json')
+  const projectDoc = await readIndex(projectIndexPath)
+  const at = findEntry(projectDoc, kind, id)
+  if (at < 0) {
+    throw new PromoteError('E_ITEM_NOT_FOUND', `No ${kind} with id "${id}" in the project library index.json.`)
+  }
+  const entry = entriesOf(projectDoc, kind)[at]!
+  const srcField = SRC_FIELDS.find((f) => typeof entry[f] === 'string' && (entry[f] as string).length > 0)
+  const src = srcField ? (entry[srcField] as string) : null
+
+  // Local binary → copy under the canonical global subdir.
+  let fromFile: string | null = null
+  let toRelative: string | null = null
+  let bytes: Buffer | null = null
+  if (src !== null && !isRemoteSrc(src)) {
+    fromFile = await resolveLocalFile(projectRoot, src)
+    if (!fromFile) {
+      throw new PromoteError('E_ITEM_NOT_FOUND', `The ${kind} file "${src}" for "${id}" was not found in the project.`)
+    }
+    bytes = await fs.readFile(fromFile)
+    toRelative = `${INDEX_KEY[kind]}/${basename(fromFile)}`
+  }
+  const toFile = toRelative ? join(globalRoot, toRelative) : null
+
+  const globalDoc = await readIndex(globalIndexPath)
+  const existingAt = findEntry(globalDoc, kind, id)
+  if (!force) {
+    const clash =
+      existingAt >= 0
+        ? `Global library already has ${kind} "${id}".`
+        : toFile && bytes
+          ? await fs
+              .readFile(toFile)
+              .then((b) => (b.equals(bytes!) ? null : `Global library already has a different ${toRelative}.`))
+              .catch(() => null)
+          : null
+    if (clash) {
+      throw new PromoteError('E_TARGET_EXISTS', `${clash} Pass force=true to overwrite.`, {
+        existingPath: toFile ?? globalIndexPath,
+        existingRelative: toRelative ?? 'index.json',
+      })
+    }
+  }
+
+  const promoted = srcField && toRelative ? { ...entry, [srcField]: `global:${toRelative}` } : { ...entry }
+  const globalList = [...entriesOf(globalDoc, kind)]
+  if (existingAt >= 0) globalList[existingAt] = promoted
+  else globalList.push(promoted)
+  const projectList = entriesOf(projectDoc, kind).filter((_, i) => i !== at)
+
+  const priorTarget = toFile ? await fs.readFile(toFile).catch(() => null) : null
+  if (toFile && bytes) {
+    await fs.mkdir(dirname(toFile), { recursive: true })
+    await fs.writeFile(toFile, bytes)
+  }
+  try {
+    await writeIndex(globalIndexPath, { ...globalDoc, [INDEX_KEY[kind]]: globalList })
+    try {
+      await writeIndex(projectIndexPath, { ...projectDoc, [INDEX_KEY[kind]]: projectList })
+    } catch (err) {
+      await writeIndex(globalIndexPath, globalDoc).catch(() => {})
+      throw err
+    }
+  } catch (err) {
+    // Roll the copied binary back so the global pool is unchanged.
+    if (toFile && bytes) {
+      if (priorTarget) await fs.writeFile(toFile, priorTarget).catch(() => {})
+      else await fs.unlink(toFile).catch(() => {})
+    }
+    throw new PromoteError('E_PROMOTE_FAILED', `Failed to move ${kind} "${id}": ${(err as Error).message}. Rolled back.`)
+  }
+
+  // Drop the project copy of the binary unless something still loads it:
+  // another project entry with the same src, or the open composition.
+  if (fromFile) {
+    const stillListed = projectList.some((e) => SRC_FIELDS.some((f) => e?.[f] === src))
+    if (!stillListed && !compositionUsesFile(fromFile)) {
+      await fs.unlink(fromFile).catch(() => {})
+    }
+  }
+
+  await libraryIndex.reloadNow()
+
+  return {
+    kind,
+    id,
+    from: fromFile ?? projectIndexPath,
+    to: toFile ?? globalIndexPath,
+    toRelative: toRelative ?? 'index.json',
   }
 }
 

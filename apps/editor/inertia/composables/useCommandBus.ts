@@ -14,7 +14,7 @@
 
 import { ref, shallowRef, triggerRef, type Ref, type ShallowRef } from 'vue'
 import type { ValidationResult } from 'davidup/schema'
-import { useToasts } from './useToasts'
+import { useToasts } from './useToasts.js'
 
 // The server (`app/types/commands.ts`) is the single source of truth for
 // the Command discriminated union. The client only needs the wire shape;
@@ -23,6 +23,8 @@ export interface Command {
   kind: string
   payload: Record<string, unknown>
   source?: 'ui' | 'mcp'
+  /** v1.1 S26 — `update_item` only: same key in a burst → one undo step. */
+  coalesceKey?: string
 }
 
 /**
@@ -44,8 +46,14 @@ export interface CommandErrorReport {
 export type CommandSource = 'ui' | 'mcp'
 
 type Composition = {
-  composition: { width: number; height: number; duration: number; background?: string }
-  assets: ReadonlyArray<{ src?: unknown; [k: string]: unknown }>
+  composition: { width: number; height: number; fps: number | string; duration: number; background?: string }
+  // `id`/`type` are named explicitly (not just covered by the index
+  // signature) so structural targets like Library.vue's `CompositionLike`
+  // that only declare `id`/`type` don't fail TS's weak-type-detection check
+  // (a type where every member is optional needs at least one *named*
+  // property in common with the source — an index signature alone doesn't
+  // count).
+  assets: ReadonlyArray<{ id?: unknown; type?: unknown; src?: unknown; [k: string]: unknown }>
   items: Record<string, { type: string; [k: string]: unknown }>
   layers: ReadonlyArray<{ id: string; items: ReadonlyArray<string> }>
   tweens: ReadonlyArray<{ id: string; [k: string]: unknown }>
@@ -103,6 +111,15 @@ export interface UseCommandBusReturn {
   undo: () => Promise<void>
   /** Re-apply the most recently undone edit. */
   redo: () => Promise<void>
+  /**
+   * Adopt a composition that changed server-side without a command — a
+   * project switch or an external composition.json edit (v1.1 S25) — and
+   * resync the undo/redo stack sizes the server reported.
+   */
+  resync: (
+    next: Composition | null,
+    stacks?: { undoStackSize?: number; redoStackSize?: number }
+  ) => void
   /** Reactive size of the server's undo stack. 0 disables the undo button. */
   undoStackSize: Ref<number>
   /** Reactive size of the server's redo stack. 0 disables the redo button. */
@@ -281,6 +298,19 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     await callHistory('/api/command/redo')
   }
 
+  function resync(
+    next: Composition | null,
+    stacks: { undoStackSize?: number; redoStackSize?: number } = {}
+  ): void {
+    composition.value = next
+    error.value = null
+    errorReport.value = null
+    sink?.clearCommandError()
+    sink?.setComposition(next)
+    if (typeof stacks.undoStackSize === 'number') undoStackSize.value = stacks.undoStackSize
+    if (typeof stacks.redoStackSize === 'number') redoStackSize.value = stacks.redoStackSize
+  }
+
   return {
     composition,
     pending,
@@ -289,6 +319,7 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     apply,
     undo,
     redo,
+    resync,
     undoStackSize,
     redoStackSize,
     itemLastSource,

@@ -24,6 +24,7 @@ import {
   LIBRARY_TABS,
   LIBRARY_SCOPES,
   type LibraryItem,
+  type LibraryItemKind,
   type LibraryTab,
   type LibraryScopeFilter,
 } from '~/composables/useLibrary'
@@ -42,10 +43,15 @@ import { useToasts } from '~/composables/useToasts'
 type CompositionLike = {
   assets?: ReadonlyArray<{ id?: unknown; type?: unknown }>
   items?: Record<string, { type?: unknown; asset?: unknown; font?: unknown }>
+  // Read by "behavior from selection" (v1.1 S19) — the selected item's tweens
+  // become an executable behavior body.
+  tweens?: ReadonlyArray<Record<string, unknown>>
 }
 
 const props = defineProps<{
   composition?: CompositionLike | null
+  /** Drives "behavior from selection"; null when nothing is selected. */
+  selectedItemId?: string | null
 }>()
 
 const lib = useLibrary({ initialTab: 'template' })
@@ -184,7 +190,75 @@ const saveDialogTarget = computed<'project' | 'global'>(() =>
   lib.scope.value === 'global' ? 'global' : 'project',
 )
 
+const saveDialogBody = ref<string | undefined>(undefined)
+const saveDialogId = ref<string | undefined>(undefined)
+
 function openSaveDialog() {
+  saveDialogBody.value = undefined
+  saveDialogId.value = undefined
+  saveDialogOpen.value = true
+}
+
+// ─── "Behavior from selection" (v1.1 S19) ───
+// The selected item's tweens ARE a behavior body, modulo two rewrites: times
+// become relative to the earliest tween (so the behavior can be applied at any
+// start), and each tween keeps a stable suffix derived from its property. The
+// result is seeded into the dialog's textarea for the user to name and edit —
+// nothing is written until they hit Save.
+const selectedItemTweens = computed<Array<Record<string, unknown>>>(() => {
+  const id = props.selectedItemId
+  if (!id) return []
+  const all = props.composition?.tweens
+  if (!Array.isArray(all)) return []
+  return all.filter((t) => t && typeof t === 'object' && t.target === id)
+})
+
+const canSaveBehaviorFromSelection = computed(() => selectedItemTweens.value.length > 0)
+
+function behaviorBodyFromSelection(): string {
+  const tweens = [...selectedItemTweens.value].sort(
+    (a, b) => numberOr(a.start, 0) - numberOr(b.start, 0),
+  )
+  const base = numberOr(tweens[0]?.start, 0)
+  const used = new Set<string>()
+  const body = tweens.map((t, i) => {
+    const property = typeof t.property === 'string' ? t.property : 'transform.opacity'
+    // `transform.opacity` → `opacity`; collisions get an index so ids stay unique.
+    let suffix = property.split('.').pop() || `t${i}`
+    if (used.has(suffix)) suffix = `${suffix}_${i}`
+    used.add(suffix)
+    // Absolute times against the applied block: `${$.start}` is wherever the
+    // behavior gets dropped, so an offset of 0 means "at the block start".
+    const offset = round6(numberOr(t.start, 0) - base)
+    const out: Record<string, unknown> = {
+      property,
+      from: t.from,
+      to: t.to,
+      start: offset === 0 ? '${$.start}' : `\${$.start + ${offset}}`,
+      duration: numberOr(t.duration, 0),
+      suffix,
+    }
+    if (t.easing !== undefined) out.easing = t.easing
+    return out
+  })
+  return `${JSON.stringify({ description: '', params: [], tweens: body }, null, 2)}\n`
+}
+
+function numberOr(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+}
+
+function round6(n: number): number {
+  return Math.round(n * 1e6) / 1e6
+}
+
+function openSaveBehaviorFromSelection() {
+  // The button is disabled in this case; the guard keeps the function honest
+  // for any other caller.
+  if (!canSaveBehaviorFromSelection.value) return
+  saveDialogBody.value = behaviorBodyFromSelection()
+  saveDialogId.value = props.selectedItemId ? `${props.selectedItemId}-motion` : ''
+  lib.tab.value = 'behavior'
   saveDialogOpen.value = true
 }
 
@@ -210,7 +284,12 @@ function onDefinitionSaved(payload: {
   void lib.refresh()
 }
 
-const tabLabels: Record<LibraryTab, string> = {
+// `LibraryTab` also allows 'all' (used elsewhere as "no kind filter"), but
+// `visibleTabs`/`LIBRARY_TABS` — the only thing this map is ever indexed by
+// (see the `v-for` below) — is always exactly the 5 concrete kinds, never
+// 'all'. `Record<LibraryItemKind, string>` matches that actual domain
+// instead of the wider `LibraryTab` union.
+const tabLabels: Record<LibraryItemKind, string> = {
   template: 'Templates',
   behavior: 'Behaviors',
   scene: 'Scenes',
@@ -218,7 +297,42 @@ const tabLabels: Record<LibraryTab, string> = {
   font: 'Fonts',
 }
 
-const visibleTabs = computed<LibraryTab[]>(() => LIBRARY_TABS as LibraryTab[])
+// LIBRARY_TABS's static type is `LibraryTab[]` (shared with the wider
+// 'all'-inclusive union elsewhere), but its actual literal contents are
+// always the 5 concrete kinds — narrow the cast to match `tabLabels` above.
+const visibleTabs = computed<LibraryItemKind[]>(() => LIBRARY_TABS as LibraryItemKind[])
+
+// ─── U1: asset media-type sub-filter (All / Images / Audio / Video) ─────
+//
+// `LibraryItem.kind: 'asset'` covers images, audio, and video alike — the
+// underlying media type only lives on `item.raw.type`. The server doesn't
+// support filtering by it (still one flat `asset` kind), so this is a
+// client-side pass over the already-fetched `lib.items` list, shown only
+// while the Assets tab is active.
+type AssetMediaFilter = 'all' | 'image' | 'audio' | 'video'
+const ASSET_MEDIA_FILTERS: AssetMediaFilter[] = ['all', 'image', 'audio', 'video']
+const assetMediaFilter = ref<AssetMediaFilter>('all')
+const assetMediaLabels: Record<AssetMediaFilter, string> = {
+  all: 'All',
+  image: 'Images',
+  audio: 'Audio',
+  video: 'Video',
+}
+
+function assetMediaTypeOf(item: LibraryItem): string | undefined {
+  const raw = item.raw as { type?: unknown } | undefined
+  return typeof raw?.type === 'string' ? raw.type : undefined
+}
+
+const visibleItems = computed<LibraryItem[]>(() => {
+  const items = lib.items.value
+  if (lib.tab.value !== 'asset' || assetMediaFilter.value === 'all') return items
+  return items.filter((item) => assetMediaTypeOf(item) === assetMediaFilter.value)
+})
+
+function setAssetMediaFilter(f: AssetMediaFilter): void {
+  assetMediaFilter.value = f
+}
 
 const scopeLabels: Record<LibraryScopeFilter, string> = {
   project: '📁 Project',
@@ -434,6 +548,21 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         ⟳
       </button>
       <button
+        v-if="lib.tab.value === 'behavior'"
+        type="button"
+        class="new-def-btn"
+        :disabled="!canSaveBehaviorFromSelection"
+        :title="
+          canSaveBehaviorFromSelection
+            ? `Save the selected item's tweens as a reusable behavior`
+            : 'Select an item that has tweens first'
+        "
+        data-testid="library-behavior-from-selection"
+        @click="openSaveBehaviorFromSelection"
+      >
+        ⭯ From selection
+      </button>
+      <button
         type="button"
         class="new-def-btn"
         title="Save a new template, behavior, or scene"
@@ -490,12 +619,34 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       </button>
     </nav>
 
+    <nav
+      v-if="lib.tab.value === 'asset'"
+      class="tabs asset-media-tabs"
+      role="tablist"
+      aria-label="Asset media type"
+      data-testid="library-asset-media-tabs"
+    >
+      <button
+        v-for="f in ASSET_MEDIA_FILTERS"
+        :key="f"
+        type="button"
+        role="tab"
+        :aria-selected="assetMediaFilter === f"
+        :data-media-filter="f"
+        :data-active="assetMediaFilter === f ? 'true' : 'false'"
+        class="tab"
+        @click="setAssetMediaFilter(f)"
+      >
+        {{ assetMediaLabels[f] }}
+      </button>
+    </nav>
+
     <div v-if="lib.error.value" class="error" role="alert">
       {{ lib.error.value }}
     </div>
 
     <div
-      v-if="lib.items.value.length === 0 && !lib.loading.value && !lib.error.value"
+      v-if="visibleItems.length === 0 && !lib.loading.value && !lib.error.value"
       class="empty"
     >
       <p>{{ emptyHint }}</p>
@@ -508,7 +659,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       data-testid="library-grid"
     >
       <LibraryCard
-        v-for="item in lib.items.value"
+        v-for="item in visibleItems"
         :key="`${item.kind}:${item.id}:${item.scope}:${item.source}`"
         :item="item"
         :generation="lib.generation.value"
@@ -548,6 +699,8 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       :open="saveDialogOpen"
       :kind="saveDialogKind"
       :initial-target="saveDialogTarget"
+      :initial-body="saveDialogBody"
+      :initial-id="saveDialogId"
       @close="saveDialogOpen = false"
       @saved="onDefinitionSaved"
     />

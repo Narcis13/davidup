@@ -39,8 +39,15 @@ export interface LibraryDragPayload {
   description?: string
   /** Default param bindings pre-resolved from the library descriptor. */
   defaults: Record<string, unknown>
-  /** Library item duration in seconds (scenes only). */
+  /** Library item duration in seconds (scenes only, or asset media duration). */
   duration?: number
+  /**
+   * U1/U3 — underlying media type for `kind: 'asset'` cards (sourced from
+   * `item.raw.type`). Stage/Timeline drop handlers branch on this to decide
+   * between `add_sprite` (image), `add_video` (video), and `add_audio_track`
+   * (audio) — a plain asset drop no longer always means "sprite".
+   */
+  mediaType?: 'image' | 'font' | 'audio' | 'video'
 }
 
 interface DragState {
@@ -147,23 +154,35 @@ export function readDropPayload(event: DragEvent): LibraryDragPayload | null {
         parsed.duration > 0
           ? parsed.duration
           : undefined,
+      mediaType: isMediaType(parsed.mediaType) ? parsed.mediaType : undefined,
     }
   } catch {
     return null
   }
 }
 
+function isMediaType(v: unknown): v is 'image' | 'font' | 'audio' | 'video' {
+  return v === 'image' || v === 'font' || v === 'audio' || v === 'video'
+}
+
 // ──────────────── Payload synthesis ────────────────
 
 function libraryItemToPayload(item: LibraryItem): LibraryDragPayload {
   const defaults = resolveDefaultParams(item)
+  const raw = item.raw as { type?: unknown; duration?: unknown } | undefined
+  const mediaType = item.kind === 'asset' && isMediaType(raw?.type) ? raw!.type : undefined
+  const rawDuration = typeof raw?.duration === 'number' ? raw.duration : undefined
   return {
     kind: item.kind,
     id: item.id,
     name: item.name ?? item.id,
     description: item.description,
     defaults,
-    duration: typeof item.duration === 'number' ? item.duration : undefined,
+    duration:
+      typeof item.duration === 'number'
+        ? item.duration
+        : rawDuration,
+    mediaType,
   }
 }
 
@@ -243,6 +262,24 @@ export function buildCommandsForTrackDrop(
   ctx: TrackDropContext,
 ): Command[] {
   switch (payload.kind) {
+    case 'asset': {
+      // U3 — dropping an audio asset onto an existing timeline row (or the
+      // new-track gutter, via buildCommandsForNewTrackDrop below) creates a
+      // standalone audio track at the drop time. Audio tracks aren't
+      // layer/item-rooted, so `targetItemId` is irrelevant here — unlike
+      // behaviors, which require an existing target.
+      if (payload.mediaType !== 'audio') return []
+      return [
+        {
+          kind: 'add_audio_track',
+          payload: {
+            asset: payload.id,
+            start: Math.max(0, ctx.start),
+          },
+          source: 'ui',
+        },
+      ]
+    }
     case 'behavior': {
       // Apply the behavior to the existing track's target item.
       const cmd: Command = {
@@ -323,6 +360,30 @@ export function buildCommandsForStageDrop(
 ): Command[] {
   switch (payload.kind) {
     case 'asset': {
+      // U1 — Stage is a spatial surface. Video assets drop as a video clip
+      // (spatial + temporal); audio has no on-stage representation (U3's
+      // Timeline audio lane / U8's "Add Audio Track…" are its home) so a
+      // stage drop of an audio asset is a no-op rather than a silent
+      // add_sprite. Plain images keep the original best-effort sprite
+      // placement.
+      if (payload.mediaType === 'audio') return []
+      if (payload.mediaType === 'video') {
+        return [
+          {
+            kind: 'add_video',
+            payload: {
+              layerId: ctx.layerId,
+              asset: payload.id,
+              x: ctx.x,
+              y: ctx.y,
+              anchorX: 0.5,
+              anchorY: 0.5,
+              start: Math.max(0, ctx.start),
+            },
+            source: 'ui',
+          },
+        ]
+      }
       // Best-effort sprite placement: register the asset by its library id
       // (if it isn't already on the composition the engine will error and
       // surface it through the bus) and emit an add_sprite at the drop

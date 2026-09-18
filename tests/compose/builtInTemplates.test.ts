@@ -240,7 +240,9 @@ describe("bulletList", () => {
     const starts = ex.tweens.map((t) => (t as any).start as number);
     expect(starts[0]).toBe(0);
     expect(starts[1]).toBeCloseTo(0.15, 10);
-    expect(starts[2]).toBeCloseTo(0.3, 10);
+    // Third bullet is `${params.stagger * 2}` — bit-identical to the 0.3
+    // literal the retired `stagger2` param defaulted to.
+    expect(starts[2]).toBe(0.3);
     for (const t of ex.tweens) {
       expect((t as any).$behavior).toBe("fadeIn");
     }
@@ -257,7 +259,6 @@ describe("bulletList", () => {
           bullet3: "c",
           font: "fd",
           stagger: 0.25,
-          stagger2: 0.5,
         },
       },
     );
@@ -324,11 +325,12 @@ describe("kenburnsImage", () => {
       tweens: Array<Record<string, unknown>>;
     };
     const props = out.tweens.map((t) => t.property as string).sort();
-    // fadeIn → opacity. kenburns → scaleX + transform.x (scaleY held by the
-    // sprite's initial transform — that's how the kenburns behavior is wired).
+    // fadeIn → opacity. kenburns → transform.x + scaleX + scaleY (dual-axis
+    // zoom, expansion v2 — see BEHAVIOR_EXPANSION_VERSION).
     expect(props).toEqual([
       "transform.opacity",
       "transform.scaleX",
+      "transform.scaleY",
       "transform.x",
     ]);
   });

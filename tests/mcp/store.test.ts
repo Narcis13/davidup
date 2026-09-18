@@ -70,6 +70,9 @@ describe("CompositionStore — composition lifecycle", () => {
     store.setMetaProperty("fps", 60);
     expect(store.toJSON().composition.fps).toBe(60);
     expect(() => store.setMetaProperty("fps", -1)).toThrow(MCPToolError);
+    store.setMetaProperty("fps", "30000/1001");
+    expect(store.toJSON().composition.fps).toBe("30000/1001");
+    expect(() => store.setMetaProperty("fps", "29.97")).toThrow(MCPToolError);
     expect(() => store.setMetaProperty("background", "")).toThrow(MCPToolError);
   });
 });
@@ -117,6 +120,69 @@ describe("CompositionStore — assets", () => {
     expect(() =>
       store.registerAsset({ id: "f", type: "font", src: "f.ttf" }),
     ).toThrow(/family/);
+  });
+
+  it("registers an audio asset with probed metadata and round-trips it through toJSON", () => {
+    const { store } = makeStore();
+    store.registerAsset({
+      id: "vo",
+      type: "audio",
+      src: "voiceover.mp3",
+      duration: 12.5,
+      sampleRate: 44100,
+      channels: 2,
+      codec: "mp3",
+    });
+    expect(store.listAssets()).toContainEqual({
+      id: "vo",
+      type: "audio",
+      src: "voiceover.mp3",
+      duration: 12.5,
+      sampleRate: 44100,
+      channels: 2,
+      codec: "mp3",
+    });
+    // Cloned on the way out — the serialised composition carries the metadata.
+    expect(store.toJSON().assets).toContainEqual(
+      expect.objectContaining({ id: "vo", type: "audio", codec: "mp3", channels: 2 }),
+    );
+  });
+
+  it("registers an audio asset with no metadata (ffprobe-less path)", () => {
+    const { store } = makeStore();
+    store.registerAsset({ id: "music", type: "audio", src: "bed.wav" });
+    const asset = store.listAssets().find((a) => a.id === "music");
+    expect(asset).toEqual({ id: "music", type: "audio", src: "bed.wav" });
+    // No spurious undefined metadata keys leak into the registry.
+    expect(Object.keys(asset!).sort()).toEqual(["id", "src", "type"]);
+  });
+
+  it("rejects an audio asset whose src has an unsupported extension", () => {
+    const { store } = makeStore();
+    expect(() =>
+      store.registerAsset({ id: "x", type: "audio", src: "notes.txt" }),
+    ).toThrow(MCPToolError);
+    try {
+      store.registerAsset({ id: "x", type: "audio", src: "notes.txt" });
+    } catch (err) {
+      expect((err as MCPToolError).code).toBe("E_INVALID_VALUE");
+    }
+  });
+
+  it("accepts every supported audio extension (case-insensitive)", () => {
+    const { store } = makeStore();
+    for (const [i, src] of [
+      "a.mp3",
+      "b.WAV",
+      "c.aac",
+      "d.M4A",
+      "e.ogg",
+    ].entries()) {
+      expect(() =>
+        store.registerAsset({ id: `aud${i}`, type: "audio", src }),
+      ).not.toThrow();
+    }
+    expect(store.listAssets().filter((a) => a.type === "audio")).toHaveLength(5);
   });
 });
 
@@ -198,6 +264,167 @@ describe("CompositionStore — items", () => {
   });
 });
 
+describe("CompositionStore — group compositing (v1.1 S18)", () => {
+  function groupWithChild(store: CompositionStore): string {
+    const layerId = store.addLayer({ z: 0 });
+    const child = store.addShape({
+      layerId,
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+    });
+    return store.addGroup({ layerId, x: 0, y: 0, childItemIds: [child] });
+  }
+
+  it("add_group carries isolate and blendMode through to the composition", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const id = store.addGroup({
+      layerId,
+      x: 0,
+      y: 0,
+      isolate: true,
+      blendMode: "multiply",
+    });
+    const group = store.toJSON().items[id];
+    expect(group).toMatchObject({ type: "group", isolate: true, blendMode: "multiply" });
+  });
+
+  it("omits both fields when the caller doesn't ask for them", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const id = store.addGroup({ layerId, x: 0, y: 0 });
+    const group = store.toJSON().items[id] as Record<string, unknown>;
+    expect("isolate" in group).toBe(false);
+    expect("blendMode" in group).toBe(false);
+  });
+
+  it("update_item toggles isolate, and dropping it back to false clears the field", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+
+    store.updateItem(id, { isolate: true });
+    expect(store.toJSON().items[id]).toMatchObject({ isolate: true });
+
+    store.updateItem(id, { isolate: false });
+    const group = store.toJSON().items[id] as Record<string, unknown>;
+    expect("isolate" in group).toBe(false);
+  });
+
+  it("update_item treats blendMode 'normal' as a reset, not a stored override", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+
+    store.updateItem(id, { blendMode: "screen" });
+    expect(store.toJSON().items[id]).toMatchObject({ blendMode: "screen" });
+
+    store.updateItem(id, { blendMode: "normal" });
+    const group = store.toJSON().items[id] as Record<string, unknown>;
+    expect("blendMode" in group).toBe(false);
+  });
+
+  it("rejects isolate / blendMode on item types that have no children to flatten", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const shapeId = store.addShape({
+      layerId,
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+    });
+    expect(() => store.updateItem(shapeId, { isolate: true })).toThrow(
+      /E_INVALID_PROPERTY|cannot be set/,
+    );
+    expect(() => store.updateItem(shapeId, { blendMode: "multiply" })).toThrow(
+      /E_INVALID_PROPERTY|cannot be set/,
+    );
+  });
+
+  it("keeps an isolated group valid", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+    store.updateItem(id, { isolate: true, blendMode: "multiply" });
+    const result = store.validate();
+    expect(result.errors).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe("CompositionStore — effects (v1.1 S21)", () => {
+  function shape(store: CompositionStore): string {
+    const layerId = store.addLayer({ z: 0 });
+    return store.addShape({ layerId, kind: "rect", x: 0, y: 0, width: 5, height: 5 });
+  }
+
+  it("update_item sets an effects stack on any item type and round-trips it", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    const effects = [
+      { type: "blur" as const, radius: 3 },
+      { type: "shadow" as const, color: "#000000", blur: 6, offsetY: 4 },
+      { type: "glow" as const, color: "#40c8ff", radius: 5 },
+    ];
+    store.updateItem(id, { effects });
+    expect(store.toJSON().items[id]!.effects).toEqual(effects);
+    // A copy, not the caller's array.
+    effects[0]!.radius = 99;
+    expect(store.toJSON().items[id]!.effects?.[0]).toEqual({ type: "blur", radius: 3 });
+
+    const layerId = store.addLayer({ z: 1 });
+    const group = store.addGroup({ layerId, x: 0, y: 0 });
+    store.updateItem(group, { effects: [{ type: "glow", color: "#fff", radius: 2 }] });
+    expect(store.toJSON().items[group]!.effects).toHaveLength(1);
+    expect(store.validate().errors).toEqual([]);
+  });
+
+  it("null and [] both remove the field", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    for (const clear of [null, []] as const) {
+      store.updateItem(id, { effects: [{ type: "blur", radius: 2 }] });
+      store.updateItem(id, { effects: clear });
+      expect("effects" in (store.toJSON().items[id] as object)).toBe(false);
+    }
+  });
+
+  it("leaves effects alone when a patch doesn't mention them", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    store.updateItem(id, { effects: [{ type: "blur", radius: 2 }] });
+    store.updateItem(id, { x: 10, fillColor: "#ff0000" });
+    expect(store.toJSON().items[id]!.effects).toEqual([{ type: "blur", radius: 2 }]);
+  });
+
+  it("add_tween checks effect paths against the item's actual effects", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    store.updateItem(id, { effects: [{ type: "blur", radius: 0 }] });
+    store.addTween({ target: id, property: "effects.0.radius", from: 0, to: 8, start: 0, duration: 1 });
+    expect(store.validate().errors).toEqual([]);
+    expect(() =>
+      store.addTween({ target: id, property: "effects.1.radius", from: 0, to: 8, start: 0, duration: 1 }),
+    ).toThrow(/not tweenable/);
+    expect(() =>
+      store.addTween({ target: id, property: "effects.0.color", from: "#000", to: "#fff", start: 0, duration: 1 }),
+    ).toThrow(/not tweenable/);
+  });
+
+  it("refuses to drop an effect a tween still animates", () => {
+    const { store } = makeStore();
+    const id = shape(store);
+    store.updateItem(id, { effects: [{ type: "blur", radius: 0 }] });
+    store.addTween({ target: id, property: "effects.0.radius", from: 0, to: 8, start: 0, duration: 1 });
+    expect(() => store.updateItem(id, { effects: null })).toThrow(/effects.0.radius/);
+    // Swapping in an effect that still has the field is fine.
+    store.updateItem(id, { effects: [{ type: "glow", color: "#fff", radius: 1 }] });
+    expect(store.validate().errors).toEqual([]);
+  });
+});
+
 describe("CompositionStore — tweens", () => {
   it("rejects overlapping tweens on (target, property)", () => {
     const { store } = makeStore();
@@ -257,6 +484,40 @@ describe("CompositionStore — tweens", () => {
         to: 20,
         start: 0.5,
         duration: 0.5,
+      }),
+    ).not.toThrow();
+  });
+
+  // R-25 repro: 5.2 + 0.4 sums to 5.6000000000000005 in IEEE-754, so a tween
+  // authored to start exactly where the previous one ends was being rejected
+  // as an overlap. The MCP layer now shares the validator's OVERLAP_EPS.
+  it("allows a tween starting exactly where a chained FP-noisy end lands", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const id = store.addShape({
+      layerId,
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+    });
+    store.addTween({
+      target: id,
+      property: "transform.x",
+      from: 0,
+      to: 10,
+      start: 5.2,
+      duration: 0.4, // start + duration === 5.6000000000000005
+    });
+    expect(() =>
+      store.addTween({
+        target: id,
+        property: "transform.x",
+        from: 10,
+        to: 20,
+        start: 5.6,
+        duration: 0.4,
       }),
     ).not.toThrow();
   });

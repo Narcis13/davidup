@@ -21,12 +21,21 @@ export const MCP_ERROR_CODES = [
   "E_ASSET_TYPE_MISMATCH",
   "E_INVALID_VALUE",
   "E_RENDER_FAILED",
+  // Output extension can't hold the requested codec (v1.1 S9), e.g.
+  // prores_ks → out.mp4. Raised before any frame is rendered.
+  "E_CONTAINER_CODEC",
   "E_BEHAVIOR_UNKNOWN",
   "E_BEHAVIOR_PARAM_MISSING",
   "E_BEHAVIOR_PARAM_TYPE",
   "E_TEMPLATE_UNKNOWN",
   "E_TEMPLATE_PARAM_MISSING",
   "E_TEMPLATE_PARAM_TYPE",
+  // Malformed or mistyped `${…}` expression in a template / scene body
+  // (v1.1 S15). `details` carries { path, expression, position }.
+  "E_TEMPLATE_EXPR",
+  // Malformed `$repeat` block — bad count / `as` / `id`, too deep, or too many
+  // produced entries (v1.1 S16). `details` carries { path, reason }.
+  "E_REPEAT_INVALID",
   "E_SCENE_UNKNOWN",
   "E_SCENE_PARAM_MISSING",
   "E_SCENE_PARAM_TYPE",

@@ -4,15 +4,28 @@
 // (skia + ffmpeg subprocess). The MCP-only operations are (a) single-frame
 // PNG/JPEG snapshots for `render_preview_frame`, and (b) a uniformly-sampled
 // strip of thumbnails for `render_thumbnail_strip`. Both reuse skia-canvas
-// directly via the existing NodeAssetLoader; neither needs ffmpeg.
+// directly via the existing NodeAssetLoader; ffmpeg runs only when the
+// composition has video items whose frames are not yet in the extraction cache.
 //
 // skia-canvas is lazy-loaded — same pattern the node driver uses — so this
 // module can be imported safely in environments where the native build is
 // missing. Tests inject a fake module.
 
-import { NodeAssetLoader, type SkiaCanvasModule } from "../assets/index.js";
-import { indexTweens, renderFrame } from "../engine/index.js";
-import type { Canvas2DContext } from "../engine/types.js";
+import {
+  NodeAssetLoader,
+  withBundledAssets,
+  type SkiaCanvasModule,
+} from "../assets/index.js";
+import {
+  buildVideoFrameProvider,
+  collectVideoExtractSpecs,
+  compositionHasVideo,
+  defaultFrameCacheRoot,
+  preExtractVideoFrames,
+  type FfmpegSpawn,
+} from "../drivers/node/index.js";
+import { indexTweens, prepareVideoFrames, renderFrame } from "../engine/index.js";
+import type { Canvas2DContext, VideoFrameProvider } from "../engine/types.js";
 import type { Asset, Composition } from "../schema/types.js";
 import { MCPToolError } from "./errors.js";
 
@@ -36,6 +49,21 @@ export interface RenderPreviewOptions {
   format?: PreviewFormat;
   skiaCanvas?: PreviewSkiaModule;
   loader?: NodeAssetLoader;
+  /**
+   * Video frame extraction for compositions with video items — same contract
+   * as `renderToFile`'s `preExtract` (shared cache, so a preview warms the
+   * render and vice versa). `false` skips it and video items draw nothing.
+   */
+  preExtract?: false | PreviewPreExtractOptions;
+}
+
+export interface PreviewPreExtractOptions {
+  /** Cache root. Default: `$DAVIDUP_CACHE/frames` or `~/.davidup/cache/frames`. */
+  cacheRoot?: string;
+  /** LRU byte budget. Default 5 GB. */
+  maxBytes?: number;
+  ffmpegPath?: string;
+  spawn?: FfmpegSpawn;
 }
 
 export interface PreviewResult {
@@ -43,11 +71,25 @@ export interface PreviewResult {
   mimeType: "image/png" | "image/jpeg";
   width: number;
   height: number;
+  /** Present only when non-empty — e.g. video frames had to be extracted. */
+  warnings?: string[];
 }
 
 export interface ThumbnailStripOptions extends RenderPreviewOptions {
   count: number;
+  /** Start of the sampled window in seconds (v1.1 S12). Default 0. */
+  from?: number;
+  /** End of the sampled window in seconds. Default the composition duration. */
+  to?: number;
 }
+
+// R-18 — an agent (or a bad prompt) requesting `count: 500` would render 500
+// frames serially and flood the tool response channel with base64 payloads.
+// Cap it to a sane strip size; anything above this is almost certainly a
+// mistake (a real contact sheet rarely needs more than a couple dozen
+// frames) and callers who genuinely need finer coverage should page across
+// multiple calls with different time ranges instead.
+export const THUMBNAIL_STRIP_MAX_COUNT = 30;
 
 export interface ThumbnailStripResult {
   images: string[]; // base64 frames, length === count
@@ -55,6 +97,8 @@ export interface ThumbnailStripResult {
   mimeType: "image/png" | "image/jpeg";
   width: number;
   height: number;
+  /** Present only when non-empty — e.g. video frames had to be extracted. */
+  warnings?: string[];
 }
 
 const SKIA_FORMAT: Record<PreviewFormat, "png" | "jpg"> = {
@@ -77,13 +121,19 @@ export async function renderPreviewFrame(
   const skia = options.skiaCanvas ?? (await loadSkia());
   const loader = options.loader ?? getCachedLoader(skia, comp.assets);
 
-  await loader.preloadAll(comp.assets);
+  await loader.preloadAll(withBundledAssets(comp));
+  const warnings: string[] = [];
+  const video = await getVideoProvider(comp, skia, options.preExtract, warnings);
 
   const meta = comp.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
   const ctx = canvas.getContext("2d");
+  await prepareVideoFrames(comp, time, video);
   ctx.clearRect(0, 0, meta.width, meta.height);
-  renderFrame(comp, time, ctx, { assets: loader });
+  renderFrame(comp, time, ctx, {
+    assets: loader,
+    ...(video !== undefined ? { video } : {}),
+  });
 
   const raw = await Promise.resolve(canvas.toBuffer(SKIA_FORMAT[format]));
   return {
@@ -91,6 +141,7 @@ export async function renderPreviewFrame(
     mimeType: MIME[format],
     width: meta.width,
     height: meta.height,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
@@ -104,6 +155,15 @@ export async function renderThumbnailStrip(
       "thumbnail count must be a positive integer.",
     );
   }
+  if (options.count > THUMBNAIL_STRIP_MAX_COUNT) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `thumbnail count ${options.count} exceeds the maximum of ${THUMBNAIL_STRIP_MAX_COUNT}.`,
+      `Request at most ${THUMBNAIL_STRIP_MAX_COUNT} thumbnails per call — sample a narrower ` +
+        "time range, or call render_thumbnail_strip again for the remaining span.",
+    );
+  }
+  const { from, to } = stripWindow(comp.composition.duration, options);
   const format: PreviewFormat = options.format ?? "png";
   const skia = options.skiaCanvas ?? (await loadSkia());
   // Single loader, single canvas, single asset preload — important for clips
@@ -111,18 +171,26 @@ export async function renderThumbnailStrip(
   // is also cached across MCP calls (see getCachedLoader) so agents iterating
   // on a 20-PNG comp don't re-decode every asset on each preview.
   const loader = options.loader ?? getCachedLoader(skia, comp.assets);
-  await loader.preloadAll(comp.assets);
+  await loader.preloadAll(withBundledAssets(comp));
+  // One provider for the whole strip — extraction + decode happen at most once.
+  const warnings: string[] = [];
+  const video = await getVideoProvider(comp, skia, options.preExtract, warnings);
 
   const meta = comp.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
   const ctx = canvas.getContext("2d");
   const tweenIndex = indexTweens(comp);
 
-  const times = sampleTimes(meta.duration, options.count);
+  const times = sampleTimes(to - from, options.count).map((t) => from + t);
   const images: string[] = [];
   for (const t of times) {
+    await prepareVideoFrames(comp, t, video);
     ctx.clearRect(0, 0, meta.width, meta.height);
-    renderFrame(comp, t, ctx, { assets: loader, index: tweenIndex });
+    renderFrame(comp, t, ctx, {
+      assets: loader,
+      index: tweenIndex,
+      ...(video !== undefined ? { video } : {}),
+    });
     const raw = await Promise.resolve(canvas.toBuffer(SKIA_FORMAT[format]));
     images.push(toBase64(raw));
   }
@@ -133,6 +201,7 @@ export async function renderThumbnailStrip(
     mimeType: MIME[format],
     width: meta.width,
     height: meta.height,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
@@ -146,6 +215,31 @@ export function sampleTimes(duration: number, count: number): number[] {
   const out: number[] = new Array(count);
   for (let i = 0; i < count; i++) out[i] = i * step;
   return out;
+}
+
+// The [from, to] window a strip samples, clamped to the timeline (v1.1 S12).
+function stripWindow(
+  duration: number,
+  options: { from?: number; to?: number },
+): { from: number; to: number } {
+  const rawFrom = options.from ?? 0;
+  const rawTo = options.to ?? duration;
+  if (!Number.isFinite(rawFrom) || !Number.isFinite(rawTo) || rawFrom < 0) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "from/to must be non-negative finite seconds.",
+    );
+  }
+  const from = Math.min(rawFrom, duration);
+  const to = Math.min(rawTo, duration);
+  if (to <= from) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `thumbnail range ${rawFrom}..${rawTo} is empty within the composition's 0..${duration}s.`,
+      "Pass `to` greater than `from`, both inside the composition duration.",
+    );
+  }
+  return { from, to };
 }
 
 function ensureFiniteTime(t: number): void {
@@ -219,6 +313,90 @@ function getCachedLoader(
     inner.delete(oldest);
   }
   return loader;
+}
+
+// Cross-call video frame provider cache (v1.1 S4). Extraction output already
+// lives in the on-disk frame cache, but decoding a clip's PNGs into bitmaps is
+// the expensive part of a preview — so the decoded provider is kept per skia
+// module, keyed by cache root + every extraction spec (hash → item ids). The
+// spec hash pins source path/mtime/size, trim, fps and resolution, so any edit
+// that changes the pixels lands on a fresh key. Kept small: each entry holds
+// every decoded frame of its clips in memory.
+const PROVIDER_CACHE_MAX = 4;
+const providerCache: WeakMap<
+  SkiaCanvasModule,
+  Map<string, Promise<VideoFrameProvider>>
+> = new WeakMap();
+
+async function getVideoProvider(
+  comp: Composition,
+  skia: SkiaCanvasModule,
+  preExtract: RenderPreviewOptions["preExtract"],
+  warnings: string[],
+): Promise<VideoFrameProvider | undefined> {
+  if (preExtract === false || !compositionHasVideo(comp)) return undefined;
+  const pe = preExtract ?? {};
+  const cacheRoot = pe.cacheRoot ?? defaultFrameCacheRoot();
+
+  let key: string;
+  try {
+    const specs = collectVideoExtractSpecs(comp);
+    key = JSON.stringify([cacheRoot, specs.map((s) => [s.hash, s.itemIds])]);
+  } catch (err) {
+    // Missing/unreadable source: the preview still renders the rest of the
+    // frame; the agent learns why the footage is absent.
+    warnings.push(`Video frames unavailable: ${errorMessage(err)}`);
+    return undefined;
+  }
+
+  let inner = providerCache.get(skia);
+  if (!inner) {
+    inner = new Map();
+    providerCache.set(skia, inner);
+  }
+  let pending = inner.get(key);
+  if (pending) {
+    inner.delete(key);
+    inner.set(key, pending);
+  } else {
+    pending = (async () => {
+      const result = await preExtractVideoFrames(comp, {
+        cacheRoot,
+        ...(pe.maxBytes !== undefined ? { maxBytes: pe.maxBytes } : {}),
+        ...(pe.ffmpegPath !== undefined ? { ffmpegPath: pe.ffmpegPath } : {}),
+        ...(pe.spawn !== undefined ? { spawn: pe.spawn } : {}),
+      });
+      const extracted = [...result.entries.values()].filter((e) => !e.cached);
+      if (extracted.length > 0) {
+        const frames = extracted.reduce((n, e) => n + e.frameCount, 0);
+        warnings.push(
+          `Extracted ${frames} video frame(s) for ${extracted.length} clip(s) before rendering; ` +
+            "later previews and renders of the same clips reuse the frame cache.",
+        );
+      }
+      return buildVideoFrameProvider(result, skia);
+    })();
+    inner.set(key, pending);
+    while (inner.size > PROVIDER_CACHE_MAX) {
+      const oldest = inner.keys().next().value;
+      if (oldest === undefined) break;
+      inner.delete(oldest);
+    }
+  }
+
+  try {
+    return await pending;
+  } catch (err) {
+    // Never cache a failure — the next call retries (e.g. after the agent
+    // fixes the asset path or ffmpeg becomes available).
+    if (inner.get(key) === pending) inner.delete(key);
+    warnings.push(`Video frames unavailable: ${errorMessage(err)}`);
+    return undefined;
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function assetsKey(assets: ReadonlyArray<Asset>): string {

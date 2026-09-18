@@ -1,4 +1,13 @@
-/// <reference path="../../adonisrc.ts" />
+// Type-only reference so `SharedProps` (declared via module augmentation in
+// config/inertia.ts) is visible when the client tree is type-checked on its
+// own (`vue-tsc -p inertia/tsconfig.json`, Session 24). Deliberately NOT
+// referencing `../../adonisrc.ts` here (the starter-kit scaffold did) — that
+// pulls the whole server dependency graph (start/kernel.ts → every
+// #middleware/* file) into this client-only program, which type-checks them
+// under the wrong compilerOptions (no config/auth.ts augmentation reachable,
+// so `Authenticators` resolves empty and guard calls type as `never`).
+// Nothing here currently needs adonisrc.ts's types; config/inertia.ts is
+// self-contained.
 /// <reference path="../../config/inertia.ts" />
 
 import '../css/app.css';

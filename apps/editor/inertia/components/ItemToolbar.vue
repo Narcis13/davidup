@@ -18,7 +18,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useItemToolbar, type PlaceTool } from '~/composables/useItemToolbar'
 import { useActiveLayer } from '~/composables/useActiveLayer'
-import type { Composition } from '~/composables/useCommandBus'
+import { useToasts } from '~/composables/useToasts'
+import type { Command, Composition } from '~/composables/useCommandBus'
 
 const props = defineProps<{
   composition: Composition | null
@@ -26,12 +27,24 @@ const props = defineProps<{
   canGroup: boolean
   /** True while the current selection is a single group eligible for flatten. */
   canUngroup: boolean
+  /**
+   * U8 — current playhead (seconds). "Add Audio Track…" places the new
+   * track here (matches the MCP tool's own convention of "wherever the
+   * caller says", and mirrors the Timeline drop-at-playhead behaviour).
+   */
+  playhead?: number
 }>()
 
 const emit = defineEmits<{
   (event: 'group'): void
   (event: 'ungroup'): void
+  // U8 — "Add Video…" / "Add Audio Track…" dispatch immediately (no
+  // place-mode click-through — the spec places video at stage-centre and
+  // audio at the playhead, not "wherever the user clicks next").
+  (event: 'apply', command: Command): void
 }>()
+
+const toasts = useToasts()
 
 const toolbar = useItemToolbar()
 const activeLayer = useActiveLayer()
@@ -43,9 +56,8 @@ const activeLayer = useActiveLayer()
 const targetLayerId = computed<string | null>(() => activeLayer.resolveTarget(props.composition))
 
 // ── derived: font assets registered on the composition ─────────────────
-// `add_text` requires a `font` field naming an asset of type 'font'. In a
-// fresh project there are no fonts, so we disable the text button with a
-// tooltip rather than dispatching a command the validator will flag.
+// Placed text uses the first registered font; with none it falls back to the
+// bundled `font:default` (R-30), so the text tool is never gated on fonts.
 const fontAssets = computed<Array<{ id: string; family?: string }>>(() => {
   const assets = props.composition?.assets
   if (!Array.isArray(assets)) return []
@@ -76,36 +88,53 @@ const imageAssets = computed<Array<{ id: string; src?: string }>>(() => {
   return out
 })
 
+// U8 — video/audio assets registered on the composition, feeding the "Add
+// Video…" / "Add Audio Track…" pickers below (same shape as imageAssets).
+function assetsOfType(type: 'video' | 'audio'): Array<{ id: string; src?: string }> {
+  const assets = props.composition?.assets
+  if (!Array.isArray(assets)) return []
+  const out: Array<{ id: string; src?: string }> = []
+  for (const a of assets as Array<{ id?: unknown; type?: unknown; src?: unknown }>) {
+    if (a?.type !== type) continue
+    if (typeof a.id !== 'string') continue
+    out.push({ id: a.id, src: typeof a.src === 'string' ? a.src : undefined })
+  }
+  return out
+}
+
+const videoAssets = computed<Array<{ id: string; src?: string }>>(() => assetsOfType('video'))
+const audioAssets = computed<Array<{ id: string; src?: string }>>(() => assetsOfType('audio'))
+
 // ── UI state: popovers for text input and sprite asset picker ──────────
 const textInputOpen = ref(false)
 const textValue = ref('')
 const spritePickerOpen = ref(false)
+const videoPickerOpen = ref(false)
+const audioPickerOpen = ref(false)
 const textInputEl = ref<HTMLInputElement | null>(null)
 
 function closePopovers(): void {
   textInputOpen.value = false
   spritePickerOpen.value = false
+  videoPickerOpen.value = false
+  audioPickerOpen.value = false
 }
 
 // ── button handlers ────────────────────────────────────────────────────
-function pickShape(kind: 'rect' | 'circle'): void {
+function pickShape(kind: 'rect' | 'circle' | 'polygon'): void {
   closePopovers()
   // Toggle: clicking the active tool again cancels it. Lets users back out
   // without having to find the Escape key.
-  const current = toolbar.activeTool.value
-  if (
-    (kind === 'rect' && current?.kind === 'shape-rect') ||
-    (kind === 'circle' && current?.kind === 'shape-circle')
-  ) {
+  const toolKind = `shape-${kind}` as const
+  if (toolbar.activeTool.value?.kind === toolKind) {
     toolbar.clearTool()
     return
   }
-  toolbar.setTool({ kind: kind === 'rect' ? 'shape-rect' : 'shape-circle' })
+  toolbar.setTool({ kind: toolKind })
 }
 
 function startText(): void {
   closePopovers()
-  if (fontAssets.value.length === 0) return
   // If text is already pending placement, a second click cancels.
   if (toolbar.activeTool.value?.kind === 'text') {
     toolbar.clearTool()
@@ -142,6 +171,69 @@ function chooseSprite(assetId: string): void {
   toolbar.setTool({ kind: 'sprite', asset: assetId })
 }
 
+// U8 — "Add Video…" / "Add Audio Track…" don't enter place-mode: the spec
+// places video at the stage centre (fit=contain) and audio at the current
+// playhead, so there's nothing for a follow-up Stage click to resolve.
+// Picking an asset dispatches the command immediately.
+function startVideo(): void {
+  closePopovers()
+  if (videoAssets.value.length === 0) return
+  videoPickerOpen.value = true
+}
+
+function startAudioTrack(): void {
+  closePopovers()
+  if (audioAssets.value.length === 0) return
+  audioPickerOpen.value = true
+}
+
+function formatToastTime(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function chooseVideo(assetId: string): void {
+  videoPickerOpen.value = false
+  const layerId = targetLayerId.value
+  const comp = props.composition
+  if (!layerId || !comp) return
+  const width = comp.composition.width
+  const height = comp.composition.height
+  const command: Command = {
+    kind: 'add_video',
+    payload: {
+      layerId,
+      asset: assetId,
+      x: Math.round(width / 2),
+      y: Math.round(height / 2),
+      anchorX: 0.5,
+      anchorY: 0.5,
+      fit: 'contain',
+    },
+    source: 'ui',
+  }
+  emit('apply', command)
+  toasts.success(`Added ${assetId} at stage centre`, {
+    dedupeKey: 'toolbar:add-video',
+  })
+}
+
+function chooseAudio(assetId: string): void {
+  audioPickerOpen.value = false
+  const start = Math.max(0, props.playhead ?? 0)
+  const command: Command = {
+    kind: 'add_audio_track',
+    payload: { asset: assetId, start },
+    source: 'ui',
+  }
+  emit('apply', command)
+  toasts.success(`Added ${assetId} at ${formatToastTime(start)}`, {
+    dedupeKey: 'toolbar:add-audio',
+  })
+}
+
 // ── place-mode indicator + cancel ──────────────────────────────────────
 function isToolActive(test: PlaceTool['kind']): boolean {
   return toolbar.activeTool.value?.kind === test
@@ -157,7 +249,14 @@ function cancelActiveTool(): void {
 // toolbar first (consistent with how Esc closes the help overlay).
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
-  if (!toolbar.isActive.value && !textInputOpen.value && !spritePickerOpen.value) return
+  if (
+    !toolbar.isActive.value &&
+    !textInputOpen.value &&
+    !spritePickerOpen.value &&
+    !videoPickerOpen.value &&
+    !audioPickerOpen.value
+  )
+    return
   event.preventDefault()
   cancelActiveTool()
 }
@@ -178,12 +277,16 @@ watch(
 function onFocusToolbarEvent(event: Event): void {
   const detail = (event as CustomEvent).detail as { kind?: string } | null
   const kind = detail?.kind
-  if (kind === 'rect' || kind === 'circle') {
+  if (kind === 'rect' || kind === 'circle' || kind === 'polygon') {
     pickShape(kind)
   } else if (kind === 'text') {
     startText()
   } else if (kind === 'sprite') {
     startSprite()
+  } else if (kind === 'video') {
+    startVideo()
+  } else if (kind === 'audio') {
+    startAudioTrack()
   }
 }
 
@@ -204,7 +307,7 @@ onBeforeUnmount(() => {
 
 // ── button metadata ────────────────────────────────────────────────────
 interface ToolButton {
-  id: 'rect' | 'circle' | 'text' | 'sprite'
+  id: 'rect' | 'circle' | 'polygon' | 'text' | 'sprite' | 'video' | 'audio'
   label: string
   glyph: string
   active: boolean
@@ -233,14 +336,23 @@ const buttons = computed<ToolButton[]>(() => [
     onClick: () => pickShape('circle'),
   },
   {
+    id: 'polygon',
+    label: 'Polygon',
+    glyph: '⬠',
+    active: isToolActive('shape-polygon'),
+    disabled: targetLayerId.value === null,
+    title: 'Add polygon — click the stage to place each vertex, Enter or double-click to close',
+    onClick: () => pickShape('polygon'),
+  },
+  {
     id: 'text',
     label: 'Text',
     glyph: 'T',
     active: isToolActive('text') || textInputOpen.value,
-    disabled: targetLayerId.value === null || fontAssets.value.length === 0,
+    disabled: targetLayerId.value === null,
     title:
       fontAssets.value.length === 0
-        ? 'Add a font asset to the composition before placing text — open the Library → Fonts tab and click "+ Add" on a font card'
+        ? 'Add text (bundled Inter font) — type, then click on the stage'
         : 'Add text — type, then click on the stage',
     onClick: startText,
   },
@@ -255,6 +367,30 @@ const buttons = computed<ToolButton[]>(() => [
         ? 'Drop an image asset into the Library before placing a sprite'
         : 'Add sprite — pick an asset, then click on the stage',
     onClick: startSprite,
+  },
+  {
+    id: 'video',
+    label: 'Video',
+    glyph: '▶',
+    active: videoPickerOpen.value,
+    disabled: targetLayerId.value === null || videoAssets.value.length === 0,
+    title:
+      videoAssets.value.length === 0
+        ? 'Drop a video asset into the Library before adding a video clip'
+        : 'Add video — pick an asset, placed at the stage centre (V)',
+    onClick: startVideo,
+  },
+  {
+    id: 'audio',
+    label: 'Audio',
+    glyph: '♪',
+    active: audioPickerOpen.value,
+    disabled: audioAssets.value.length === 0,
+    title:
+      audioAssets.value.length === 0
+        ? 'Drop an audio asset into the Library before adding a track'
+        : 'Add audio track — pick an asset, placed at the playhead (A)',
+    onClick: startAudioTrack,
   },
 ])
 </script>
@@ -316,7 +452,11 @@ const buttons = computed<ToolButton[]>(() => [
       class="place-banner"
       data-testid="item-toolbar-place-banner"
     >
-      <span>Click stage to place</span>
+      <span>{{
+        isToolActive('shape-polygon')
+          ? 'Click to add points · Enter to close'
+          : 'Click stage to place'
+      }}</span>
       <button
         type="button"
         class="place-cancel"
@@ -371,6 +511,48 @@ const buttons = computed<ToolButton[]>(() => [
             class="sprite-row"
             :data-testid="`item-toolbar-sprite-${a.id}`"
             @click="chooseSprite(a.id)"
+          >
+            <span class="sprite-row-id">{{ a.id }}</span>
+            <span v-if="a.src" class="sprite-row-src">{{ a.src }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <div
+      v-if="videoPickerOpen"
+      class="popover popover-sprite"
+      data-testid="item-toolbar-video-picker"
+    >
+      <label class="popover-label">Choose video</label>
+      <ul class="sprite-list">
+        <li v-for="a in videoAssets" :key="a.id">
+          <button
+            type="button"
+            class="sprite-row"
+            :data-testid="`item-toolbar-video-${a.id}`"
+            @click="chooseVideo(a.id)"
+          >
+            <span class="sprite-row-id">{{ a.id }}</span>
+            <span v-if="a.src" class="sprite-row-src">{{ a.src }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <div
+      v-if="audioPickerOpen"
+      class="popover popover-sprite"
+      data-testid="item-toolbar-audio-picker"
+    >
+      <label class="popover-label">Choose audio</label>
+      <ul class="sprite-list">
+        <li v-for="a in audioAssets" :key="a.id">
+          <button
+            type="button"
+            class="sprite-row"
+            :data-testid="`item-toolbar-audio-${a.id}`"
+            @click="chooseAudio(a.id)"
           >
             <span class="sprite-row-id">{{ a.id }}</span>
             <span v-if="a.src" class="sprite-row-src">{{ a.src }}</span>

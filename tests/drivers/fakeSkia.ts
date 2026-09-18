@@ -20,7 +20,7 @@ export interface FakeCanvasInstance {
 
 export function makeFakeSkia(): SkiaDriverModule & {
   loadImage: ReturnType<typeof vi.fn>;
-  FontLibrary: { use: ReturnType<typeof vi.fn> };
+  FontLibrary: { use: ReturnType<typeof vi.fn>; reset: ReturnType<typeof vi.fn> };
   canvases: FakeCanvasInstance[];
 } {
   const canvases: FakeCanvasInstance[] = [];
@@ -50,7 +50,7 @@ export function makeFakeSkia(): SkiaDriverModule & {
   return {
     Canvas: Canvas as unknown as SkiaDriverModule["Canvas"],
     loadImage: vi.fn(async (src: string) => ({ src })),
-    FontLibrary: { use: vi.fn() },
+    FontLibrary: { use: vi.fn(), reset: vi.fn() },
     canvases,
   };
 }

@@ -11,25 +11,44 @@
 // tween overlap) by throwing MCPToolError; tool wrappers turn those into
 // structured `{error}` payloads.
 
-import type { EasingName } from "../easings/index.js";
-import { validate, type ValidationResult } from "../schema/validator.js";
+import type { Easing } from "../easings/index.js";
+import { validate, OVERLAP_EPS, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
+  AudioMaster,
+  AudioTrack,
   BlendMode,
   Composition,
   CompositionMeta,
+  Effect,
   GroupItem,
   Item,
   Layer,
   ShapeItem,
   SpriteItem,
   TextItem,
+  TextShadow,
   Transform,
   Tween,
+  VideoFit,
+  VideoItem,
 } from "../schema/types.js";
-import { COMPOSITION_VERSION, ItemSchema } from "../schema/zod.js";
-import { getTweenable } from "../schema/tweenable.js";
-import type { BehaviorDescriptor } from "../compose/behaviors.js";
+import {
+  AUDIO_ASSET_EXTENSIONS,
+  VIDEO_ASSET_EXTENSIONS,
+  COMPOSITION_VERSION,
+  ItemSchema,
+  isSupportedAudioSrc,
+  isSupportedVideoSrc,
+} from "../schema/zod.js";
+import { safeParseWithExtensions } from "../schema/strict.js";
+import { getItemTweenable, parseEffectPath } from "../schema/tweenable.js";
+import { isRationalFps, type Fps } from "../schema/fps.js";
+import {
+  getBehaviorDescriptor,
+  normalizeBehaviorDescriptor,
+  type BehaviorDescriptor,
+} from "../compose/behaviors.js";
 import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
 import type { TemplateDefinition } from "../compose/templates.js";
 import { MCPToolError } from "./errors.js";
@@ -57,6 +76,14 @@ interface SceneInstanceRecord {
   transform: Record<string, unknown> | undefined;
   /** v0.5 time-mapping spec. Undefined means identity. */
   time: TimeMapping | undefined;
+  /**
+   * Explicit visibility-window override supplied by the caller (R-26).
+   * Undefined means "use the computed `[start, start + effectiveDuration)`
+   * default" — recomputed on every (re-)expansion, not stored here.
+   */
+  enter: number | undefined;
+  /** See {@link SceneInstanceRecord.enter}. */
+  exit: number | undefined;
   /** Item ids added by this scene instance (wrapper group + prefixed inner items). */
   itemIds: string[];
   /** Tween ids added by this scene instance. */
@@ -78,20 +105,27 @@ interface MutableComposition {
   // group children that are created without a layer assignment in future.
   itemLayer: Map<string, string>;
   tweens: Map<string, Tween>;
+  // External audio tracks keyed by id (v0.2 §S3). Insertion-ordered like the
+  // other maps so the serialised `audio[]` keeps add order. Audio is never
+  // derived from video — every entry is an explicitly declared external asset.
+  audio: Map<string, AudioTrack>;
   // Scene instance tracking — populated by add_scene_instance / cleared by
   // update_scene_instance + remove. Lets scene-instance MCP tools roll back
   // exactly the items/tweens/assets a prior call added without scanning.
   sceneInstances: Map<string, SceneInstanceRecord>;
   // Monotonic counters used when an explicit id is not supplied.
-  nextSeq: { layer: number; item: number; tween: number; comp: number; scene: number };
+  nextSeq: { layer: number; item: number; tween: number; comp: number; scene: number; audio: number };
 }
 
 export interface CreateCompositionInput {
   width: number;
   height: number;
-  fps: number;
+  /** Positive number or exact rational "N/D" (v1.1 S7). */
+  fps: Fps;
   duration: number;
   background?: string;
+  /** Master audio bus (v1.1 S10); omitted ⇒ limiter on, no loudness target. */
+  audioMaster?: AudioMaster;
   id?: string;
 }
 
@@ -100,13 +134,29 @@ export type SetMetaPropertyName =
   | "height"
   | "fps"
   | "duration"
-  | "background";
+  | "background"
+  | "audioMaster";
 
 export interface RegisterAssetInput {
   id: string;
-  type: "image" | "font";
+  type: "image" | "font" | "audio" | "video";
   src: string;
   family?: string;
+  // Audio (v0.2 §S2) + video (§S6) metadata. Probed via ffprobe by the
+  // `register_asset` tool before the input reaches the store; all optional so
+  // the asset can be registered even when ffprobe is unavailable. `duration`
+  // and `codec` are shared; `sampleRate`/`channels` are audio-only;
+  // `width`/`height`/`fps`/`hasAlpha`/`pixelFormat` are video-only.
+  duration?: number;
+  sampleRate?: number;
+  channels?: number;
+  codec?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  hasAlpha?: boolean;
+  pixelFormat?: string;
+  hasAudio?: boolean;
 }
 
 export interface AddLayerInput {
@@ -160,6 +210,15 @@ export interface AddTextInput {
   anchorX?: number;
   anchorY?: number;
   align?: "left" | "center" | "right";
+  // Text v2 (v1.1 S13/S14) — see TextItemSchema in src/schema/zod.ts.
+  maxWidth?: number;
+  lineHeight?: number;
+  letterSpacing?: number;
+  fontWeight?: TextItem["fontWeight"];
+  fontStyle?: TextItem["fontStyle"];
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadow?: TextShadow;
   rotation?: number;
   opacity?: number;
   id?: string;
@@ -191,6 +250,11 @@ export interface AddGroupInput {
   x: number;
   y: number;
   childItemIds?: ReadonlyArray<string>;
+  // v1.1 S18 — flatten the children onto a scratch surface and composite once
+  // (so a faded group stops showing its overlap seams), and how that
+  // composite blends against what is already painted.
+  isolate?: boolean;
+  blendMode?: BlendMode;
   anchorX?: number;
   anchorY?: number;
   rotation?: number;
@@ -223,7 +287,15 @@ export interface UpdateItemProps {
   fontSize?: number;
   color?: string;
   align?: "left" | "center" | "right";
-  // Shape-specific.
+  // Text v2 (v1.1 S14). `null` clears `maxWidth` (back to point mode) or
+  // removes the shadow; the other optional fields have neutral values.
+  maxWidth?: number | null;
+  lineHeight?: number;
+  letterSpacing?: number;
+  fontWeight?: TextItem["fontWeight"];
+  fontStyle?: TextItem["fontStyle"];
+  shadow?: TextShadow | null;
+  // Shape-specific (strokeColor/strokeWidth also apply to text).
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
@@ -231,6 +303,13 @@ export interface UpdateItemProps {
   points?: ReadonlyArray<readonly [number, number]>;
   // Group-specific.
   items?: ReadonlyArray<string>;
+  // v1.1 S18 group compositing. `false` / `"normal"` return the group to the
+  // default multiplicative path rather than dropping the field.
+  isolate?: boolean;
+  blendMode?: BlendMode;
+  // v1.1 S21 effects stack (all item types). Replaces the whole list; `null`
+  // or `[]` removes it.
+  effects?: ReadonlyArray<Effect> | null;
   // §M flags (all item types).
   visible?: boolean;
   locked?: boolean;
@@ -250,7 +329,7 @@ export interface AddTweenInput {
   to: number | string;
   start: number;
   duration: number;
-  easing?: EasingName;
+  easing?: Easing;
   id?: string;
 }
 
@@ -261,13 +340,129 @@ export interface UpdateTweenProps {
   to?: number | string;
   start?: number;
   duration?: number;
-  easing?: EasingName;
+  easing?: Easing;
 }
 
 export interface ListTweensFilter {
   target?: string;
   property?: string;
 }
+
+// Audio track inputs (v0.2 §S3). `start`/`end` are composition seconds (`end`
+// omitted ⇒ play out to the asset's natural duration at mux time); `trimIn`
+// (R-11, Session 28) is the in-source offset in seconds — independent of
+// `start`/`end`, which only place the (possibly offset) clip on the timeline;
+// `volume` is a linear gain in [0, 2]; `fadeIn`/`fadeOut` are ramp lengths in
+// seconds.
+export interface AddAudioTrackInput {
+  asset: string;
+  start: number;
+  end?: number;
+  trimIn?: number;
+  volume?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  loop?: boolean;
+  id?: string;
+}
+
+export interface UpdateAudioTrackProps {
+  asset?: string;
+  start?: number;
+  end?: number;
+  trimIn?: number;
+  volume?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  loop?: boolean;
+}
+
+export interface ListAudioTracksFilter {
+  asset?: string;
+}
+
+// Returned by add/update so the MCP tool can surface non-fatal placement
+// warnings (track extends past the composition end) without failing the call —
+// aligns with the v0.2 plan's Q6 "warn, don't error" rule.
+export interface AudioTrackMutationResult {
+  warnings: string[];
+}
+
+export interface AddAudioTrackResult extends AudioTrackMutationResult {
+  id: string;
+}
+
+// Video item inputs (v0.2 §S9). Spatially a sprite (`x`/`y` + `width`/`height`
+// box + transform); on top of that a temporal window (`start`/`end`) and a
+// source trim (`trimIn`/`trimOut`). `width`/`height` default to the composition
+// dimensions; `start` defaults to 0; `fit` to "contain"; `loop` to false.
+// `layerId` is optional — omitted, the clip lands on the topmost layer (highest
+// z). `keepAudio` (v1.1 S11) opts the clip's own audio stream into the mux.
+export interface AddVideoInput {
+  layerId?: string;
+  asset: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  anchorX?: number;
+  anchorY?: number;
+  rotation?: number;
+  opacity?: number;
+  scaleX?: number;
+  scaleY?: number;
+  start?: number;
+  end?: number;
+  trimIn?: number;
+  trimOut?: number;
+  fit?: VideoFit;
+  loop?: boolean;
+  keepAudio?: boolean;
+  id?: string;
+  name?: string;
+}
+
+export interface UpdateVideoProps {
+  // Transform overrides.
+  x?: number;
+  y?: number;
+  scaleX?: number;
+  scaleY?: number;
+  rotation?: number;
+  anchorX?: number;
+  anchorY?: number;
+  opacity?: number;
+  // Spatial box + source.
+  width?: number;
+  height?: number;
+  asset?: string;
+  // Temporal window + source trim + display.
+  start?: number;
+  end?: number;
+  trimIn?: number;
+  trimOut?: number;
+  fit?: VideoFit;
+  loop?: boolean;
+  keepAudio?: boolean;
+  // §M flags + §P label + lifespan (every item type).
+  visible?: boolean;
+  locked?: boolean;
+  name?: string;
+  enter?: number;
+  exit?: number;
+}
+
+// Like the audio result types, add/update surface non-fatal placement warnings
+// (the clip's visible window extends past the composition end) without failing.
+export interface VideoMutationResult {
+  warnings: string[];
+}
+
+export interface AddVideoResult extends VideoMutationResult {
+  itemId: string;
+}
+
+export type ResetScope = "compositions" | "all";
 
 export class CompositionStore {
   private readonly compositions = new Map<string, MutableComposition>();
@@ -305,6 +500,9 @@ export class CompositionStore {
       fps: input.fps,
       duration: input.duration,
       background: input.background ?? DEFAULT_BACKGROUND,
+      ...(input.audioMaster !== undefined
+        ? { audioMaster: normalizeAudioMaster(input.audioMaster) }
+        : {}),
     };
     const comp: MutableComposition = {
       id,
@@ -314,15 +512,19 @@ export class CompositionStore {
       items: new Map(),
       itemLayer: new Map(),
       tweens: new Map(),
+      audio: new Map(),
       sceneInstances: new Map(),
-      nextSeq: { layer: 0, item: 0, tween: 0, comp: 0, scene: 0 },
+      nextSeq: { layer: 0, item: 0, tween: 0, comp: 0, scene: 0, audio: 0 },
     };
     this.compositions.set(id, comp);
     if (this.defaultId === null) this.defaultId = id;
     return id;
   }
 
-  reset(compositionId?: string): void {
+  // With `compositionId`: drop just that composition (registries untouched).
+  // Without: drop every composition, and with scope "all" (the default) also
+  // the session registries — user templates, scenes and behaviors (R-29).
+  reset(compositionId?: string, scope: ResetScope = "all"): void {
     if (compositionId !== undefined) {
       this.compositions.delete(compositionId);
       if (this.defaultId === compositionId) {
@@ -333,6 +535,11 @@ export class CompositionStore {
     this.compositions.clear();
     this.defaultId = null;
     this.autoSeq = 0;
+    if (scope === "all") {
+      this.userTemplates.clear();
+      this.userScenes.clear();
+      this.userBehaviors.clear();
+    }
   }
 
   hasComposition(compositionId?: string): boolean {
@@ -357,8 +564,8 @@ export class CompositionStore {
         comp.meta = { ...comp.meta, [property]: value as number };
         return;
       case "fps":
-        ensurePositive(property, value);
-        comp.meta = { ...comp.meta, fps: value as number };
+        if (!isRationalFps(value)) ensurePositive(property, value);
+        comp.meta = { ...comp.meta, fps: value };
         return;
       case "duration":
         ensureNonNegative(property, value);
@@ -374,6 +581,17 @@ export class CompositionStore {
         }
         comp.meta = { ...comp.meta, background: value };
         return;
+      case "audioMaster": {
+        // `null` clears it back to the default (limiter on, no target).
+        if (value === null) {
+          const { audioMaster: _dropped, ...rest } = comp.meta;
+          void _dropped;
+          comp.meta = rest;
+          return;
+        }
+        comp.meta = { ...comp.meta, audioMaster: normalizeAudioMaster(value) };
+        return;
+      }
       default: {
         const _exhaustive: never = property;
         void _exhaustive;
@@ -392,6 +610,7 @@ export class CompositionStore {
 
   toJSON(compositionId?: string): Composition {
     const comp = this.requireComposition(compositionId);
+    const audio = Array.from(comp.audio.values()).map(cloneAudioTrack);
     return {
       version: COMPOSITION_VERSION,
       composition: { ...comp.meta },
@@ -401,7 +620,78 @@ export class CompositionStore {
         Array.from(comp.items.entries()).map(([id, item]) => [id, cloneItem(item)]),
       ),
       tweens: Array.from(comp.tweens.values()).map(cloneTween),
+      // Emit `audio` only when there's at least one track so pre-v0.2 projects
+      // (and every composition that never touched audio) serialise byte-for-byte
+      // as before — the schema keeps `audio` optional for exactly this reason.
+      ...(audio.length > 0 ? { audio } : {}),
     };
+  }
+
+  /**
+   * Swap the whole document of one composition for `doc` (v1.1 S29,
+   * `replace_composition`). `doc` must be canonical and pass `validate`;
+   * otherwise nothing changes and E_VALIDATION_FAILED carries the issues.
+   * Targets `compositionId` (or the default); when that composition doesn't
+   * exist yet it is created, becoming the default if none is set. Scene-instance
+   * bookkeeping is dropped — the document has no record of it, so a replaced
+   * composition's instances are plain items from here on.
+   */
+  replaceComposition(
+    doc: unknown,
+    compositionId?: string,
+  ): { compositionId: string; warnings: ValidationResult["warnings"] } {
+    const result = validate(doc);
+    if (!result.valid) {
+      throw new MCPToolError(
+        "E_VALIDATION_FAILED",
+        `Replacement composition is invalid (${result.errors.length} error(s)).`,
+        "Fix every entry in `issues`; the current composition was left untouched.",
+        {
+          issues: result.errors.map((e) => ({
+            code: e.code,
+            message: e.message,
+            ...(e.path !== undefined ? { path: e.path } : {}),
+          })),
+        },
+      );
+    }
+    const composition = doc as Composition;
+    const id = compositionId ?? this.defaultId ?? this.nextCompositionId();
+
+    // Build into a scratch store with the ordinary raw primitives, so the
+    // swap below is all-or-nothing.
+    const scratch = new CompositionStore();
+    const meta = composition.composition;
+    scratch.createComposition({
+      id,
+      width: meta.width,
+      height: meta.height,
+      fps: meta.fps,
+      duration: meta.duration,
+      ...(meta.background !== undefined ? { background: meta.background } : {}),
+      ...(meta.audioMaster !== undefined ? { audioMaster: meta.audioMaster } : {}),
+    });
+    for (const asset of composition.assets) scratch.registerAssetUnchecked(asset, id);
+    const target = scratch.requireComposition(id);
+    for (const layer of composition.layers) {
+      target.layers.set(layer.id, cloneLayer({ ...layer, items: [] }));
+    }
+    const placed = new Set<string>();
+    for (const layer of composition.layers) {
+      for (const itemId of layer.items) {
+        scratch.addRawItem({ id: itemId, layerId: layer.id, item: composition.items[itemId] }, id);
+        placed.add(itemId);
+      }
+    }
+    for (const [itemId, item] of Object.entries(composition.items)) {
+      if (!placed.has(itemId)) scratch.addRawSubItem({ id: itemId, item }, id);
+    }
+    for (const tween of composition.tweens) scratch.addRawTween(tween, id);
+    for (const track of composition.audio ?? []) scratch.addRawAudioTrack(track, id);
+
+    this.compositions.set(id, target);
+    if (this.defaultId === null) this.defaultId = id;
+    return { compositionId: id, warnings: result.warnings };
   }
 
   // ──────────────── Assets ────────────────
@@ -437,11 +727,54 @@ export class CompositionStore {
         src: input.src,
         family: input.family,
       });
+    } else if (input.type === "audio") {
+      if (!isSupportedAudioSrc(input.src)) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Audio asset "${input.id}" has unsupported src "${input.src}".`,
+          `Audio sources must end with one of: ${AUDIO_ASSET_EXTENSIONS.join(", ")}.`,
+        );
+      }
+      // Only persist metadata fields that were actually resolved — leaving them
+      // absent (rather than undefined) keeps the serialised JSON clean and
+      // mirrors how an asset registered without ffprobe looks.
+      comp.assets.set(input.id, {
+        id: input.id,
+        type: "audio",
+        src: input.src,
+        ...(input.duration !== undefined ? { duration: input.duration } : {}),
+        ...(input.sampleRate !== undefined ? { sampleRate: input.sampleRate } : {}),
+        ...(input.channels !== undefined ? { channels: input.channels } : {}),
+        ...(input.codec !== undefined ? { codec: input.codec } : {}),
+      });
+    } else if (input.type === "video") {
+      if (!isSupportedVideoSrc(input.src)) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Video asset "${input.id}" has unsupported src "${input.src}".`,
+          `Video sources must end with one of: ${VIDEO_ASSET_EXTENSIONS.join(", ")}.`,
+        );
+      }
+      // As with audio: only persist metadata fields that were actually
+      // resolved, so an asset registered without ffprobe serialises clean.
+      comp.assets.set(input.id, {
+        id: input.id,
+        type: "video",
+        src: input.src,
+        ...(input.duration !== undefined ? { duration: input.duration } : {}),
+        ...(input.width !== undefined ? { width: input.width } : {}),
+        ...(input.height !== undefined ? { height: input.height } : {}),
+        ...(input.fps !== undefined ? { fps: input.fps } : {}),
+        ...(input.hasAlpha !== undefined ? { hasAlpha: input.hasAlpha } : {}),
+        ...(input.codec !== undefined ? { codec: input.codec } : {}),
+        ...(input.pixelFormat !== undefined ? { pixelFormat: input.pixelFormat } : {}),
+        ...(input.hasAudio !== undefined ? { hasAudio: input.hasAudio } : {}),
+      });
     } else {
       throw new MCPToolError(
         "E_INVALID_VALUE",
         `Unknown asset type "${String((input as { type: unknown }).type)}".`,
-        'Expected "image" or "font".',
+        'Expected "image", "font", "audio", or "video".',
       );
     }
   }
@@ -473,6 +806,22 @@ export class CompositionStore {
           "E_ASSET_IN_USE",
           `Asset "${assetId}" is used as font by text "${itemId}".`,
           "Remove or reassign the item before removing the asset.",
+        );
+      }
+      if (item.type === "video" && item.asset === assetId) {
+        throw new MCPToolError(
+          "E_ASSET_IN_USE",
+          `Asset "${assetId}" is used by video "${itemId}".`,
+          "Remove or reassign the item before removing the asset.",
+        );
+      }
+    }
+    for (const [trackId, track] of comp.audio) {
+      if (track.asset === assetId) {
+        throw new MCPToolError(
+          "E_ASSET_IN_USE",
+          `Asset "${assetId}" is used by audio track "${trackId}".`,
+          "Remove the audio track (remove_audio_track) before removing the asset.",
         );
       }
     }
@@ -627,6 +976,7 @@ export class CompositionStore {
       color: input.color,
       transform,
       ...(input.align !== undefined ? { align: input.align } : {}),
+      ...textV2Fields(input),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, text);
@@ -711,6 +1061,8 @@ export class CompositionStore {
       type: "group",
       items: [...childIds],
       transform,
+      ...(input.isolate !== undefined ? { isolate: input.isolate } : {}),
+      ...(input.blendMode !== undefined ? { blendMode: input.blendMode } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, group);
@@ -742,6 +1094,151 @@ export class CompositionStore {
     return id;
   }
 
+  // ──────────────── Video items (§S9) ────────────────
+
+  addVideo(input: AddVideoInput, compositionId?: string): AddVideoResult {
+    const comp = this.requireComposition(compositionId);
+    const layer =
+      input.layerId !== undefined
+        ? this.requireLayer(comp, input.layerId)
+        : this.requireTopmostLayer(comp);
+    const asset = this.requireVideoAsset(comp, input.asset);
+
+    const start = input.start ?? 0;
+    // Box defaults to the composition frame so a dropped clip fills it (with
+    // fit=contain it letterboxes, never overflows) even when the asset was
+    // registered without ffprobe metadata.
+    const width = input.width ?? comp.meta.width;
+    const height = input.height ?? comp.meta.height;
+    validateVideoFields(
+      {
+        start,
+        end: input.end,
+        trimIn: input.trimIn,
+        trimOut: input.trimOut,
+        width,
+        height,
+      },
+      asset,
+    );
+
+    const id = input.id ?? this.nextItemId(comp);
+    this.ensureNoItem(comp, id);
+
+    const transform: Transform = {
+      ...DEFAULT_TRANSFORM,
+      x: input.x,
+      y: input.y,
+      scaleX: input.scaleX ?? DEFAULT_TRANSFORM.scaleX,
+      scaleY: input.scaleY ?? DEFAULT_TRANSFORM.scaleY,
+      rotation: input.rotation ?? DEFAULT_TRANSFORM.rotation,
+      anchorX: input.anchorX ?? DEFAULT_TRANSFORM.anchorX,
+      anchorY: input.anchorY ?? DEFAULT_TRANSFORM.anchorY,
+      opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
+    };
+    ensureUnitInterval("opacity", transform.opacity);
+
+    const video: VideoItem = {
+      type: "video",
+      asset: input.asset,
+      width,
+      height,
+      start,
+      fit: input.fit ?? "contain",
+      loop: input.loop ?? false,
+      transform,
+      ...(input.end !== undefined ? { end: input.end } : {}),
+      ...(input.trimIn !== undefined ? { trimIn: input.trimIn } : {}),
+      ...(input.trimOut !== undefined ? { trimOut: input.trimOut } : {}),
+      ...(input.keepAudio !== undefined ? { keepAudio: input.keepAudio } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
+    };
+    comp.items.set(id, video);
+    comp.itemLayer.set(id, layer.id);
+    pushUnique(layer.items, id);
+    return { itemId: id, warnings: videoPlacementWarnings(comp, video, asset) };
+  }
+
+  updateVideo(
+    id: string,
+    props: UpdateVideoProps,
+    compositionId?: string,
+  ): VideoMutationResult {
+    const comp = this.requireComposition(compositionId);
+    const existing = comp.items.get(id);
+    if (!existing) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No item "${id}".`,
+        "Inspect get_composition().items for existing item ids, or add_video first.",
+      );
+    }
+    if (existing.type !== "video") {
+      throw new MCPToolError(
+        "E_INVALID_PROPERTY",
+        `Item "${id}" is type "${existing.type}", not "video".`,
+        "update_video only patches video items; use update_item for other types.",
+      );
+    }
+
+    const assetId = props.asset ?? existing.asset;
+    const asset = this.requireVideoAsset(comp, assetId);
+
+    const transform = { ...existing.transform };
+    if (props.x !== undefined) transform.x = props.x;
+    if (props.y !== undefined) transform.y = props.y;
+    if (props.scaleX !== undefined) transform.scaleX = props.scaleX;
+    if (props.scaleY !== undefined) transform.scaleY = props.scaleY;
+    if (props.rotation !== undefined) transform.rotation = props.rotation;
+    if (props.anchorX !== undefined) transform.anchorX = props.anchorX;
+    if (props.anchorY !== undefined) transform.anchorY = props.anchorY;
+    if (props.opacity !== undefined) {
+      ensureUnitInterval("opacity", props.opacity);
+      transform.opacity = props.opacity;
+    }
+
+    const width = props.width ?? existing.width;
+    const height = props.height ?? existing.height;
+    const start = props.start ?? existing.start;
+    const end = props.end ?? existing.end;
+    const trimIn = props.trimIn ?? existing.trimIn;
+    const trimOut = props.trimOut ?? existing.trimOut;
+    validateVideoFields({ start, end, trimIn, trimOut, width, height }, asset);
+
+    if (props.enter !== undefined) ensureNonNegative("enter", props.enter);
+    if (props.exit !== undefined) ensurePositive("exit", props.exit);
+
+    // §M flags + §P label + lifespan: patch wins, otherwise keep existing.
+    const visible = props.visible ?? existing.visible;
+    const locked = props.locked ?? existing.locked;
+    const name = props.name ?? existing.name;
+    const enter = props.enter ?? existing.enter;
+    const exit = props.exit ?? existing.exit;
+    const keepAudio = props.keepAudio ?? existing.keepAudio;
+
+    const updated: VideoItem = {
+      type: "video",
+      asset: assetId,
+      width,
+      height,
+      start,
+      fit: props.fit ?? existing.fit,
+      loop: props.loop ?? existing.loop,
+      transform,
+      ...(end !== undefined ? { end } : {}),
+      ...(trimIn !== undefined ? { trimIn } : {}),
+      ...(trimOut !== undefined ? { trimOut } : {}),
+      ...(keepAudio !== undefined ? { keepAudio } : {}),
+      ...(visible !== undefined ? { visible } : {}),
+      ...(locked !== undefined ? { locked } : {}),
+      ...(name !== undefined ? { name } : {}),
+      ...(enter !== undefined ? { enter } : {}),
+      ...(exit !== undefined ? { exit } : {}),
+    };
+    comp.items.set(id, updated);
+    return { warnings: videoPlacementWarnings(comp, updated, asset) };
+  }
+
   /**
    * Add a fully-formed canonical Item under an explicit id and layer. Bypasses
    * the type-specific input shapes used by `addSprite` / `addText` / etc.,
@@ -764,7 +1261,7 @@ export class CompositionStore {
       );
     }
     this.ensureNoItem(comp, input.id);
-    const parsed = ItemSchema.safeParse(input.item);
+    const parsed = safeParseWithExtensions(ItemSchema, input.item);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const path = issue?.path?.join(".") ?? "";
@@ -788,6 +1285,7 @@ export class CompositionStore {
         "Inspect get_composition().items for existing item ids, or add_sprite/add_text/add_shape/add_group first.",
       );
     const next = applyItemUpdate(item, props);
+    if (props.effects !== undefined) assertEffectTweensStillValid(comp.tweens, id, next);
     comp.items.set(id, next);
   }
 
@@ -839,7 +1337,7 @@ export class CompositionStore {
         `Tween target item "${input.target}" not found.`,
       );
     }
-    const desc = getTweenable(item.type, input.property);
+    const desc = getItemTweenable(item, input.property);
     if (!desc) {
       throw new MCPToolError(
         "E_INVALID_PROPERTY",
@@ -893,7 +1391,7 @@ export class CompositionStore {
       to: input.to,
       start: input.start,
       duration: input.duration,
-      ...(input.easing !== undefined ? { easing: input.easing } : {}),
+      ...(input.easing !== undefined ? { easing: cloneEasing(input.easing) } : {}),
     };
     comp.tweens.set(id, tween);
     return id;
@@ -924,7 +1422,7 @@ export class CompositionStore {
         `Tween target item "${target}" not found.`,
       );
     }
-    const desc = getTweenable(item.type, property);
+    const desc = getItemTweenable(item, property);
     if (!desc) {
       throw new MCPToolError(
         "E_INVALID_PROPERTY",
@@ -968,7 +1466,7 @@ export class CompositionStore {
       to,
       start,
       duration,
-      ...(easing !== undefined ? { easing } : {}),
+      ...(easing !== undefined ? { easing: cloneEasing(easing) } : {}),
     };
     comp.tweens.set(id, updated);
   }
@@ -993,6 +1491,189 @@ export class CompositionStore {
       out.push(cloneTween(tween));
     }
     return out;
+  }
+
+  // ──────────────── Audio tracks (§S3) ────────────────
+
+  addAudioTrack(
+    input: AddAudioTrackInput,
+    compositionId?: string,
+  ): AddAudioTrackResult {
+    const comp = this.requireComposition(compositionId);
+    const asset = this.requireAudioAsset(comp, input.asset);
+    validateAudioFields(input);
+
+    const id = input.id ?? this.nextAudioTrackId(comp);
+    if (comp.audio.has(id)) {
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Audio track id "${id}" already exists.`,
+        "Omit `id` to let the store auto-assign, or call remove_audio_track first to replace.",
+      );
+    }
+
+    const track: AudioTrack = {
+      id,
+      asset: input.asset,
+      start: input.start,
+      ...(input.end !== undefined ? { end: input.end } : {}),
+      ...(input.trimIn !== undefined ? { trimIn: input.trimIn } : {}),
+      ...(input.volume !== undefined ? { volume: input.volume } : {}),
+      ...(input.fadeIn !== undefined ? { fadeIn: input.fadeIn } : {}),
+      ...(input.fadeOut !== undefined ? { fadeOut: input.fadeOut } : {}),
+      ...(input.loop !== undefined ? { loop: input.loop } : {}),
+    };
+    comp.audio.set(id, track);
+    return { id, warnings: audioPlacementWarnings(comp, track, asset) };
+  }
+
+  updateAudioTrack(
+    id: string,
+    props: UpdateAudioTrackProps,
+    compositionId?: string,
+  ): AudioTrackMutationResult {
+    const comp = this.requireComposition(compositionId);
+    const existing = comp.audio.get(id);
+    if (!existing) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No audio track "${id}".`,
+        "Call list_audio_tracks to see existing audio track ids, or add_audio_track first.",
+      );
+    }
+
+    const assetId = props.asset ?? existing.asset;
+    const asset = this.requireAudioAsset(comp, assetId);
+    const merged = {
+      asset: assetId,
+      start: props.start ?? existing.start,
+      end: props.end ?? existing.end,
+      trimIn: props.trimIn ?? existing.trimIn,
+      volume: props.volume ?? existing.volume,
+      fadeIn: props.fadeIn ?? existing.fadeIn,
+      fadeOut: props.fadeOut ?? existing.fadeOut,
+      loop: props.loop ?? existing.loop,
+    };
+    validateAudioFields(merged);
+
+    const updated: AudioTrack = {
+      id,
+      asset: merged.asset,
+      start: merged.start,
+      ...(merged.end !== undefined ? { end: merged.end } : {}),
+      ...(merged.trimIn !== undefined ? { trimIn: merged.trimIn } : {}),
+      ...(merged.volume !== undefined ? { volume: merged.volume } : {}),
+      ...(merged.fadeIn !== undefined ? { fadeIn: merged.fadeIn } : {}),
+      ...(merged.fadeOut !== undefined ? { fadeOut: merged.fadeOut } : {}),
+      ...(merged.loop !== undefined ? { loop: merged.loop } : {}),
+    };
+    comp.audio.set(id, updated);
+    return { warnings: audioPlacementWarnings(comp, updated, asset) };
+  }
+
+  removeAudioTrack(id: string, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    if (!comp.audio.delete(id)) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No audio track "${id}".`,
+        "Call list_audio_tracks to see existing audio track ids.",
+      );
+    }
+  }
+
+  listAudioTracks(
+    filter: ListAudioTracksFilter = {},
+    compositionId?: string,
+  ): AudioTrack[] {
+    const comp = this.requireComposition(compositionId);
+    const out: AudioTrack[] = [];
+    for (const track of comp.audio.values()) {
+      if (filter.asset !== undefined && track.asset !== filter.asset) continue;
+      out.push(cloneAudioTrack(track));
+    }
+    return out;
+  }
+
+  /**
+   * Add an audio track from a fully-formed object (used by editor hydration in
+   * apply_command's hydrateStore). Lenient on the asset reference — the schema
+   * intentionally lets a track name an asset that isn't registered yet (S1), so
+   * a composition that came off disk hydrates without the asset-existence check
+   * that `addAudioTrack` enforces for fresh MCP calls. Assigns an id when the
+   * loaded track omits one.
+   */
+  addRawAudioTrack(track: AudioTrack, compositionId?: string): void {
+    const comp = this.requireComposition(compositionId);
+    const id = track.id ?? this.nextAudioTrackId(comp);
+    if (comp.audio.has(id)) {
+      throw new MCPToolError(
+        "E_DUPLICATE_ID",
+        `Audio track id "${id}" already exists.`,
+        "Pick a different id, or remove_audio_track the existing one first.",
+      );
+    }
+    comp.audio.set(id, cloneAudioTrack({ ...track, id }));
+  }
+
+  /** Require an asset that exists AND is type "audio"; the shared add/update guard. */
+  private requireAudioAsset(comp: MutableComposition, assetId: string): Asset {
+    const asset = comp.assets.get(assetId);
+    if (!asset) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `Audio track references unknown asset "${assetId}".`,
+        "Register it first with register_asset({ type: 'audio' }); list_assets shows registered ids.",
+      );
+    }
+    if (asset.type !== "audio") {
+      throw new MCPToolError(
+        "E_ASSET_TYPE_MISMATCH",
+        `Asset "${assetId}" is type "${asset.type}", not "audio".`,
+        "Audio tracks can only reference assets registered with type 'audio'.",
+      );
+    }
+    return asset;
+  }
+
+  /** Require an asset that exists AND is type "video"; the add_video/update_video guard. */
+  private requireVideoAsset(comp: MutableComposition, assetId: string): Asset {
+    const asset = comp.assets.get(assetId);
+    if (!asset) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `Video item references unknown asset "${assetId}".`,
+        "Register it first with register_asset({ type: 'video' }); list_assets shows registered ids.",
+      );
+    }
+    if (asset.type !== "video") {
+      throw new MCPToolError(
+        "E_ASSET_TYPE_MISMATCH",
+        `Asset "${assetId}" is type "${asset.type}", not "video".`,
+        "Video items can only reference assets registered with type 'video'.",
+      );
+    }
+    return asset;
+  }
+
+  /**
+   * The layer a video lands on when add_video omits `layerId`: highest z wins,
+   * ties broken by most-recent insertion (Map order). Errors when the
+   * composition has no layers yet.
+   */
+  private requireTopmostLayer(comp: MutableComposition): Layer {
+    let top: Layer | undefined;
+    for (const layer of comp.layers.values()) {
+      if (top === undefined || layer.z >= top.z) top = layer;
+    }
+    if (top === undefined) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        "Composition has no layers to add the video to.",
+        "Call add_layer first, or pass an explicit layerId.",
+      );
+    }
+    return top;
   }
 
   // ──────────────── Scene instances ────────────────
@@ -1046,10 +1727,16 @@ export class CompositionStore {
 
   /**
    * Drop everything a prior `trackSceneInstance` call added: tweens first
-   * (they reference items), then items (a group's children are dropped via
-   * normal `removeItemImpl`), then any assets the instance contributed
-   * exclusively. Best-effort — every removal is wrapped in a try/catch so a
-   * partially-rolled-back state doesn't trap subsequent calls.
+   * (they reference items), then items, then any assets the instance
+   * contributed exclusively. Best-effort — every removal is wrapped in a
+   * try/catch so a partially-rolled-back state doesn't trap subsequent calls.
+   *
+   * R-27: item removal disables `removeItemImpl`'s normal tween cascade.
+   * Every expansion-owned tween is already gone from the explicit
+   * `record.tweenIds` loop above it, so the cascade's only remaining effect
+   * would be deleting tweens this instance never created — most notably a
+   * separately-authored tween targeting the instance's synthetic group (the
+   * one target parent tweens are allowed to use, per §8.7). Those survive.
    */
   removeSceneInstance(instanceId: string, compositionId?: string): void {
     const comp = this.requireComposition(compositionId);
@@ -1066,7 +1753,7 @@ export class CompositionStore {
     for (const iid of record.itemIds) {
       if (comp.items.has(iid)) {
         try {
-          this.removeItemImpl(comp, iid);
+          this.removeItemImpl(comp, iid, { cascadeTweens: false });
         } catch {
           /* best-effort */
         }
@@ -1102,9 +1789,7 @@ export class CompositionStore {
       // Already merged by an earlier instance; skip to keep dedupe behavior.
       return;
     }
-    comp.assets.set(asset.id, asset.type === "image"
-      ? { id: asset.id, type: "image", src: asset.src }
-      : { id: asset.id, type: "font", src: asset.src, family: asset.family });
+    comp.assets.set(asset.id, cloneAsset(asset));
   }
 
   /**
@@ -1135,7 +1820,7 @@ export class CompositionStore {
       );
     }
     this.ensureNoItem(comp, input.id);
-    const parsed = ItemSchema.safeParse(input.item);
+    const parsed = safeParseWithExtensions(ItemSchema, input.item);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const path = issue?.path?.join(".") ?? "";
@@ -1149,7 +1834,14 @@ export class CompositionStore {
 
   /** Required for scene-instance handlers that need to add a fully-formed wrapper group with explicit transform + child ids. */
   addRawGroup(
-    input: { id: string; layerId: string; childItemIds: ReadonlyArray<string>; transform: Transform },
+    input: {
+      id: string;
+      layerId: string;
+      childItemIds: ReadonlyArray<string>;
+      transform: Transform;
+      enter?: number;
+      exit?: number;
+    },
     compositionId?: string,
   ): void {
     const comp = this.requireComposition(compositionId);
@@ -1166,6 +1858,8 @@ export class CompositionStore {
       type: "group",
       items: [...input.childItemIds],
       transform: { ...input.transform },
+      ...(input.enter !== undefined ? { enter: input.enter } : {}),
+      ...(input.exit !== undefined ? { exit: input.exit } : {}),
     };
     comp.items.set(input.id, group);
     comp.itemLayer.set(input.id, layer.id);
@@ -1189,7 +1883,7 @@ export class CompositionStore {
         `Tween target item "${tween.target}" not found.`,
       );
     }
-    const desc = getTweenable(item.type, tween.property);
+    const desc = getItemTweenable(item, tween.property);
     if (!desc) {
       throw new MCPToolError(
         "E_INVALID_PROPERTY",
@@ -1238,7 +1932,7 @@ export class CompositionStore {
       to: tween.to,
       start: tween.start,
       duration: tween.duration,
-      ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
+      ...(tween.easing !== undefined ? { easing: cloneEasing(tween.easing) } : {}),
     });
   }
 
@@ -1307,23 +2001,10 @@ export class CompositionStore {
   }
 
   setUserBehavior(descriptor: BehaviorDescriptor): void {
-    if (typeof descriptor.name !== "string" || descriptor.name.length === 0) {
-      throw new MCPToolError(
-        "E_INVALID_VALUE",
-        "Behavior descriptor must have a non-empty name.",
-      );
-    }
-    // Clone defensively so callers can't mutate the stored descriptor later.
-    const cloned: BehaviorDescriptor = {
-      name: descriptor.name,
-      description: descriptor.description ?? "",
-      params: descriptor.params.map((p) => ({ ...p })),
-      produces:
-        typeof descriptor.produces === "string"
-          ? descriptor.produces
-          : [...descriptor.produces],
-    };
-    this.userBehaviors.set(descriptor.name, cloned);
+    // Validates the shape, derives `produces` from any `tweens` body, and
+    // clones defensively so callers can't mutate the stored definition later.
+    const cloned = normalizeBehaviorDescriptor(descriptor);
+    this.userBehaviors.set(cloned.name, cloned);
   }
 
   hasUserBehavior(name: string): boolean {
@@ -1334,13 +2015,31 @@ export class CompositionStore {
     return this.userBehaviors.delete(name);
   }
 
+  /**
+   * Catalog view for `list_behaviors` — descriptors without their `tweens`
+   * bodies (agents read the catalog far more often than they re-author a
+   * body), plus the derived `executable` flag: true when the definition has a
+   * body of its own, or when it only retitles a registry behavior that does.
+   */
   listUserBehaviors(): BehaviorDescriptor[] {
-    return Array.from(this.userBehaviors.values()).map((d) => ({
-      name: d.name,
-      description: d.description,
-      params: d.params.map((p) => ({ ...p })),
-      produces: typeof d.produces === "string" ? d.produces : [...d.produces],
-    }));
+    return Array.from(this.userBehaviors.values()).map((d) => {
+      const out: BehaviorDescriptor = {
+        name: d.name,
+        description: d.description,
+        params: d.params.map((p) => ({ ...p })),
+        produces: typeof d.produces === "string" ? d.produces : [...d.produces],
+        executable:
+          d.tweens !== undefined ||
+          (getBehaviorDescriptor(d.name)?.executable ?? false),
+      };
+      if (d.version !== undefined) out.version = d.version;
+      return out;
+    });
+  }
+
+  /** Snapshot for `expandBehavior(options.behaviors)` — bodies included. */
+  userBehaviorRecord(): Record<string, BehaviorDescriptor> {
+    return Object.fromEntries(this.userBehaviors);
   }
 
   // ──────────────── Internals ────────────────
@@ -1400,8 +2099,16 @@ export class CompositionStore {
       if (ignoreId !== null && other.id === ignoreId) continue;
       if (other.target !== target || other.property !== property) continue;
       const oEnd = other.start + other.duration;
-      // Strict overlap (touching at endpoints is OK; matches validator §3.5.5).
-      if (start < oEnd && other.start < end) {
+      // Strict overlap (touching at endpoints is OK; matches validator §3.5.5),
+      // with the same OVERLAP_EPS tolerance the validator uses so mathematically
+      // abutting windows survive chained `start + duration` FP drift (e.g.
+      // 5.2 + 0.4 = 5.6000000000000005) instead of tripping E_TWEEN_OVERLAP.
+      // Unlike the validator's adjacent-pair scan over a start-sorted bucket,
+      // `other` here isn't guaranteed to start before the candidate, so the
+      // comparison is written symmetrically via the shared overlap span.
+      const overlapStart = Math.max(start, other.start);
+      const overlapEnd = Math.min(end, oEnd);
+      if (overlapStart + OVERLAP_EPS < overlapEnd) {
         throw new MCPToolError(
           "E_TWEEN_OVERLAP",
           `Tween overlaps "${other.id}" on ${target}.${property}: ` +
@@ -1412,7 +2119,20 @@ export class CompositionStore {
     }
   }
 
-  private removeItemImpl(comp: MutableComposition, id: string): void {
+  /**
+   * `cascadeTweens` (default true) drops any tween targeting the removed
+   * item, per §4.4 `remove_item`'s documented behavior. `removeSceneInstance`
+   * passes `false` (R-27): it manages tween removal itself via the tracked
+   * `SceneInstanceRecord.tweenIds`, and the generic cascade would otherwise
+   * also delete separately-authored tweens that happen to target the same
+   * id (e.g. a user tween targeting the instance's synthetic group).
+   */
+  private removeItemImpl(
+    comp: MutableComposition,
+    id: string,
+    options: { cascadeTweens?: boolean } = {},
+  ): void {
+    const cascadeTweens = options.cascadeTweens ?? true;
     const layerId = comp.itemLayer.get(id);
     if (layerId !== undefined) {
       const layer = comp.layers.get(layerId);
@@ -1430,9 +2150,10 @@ export class CompositionStore {
       }
     }
     comp.items.delete(id);
-    // Cascade: drop any tween targeting this item (per §4.4 remove_item).
-    for (const [tid, tween] of comp.tweens) {
-      if (tween.target === id) comp.tweens.delete(tid);
+    if (cascadeTweens) {
+      for (const [tid, tween] of comp.tweens) {
+        if (tween.target === id) comp.tweens.delete(tid);
+      }
     }
   }
 
@@ -1461,6 +2182,14 @@ export class CompositionStore {
     do {
       candidate = `tween-${++comp.nextSeq.tween}`;
     } while (comp.tweens.has(candidate));
+    return candidate;
+  }
+
+  private nextAudioTrackId(comp: MutableComposition): string {
+    let candidate: string;
+    do {
+      candidate = `audio-${++comp.nextSeq.audio}`;
+    } while (comp.audio.has(candidate));
     return candidate;
   }
 }
@@ -1512,10 +2241,235 @@ function pushUnique(arr: string[], value: string): void {
   arr.push(value);
 }
 
+// Audio-track field rules (v0.2 §S1, enforced here at the store boundary too so
+// direct callers and editor-hydrated updates get the same guarantees the Zod
+// tool schema gives MCP clients). Shape-level rejection → E_INVALID_VALUE.
+// `audioMaster` (v1.1 S10): `{ limiter?: boolean, targetLufs?: number }`.
+// Mirrors the CompositionMetaSchema bounds; returns a clean copy with only the
+// keys that were set.
+function normalizeAudioMaster(value: unknown): AudioMaster {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "composition.audioMaster must be an object.",
+      'e.g. { "limiter": true, "targetLufs": -16 }; pass null to reset to the default.',
+    );
+  }
+  const { limiter, targetLufs, ...unknownKeys } = value as Record<string, unknown>;
+  const extra = Object.keys(unknownKeys);
+  if (extra.length > 0) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `composition.audioMaster has unknown key(s): ${extra.join(", ")}.`,
+      "Allowed keys: limiter (boolean), targetLufs (number in [-70, -5]).",
+    );
+  }
+  if (limiter !== undefined && typeof limiter !== "boolean") {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "composition.audioMaster.limiter must be a boolean.",
+    );
+  }
+  if (
+    targetLufs !== undefined &&
+    (typeof targetLufs !== "number" ||
+      !Number.isFinite(targetLufs) ||
+      targetLufs < -70 ||
+      targetLufs > -5)
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "composition.audioMaster.targetLufs must be a number in [-70, -5].",
+      "Common targets: -14 (streaming), -16 (podcast/web), -23 (EBU R128 broadcast).",
+    );
+  }
+  return {
+    ...(limiter !== undefined ? { limiter } : {}),
+    ...(targetLufs !== undefined ? { targetLufs } : {}),
+  };
+}
+
+function validateAudioFields(t: {
+  start: number;
+  end?: number | undefined;
+  trimIn?: number | undefined;
+  volume?: number | undefined;
+  fadeIn?: number | undefined;
+  fadeOut?: number | undefined;
+}): void {
+  ensureNonNegative("Audio track start", t.start);
+  if (t.end !== undefined && t.end <= t.start) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Audio track `end` must be greater than `start`.",
+      "Omit `end` to play the asset out to its natural duration.",
+    );
+  }
+  if (t.trimIn !== undefined) ensureNonNegative("Audio track trimIn", t.trimIn);
+  if (t.volume !== undefined && (!Number.isFinite(t.volume) || t.volume < 0 || t.volume > 2)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Audio track volume must be in [0, 2].",
+      "1 = unchanged, 0 = silent, 2 = +6dB.",
+    );
+  }
+  if (t.fadeIn !== undefined) ensureNonNegative("Audio track fadeIn", t.fadeIn);
+  if (t.fadeOut !== undefined) ensureNonNegative("Audio track fadeOut", t.fadeOut);
+}
+
+// Non-fatal placement check: a track that starts at/after the composition end,
+// or whose end (explicit, or implied by the asset's natural duration) runs past
+// it, is reported as a warning — never an error (plan Q6: trim at mux, don't
+// reject the edit). 1µs epsilon absorbs float drift in `start + duration` sums.
+const AUDIO_DURATION_EPS = 1e-6;
+
+function audioPlacementWarnings(
+  comp: MutableComposition,
+  track: AudioTrack,
+  asset: Asset,
+): string[] {
+  const warnings: string[] = [];
+  const compDuration = comp.meta.duration;
+  if (compDuration <= 0) return warnings;
+  const label = `Audio track "${track.id ?? track.asset}"`;
+
+  if (track.start >= compDuration) {
+    warnings.push(
+      `${label} starts at ${track.start}s, at or past the composition end (${compDuration}s); it will be silent.`,
+    );
+    return warnings;
+  }
+
+  const assetDuration =
+    asset.type === "audio" ? asset.duration : undefined;
+  // Remaining playable source after `trimIn` (R-11) — the clip can only run
+  // out to what's left of the file past the in-source seek point.
+  const remainingAssetDuration =
+    assetDuration !== undefined ? assetDuration - (track.trimIn ?? 0) : undefined;
+  // A looping track without `end` repeats up to the composition end — by
+  // construction it can't overrun it.
+  if (track.loop && track.end === undefined) return warnings;
+  const effectiveEnd =
+    track.end ??
+    (remainingAssetDuration !== undefined
+      ? track.start + remainingAssetDuration
+      : undefined);
+  if (effectiveEnd !== undefined && effectiveEnd > compDuration + AUDIO_DURATION_EPS) {
+    warnings.push(
+      `${label} ends at ${effectiveEnd}s, past the composition end (${compDuration}s); it will be truncated at mux time.`,
+    );
+  }
+  return warnings;
+}
+
+// Video field rules (v0.2 §S5/§S9), enforced at the store boundary so direct
+// callers and editor-hydrated updates get the same guarantees the validator's
+// E_VIDEO_RANGE pass gives loaded compositions. Shape-level rejection here is
+// E_INVALID_VALUE (E_VIDEO_RANGE is a validator-only code). The asset is passed
+// so the `trimOut ≤ duration` bound can be checked once the source is probed.
+function validateVideoFields(
+  t: {
+    start: number;
+    end?: number | undefined;
+    trimIn?: number | undefined;
+    trimOut?: number | undefined;
+    width: number;
+    height: number;
+  },
+  asset: Asset,
+): void {
+  ensureNonNegative("Video start", t.start);
+  ensureNonNegative("Video width", t.width);
+  ensureNonNegative("Video height", t.height);
+  if (t.trimIn !== undefined) ensureNonNegative("Video trimIn", t.trimIn);
+  if (t.trimOut !== undefined) ensurePositive("Video trimOut", t.trimOut);
+
+  const trimIn = t.trimIn ?? 0;
+  if (t.trimOut !== undefined && trimIn >= t.trimOut) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Video trim window is empty: trimIn (${trimIn}) must be less than trimOut (${t.trimOut}).`,
+      "Widen the trim window so trimIn < trimOut.",
+    );
+  }
+  if (t.trimOut !== undefined) {
+    const duration = asset.type === "video" ? asset.duration : undefined;
+    if (typeof duration === "number" && t.trimOut > duration) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Video trimOut (${t.trimOut}) exceeds the duration of asset "${asset.id}" (${duration}).`,
+        "Lower trimOut to the asset duration or shorter.",
+      );
+    }
+  }
+  if (t.end !== undefined && t.end <= t.start) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Video end (${t.end}) must be greater than start (${t.start}).`,
+      "Omit `end` to let the trimmed source play out (then freeze/loop).",
+    );
+  }
+}
+
+// Non-fatal placement check mirroring audioPlacementWarnings: a clip that starts
+// at/after the composition end, or whose explicit `end` runs past it, is a
+// warning, not an error. (Without an explicit `end` the clip freezes/loops at
+// the composition edge, so there is nothing to warn about.)
+function videoPlacementWarnings(
+  comp: MutableComposition,
+  item: VideoItem,
+  _asset: Asset,
+): string[] {
+  const warnings: string[] = [];
+  const compDuration = comp.meta.duration;
+  if (compDuration <= 0) return warnings;
+  const label = `Video "${item.name ?? item.asset}"`;
+
+  if (item.start >= compDuration) {
+    warnings.push(
+      `${label} starts at ${item.start}s, at or past the composition end (${compDuration}s); it will not be visible.`,
+    );
+    return warnings;
+  }
+  if (item.end !== undefined && item.end > compDuration + AUDIO_DURATION_EPS) {
+    warnings.push(
+      `${label} ends at ${item.end}s, past the composition end (${compDuration}s); it will be cut off at render time.`,
+    );
+  }
+  return warnings;
+}
+
 function cloneAsset(asset: Asset): Asset {
-  return asset.type === "image"
-    ? { id: asset.id, type: "image", src: asset.src }
-    : { id: asset.id, type: "font", src: asset.src, family: asset.family };
+  switch (asset.type) {
+    case "image":
+      return { id: asset.id, type: "image", src: asset.src };
+    case "font":
+      return { id: asset.id, type: "font", src: asset.src, family: asset.family };
+    case "audio":
+      return {
+        id: asset.id,
+        type: "audio",
+        src: asset.src,
+        ...(asset.duration !== undefined ? { duration: asset.duration } : {}),
+        ...(asset.sampleRate !== undefined ? { sampleRate: asset.sampleRate } : {}),
+        ...(asset.channels !== undefined ? { channels: asset.channels } : {}),
+        ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
+      };
+    case "video":
+      return {
+        id: asset.id,
+        type: "video",
+        src: asset.src,
+        ...(asset.duration !== undefined ? { duration: asset.duration } : {}),
+        ...(asset.width !== undefined ? { width: asset.width } : {}),
+        ...(asset.height !== undefined ? { height: asset.height } : {}),
+        ...(asset.fps !== undefined ? { fps: asset.fps } : {}),
+        ...(asset.hasAlpha !== undefined ? { hasAlpha: asset.hasAlpha } : {}),
+        ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
+        ...(asset.pixelFormat !== undefined ? { pixelFormat: asset.pixelFormat } : {}),
+        ...(asset.hasAudio !== undefined ? { hasAudio: asset.hasAudio } : {}),
+      };
+  }
 }
 
 function cloneLayer(layer: Layer): Layer {
@@ -1537,6 +2491,7 @@ function cloneItem(item: Item): Item {
   // §M flags + lifespan propagate through every clone path so toJSON
   // round-trips them.
   const flags = {
+    ...(item.effects !== undefined ? { effects: item.effects.map(cloneEffect) } : {}),
     ...(item.visible !== undefined ? { visible: item.visible } : {}),
     ...(item.locked !== undefined ? { locked: item.locked } : {}),
     ...(item.enter !== undefined ? { enter: item.enter } : {}),
@@ -1562,6 +2517,7 @@ function cloneItem(item: Item): Item {
         color: item.color,
         transform: { ...item.transform },
         ...(item.align !== undefined ? { align: item.align } : {}),
+        ...textV2Fields(item),
         ...flags,
       };
     case "shape":
@@ -1585,9 +2541,64 @@ function cloneItem(item: Item): Item {
         type: "group",
         items: [...item.items],
         transform: { ...item.transform },
+        // v1.1 S18 compositing opt-ins. Absent ⇒ the default multiplicative
+        // path, so they only survive the clone when actually set.
+        ...(item.isolate !== undefined ? { isolate: item.isolate } : {}),
+        ...(item.blendMode !== undefined ? { blendMode: item.blendMode } : {}),
+        ...flags,
+      };
+    case "video":
+      // `fit` / `loop` always present after a schema parse (they carry
+      // defaults); the temporal trim bounds are optional.
+      return {
+        type: "video",
+        asset: item.asset,
+        width: item.width,
+        height: item.height,
+        start: item.start,
+        fit: item.fit,
+        loop: item.loop,
+        transform: { ...item.transform },
+        ...(item.end !== undefined ? { end: item.end } : {}),
+        ...(item.trimIn !== undefined ? { trimIn: item.trimIn } : {}),
+        ...(item.trimOut !== undefined ? { trimOut: item.trimOut } : {}),
+        ...(item.keepAudio !== undefined ? { keepAudio: item.keepAudio } : {}),
         ...flags,
       };
   }
+}
+
+// Optional text v2 fields, copied only when present so canonical JSON for a
+// v1.0-shaped text item stays byte-identical.
+function textV2Fields(src: {
+  maxWidth?: number | undefined;
+  lineHeight?: number | undefined;
+  letterSpacing?: number | undefined;
+  fontWeight?: TextItem["fontWeight"] | undefined;
+  fontStyle?: TextItem["fontStyle"] | undefined;
+  strokeColor?: string | undefined;
+  strokeWidth?: number | undefined;
+  shadow?: TextShadow | undefined;
+}): Partial<TextItem> {
+  return {
+    ...(src.maxWidth !== undefined ? { maxWidth: src.maxWidth } : {}),
+    ...(src.lineHeight !== undefined ? { lineHeight: src.lineHeight } : {}),
+    ...(src.letterSpacing !== undefined ? { letterSpacing: src.letterSpacing } : {}),
+    ...(src.fontWeight !== undefined ? { fontWeight: src.fontWeight } : {}),
+    ...(src.fontStyle !== undefined ? { fontStyle: src.fontStyle } : {}),
+    ...(src.strokeColor !== undefined ? { strokeColor: src.strokeColor } : {}),
+    ...(src.strokeWidth !== undefined ? { strokeWidth: src.strokeWidth } : {}),
+    ...(src.shadow !== undefined ? { shadow: cloneTextShadow(src.shadow) } : {}),
+  };
+}
+
+function cloneTextShadow(shadow: TextShadow): TextShadow {
+  return {
+    color: shadow.color,
+    ...(shadow.blur !== undefined ? { blur: shadow.blur } : {}),
+    ...(shadow.offsetX !== undefined ? { offsetX: shadow.offsetX } : {}),
+    ...(shadow.offsetY !== undefined ? { offsetY: shadow.offsetY } : {}),
+  };
 }
 
 function cloneTween(tween: Tween): Tween {
@@ -1599,11 +2610,71 @@ function cloneTween(tween: Tween): Tween {
     to: tween.to,
     start: tween.start,
     duration: tween.duration,
-    ...(tween.easing !== undefined ? { easing: tween.easing } : {}),
+    ...(tween.easing !== undefined ? { easing: cloneEasing(tween.easing) } : {}),
   };
 }
 
+// Object easings (v1.1 S17) are copied in and out like `shadow`, so a caller
+// mutating a returned tween — or a behavior expansion sharing one easing
+// object across its tweens — can't reach into stored state.
+function cloneEasing(easing: Easing): Easing {
+  if (typeof easing === "string") return easing;
+  if ("bezier" in easing) {
+    const [x1, y1, x2, y2] = easing.bezier;
+    return { bezier: [x1, y1, x2, y2] };
+  }
+  return { steps: easing.steps };
+}
+
+function cloneAudioTrack(track: AudioTrack): AudioTrack {
+  return {
+    ...(track.id !== undefined ? { id: track.id } : {}),
+    asset: track.asset,
+    start: track.start,
+    ...(track.end !== undefined ? { end: track.end } : {}),
+    ...(track.trimIn !== undefined ? { trimIn: track.trimIn } : {}),
+    ...(track.volume !== undefined ? { volume: track.volume } : {}),
+    ...(track.fadeIn !== undefined ? { fadeIn: track.fadeIn } : {}),
+    ...(track.fadeOut !== undefined ? { fadeOut: track.fadeOut } : {}),
+    ...(track.loop !== undefined ? { loop: track.loop } : {}),
+  };
+}
+
+function cloneEffect(effect: Effect): Effect {
+  return { ...effect };
+}
+
+// Replacing an item's effects can orphan a tween on `effects.<i>.<field>` —
+// the index is gone, or now names an effect type without that field. Refuse
+// the update rather than leave a composition that fails validation.
+function assertEffectTweensStillValid(
+  tweens: ReadonlyMap<string, Tween>,
+  itemId: string,
+  item: Item,
+): void {
+  for (const tween of tweens.values()) {
+    if (tween.target !== itemId || parseEffectPath(tween.property) === undefined) continue;
+    if (getItemTweenable(item, tween.property) === undefined) {
+      throw new MCPToolError(
+        "E_INVALID_PROPERTY",
+        `Tween "${tween.id}" animates "${tween.property}", which the new effects list no longer has.`,
+        `remove_tween("${tween.id}") first, or keep an effect of the same type at that index.`,
+      );
+    }
+  }
+}
+
+// v1.1 S21: `effects` applies to every item type, on top of the per-type
+// patch. `null` / `[]` drop the field so an effect-free item stays byte-for-
+// byte what it was before effects existed.
 function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
+  const next = applyTypedItemUpdate(item, props);
+  if (props.effects === null || props.effects?.length === 0) delete next.effects;
+  else if (props.effects !== undefined) next.effects = props.effects.map(cloneEffect);
+  return next;
+}
+
+function applyTypedItemUpdate(item: Item, props: UpdateItemProps): Item {
   const transform = { ...item.transform };
   if (props.x !== undefined) transform.x = props.x;
   if (props.y !== undefined) transform.y = props.y;
@@ -1637,7 +2708,7 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
     ensurePositive("exit", props.exit);
     flagPatch.exit = props.exit;
   }
-  const COMMON_ALLOWED = ["visible", "locked", "name", "enter", "exit"] as const;
+  const COMMON_ALLOWED = ["visible", "locked", "name", "enter", "exit", "effects"] as const;
 
   switch (item.type) {
     case "sprite": {
@@ -1678,12 +2749,34 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...flagPatch,
       };
       if (props.align !== undefined) next.align = props.align;
+      if (props.maxWidth !== undefined && props.maxWidth !== null)
+        ensurePositive("maxWidth", props.maxWidth);
+      if (props.lineHeight !== undefined) ensurePositive("lineHeight", props.lineHeight);
+      if (props.strokeWidth !== undefined) ensureNonNegative("strokeWidth", props.strokeWidth);
+      if (props.maxWidth === null) delete next.maxWidth;
+      else if (props.maxWidth !== undefined) next.maxWidth = props.maxWidth;
+      if (props.lineHeight !== undefined) next.lineHeight = props.lineHeight;
+      if (props.letterSpacing !== undefined) next.letterSpacing = props.letterSpacing;
+      if (props.fontWeight !== undefined) next.fontWeight = props.fontWeight;
+      if (props.fontStyle !== undefined) next.fontStyle = props.fontStyle;
+      if (props.strokeColor !== undefined) next.strokeColor = props.strokeColor;
+      if (props.strokeWidth !== undefined) next.strokeWidth = props.strokeWidth;
+      if (props.shadow === null) delete next.shadow;
+      else if (props.shadow !== undefined) next.shadow = cloneTextShadow(props.shadow);
       rejectKeys(props, item.type, [
         "text",
         "font",
         "fontSize",
         "color",
         "align",
+        "maxWidth",
+        "lineHeight",
+        "letterSpacing",
+        "fontWeight",
+        "fontStyle",
+        "strokeColor",
+        "strokeWidth",
+        "shadow",
         "x",
         "y",
         "scaleX",
@@ -1740,8 +2833,50 @@ function applyItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...(props.items !== undefined ? { items: [...props.items] } : {}),
         ...flagPatch,
       };
+      // v1.1 S18. Both fields are droppable: `isolate: false` and
+      // `blendMode: "normal"` are the defaults, so clear them rather than
+      // persisting a no-op that the source map would then show as an override.
+      if (props.isolate !== undefined) {
+        if (props.isolate) next.isolate = true;
+        else delete next.isolate;
+      }
+      if (props.blendMode !== undefined) {
+        if (props.blendMode === "normal") delete next.blendMode;
+        else next.blendMode = props.blendMode;
+      }
       rejectKeys(props, item.type, [
         "items",
+        "isolate",
+        "blendMode",
+        "x",
+        "y",
+        "scaleX",
+        "scaleY",
+        "rotation",
+        "anchorX",
+        "anchorY",
+        "opacity",
+        ...COMMON_ALLOWED,
+      ]);
+      return next;
+    }
+    case "video": {
+      // generic update_item patches video's spatial surface only (transform +
+      // box + asset), exactly like a sprite minus `tint`. The temporal/display
+      // fields (start/end/trimIn/trimOut/fit/loop) are not part of
+      // UpdateItemProps — dedicated add_video/update_video tools land in §S9.
+      const next: VideoItem = {
+        ...item,
+        transform,
+        ...(props.asset !== undefined ? { asset: props.asset } : {}),
+        ...(props.width !== undefined ? { width: props.width } : {}),
+        ...(props.height !== undefined ? { height: props.height } : {}),
+        ...flagPatch,
+      };
+      rejectKeys(props, item.type, [
+        "asset",
+        "width",
+        "height",
         "x",
         "y",
         "scaleX",

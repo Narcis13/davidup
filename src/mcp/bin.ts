@@ -1,12 +1,16 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Entry point invoked by MCP clients (Claude Desktop, Claude Code, etc.) via
 // the `command` field in their config. Stays as thin as possible: instantiate
 // the server, attach stdio transport, run.
+//
+// Flags: `--session-ttl <seconds>` (or DAVIDUP_SESSION_TTL) — auto-reset all
+// state after that much idle time; default 0 = never (R-29).
 
-import { createServer } from "./server.js";
+import { createServer, resolveSessionTtl } from "./server.js";
 
 async function main(): Promise<void> {
-  const server = createServer();
+  const sessionTtlSeconds = resolveSessionTtl(process.argv.slice(2), process.env);
+  const server = createServer({ sessionTtlSeconds });
   await server.start();
 }
 

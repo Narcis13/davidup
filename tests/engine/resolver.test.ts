@@ -127,6 +127,49 @@ describe("computeStateAt — easings and clamping", () => {
     expect(computeStateAt(comp, 0.5).items.box!.transform.x).toBe(25);
   });
 
+  it("applies a cubic-bezier easing (v1.1 S17)", () => {
+    const comp = emptyComp({
+      tweens: [
+        {
+          id: "t1",
+          target: "box",
+          property: "transform.x",
+          from: 0,
+          to: 100,
+          start: 0,
+          duration: 1,
+          easing: { bezier: [0.25, 0.1, 0.25, 1] },
+        },
+      ],
+    });
+    // CSS `ease` at 0.5 = 0.802403387584857 → 80.24…
+    expect(computeStateAt(comp, 0.5).items.box!.transform.x).toBeCloseTo(80.2403387585, 8);
+    expect(computeStateAt(comp, 1).items.box!.transform.x).toBe(100);
+  });
+
+  it("applies a steps easing: holds each step, lands on `to` at the end (v1.1 S17)", () => {
+    const comp = emptyComp({
+      tweens: [
+        {
+          id: "t1",
+          target: "box",
+          property: "transform.x",
+          from: 0,
+          to: 100,
+          start: 1,
+          duration: 2,
+          easing: { steps: 4 },
+        },
+      ],
+    });
+    const xAt = (t: number) => computeStateAt(comp, t).items.box!.transform.x;
+    expect(xAt(1)).toBe(0);
+    expect(xAt(1.49)).toBe(0);
+    expect(xAt(1.5)).toBe(25);
+    expect(xAt(2.99)).toBe(75);
+    expect(xAt(3)).toBe(100);
+  });
+
   it("defaults to linear when easing is omitted", () => {
     const comp = emptyComp({
       tweens: [
@@ -362,6 +405,166 @@ describe("indexTweens", () => {
     expect(xBucket.map((t) => t.id)).toEqual(["early", "late"]);
     const opacityBucket = idx.buckets.get("box::transform.opacity")!;
     expect(opacityBucket.map((t) => t.id)).toEqual(["other"]);
+  });
+});
+
+// R-14: enter/exit lifespans (resolver.ts:53-73) had zero test coverage.
+describe("computeStateAt — item enter/exit lifespan", () => {
+  it("is visible with neither enter nor exit set", () => {
+    const comp = emptyComp();
+    expect(computeStateAt(comp, 0).items.box!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 1000).items.box!.visible).not.toBe(false);
+  });
+
+  it("hides the item before its enter time and shows it at/after", () => {
+    const comp = emptyComp({
+      items: { box: { ...emptyComp().items.box!, enter: 2 } },
+    });
+    expect(computeStateAt(comp, 1.999).items.box!.visible).toBe(false);
+    expect(computeStateAt(comp, 2).items.box!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 5).items.box!.visible).not.toBe(false);
+  });
+
+  it("shows the item up to (not including) its exit time, half-open [enter, exit)", () => {
+    const comp = emptyComp({
+      items: { box: { ...emptyComp().items.box!, exit: 3 } },
+    });
+    expect(computeStateAt(comp, 0).items.box!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 2.999).items.box!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 3).items.box!.visible).toBe(false);
+    expect(computeStateAt(comp, 10).items.box!.visible).toBe(false);
+  });
+
+  it("combines enter and exit into a single visible window", () => {
+    const comp = emptyComp({
+      items: { box: { ...emptyComp().items.box!, enter: 2, exit: 4 } },
+    });
+    expect(computeStateAt(comp, 1).items.box!.visible).toBe(false);
+    expect(computeStateAt(comp, 2).items.box!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 3.999).items.box!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 4).items.box!.visible).toBe(false);
+  });
+
+  it("does not mutate the source item's own visible flag", () => {
+    const comp = emptyComp({
+      items: { box: { ...emptyComp().items.box!, enter: 2, exit: 4 } },
+    });
+    computeStateAt(comp, 0);
+    expect(comp.items.box!.visible).toBeUndefined();
+  });
+});
+
+describe("computeStateAt — layer enter/exit lifespan", () => {
+  function compWithLayer(layerOverrides: Partial<Composition["layers"][number]>) {
+    return emptyComp({
+      layers: [
+        { id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["box"], ...layerOverrides },
+      ],
+    });
+  }
+
+  it("flips the layer to invisible outside its [enter, exit) window", () => {
+    const comp = compWithLayer({ enter: 2, exit: 4 });
+    expect(comp.layers[0]!.visible).toBeUndefined();
+
+    expect(computeStateAt(comp, 1).layers[0]!.visible).toBe(false);
+    expect(computeStateAt(comp, 2).layers[0]!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 3.999).layers[0]!.visible).not.toBe(false);
+    expect(computeStateAt(comp, 4).layers[0]!.visible).toBe(false);
+  });
+
+  it("passes the original layer reference through unchanged when its window covers t", () => {
+    const comp = compWithLayer({ enter: 2, exit: 4 });
+    const scene = computeStateAt(comp, 3);
+    expect(scene.layers[0]).toBe(comp.layers[0]);
+  });
+
+  it("does not mutate the source composition's layers", () => {
+    const comp = compWithLayer({ enter: 2, exit: 4 });
+    const before = JSON.stringify(comp.layers);
+    computeStateAt(comp, 0);
+    expect(JSON.stringify(comp.layers)).toBe(before);
+  });
+});
+
+// R-14: non-negative clamps (resolver.ts:158-177) had zero test coverage.
+describe("computeStateAt — non-negative property clamps", () => {
+  function tweenTo(property: string, from: number, to: number) {
+    return emptyComp({
+      tweens: [
+        {
+          id: "t1",
+          target: "box",
+          property,
+          from,
+          to,
+          start: 0,
+          duration: 1,
+          easing: "linear" as const,
+        },
+      ],
+    });
+  }
+
+  it.each(["width", "height", "strokeWidth", "cornerRadius"] as const)(
+    "clamps shape %s to 0 when a tween overshoots negative",
+    (property) => {
+      const comp = tweenTo(property, 10, -20);
+      // Midpoint would be -5 unclamped; clamped to 0.
+      const scene = computeStateAt(comp, 0.5);
+      expect((scene.items.box as unknown as Record<string, number>)[property]).toBe(0);
+      // Held-past-end value (-20) is also clamped.
+      const after = computeStateAt(comp, 5);
+      expect((after.items.box as unknown as Record<string, number>)[property]).toBe(0);
+    },
+  );
+
+  it("clamps text fontSize to 0 when a tween overshoots negative", () => {
+    const comp = emptyComp({
+      items: {
+        label: {
+          type: "text",
+          text: "hi",
+          font: "sans-serif",
+          fontSize: 10,
+          color: "#ffffff",
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0,
+            anchorY: 0,
+            opacity: 1,
+          },
+        },
+      },
+      tweens: [
+        {
+          id: "t1",
+          target: "label",
+          property: "fontSize",
+          from: 10,
+          to: -20,
+          start: 0,
+          duration: 1,
+          easing: "linear",
+        },
+      ],
+    });
+    expect(computeStateAt(comp, 0.5).items.label!.fontSize).toBe(0);
+    expect(computeStateAt(comp, 5).items.label!.fontSize).toBe(0);
+  });
+
+  it("does NOT clamp transform.scaleX negative (mirror is meaningful)", () => {
+    const comp = tweenTo("transform.scaleX", 1, -1);
+    expect(computeStateAt(comp, 1).items.box!.transform.scaleX).toBe(-1);
+  });
+
+  it("does NOT clamp transform.x negative (off-canvas positions are valid)", () => {
+    const comp = tweenTo("transform.x", 0, -500);
+    expect(computeStateAt(comp, 1).items.box!.transform.x).toBe(-500);
   });
 });
 

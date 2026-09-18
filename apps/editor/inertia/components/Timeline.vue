@@ -21,12 +21,39 @@
 // heuristic (only behavior expansion mints `_<behaviorName>_` substrings) and,
 // failing that, treat them as plain literals — the dominant case for
 // hand-authored single tweens.
+//
+// v1.1 S27 — zoom + snapping. The body is one scroll container; the lanes
+// are `duration × pxPerSecond` wide (or 100% in "fit" mode, pxPerSecond =
+// null) and every bar keeps its %-of-lane positioning, so zoom is purely a
+// width change. Zoom via ⌘+/⌘− (exposed to the page's shortcut registry),
+// pinch / ⌘-wheel (anchored at the cursor) and the header slider; ⌘0 fits
+// the whole composition. The level persists in editor-state. Drags snap to
+// frame boundaries (1/fps) and magnetise to other bars' edges and the
+// playhead; the Snap toggle turns both off, ⌥ bypasses per drag.
 
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
+import type { Easing } from 'davidup/easings'
 import type { Command, Composition } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
+import { useVideoTrimDrag } from '~/composables/useVideoTrimDrag'
 import { useValidation } from '~/composables/useValidation'
+import { useEditorPrefs } from '~/composables/useEditorPrefs'
+import {
+  anchoredScrollLeft,
+  buildRulerTicks,
+  clampPxPerSecond,
+  collectEdges,
+  effectivePxPerSecond,
+  fitPxPerSecond,
+  formatTickLabel,
+  fpsToNumber,
+  rulerTickSpec,
+  sliderToZoom,
+  snapToFrame,
+  zoomStep,
+  zoomToSlider,
+} from '~/composables/timelineZoomMath'
 import {
   buildCommandsForNewTrackDrop,
   buildCommandsForTrackDrop,
@@ -37,9 +64,15 @@ import TimelineTrack, {
   type TimelineItemRow,
   type TimelineTween,
   type TweenSource,
+  type VideoSpanPointerDownPayload,
+  type VideoTrimPointerDownPayload,
 } from '~/components/TimelineTrack.vue'
+import TimelineAudioTrack, {
+  type AudioBarPointerDownPayload,
+  type TimelineAudioRow,
+} from '~/components/TimelineAudioTrack.vue'
 
-type OriginKind = 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+type OriginKind = 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background' | 'repeat'
 
 interface SourceLocation {
   file: string
@@ -58,7 +91,7 @@ const props = defineProps<{
   playhead: number
   /** Stage status string — controls the playhead indicator label. */
   status?: string | null
-  /** Snap step in seconds. Defaults to 0.25. */
+  /** Snap grid in seconds. Defaults to one frame (1/fps). */
   snapStep?: number
   /**
    * Precompile source map (PRD step 15). When present, each bar's colour
@@ -87,10 +120,38 @@ const duration = computed<number>(() => {
   return typeof d === 'number' && d > 0 ? d : 0
 })
 
+const fps = computed<number>(() => fpsToNumber(props.composition?.composition?.fps))
+
+// v1.1 S27 — frame-boundary grid; 0.25 s only when fps is unknown.
 const snapStepRef = computed<number>(() => {
   const s = props.snapStep
-  return typeof s === 'number' && s > 0 ? s : 0.25
+  if (typeof s === 'number' && s > 0) return s
+  return fps.value > 0 ? 1 / fps.value : 0.25
 })
+
+const prefs = useEditorPrefs()
+const snapEnabled = computed<boolean>(() => prefs.timelinePrefs.value.snap)
+
+function toggleSnap(): void {
+  prefs.setTimelinePrefs({ snap: !snapEnabled.value })
+}
+
+// Every bar on the timeline as a span — the magnetic snap targets. The
+// playhead rides along as a zero-length span so bars catch it too.
+const allSpans = computed<Array<{ id: string; start: number; end: number }>>(() => {
+  const out: Array<{ id: string; start: number; end: number }> = []
+  for (const row of rows.value) {
+    for (const t of row.tweens) out.push({ id: t.id, start: t.start, end: t.start + t.duration })
+    if (row.videoSpan) out.push({ id: row.id, start: row.videoSpan.start, end: row.videoSpan.end })
+  }
+  for (const a of audioRows.value) out.push({ id: a.id, start: a.start, end: a.end })
+  out.push({ id: '\u0000playhead', start: props.playhead, end: props.playhead })
+  return out
+})
+
+function edgesFor(id: string): number[] {
+  return collectEdges(allSpans.value, id)
+}
 
 // Step 11 — drag/resize coordinator. `onCommit` only fires once per drag
 // (pointerup), so we issue exactly one `update_tween` per gesture. The
@@ -99,6 +160,8 @@ const snapStepRef = computed<number>(() => {
 const drag = useTimelineDrag({
   duration,
   snapStep: snapStepRef,
+  snapEnabled,
+  edges: edgesFor,
   onCommit(tweenId, patch) {
     emit('apply', {
       kind: 'update_tween',
@@ -114,6 +177,106 @@ function onBarPointerDown(payload: BarPointerDownPayload): void {
     laneElement: payload.laneEl,
     tween: payload.tween,
     mode: payload.mode,
+  })
+}
+
+// U3 — audio-lane drag. `useTimelineDrag`'s {start, duration} math applies
+// unchanged to an audio track's [start, end) span; only the commit shape
+// differs (`update_audio_track` takes `end`, not `duration`).
+const audioDrag = useTimelineDrag({
+  duration,
+  snapStep: snapStepRef,
+  snapEnabled,
+  edges: edgesFor,
+  onCommit(trackId, patch) {
+    const row = audioRows.value.find((r) => r.id === trackId)
+    if (!row) return
+    const newStart = patch.start ?? row.start
+    const newDuration = patch.duration ?? row.end - row.start
+    const props_: Record<string, number> = { end: newStart + newDuration }
+    if (patch.start !== undefined) props_.start = newStart
+    emit('apply', {
+      kind: 'update_audio_track',
+      payload: { id: trackId, props: props_ },
+      source: 'ui',
+    })
+  },
+})
+
+function onAudioBarPointerDown(payload: AudioBarPointerDownPayload): void {
+  audioDrag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    tween: { id: payload.row.id, target: payload.row.id, start: payload.row.start, duration: payload.row.end - payload.row.start },
+    mode: payload.mode,
+  })
+}
+
+// U5 — video item outer-span drag (move / resize the freeze-or-loop tail's
+// end). Reuses the same generic {start, duration} math as tweens/audio; the
+// commit maps back to `update_item` with `start`/`end`.
+const videoSpanDrag = useTimelineDrag({
+  duration,
+  snapStep: snapStepRef,
+  snapEnabled,
+  edges: edgesFor,
+  onCommit(itemId, patch) {
+    const row = rows.value.find((r) => r.id === itemId)
+    const span = row?.videoSpan
+    if (!span) return
+    const newStart = patch.start ?? span.start
+    const newDuration = patch.duration ?? span.end - span.start
+    const props_: Record<string, number> = {}
+    if (patch.start !== undefined) props_.start = newStart
+    if (patch.duration !== undefined) props_.end = newStart + newDuration
+    if (Object.keys(props_).length === 0) return
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id: itemId, props: props_ },
+      source: 'ui',
+    })
+  },
+})
+
+function onVideoSpanPointerDown(payload: VideoSpanPointerDownPayload): void {
+  videoSpanDrag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    tween: {
+      id: payload.itemId,
+      target: payload.itemId,
+      start: payload.span.start,
+      duration: payload.span.end - payload.span.start,
+    },
+    mode: payload.mode,
+  })
+}
+
+// U5 — trim handle drag (trimIn / trimOut). Distinct math from the outer
+// span: anchored to the source asset's time axis, not the composition
+// timeline. See `useVideoTrimDrag` / `videoTrimMath.ts`.
+const videoTrimDrag = useVideoTrimDrag({
+  duration,
+  snapStep: snapStepRef,
+  snapEnabled,
+  onCommit(itemId, patch) {
+    emit('apply', {
+      kind: 'update_item',
+      payload: { id: itemId, props: patch },
+      source: 'ui',
+    })
+  },
+})
+
+function onVideoTrimPointerDown(payload: VideoTrimPointerDownPayload): void {
+  videoTrimDrag.begin({
+    event: payload.event,
+    laneElement: payload.laneEl,
+    itemId: payload.itemId,
+    mode: payload.mode,
+    trimIn: payload.span.trimIn,
+    trimOut: payload.span.trimOut,
+    assetDuration: payload.span.assetDuration,
   })
 }
 
@@ -145,6 +308,7 @@ function originKindToTweenSource(kind: OriginKind): TweenSource {
       return 'scene'
     case 'literal':
     case 'ref':
+    case 'repeat':
       return 'plain'
   }
 }
@@ -183,6 +347,60 @@ function classifyTween(
   return classifyTweenFallback(tween, items)
 }
 
+// U5 — asset id → registered duration (seconds), used to clamp/resolve a
+// video item's trim window and its unbounded `end` fallback.
+const assetDurationById = computed<ReadonlyMap<string, number>>(() => {
+  const out = new Map<string, number>()
+  const list = props.composition?.assets
+  if (!Array.isArray(list)) return out
+  for (const a of list as ReadonlyArray<{ id?: unknown; duration?: unknown }>) {
+    if (typeof a?.id === 'string' && typeof a.duration === 'number' && Number.isFinite(a.duration)) {
+      out.set(a.id, a.duration)
+    }
+  }
+  return out
+})
+
+// U3 — one row per `composition.audio[]` entry, sorted by start so bars read
+// left-to-right like the item tracks above. `end` always resolves to a
+// concrete number here (the schema allows an absent `end` meaning "play to
+// the asset's natural duration" — we fall back to the registered asset
+// duration, then the composition duration, so the bar is never zero-width;
+// a looping track without `end` spans to the composition end).
+const audioRows = computed<TimelineAudioRow[]>(() => {
+  const comp = props.composition
+  const list = (comp as { audio?: unknown } | null)?.audio
+  if (!Array.isArray(list)) return []
+  const out: TimelineAudioRow[] = []
+  for (const t of list as ReadonlyArray<Record<string, unknown>>) {
+    if (typeof t?.id !== 'string' || typeof t.asset !== 'string') continue
+    const start = typeof t.start === 'number' ? t.start : 0
+    const assetDur = assetDurationById.value.get(t.asset) ?? null
+    const loop = t.loop === true
+    // v1.1 S10: a looping track without `end` repeats to the composition end.
+    const end =
+      typeof t.end === 'number'
+        ? t.end
+        : loop
+          ? Math.max(start, duration.value)
+          : start + (assetDur ?? Math.max(0, duration.value - start))
+    const trimIn = typeof t.trimIn === 'number' ? t.trimIn : 0
+    out.push({
+      id: t.id,
+      asset: t.asset,
+      start,
+      end,
+      volume: typeof t.volume === 'number' ? t.volume : 1,
+      fadeIn: typeof t.fadeIn === 'number' ? t.fadeIn : 0,
+      fadeOut: typeof t.fadeOut === 'number' ? t.fadeOut : 0,
+      loop,
+      loopPeriod: loop && assetDur !== null && assetDur - trimIn > 0 ? assetDur - trimIn : null,
+    })
+  }
+  out.sort((a, b) => a.start - b.start)
+  return out
+})
+
 const rows = computed<TimelineItemRow[]>(() => {
   const comp = props.composition
   if (!comp) return []
@@ -193,7 +411,7 @@ const rows = computed<TimelineItemRow[]>(() => {
     property: string
     start: number
     duration: number
-    easing?: string
+    easing?: Easing
   }>
 
   // Bucket tweens by target. We iterate tweens once and sort the per-target
@@ -254,36 +472,186 @@ const rows = computed<TimelineItemRow[]>(() => {
 
   return ordered.map((id) => {
     const list = (buckets.get(id) ?? []).slice().sort((a, b) => a.start - b.start)
+    const type = items[id]?.type ?? 'unknown'
     return {
       id,
-      type: items[id]?.type ?? 'unknown',
+      type,
       tweens: list,
+      videoSpan: type === 'video' ? buildVideoSpan(id) : null,
     }
   })
 })
+
+// U5 — a video item's own occupied-time span, distinct from its tweens.
+// `end` falls back to `start + (trimOut - trimIn)` (i.e. no freeze/loop
+// tail) when the item omits it (engine leaves `end` unset meaning "play to
+// the visible-trim boundary" — see v0.2-plan S5/S9); if trim bounds are also
+// unknown, falls back to the full composition duration so the bar is at
+// least visible rather than zero-width.
+function buildVideoSpan(id: string): TimelineItemRow['videoSpan'] {
+  const comp = props.composition
+  const raw = (comp?.items as Record<string, Record<string, unknown>> | undefined)?.[id]
+  if (!raw) return null
+  const start = typeof raw.start === 'number' ? raw.start : 0
+  const trimIn = typeof raw.trimIn === 'number' ? raw.trimIn : 0
+  const assetId = typeof raw.asset === 'string' ? raw.asset : null
+  const assetDuration = assetId ? (assetDurationById.value.get(assetId) ?? null) : null
+  const trimOut =
+    typeof raw.trimOut === 'number' ? raw.trimOut : (assetDuration ?? duration.value)
+  const visible = Math.max(0, trimOut - trimIn)
+  const end = typeof raw.end === 'number' ? raw.end : start + (visible > 0 ? visible : duration.value)
+  return {
+    start,
+    end,
+    trimIn,
+    trimOut,
+    assetDuration,
+    loop: raw.loop === true,
+  }
+}
 
 const tweenCount = computed<number>(() =>
   rows.value.reduce((acc, r) => acc + r.tweens.length, 0),
 )
 
-// Ruler ticks: one major tick per second, minor tick every 0.25s. Snap the
-// number of major ticks to ceil(duration) so the rightmost tick is the
-// composition's end (the playhead can reach it).
-const rulerTicks = computed<Array<{ t: number; major: boolean }>>(() => {
-  const d = duration.value
-  if (d <= 0) return []
-  const ticks: Array<{ t: number; major: boolean }> = []
-  // 0 through ceil(d) majors.
-  const lastMajor = Math.ceil(d)
-  for (let i = 0; i <= lastMajor; i += 1) {
-    if (i > d + 1e-9) break
-    ticks.push({ t: i, major: true })
-    if (i + 0.25 < d) ticks.push({ t: i + 0.25, major: false })
-    if (i + 0.5 < d) ticks.push({ t: i + 0.5, major: false })
-    if (i + 0.75 < d) ticks.push({ t: i + 0.75, major: false })
-  }
-  return ticks
+// ─── v1.1 S27: zoom ─────────────────────────────────────────────────────
+// `bodyEl` is the single scroll container (both axes). Its visible lane
+// width (minus the label gutter) defines the "fit" zoom level.
+const RULER_GUTTER_PX = 160
+const bodyEl: Ref<HTMLDivElement | null> = ref(null)
+const viewportLaneWidth = ref(0)
+let resizeObserver: ResizeObserver | null = null
+
+function measureViewport(): void {
+  const el = bodyEl.value
+  viewportLaneWidth.value = el ? Math.max(0, el.clientWidth - RULER_GUTTER_PX) : 0
+}
+
+const fitPps = computed<number>(() => fitPxPerSecond(viewportLaneWidth.value, duration.value))
+const zoomPps = computed<number | null>(() => {
+  const z = prefs.timelinePrefs.value.pxPerSecond
+  // A persisted zoom narrower than this composition's fit level ≡ fit.
+  return z === null ? null : clampPxPerSecond(z, fitPps.value)
 })
+const pxPerSecond = computed<number>(() => effectivePxPerSecond(zoomPps.value, fitPps.value))
+const isFit = computed<boolean>(() => zoomPps.value === null)
+
+/** Canvas width: gutter + lanes. `100%` in fit mode tracks panel resizes. */
+const canvasWidth = computed<string>(() => {
+  if (isFit.value || duration.value <= 0) return '100%'
+  return `${RULER_GUTTER_PX + Math.ceil(duration.value * pxPerSecond.value)}px`
+})
+
+const zoomLabel = computed<string>(() => {
+  if (isFit.value) return 'Fit'
+  const perFrame = fps.value > 0 ? pxPerSecond.value / fps.value : 0
+  return perFrame >= 4 ? `${perFrame.toFixed(0)} px/f` : `${pxPerSecond.value.toFixed(0)} px/s`
+})
+
+/**
+ * Apply a new zoom, keeping the time under `anchorPx` (lane-relative px in
+ * the viewport) fixed on screen. Default anchor: the playhead when it's in
+ * view, else the viewport centre.
+ */
+function setZoom(next: number | null, anchorPx?: number): void {
+  const el = bodyEl.value
+  const oldPps = pxPerSecond.value
+  const newPps = effectivePxPerSecond(next, fitPps.value)
+  const scrollLeft = el?.scrollLeft ?? 0
+  let anchor = anchorPx
+  if (anchor === undefined) {
+    const playheadPx = props.playhead * oldPps - scrollLeft
+    anchor =
+      playheadPx >= 0 && playheadPx <= viewportLaneWidth.value
+        ? playheadPx
+        : viewportLaneWidth.value / 2
+  }
+  prefs.setTimelinePrefs({ pxPerSecond: next })
+  if (!el) return
+  const target = next === null ? 0 : anchoredScrollLeft({ scrollLeft, anchorPx: anchor, oldPps, newPps })
+  void nextTick(() => {
+    el.scrollLeft = target
+  })
+}
+
+function zoomIn(): void {
+  if (duration.value <= 0) return
+  setZoom(zoomStep(zoomPps.value, fitPps.value, 1))
+}
+
+function zoomOut(): void {
+  if (duration.value <= 0) return
+  setZoom(zoomStep(zoomPps.value, fitPps.value, -1))
+}
+
+/** ⌘0 — the whole composition fits the visible lane width. */
+function fitToWindow(): void {
+  setZoom(null)
+}
+
+const SLIDER_STEPS = 1000
+const sliderValue = computed<number>(() =>
+  Math.round(zoomToSlider(zoomPps.value, fitPps.value) * SLIDER_STEPS),
+)
+
+function onSliderInput(event: Event): void {
+  const v = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(v)) return
+  setZoom(sliderToZoom(v / SLIDER_STEPS, fitPps.value))
+}
+
+// Pinch (trackpads report it as a ctrl-wheel) and ⌘-wheel zoom around the
+// cursor. Plain wheel falls through to native scrolling.
+function onBodyWheel(event: WheelEvent): void {
+  if (!event.ctrlKey && !event.metaKey) return
+  if (duration.value <= 0) return
+  event.preventDefault()
+  const el = bodyEl.value
+  if (!el) return
+  const factor = Math.exp(-event.deltaY * 0.01)
+  const next = clampPxPerSecond(pxPerSecond.value * factor, fitPps.value)
+  const rect = el.getBoundingClientRect()
+  const anchorPx = Math.max(0, event.clientX - rect.left - RULER_GUTTER_PX)
+  setZoom(next, anchorPx)
+}
+
+// While playing zoomed-in, page the view so the playhead never runs off.
+watch(
+  () => props.playhead,
+  (t) => {
+    const el = bodyEl.value
+    if (!el || isFit.value || props.status !== 'playing') return
+    const x = t * pxPerSecond.value
+    const w = viewportLaneWidth.value
+    if (w <= 0) return
+    if (x < el.scrollLeft || x > el.scrollLeft + w) el.scrollLeft = Math.max(0, x - w * 0.1)
+  },
+)
+
+onMounted(() => {
+  void prefs.hydrate()
+  measureViewport()
+  if (typeof ResizeObserver !== 'undefined' && bodyEl.value) {
+    resizeObserver = new ResizeObserver(() => measureViewport())
+    resizeObserver.observe(bodyEl.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+})
+
+defineExpose({ zoomIn, zoomOut, fitToWindow })
+
+// Ruler ticks adapt to the zoom: majors ≥ 64 px apart, minors subdivide them
+// and drop to single frames once a frame is wide enough to hit.
+const tickSpec = computed(() => rulerTickSpec(pxPerSecond.value, fps.value))
+const rulerTicks = computed<Array<{ t: number; major: boolean }>>(() =>
+  buildRulerTicks(duration.value, tickSpec.value),
+)
+/** Lane grid stripes follow the major ticks (see TimelineTrack CSS). */
+const laneGridPx = computed<string>(() => `${tickSpec.value.major * pxPerSecond.value}px`)
 
 function pct(t: number): string {
   const d = duration.value
@@ -353,6 +721,110 @@ function onOpenSceneSource(tween: TimelineTween): void {
   emit('openSceneSource', sceneId)
 }
 
+// U3 — audio track selection + context menu (Mute / Delete / Reset volume).
+function onSelectAudioTrack(id: string): void {
+  selection.setAudioTrackSelection(id)
+}
+
+interface AudioContextMenuState {
+  id: string
+  x: number
+  y: number
+}
+const audioContextMenu = ref<AudioContextMenuState | null>(null)
+
+function onAudioContextMenu(payload: { id: string; x: number; y: number }): void {
+  audioContextMenu.value = payload
+}
+
+function closeAudioContextMenu(): void {
+  audioContextMenu.value = null
+}
+
+function contextMenuTrack(): TimelineAudioRow | null {
+  const id = audioContextMenu.value?.id
+  if (!id) return null
+  return audioRows.value.find((r) => r.id === id) ?? null
+}
+
+function contextMenuMute(): void {
+  const track = contextMenuTrack()
+  closeAudioContextMenu()
+  if (!track) return
+  emit('apply', {
+    kind: 'update_audio_track',
+    payload: { id: track.id, props: { volume: track.volume > 0 ? 0 : 1 } },
+    source: 'ui',
+  })
+}
+
+function contextMenuResetVolume(): void {
+  const track = contextMenuTrack()
+  closeAudioContextMenu()
+  if (!track) return
+  emit('apply', {
+    kind: 'update_audio_track',
+    payload: { id: track.id, props: { volume: 1 } },
+    source: 'ui',
+  })
+}
+
+function contextMenuDelete(): void {
+  const track = contextMenuTrack()
+  closeAudioContextMenu()
+  if (!track) return
+  if (selection.selectedAudioTrackId.value === track.id) {
+    selection.setAudioTrackSelection(null)
+  }
+  emit('apply', { kind: 'remove_audio_track', payload: { id: track.id }, source: 'ui' })
+}
+
+// U3 — dropping an audio asset directly into the audio lane creates a track
+// at the drop's horizontal time position (not the playhead) — matches the
+// per-row/new-track item drops, which use the mouse position on Stage but
+// the playhead on Timeline; the audio lane is explicitly time-positional so
+// it uses the drop's x-coordinate instead.
+const audioLaneEl: Ref<HTMLDivElement | null> = ref(null)
+
+function audioLaneAcceptsDrop(): boolean {
+  const p = libraryDrag.payload.value
+  return !!p && p.kind === 'asset' && p.mediaType === 'audio'
+}
+
+function onAudioLaneDragOver(event: DragEvent): void {
+  if (!audioLaneAcceptsDrop()) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  libraryDrag.setHover('new-track', null)
+}
+
+function onAudioLaneDragLeave(): void {
+  libraryDrag.clearHover('new-track', null)
+}
+
+function timeAtClientX(clientX: number): number {
+  const el = audioLaneEl.value
+  const d = duration.value
+  if (!el || d <= 0) return Math.max(0, props.playhead)
+  const rect = el.getBoundingClientRect()
+  if (rect.width <= 0) return Math.max(0, props.playhead)
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  return roundToSnap(ratio * d)
+}
+
+function onAudioLaneDrop(event: DragEvent): void {
+  event.preventDefault()
+  const payload = libraryDrag.readDropPayload(event)
+  libraryDrag.onDragEnd()
+  if (!payload || payload.kind !== 'asset' || payload.mediaType !== 'audio') return
+  const start = timeAtClientX(event.clientX)
+  emit('apply', {
+    kind: 'add_audio_track',
+    payload: { asset: payload.id, start: Math.max(0, start) },
+    source: 'ui',
+  })
+}
+
 function onSelectItem(id: string, tweenId?: string): void {
   // Step 20.24 — bar clicks emit a tween id; route them through
   // setTweenSelection so the Inspector switches to its tween editor. Row
@@ -374,7 +846,9 @@ function onRulerClick(event: MouseEvent): void {
   const rect = el.getBoundingClientRect()
   if (rect.width <= 0) return
   const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-  emit('seek', ratio * d)
+  const t = ratio * d
+  // v1.1 S27 — with Snap on, seeking lands on a frame boundary.
+  emit('seek', snapEnabled.value && !event.altKey ? Math.min(d, snapToFrame(t, fps.value)) : t)
 }
 
 // Library drag-and-drop (step 14). Two zones:
@@ -384,7 +858,6 @@ function onRulerClick(event: MouseEvent): void {
 //   - new-track gutter at the bottom of the tracks list: drops a template
 //     or scene as a fresh instance on the first layer.
 const libraryDrag = useLibraryDrag()
-const tracksHostEl: Ref<HTMLDivElement | null> = ref(null)
 const layerForDropId = computed<string | null>(() => {
   const comp = props.composition
   if (!comp || !Array.isArray(comp.layers)) return null
@@ -464,7 +937,7 @@ function onNewTrackDrop(event: DragEvent): void {
 
 function roundToSnap(t: number): number {
   const step = snapStepRef.value
-  if (!step || step <= 0) return t
+  if (!snapEnabled.value || !step || step <= 0) return t
   return Math.round(t / step) * step
 }
 
@@ -546,6 +1019,64 @@ watch(
       <span class="meta-tween-count">{{ tweenCount }} tween{{ tweenCount === 1 ? '' : 's' }}</span>
       <span class="meta-duration">{{ duration.toFixed(2) }}s</span>
       <span class="meta-playhead">{{ playheadLabel }}</span>
+      <div class="zoom-controls" role="group" aria-label="Timeline zoom and snapping">
+        <button
+          type="button"
+          class="transport-btn snap-toggle"
+          data-testid="timeline-snap-toggle"
+          :aria-pressed="snapEnabled ? 'true' : 'false'"
+          :data-snap="snapEnabled ? 'on' : 'off'"
+          title="Snap to frames and bar edges (hold ⌥ to bypass)"
+          @click="toggleSnap"
+        >
+          Snap
+        </button>
+        <button
+          type="button"
+          class="transport-btn zoom-btn"
+          data-testid="timeline-zoom-out"
+          title="Zoom out (⌘−)"
+          aria-label="Zoom out"
+          :disabled="duration <= 0 || isFit"
+          @click="zoomOut"
+        >
+          −
+        </button>
+        <input
+          type="range"
+          class="zoom-slider"
+          data-testid="timeline-zoom-slider"
+          aria-label="Timeline zoom"
+          min="0"
+          :max="SLIDER_STEPS"
+          step="1"
+          :value="sliderValue"
+          :disabled="duration <= 0"
+          @input="onSliderInput"
+        />
+        <button
+          type="button"
+          class="transport-btn zoom-btn"
+          data-testid="timeline-zoom-in"
+          title="Zoom in (⌘+)"
+          aria-label="Zoom in"
+          :disabled="duration <= 0"
+          @click="zoomIn"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          class="transport-btn zoom-fit"
+          data-testid="timeline-zoom-fit"
+          :aria-pressed="isFit ? 'true' : 'false'"
+          title="Fit whole composition (⌘0)"
+          :disabled="duration <= 0"
+          @click="fitToWindow"
+        >
+          {{ zoomLabel }}
+        </button>
+      </div>
       <span class="legend">
         <span class="legend-item"><span class="swatch swatch-template" />template</span>
         <span class="legend-item"><span class="swatch swatch-behavior" />behavior</span>
@@ -553,7 +1084,14 @@ watch(
         <span class="legend-item"><span class="swatch swatch-plain" />plain</span>
       </span>
     </header>
-    <div class="timeline-body">
+    <div
+      ref="bodyEl"
+      class="timeline-body"
+      data-testid="timeline-body"
+      :data-zoom="isFit ? 'fit' : pxPerSecond.toFixed(2)"
+      @wheel="onBodyWheel"
+    >
+      <div class="timeline-canvas" :style="{ width: canvasWidth, '--lane-grid-px': laneGridPx }">
       <div class="ruler-row">
         <div class="ruler-gutter">tracks</div>
         <div
@@ -566,10 +1104,14 @@ watch(
             v-for="tick in rulerTicks"
             :key="tick.t"
             class="tick"
-            :class="{ major: tick.major }"
+            :class="{ major: tick.major, 'tick--end': tick.t >= duration - 1e-6 }"
             :style="{ left: pct(tick.t) }"
           >
-            <span v-if="tick.major" class="tick-label">{{ tick.t }}s</span>
+            <span
+              v-if="tick.major"
+              class="tick-label"
+              :class="{ 'tick-label--end': tick.t >= duration - 1e-6 }"
+            >{{ formatTickLabel(tick.t) }}</span>
           </div>
           <div
             class="playhead playhead-head"
@@ -586,6 +1128,8 @@ watch(
           :duration="duration"
           :selected-id="selection.selectedItemId.value"
           :drag-active="drag.active.value"
+          :video-span-drag-active="videoSpanDrag.active.value"
+          :video-trim-drag-active="videoTrimDrag.active.value"
           :marker-counts="validation.markersByTarget.value.get(row.id) ?? null"
           :library-hover="
             libraryDrag.hover.value === 'track' &&
@@ -597,6 +1141,8 @@ watch(
           @select-item="onSelectItem"
           @bar-pointer-down="onBarPointerDown"
           @open-scene-source="onOpenSceneSource"
+          @video-span-pointer-down="onVideoSpanPointerDown"
+          @video-trim-pointer-down="onVideoTrimPointerDown"
           @library-drag-over="(e) => onTrackDragOver(e, row.id)"
           @library-drag-leave="(e) => onTrackDragLeave(e, row.id)"
           @library-drop="(e) => onTrackDrop(e, row.id)"
@@ -624,6 +1170,68 @@ watch(
           </span>
         </div>
         <p v-if="rows.length === 0" class="empty">No items in this composition.</p>
+      </div>
+
+      <!-- U3 — Audio lane. Visually separated from the item tracks above by
+           a distinct header + top border; reads `composition.audio[]`
+           directly (never routed through the item/layer walk). -->
+      <div class="audio-section">
+        <div class="audio-section-header">
+          <span class="audio-section-title">Audio</span>
+          <span class="audio-section-count">{{ audioRows.length }}</span>
+        </div>
+        <div
+          ref="audioLaneEl"
+          class="audio-lane"
+          data-testid="timeline-audio-lane"
+          :data-drop-active="audioLaneAcceptsDrop() && libraryDrag.hover.value === 'new-track' ? 'true' : 'false'"
+          @dragenter.prevent="onAudioLaneDragOver"
+          @dragover="onAudioLaneDragOver"
+          @dragleave="onAudioLaneDragLeave"
+          @drop="onAudioLaneDrop"
+        >
+          <TimelineAudioTrack
+            v-for="row in audioRows"
+            :key="row.id"
+            :row="row"
+            :duration="duration"
+            :selected="selection.selectedAudioTrackId.value === row.id"
+            :drag-active="audioDrag.active.value"
+            @select="onSelectAudioTrack"
+            @bar-pointer-down="onAudioBarPointerDown"
+            @contextmenu="onAudioContextMenu"
+          />
+          <p
+            v-if="audioRows.length === 0"
+            class="audio-empty"
+            data-testid="timeline-audio-empty"
+          >
+            Drag an audio asset here from the Library, or click <strong>+ Add Audio Track…</strong> in the toolbar.
+          </p>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- U3 — audio track context menu (Mute / Delete / Reset volume). -->
+    <div
+      v-if="audioContextMenu"
+      class="context-menu-backdrop"
+      data-testid="timeline-audio-context-backdrop"
+      @click="closeAudioContextMenu"
+      @contextmenu.prevent="closeAudioContextMenu"
+    >
+      <div
+        class="context-menu"
+        :style="{ left: `${audioContextMenu.x}px`, top: `${audioContextMenu.y}px` }"
+        data-testid="timeline-audio-context-menu"
+        @click.stop
+      >
+        <button type="button" @click="contextMenuMute">
+          {{ (contextMenuTrack()?.volume ?? 1) > 0 ? 'Mute' : 'Unmute' }}
+        </button>
+        <button type="button" @click="contextMenuResetVolume">Reset volume</button>
+        <button type="button" class="danger" @click="contextMenuDelete">Delete</button>
       </div>
     </div>
   </div>
@@ -776,12 +1384,63 @@ watch(
   background: rgba(91, 124, 250, 0.55);
 }
 
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.zoom-btn {
+  width: 22px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.snap-toggle,
+.zoom-fit {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-feature-settings: 'tnum';
+}
+
+.zoom-fit {
+  min-width: 58px;
+  text-transform: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0;
+}
+
+.snap-toggle[aria-pressed='true'],
+.zoom-fit[aria-pressed='true'] {
+  color: #9fb2ff;
+  background: rgba(91, 124, 250, 0.14);
+}
+
+.zoom-slider {
+  width: 90px;
+  accent-color: #5b7cfa;
+}
+
+/* v1.1 S27 — one scroll container for both axes. The canvas is as wide as
+   the zoomed lanes; the ruler sticks to the top and every label gutter to
+   the left so they stay put while the lanes scroll under them. */
 .timeline-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
+}
+
+.timeline-canvas {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .ruler-row {
@@ -790,7 +1449,10 @@ watch(
   align-items: stretch;
   flex: 0 0 auto;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: #121212;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .ruler-gutter {
@@ -802,6 +1464,10 @@ watch(
   display: flex;
   align-items: center;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #121212;
 }
 
 .ruler {
@@ -833,12 +1499,20 @@ watch(
   font-feature-settings: 'tnum';
 }
 
+/* The last tick sits on the lane's right edge — draw it and its label inward
+   so they don't widen the scroll area. */
+.tick--end {
+  margin-left: -1px;
+}
+
+.tick-label--end {
+  left: auto;
+  right: 4px;
+}
+
 .tracks {
   position: relative;
   flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 .playhead {
@@ -911,5 +1585,100 @@ watch(
 
 .new-track-label {
   pointer-events: none;
+}
+
+.audio-section {
+  flex: 0 0 auto;
+  border-top: 2px solid rgba(6, 214, 160, 0.25);
+  background: rgba(6, 214, 160, 0.02);
+}
+
+.audio-section-title {
+  position: sticky;
+  left: 8px;
+}
+
+.audio-section-header {
+  display: grid;
+  grid-template-columns: var(--ruler-gutter-width) 1fr;
+  align-items: center;
+  padding: 4px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6bd0b0;
+  background: rgba(6, 214, 160, 0.06);
+  border-bottom: 1px solid rgba(6, 214, 160, 0.15);
+}
+
+.audio-section-count {
+  font-feature-settings: 'tnum';
+  color: #6bd0b0;
+  opacity: 0.7;
+}
+
+.audio-lane {
+  position: relative;
+}
+
+.audio-lane[data-drop-active='true'] {
+  background: rgba(6, 214, 160, 0.1);
+  outline: 2px dashed rgba(6, 214, 160, 0.55);
+  outline-offset: -2px;
+}
+
+.audio-empty {
+  padding: 12px;
+  color: #707070;
+  font-size: 11.5px;
+}
+
+.audio-empty strong {
+  color: #9fdec8;
+  font-weight: 500;
+}
+
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+}
+
+.context-menu {
+  position: fixed;
+  min-width: 140px;
+  background: #131313;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.context-menu button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.context-menu button.danger {
+  color: #ff8b8b;
+}
+
+.context-menu button.danger:hover {
+  background: rgba(255, 107, 107, 0.14);
 }
 </style>

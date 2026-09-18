@@ -3,7 +3,9 @@
 //
 // Bottom drawer (toggle: ⌘J) showing the *authored* composition.json text
 // with the originating source location highlighted for the current item
-// selection. Read-only for v1.0; editing the JSON is v1.1 territory.
+// selection. "Edit" (v1.1 S29) swaps the view for a textarea; Save parses
+// the draft and hands it to `onSave`, which dispatches `replace_composition`
+// — one validated, undoable command for the whole document.
 //
 // The line is computed by `indexJsonPointerLines` (see
 // `composables/jsonPointerLines.ts`), which walks the text as JSON and
@@ -13,6 +15,7 @@
 
 import { computed, nextTick, ref, watch } from 'vue'
 import { indexJsonPointerLines, pointerForSelection } from '~/composables/jsonPointerLines'
+import { parseSourceDraft } from '~/composables/sourceDraft'
 
 const props = defineProps<{
   /** Authored JSON text from the loaded composition.json. */
@@ -25,6 +28,11 @@ const props = defineProps<{
   pickSourceFile: string | null
   /** Whether the drawer is open. */
   open: boolean
+  /**
+   * Apply an edited document. Resolves to null on success, or the rejection
+   * message to show inline. Omitted ⇒ the drawer stays read-only.
+   */
+  onSave?: (json: Record<string, unknown>) => Promise<string | null>
 }>()
 
 const emit = defineEmits<{ (event: 'close'): void }>()
@@ -86,6 +94,70 @@ watch(
   { flush: 'post' },
 )
 
+// ─── Editing (v1.1 S29) ───────────────────────────────────────────────
+const editing = ref(false)
+const draft = ref('')
+const saving = ref(false)
+const draftError = ref<{ message: string; line: number | null } | null>(null)
+
+function startEdit(): void {
+  if (!props.source) return
+  draft.value = props.source.text
+  draftError.value = null
+  editing.value = true
+}
+
+function cancelEdit(): void {
+  editing.value = false
+  draftError.value = null
+}
+
+async function saveEdit(): Promise<void> {
+  if (!props.onSave || saving.value) return
+  const parsed = parseSourceDraft(draft.value)
+  if (!parsed.ok) {
+    draftError.value = { message: parsed.message, line: parsed.line }
+    return
+  }
+  saving.value = true
+  try {
+    const rejection = await props.onSave(parsed.json)
+    if (rejection === null) {
+      editing.value = false
+      draftError.value = null
+    } else {
+      draftError.value = { message: rejection, line: null }
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+function onDraftKeydown(event: KeyboardEvent): void {
+  // Keep typing out of the editor's global shortcuts (Delete, arrows, ⌘Z…).
+  event.stopPropagation()
+  if ((event.metaKey || event.ctrlKey) && (event.key === 's' || event.key === 'Enter')) {
+    event.preventDefault()
+    void saveEdit()
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelEdit()
+  } else if (event.key === 'Tab') {
+    event.preventDefault()
+    const el = event.target as HTMLTextAreaElement
+    const { selectionStart, selectionEnd } = el
+    draft.value = `${draft.value.slice(0, selectionStart)}  ${draft.value.slice(selectionEnd)}`
+    void nextTick(() => el.setSelectionRange(selectionStart + 2, selectionStart + 2))
+  }
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) cancelEdit()
+  },
+)
+
 function onClose(): void {
   emit('close')
 }
@@ -105,11 +177,41 @@ function onClose(): void {
         <span v-if="source" class="title-file" :title="source.file">{{ relativeFile }}</span>
       </div>
       <div class="actions">
-        <span v-if="highlightedLine" class="line-pill" data-testid="source-drawer-line">
+        <template v-if="editing">
+          <button
+            type="button"
+            class="text-btn"
+            data-testid="source-drawer-cancel"
+            :disabled="saving"
+            @click="cancelEdit"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="text-btn text-btn-primary"
+            data-testid="source-drawer-save"
+            :disabled="saving"
+            title="Save (⌘S)"
+            @click="saveEdit"
+          >
+            {{ saving ? 'Saving…' : 'Save' }}
+          </button>
+        </template>
+        <button
+          v-else-if="source && onSave"
+          type="button"
+          class="text-btn"
+          data-testid="source-drawer-edit"
+          @click="startEdit"
+        >
+          Edit
+        </button>
+        <span v-if="!editing && highlightedLine" class="line-pill" data-testid="source-drawer-line">
           Line {{ highlightedLine }}
         </span>
         <span
-          v-else-if="resolvedPointer"
+          v-else-if="!editing && resolvedPointer"
           class="line-pill line-pill-muted"
           data-testid="source-drawer-line"
         >
@@ -132,11 +234,23 @@ function onClose(): void {
     </div>
 
     <div v-else class="drawer-body">
-      <div v-if="sourceMissingForPick" class="drawer-note">
+      <div v-if="editing && draftError" class="drawer-error" data-testid="source-drawer-error">
+        <span v-if="draftError.line">Line {{ draftError.line }}: </span>{{ draftError.message }}
+      </div>
+      <textarea
+        v-if="editing"
+        v-model="draft"
+        class="code-edit"
+        spellcheck="false"
+        aria-label="composition.json source"
+        data-testid="source-drawer-textarea"
+        @keydown="onDraftKeydown"
+      />
+      <div v-if="!editing && sourceMissingForPick" class="drawer-note">
         Picked entry lives in another file ({{ pickSourceFile }}). Showing
         {{ relativeFile }} instead.
       </div>
-      <div ref="codeContainer" class="code-scroll" data-testid="source-drawer-code">
+      <div v-if="!editing" ref="codeContainer" class="code-scroll" data-testid="source-drawer-code">
         <pre class="code">
           <div
             v-for="(text, idx) in lines"
@@ -229,6 +343,61 @@ function onClose(): void {
   cursor: pointer;
   padding: 2px 8px;
   border-radius: 4px;
+}
+
+.text-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.text-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.text-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.text-btn-primary {
+  background: rgba(91, 124, 250, 0.25);
+  border-color: rgba(91, 124, 250, 0.5);
+  color: #dbe2ff;
+}
+
+.text-btn-primary:hover:not(:disabled) {
+  background: rgba(91, 124, 250, 0.4);
+}
+
+.drawer-error {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #ff9d9d;
+  background: rgba(255, 90, 90, 0.08);
+  border-bottom: 1px solid rgba(255, 90, 90, 0.2);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.code-edit {
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  margin: 0;
+  padding: 8px 12px;
+  background: #07070a;
+  color: #d4d4d4;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
 }
 
 .close-btn:hover {

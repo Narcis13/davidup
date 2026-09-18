@@ -26,7 +26,12 @@ import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 
 import projectStore from '#services/project_store'
-import renderJobs, { RenderJob, type RenderEvent } from '../workers/render_worker.js'
+import { shellCommandFor } from '#services/shell_open'
+import renderJobs, {
+  containerExtensionFor,
+  RenderJob,
+  type RenderEvent,
+} from '../workers/render_worker.js'
 
 function timestampStamp(now = new Date()): string {
   // Compact, sortable, filesystem-safe: 20260517-141512-123
@@ -47,11 +52,13 @@ function timestampStamp(now = new Date()): string {
 interface CreateRenderBody {
   /** Optional output filename, relative to `renders/` or absolute under the project. */
   filename?: unknown
-  /** Optional ffmpeg knobs — codec / crf / preset / pixFmt. Forwarded to the worker. */
+  /** Optional ffmpeg knobs — codec / crf / preset / pixFmt / colorProfile. Forwarded to the worker. */
   renderOptions?: unknown
 }
 
-const ALLOWED_CODECS = new Set(['libx264', 'libx265'])
+type RenderCodec = 'libx264' | 'libx265' | 'prores_ks' | 'libvpx-vp9'
+const ALLOWED_CODECS = new Set<string>(['libx264', 'libx265', 'prores_ks', 'libvpx-vp9'])
+const RENDER_FILE_EXTENSIONS = ['.mp4', '.mov', '.webm']
 const ALLOWED_PRESETS = new Set([
   'ultrafast',
   'superfast',
@@ -63,24 +70,34 @@ const ALLOWED_PRESETS = new Set([
   'slower',
   'veryslow',
 ])
-const ALLOWED_PIX_FMTS = new Set(['yuv420p', 'yuv422p', 'yuv444p', 'yuv420p10le'])
+const ALLOWED_PIX_FMTS = new Set([
+  'yuv420p',
+  'yuv422p',
+  'yuv444p',
+  'yuv420p10le',
+  'yuva444p10le',
+  'yuva420p',
+])
+const ALLOWED_COLOR_PROFILES = new Set(['bt709', 'untagged'])
 
 function parseRenderOptions(raw: unknown): {
-  codec?: 'libx264' | 'libx265'
+  codec?: RenderCodec
   crf?: number
   preset?: string
   pixFmt?: string
+  colorProfile?: 'bt709' | 'untagged'
 } | null {
   if (!raw || typeof raw !== 'object') return null
   const src = raw as Record<string, unknown>
   const out: {
-    codec?: 'libx264' | 'libx265'
+    codec?: RenderCodec
     crf?: number
     preset?: string
     pixFmt?: string
+    colorProfile?: 'bt709' | 'untagged'
   } = {}
   if (typeof src.codec === 'string' && ALLOWED_CODECS.has(src.codec)) {
-    out.codec = src.codec as 'libx264' | 'libx265'
+    out.codec = src.codec as RenderCodec
   }
   if (typeof src.crf === 'number' && Number.isFinite(src.crf) && src.crf >= 0 && src.crf <= 51) {
     out.crf = Math.round(src.crf)
@@ -90,6 +107,9 @@ function parseRenderOptions(raw: unknown): {
   }
   if (typeof src.pixFmt === 'string' && ALLOWED_PIX_FMTS.has(src.pixFmt)) {
     out.pixFmt = src.pixFmt
+  }
+  if (typeof src.colorProfile === 'string' && ALLOWED_COLOR_PROFILES.has(src.colorProfile)) {
+    out.colorProfile = src.colorProfile as 'bt709' | 'untagged'
   }
   return Object.keys(out).length > 0 ? out : null
 }
@@ -124,7 +144,7 @@ export default class RendersController {
   async store({ request, response }: HttpContext) {
     const project = projectStore.project
     const composition = projectStore.composition as
-      | { composition: { duration: number; fps: number; width: number; height: number } }
+      | { composition: { duration: number; fps: number | string; width: number; height: number } }
       | null
     if (!project || !composition) {
       return response.notFound({
@@ -138,21 +158,21 @@ export default class RendersController {
         ? body.filename.trim()
         : null
 
+    const renderOptions = parseRenderOptions(body.renderOptions)
+    const ext = containerExtensionFor(renderOptions?.codec)
     const stamp = timestampStamp()
-    const baseName = userFilename ?? `${stamp}.mp4`
+    const baseName = userFilename ?? `${stamp}${ext}`
     if (baseName.includes('..') || baseName.startsWith('/')) {
       return response.badRequest({
         error: { code: 'E_BAD_REQUEST', message: 'filename must be a simple basename' },
       })
     }
-    const safeName = extname(baseName) ? baseName : `${baseName}.mp4`
+    const safeName = extname(baseName) ? baseName : `${baseName}${ext}`
 
     const rendersDir = join(project.root, 'renders')
     await mkdir(rendersDir, { recursive: true })
     const outputPath = join(rendersDir, safeName)
     const relativeOutputPath = relative(project.root, outputPath)
-
-    const renderOptions = parseRenderOptions(body.renderOptions)
 
     const jobId = randomUUID()
     const job = new RenderJob({
@@ -323,7 +343,7 @@ export default class RendersController {
   }
 
   /**
-   * GET /api/renders/files — list .mp4 files in the loaded project's
+   * GET /api/renders/files — list rendered .mp4 / .mov / .webm files in the loaded project's
    * `renders/` directory. Newest first by mtime. Used by the editor's
    * RenderHistory panel (polish_plan §20.28) — entries persist across
    * sessions, unlike the in-memory `useRender.history`.
@@ -351,7 +371,7 @@ export default class RendersController {
       modifiedAt: number
     }> = []
     for (const name of entries) {
-      if (!name.toLowerCase().endsWith('.mp4')) continue
+      if (!RENDER_FILE_EXTENSIONS.includes(extname(name).toLowerCase())) continue
       const full = join(rendersDir, name)
       try {
         const s = await stat(full)
@@ -371,12 +391,10 @@ export default class RendersController {
   }
 
   /**
-   * POST /api/renders/shell — open a render file in Finder ("reveal") or
-   * QuickTime Player ("play"). Filename is constrained to the project's
-   * `renders/` directory; no arbitrary paths.
-   *
-   * Only available on macOS (uses the `open` shell). Other platforms get a
-   * 501.
+   * POST /api/renders/shell — reveal a render file in the platform's file
+   * manager ("reveal") or open it in the default / QuickTime player ("play").
+   * Filename is constrained to the project's `renders/` directory; no
+   * arbitrary paths. Per-platform commands live in `shellCommandFor`.
    */
   async shell({ request, response }: HttpContext) {
     const project = projectStore.project
@@ -385,18 +403,16 @@ export default class RendersController {
         error: { code: 'E_NO_PROJECT', message: 'No project loaded' },
       })
     }
-    if (process.platform !== 'darwin') {
-      return response.status(501).json({
-        error: {
-          code: 'E_UNSUPPORTED_PLATFORM',
-          message: 'Reveal-in-Finder / Play-in-QuickTime are macOS-only',
-        },
-      })
-    }
     const body = (request.body() ?? {}) as { filename?: unknown; action?: unknown }
     const filename = typeof body.filename === 'string' ? body.filename : ''
     const action = body.action === 'reveal' || body.action === 'play' ? body.action : null
-    if (!filename || filename.includes('..') || isAbsolute(filename) || filename.includes('/')) {
+    if (
+      !filename ||
+      filename.includes('..') ||
+      isAbsolute(filename) ||
+      filename.includes('/') ||
+      filename.includes('\\')
+    ) {
       return response.badRequest({
         error: { code: 'E_BAD_REQUEST', message: 'Invalid filename' },
       })
@@ -419,15 +435,15 @@ export default class RendersController {
       })
     }
 
-    const args = action === 'reveal' ? ['-R', target] : ['-a', 'QuickTime Player', target]
+    const { command, args } = shellCommandFor(process.platform, action, target)
     try {
-      const proc = spawn('open', args, { stdio: 'ignore', detached: true })
+      const proc = spawn(command, args, { stdio: 'ignore', detached: true })
       proc.on('error', (err) => {
         logger.warn({ err, action, target }, 'renders_controller: open shell failed')
       })
       proc.unref()
     } catch (err) {
-      logger.warn({ err, action, target }, 'renders_controller: failed to spawn open')
+      logger.warn({ err, action, target }, 'renders_controller: failed to spawn shell command')
       return response.internalServerError({
         error: { code: 'E_SPAWN_FAILED', message: (err as Error).message },
       })
@@ -511,8 +527,8 @@ export default class RendersController {
         error: { code: 'E_BAD_REQUEST', message: 'Invalid destination filename' },
       })
     }
-    // Preserve `.mp4` if the user dropped it.
-    const dest = extname(to) ? to : `${to}.mp4`
+    // Preserve the source's extension (.mp4 / .mov / .webm) if the user dropped it.
+    const dest = extname(to) ? to : `${to}${extname(from) || '.mp4'}`
     if (dest === from) {
       return response.ok({ ok: true, filename: from, renamed: false })
     }

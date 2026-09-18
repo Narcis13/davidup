@@ -1,0 +1,115 @@
+name: release
+
+# Publishes `davidup` to npm when a `v*` tag is pushed. The tarball is built
+# once (with bun, the repo's package manager), smoke-tested on a clean Node
+# runner that has NO bun — `npx davidup new` + `npx davidup render` from the
+# installed tarball — and only that exact tarball is published.
+#
+# Requires the `NPM_TOKEN` repository secret (an npm automation token).
+# `workflow_dispatch` runs pack + smoke + `npm publish --dry-run` only.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Install (root + apps/editor workspace)
+        run: bun install --frozen-lockfile
+
+      # `prepack` runs `npm run build && npm run build:editor`.
+      - name: Pack
+        run: |
+          npm pack
+          mv davidup-*.tgz davidup.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: davidup.tgz
+          if-no-files-found: error
+
+  smoke:
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Assert bun is absent
+        run: |
+          if command -v bun >/dev/null 2>&1; then
+            echo "::error::bun is on PATH; the smoke test must run on plain Node"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/pkg
+
+      - name: Install tarball into a clean directory
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir smoke && cd smoke
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund ../pkg/davidup.tgz
+
+      - name: davidup new + render
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          npx --no-install davidup new ./clip
+          npx --no-install davidup render ./clip -o out.mp4
+          test -s out.mp4
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball
+
+      - name: npm publish (dry run)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        run: npm publish ./davidup.tgz --dry-run
+
+      - name: npm publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm publish ./davidup.tgz --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

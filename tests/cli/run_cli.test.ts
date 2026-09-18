@@ -141,6 +141,162 @@ describe("cli · runCli", () => {
 
     await stubHandle.close();
   });
+
+  it("`render <input> -o <out>` invokes the injected renderFn and exits 0", async () => {
+    const root = await mkdtemp(join(tmpdir(), "davidup-cli-render-"));
+    tmps.push(root);
+    await writeFile(
+      join(root, "composition.json"),
+      JSON.stringify({
+        version: "0.1",
+        composition: { width: 16, height: 9, fps: 30, duration: 1, background: "#000" },
+        assets: [],
+        layers: [],
+        items: {},
+        tweens: [],
+      }),
+      "utf8",
+    );
+    const cap = captureIo();
+    const outPath = join(root, "out.mp4");
+
+    let received: Parameters<
+      NonNullable<Parameters<typeof runCli>[1]["renderFn"]>
+    >[0] | null = null;
+    const code = await runCli(["render", root, "-o", "out.mp4", "--crf=20", "--color=untagged"], {
+      io: cap.io,
+      cwd: root,
+      renderFn: async (opts) => {
+        received = opts;
+        return { outputPath: opts.outputPath, durationMs: 42, frameCount: 30 };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(received).not.toBeNull();
+    expect(received!.input).toBe(root);
+    expect(received!.outputPath).toBe(outPath);
+    expect(received!.crf).toBe(20);
+    expect(received!.colorProfile).toBe("untagged");
+    expect(cap.out.join("\n")).toMatch(/wrote .*out\.mp4.*30 frames/);
+  });
+
+  it("`render` exits 2 on invalid --crf", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--crf=999"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --crf/);
+  });
+
+  it("`render` exits 2 on invalid --color", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--color=srgb"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --color/);
+  });
+
+  it("`render` exits 2 on invalid --codec", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--codec=vp9"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --codec/);
+  });
+
+  it("`render` forwards an alpha codec (v1.1 S9)", async () => {
+    const cap = captureIo();
+    let codec: string | undefined;
+    const code = await runCli(["render", "./x", "-o", "lt.mov", "--codec=prores_ks"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async (opts) => {
+        codec = opts.codec;
+        return { outputPath: opts.outputPath, durationMs: 1, frameCount: 1 };
+      },
+    });
+    expect(code).toBe(0);
+    expect(codec).toBe("prores_ks");
+  });
+
+  it("`render --frames <dir> --from/--to` forwards a PNG sequence and range (v1.1 S12)", async () => {
+    const cap = captureIo();
+    let received: Parameters<NonNullable<Parameters<typeof runCli>[1]["renderFn"]>>[0] | null =
+      null;
+    const cwd = process.cwd();
+    const code = await runCli(
+      ["render", "./x", "--frames", "frames", "--from=1.5", "--to", "3", "--codec=prores_ks"],
+      {
+        io: cap.io,
+        cwd,
+        renderFn: async (opts) => {
+          received = opts;
+          return { outputPath: opts.outputPath, durationMs: 1, frameCount: 45 };
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(received!.outputPath).toBe(join(cwd, "frames"));
+    expect(received!.format).toBe("png-sequence");
+    expect(received!.range).toEqual({ from: 1.5, to: 3 });
+  });
+
+  it("`render` exits 2 when --to is not after --from", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--from=3", "--to=2"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async () => {
+        throw new Error("must not render");
+      },
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/--to \(2\) must be greater than --from \(3\)/);
+  });
+
+  it("`render` exits 2 on a container/codec mismatch (v1.1 S9)", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--codec=libvpx-vp9"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async () => {
+        throw new Error("must not render");
+      },
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/libvpx-vp9 cannot be written to a \.mp4 file \(use \.webm\)/);
+  });
+
+  it("`render` exits 1 and surfaces the message when renderFn throws a RenderError", async () => {
+    const cap = captureIo();
+    const { RenderError } = await import("../../src/cli/render.js");
+    const code = await runCli(["render", "./missing-project", "-o", "out.mp4"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async () => {
+        throw new RenderError("E_INPUT_NOT_FOUND", "Input not found: ./missing-project");
+      },
+    });
+    expect(code).toBe(1);
+    expect(cap.err.join("\n")).toMatch(/Input not found/);
+  });
+
+  it("`render` exits 2 when -o/--output is missing", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/requires -o\/--output/);
+  });
 });
 
 // Sanity wiring check: parseArgs is exported from the same module.

@@ -2,7 +2,7 @@
 // Back easings overshoot in the middle but still hit endpoints exactly.
 // Formulas follow the canonical easings.net definitions.
 
-import type { EasingName } from "./names.js";
+import type { Easing, EasingName } from "./names.js";
 
 export type EasingFn = (t: number) => number;
 
@@ -74,7 +74,151 @@ export const EASINGS: Record<EasingName, EasingFn> = {
   easeInOutExpo,
 };
 
-export function getEasing(name: EasingName | undefined): EasingFn {
-  if (name === undefined) return linear;
-  return EASINGS[name];
+// ──────────────── Parametric easings (v1.1 S17) ────────────────
+
+// Solver tolerance on x (time). |dy/dx| is bounded on sane curves, so the
+// eased value lands within ~1e-12 of the exact curve — far inside the 1e-6
+// CSS-reference tolerance the tests hold it to.
+const BEZIER_EPSILON = 1e-12;
+const NEWTON_ITERATIONS = 8;
+const NEWTON_MIN_SLOPE = 1e-6;
+// Enough halvings to shrink [0, 1] below double resolution; bounds the loop
+// even if the tolerance is never met.
+const BISECTION_ITERATIONS = 64;
+
+/**
+ * CSS `cubic-bezier(x1, y1, x2, y2)`, implicit endpoints (0, 0) and (1, 1).
+ * Solves x(s) = t for the curve parameter s, then returns y(s). The solver is
+ * the one browsers use (WebKit's UnitBezier): Newton–Raphson from s = t, and
+ * bisection on [0, 1] when Newton stalls on a flat stretch of x(s) or leaves
+ * the unit interval. Bisection always converges because x1, x2 ∈ [0, 1]
+ * makes x(s) non-decreasing.
+ *
+ * Deliberately not the Cardano closed form: that needs cbrt/acos/cos, whose
+ * last bit may differ between JS engines. This path uses only + − × ÷ and
+ * comparisons, so node and browser renders get identical values. Pure, and
+ * no memoization — each call constructs a closure over the coefficients.
+ *
+ * Input is clamped to [0, 1]; f(0) === 0 and f(1) === 1 exactly.
+ */
+export function cubicBezier(x1: number, y1: number, x2: number, y2: number): EasingFn {
+  // Power-basis coefficients: x(s) = ((ax·s + bx)·s + cx)·s, same for y.
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+
+  const sampleX = (s: number): number => ((ax * s + bx) * s + cx) * s;
+  const sampleY = (s: number): number => ((ay * s + by) * s + cy) * s;
+  const slopeX = (s: number): number => (3 * ax * s + 2 * bx) * s + cx;
+
+  const solveS = (t: number): number => {
+    let s = t;
+    for (let i = 0; i < NEWTON_ITERATIONS; i++) {
+      const err = sampleX(s) - t;
+      if (Math.abs(err) < BEZIER_EPSILON) return s;
+      const slope = slopeX(s);
+      if (Math.abs(slope) < NEWTON_MIN_SLOPE) break;
+      s -= err / slope;
+      if (s < 0 || s > 1) break;
+    }
+    let lo = 0;
+    let hi = 1;
+    s = t;
+    for (let i = 0; i < BISECTION_ITERATIONS; i++) {
+      const err = sampleX(s) - t;
+      if (Math.abs(err) < BEZIER_EPSILON) return s;
+      if (err < 0) lo = s;
+      else hi = s;
+      s = lo + (hi - lo) / 2;
+    }
+    return s;
+  };
+
+  return (t) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return sampleY(solveS(t));
+  };
+}
+
+/**
+ * CSS `steps(n)` / `steps(n, jump-end)`: floor(t·n)/n on [0, 1), 1 at t ≥ 1.
+ * The value holds at 0 for the first 1/n of the tween, and the jump to 1
+ * lands exactly when the tween ends. Input below 0 returns 0.
+ */
+export function steps(n: number): EasingFn {
+  return (t) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return Math.floor(t * n) / n;
+  };
+}
+
+// ──────────────── Time reversal (v1.1 S20) ────────────────
+
+// f mirrored in time is `t ↦ 1 − f(1 − t)`. Every in/out pair above is an
+// exact mirror of the other under that map (checked algebraically, and by
+// test against the functions themselves); the in-out and linear curves are
+// symmetric, so they mirror to themselves.
+const MIRRORED_EASING_NAMES: Record<EasingName, EasingName> = {
+  linear: "linear",
+  easeInQuad: "easeOutQuad",
+  easeOutQuad: "easeInQuad",
+  easeInOutQuad: "easeInOutQuad",
+  easeInCubic: "easeOutCubic",
+  easeOutCubic: "easeInCubic",
+  easeInOutCubic: "easeInOutCubic",
+  easeInQuart: "easeOutQuart",
+  easeOutQuart: "easeInQuart",
+  easeInOutQuart: "easeInOutQuart",
+  easeInBack: "easeOutBack",
+  easeOutBack: "easeInBack",
+  easeInOutBack: "easeInOutBack",
+  easeInSine: "easeOutSine",
+  easeOutSine: "easeInSine",
+  easeInOutSine: "easeInOutSine",
+  easeInExpo: "easeOutExpo",
+  easeOutExpo: "easeInExpo",
+  easeInOutExpo: "easeInOutExpo",
+};
+
+/**
+ * The time-reverse of an easing: the curve `g` with `g(t) = 1 − f(1 − t)`.
+ *
+ * Used by the scene `reverse` time mapping, which plays a tween backwards by
+ * swapping its `from` and `to`. The curve has to flip with them — otherwise
+ * an `easeInQuad` run backwards still accelerates out of its (new) start
+ * instead of decelerating into its (new) end.
+ *
+ * Exact for every easing name and for `{ bezier }`: reversing
+ * `cubic-bezier(x1, y1, x2, y2)` is `cubic-bezier(1 − x2, 1 − y2, 1 − x1,
+ * 1 − y1)` — the control polygon read end-to-start through the point
+ * reflection that maps (0,0)↔(1,1).
+ *
+ * `{ steps: n }` is the one inexact case. CSS `steps(n)` is `jump-end`,
+ * whose true reverse is `jump-start`, and the schema has no spelling for
+ * that — so the same `steps(n)` comes back. The hold pattern is then
+ * mirrored to within a single step of 1/n.
+ */
+export function mirrorEasing(easing: Easing | undefined): Easing | undefined {
+  if (easing === undefined) return undefined;
+  if (typeof easing === "string") return MIRRORED_EASING_NAMES[easing];
+  if ("bezier" in easing) {
+    const [x1, y1, x2, y2] = easing.bezier;
+    return { bezier: [1 - x2, 1 - y2, 1 - x1, 1 - y1] };
+  }
+  return { steps: easing.steps };
+}
+
+export function getEasing(easing: Easing | undefined): EasingFn {
+  if (easing === undefined) return linear;
+  if (typeof easing === "string") return EASINGS[easing];
+  if ("bezier" in easing) {
+    const [x1, y1, x2, y2] = easing.bezier;
+    return cubicBezier(x1, y1, x2, y2);
+  }
+  return steps(easing.steps);
 }

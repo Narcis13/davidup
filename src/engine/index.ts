@@ -6,6 +6,9 @@ export type {
   RenderOptions,
   SourceLocation,
   SourceMap,
+  VideoClip,
+  VideoFrameProvider,
+  VideoFrameRequest,
 } from "./types.js";
 export {
   computeStateAt,
@@ -14,7 +17,29 @@ export {
   type ResolvedScene,
   type TweenIndex,
 } from "./resolver.js";
-export { drawItem, drawScene, renderFrame } from "./render.js";
+export {
+  applyTextStyle,
+  computeFitRects,
+  drawItem,
+  drawScene,
+  prepareVideoFrames,
+  renderFrame,
+  videoFrameIndex,
+  type FitRects,
+  type VideoRenderContext,
+} from "./render.js";
+export {
+  DEFAULT_LINE_HEIGHT,
+  TEXT_ASCENT_RATIO,
+  TEXT_LAYOUT_VERSION,
+  isBoxText,
+  layoutText,
+  textFontString,
+  wrapText,
+  type MeasureText,
+  type TextLayout,
+  type TextLine,
+} from "./textLayout.js";
 export {
   MCP_ERROR_CODES,
   MCPToolError,

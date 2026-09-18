@@ -128,4 +128,34 @@ test.group('Editor state · HTTP', (group) => {
     const nextBody = next.body() as { panelLayout: typeof DEFAULT_PANEL_LAYOUT }
     assert.equal(nextBody.panelLayout.leftWidth, 311)
   })
+  test('PUT /api/editor-state persists timeline zoom + snap (v1.1 S27)', async ({
+    client,
+    assert,
+  }) => {
+    const first = await client.get('/api/editor-state')
+    assert.deepEqual((first.body() as { timeline: unknown }).timeline, {
+      pxPerSecond: null,
+      snap: true,
+    })
+
+    const res = await client.put('/api/editor-state').json({
+      timeline: { pxPerSecond: 180, snap: false },
+    })
+    res.assertStatus(200)
+    const onDisk = JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8'))
+    assert.deepEqual(onDisk.timeline, { pxPerSecond: 180, snap: false })
+
+    // Out-of-range zoom clamps; a partial patch keeps the other field.
+    const clamped = await client.put('/api/editor-state').json({
+      timeline: { pxPerSecond: 1e9 },
+    })
+    assert.deepEqual((clamped.body() as { timeline: unknown }).timeline, {
+      pxPerSecond: 2400,
+      snap: false,
+    })
+
+    // null ≡ fit.
+    const fit = await client.put('/api/editor-state').json({ timeline: { pxPerSecond: null } })
+    assert.equal((fit.body() as { timeline: { pxPerSecond: unknown } }).timeline.pxPerSecond, null)
+  })
 })

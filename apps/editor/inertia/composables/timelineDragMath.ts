@@ -4,6 +4,12 @@
 // dragging the composable's DOM-only references (`window`, `PointerEvent`,
 // `document`) through tsc. Same trick `panelLayoutShape.ts` uses for the
 // panel layout composable. The DOM half lives in `useTimelineDrag.ts`.
+//
+// v1.1 S27 — snapping is two-tier: an edge of another bar within
+// `edgeThreshold` seconds wins (magnetic), otherwise the grid (`snapStep`,
+// the frame duration in the editor) applies.
+
+import { nearestEdge } from './timelineZoomMath.js'
 
 export type DragMode = 'move' | 'resize-left' | 'resize-right'
 
@@ -21,6 +27,10 @@ export interface ComputeDragArgs {
   minDuration: number
   /** Disable snap without changing the step (e.g. Alt held). */
   snap: boolean
+  /** Other bars' edges (seconds) to magnetise towards (v1.1 S27). */
+  edges?: readonly number[]
+  /** Edge-snap radius in seconds; ≤0 / absent disables edge snapping. */
+  edgeThreshold?: number
 }
 
 export function snapValue(t: number, step: number): number {
@@ -43,10 +53,21 @@ export function computeDragValues(args: ComputeDragArgs): { start: number; durat
     minDuration,
     snap,
   } = args
-  const doSnap = snap && snapStep > 0
+  const edges = args.edges ?? []
+  const threshold = snap ? (args.edgeThreshold ?? 0) : 0
+  const grid = (t: number): number => (snap && snapStep > 0 ? snapValue(t, snapStep) : t)
+  const snapPoint = (t: number): number => nearestEdge(t, edges, threshold) ?? grid(t)
   if (mode === 'move') {
     let ns = originalStart + timeDelta
-    if (doSnap) ns = snapValue(ns, snapStep)
+    // Either edge of the moving bar may catch another bar's edge; the closer
+    // catch wins. No catch → the start snaps to the grid.
+    const a = nearestEdge(ns, edges, threshold)
+    const b = nearestEdge(ns + originalDuration, edges, threshold)
+    const da = a === null ? Infinity : Math.abs(a - ns)
+    const db = b === null ? Infinity : Math.abs(b - (ns + originalDuration))
+    if (a !== null && da <= db) ns = a
+    else if (b !== null) ns = b - originalDuration
+    else ns = grid(ns)
     ns = Math.max(0, ns)
     if (compositionDuration > 0) {
       ns = Math.min(ns, Math.max(0, compositionDuration - originalDuration))
@@ -54,16 +75,14 @@ export function computeDragValues(args: ComputeDragArgs): { start: number; durat
     return { start: ns, duration: originalDuration }
   }
   if (mode === 'resize-left') {
-    let ns = originalStart + timeDelta
-    if (doSnap) ns = snapValue(ns, snapStep)
+    let ns = snapPoint(originalStart + timeDelta)
     ns = Math.max(0, ns)
     const maxStart = originalStart + originalDuration - minDuration
     ns = Math.min(ns, maxStart)
     return { start: ns, duration: originalStart + originalDuration - ns }
   }
   // resize-right
-  let ne = originalStart + originalDuration + timeDelta
-  if (doSnap) ne = snapValue(ne, snapStep)
+  let ne = snapPoint(originalStart + originalDuration + timeDelta)
   ne = Math.max(originalStart + minDuration, ne)
   if (compositionDuration > 0) ne = Math.min(ne, compositionDuration)
   return { start: originalStart, duration: ne - originalStart }

@@ -7,17 +7,21 @@ export {
 } from "./imports.js";
 export { evaluatePointer, JsonPointerError } from "./jsonPointer.js";
 export {
+  BEHAVIOR_EXPANSION_VERSION,
   expandBehavior,
   expandBehaviors,
+  getBehaviorDefinition,
   getBehaviorDescriptor,
   hasBehavior,
   listBehaviors,
+  normalizeBehaviorDescriptor,
   registerBehavior,
   unregisterBehavior,
   type BehaviorBlock,
   type BehaviorDescriptor,
   type BehaviorParamDescriptor,
   type BehaviorParamType,
+  type ExpandBehaviorOptions,
 } from "./behaviors.js";
 export {
   expandTemplate,
@@ -37,6 +41,7 @@ export {
 } from "./templates.js";
 export { BUILT_IN_TEMPLATE_IDS } from "./builtInTemplates.js";
 export {
+  SCENE_EXPANSION_VERSION,
   expandSceneInstance,
   expandSceneInstances,
   getSceneDefinition,
@@ -57,6 +62,11 @@ export {
   type TimeMapping,
 } from "./scenes.js";
 export { substitute, type SubstitutionContext } from "./params.js";
+export {
+  synthesizeVideoAudio,
+  videoAudioTrackId,
+  VIDEO_AUDIO_TRACK_SUFFIX,
+} from "./videoAudio.js";
 export {
   precompile,
   type PrecompileOptions,

@@ -94,4 +94,70 @@ describe("cli · parseArgs", () => {
     expect(r.kind).toBe("error");
     expect(r.error).toMatch(/takes no positional/);
   });
+
+  it("parses `render <input> -o <out>`", () => {
+    const r = parseArgs(["render", "./my-clip", "-o", "out.mp4"]);
+    expect(r.kind).toBe("render");
+    expect(r.positional).toBe("./my-clip");
+    expect(r.flags).toEqual({ output: "out.mp4" });
+  });
+
+  it("parses `render <input> --output=<out>` and extra flags", () => {
+    const r = parseArgs([
+      "render",
+      "comp.json",
+      "--output=out.mp4",
+      "--codec=libx265",
+      "--crf=20",
+      "--fps=30",
+      "--preset=fast",
+    ]);
+    expect(r.kind).toBe("render");
+    expect(r.flags).toEqual({
+      output: "out.mp4",
+      codec: "libx265",
+      crf: "20",
+      fps: "30",
+      preset: "fast",
+    });
+  });
+
+  it("parses `render <input> --frames <dir> --from/--to` without -o (v1.1 S12)", () => {
+    const r = parseArgs(["render", "./my-clip", "--frames", "./frames", "--from", "1.5", "--to=3"]);
+    expect(r.kind).toBe("render");
+    expect(r.flags).toMatchObject({ frames: "./frames", from: "1.5", to: "3" });
+  });
+
+  it("errors when render gets both -o and --frames, or a bare --frames", () => {
+    const both = parseArgs(["render", "./my-clip", "-o", "out.mp4", "--frames=./f"]);
+    expect(both.kind).toBe("error");
+    expect(both.error).toMatch(/not both/);
+    const bare = parseArgs(["render", "./my-clip", "--frames"]);
+    expect(bare.kind).toBe("error");
+    expect(bare.error).toMatch(/requires a directory/);
+  });
+
+  it("errors when render has no positional", () => {
+    const r = parseArgs(["render", "-o", "out.mp4"]);
+    expect(r.kind).toBe("error");
+    expect(r.error).toMatch(/requires a project or composition JSON/);
+  });
+
+  it("errors when render is missing -o/--output", () => {
+    const r = parseArgs(["render", "./my-clip"]);
+    expect(r.kind).toBe("error");
+    expect(r.error).toMatch(/requires -o\/--output/);
+  });
+
+  it("errors when -o is given with no value", () => {
+    const r = parseArgs(["render", "./my-clip", "-o"]);
+    expect(r.kind).toBe("error");
+    expect(r.error).toMatch(/--output.*requires a value/);
+  });
+
+  it("errors when render has more than one positional", () => {
+    const r = parseArgs(["render", "./a", "./b", "-o", "out.mp4"]);
+    expect(r.kind).toBe("error");
+    expect(r.error).toMatch(/exactly one input argument/);
+  });
 });

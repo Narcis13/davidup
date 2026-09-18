@@ -23,19 +23,21 @@
 // scene-internal ids — that's the §8.7 sealed-instance principle, enforced
 // here as `E_SCENE_INSTANCE_DEEP_TARGET`.
 //
-// Time mapping (§8.5): four modes are now supported.
+// Time mapping (§8.5): five modes are now supported.
 //
 //   - `identity` (default): scene-local `t=0` plays at `instance.start`. Every
 //     scene tween is shifted by `instance.start`. Effective span =
 //     `scene.duration`.
 //
-//   - `clip { fromTime, toTime }`: trim playback to the half-open scene-local
-//     window `[fromTime, toTime)`. Tweens entirely outside the window are
-//     dropped. Tweens fully inside are shifted by
-//     `(instance.start - fromTime)`. Boundary-crossing tweens throw
-//     `E_TIME_MAPPING_TWEEN_SPLIT` — the author must shape the scene so its
-//     tweens don't straddle the clip edges. Effective span =
-//     `toTime - fromTime`.
+//   - `clip { fromTime, toTime, strict? }`: trim playback to the half-open
+//     scene-local window `[fromTime, toTime)`. Tweens entirely outside the
+//     window are dropped. Tweens fully inside are shifted by
+//     `(instance.start - fromTime)`. A tween that straddles a boundary is
+//     *auto-trimmed* (v1.1 S20): its value is sampled through its own easing
+//     at the boundary and the trimmed copy carries that sampled `from`/`to`.
+//     Pass `strict: true` to get the pre-S20 guarantee back — a straddler
+//     then throws `E_TIME_MAPPING_TWEEN_SPLIT` instead of being approximated.
+//     Effective span = `toTime - fromTime`.
 //
 //   - `loop { count }`: play the scene N times back-to-back. Each iteration
 //     gets a deterministic id suffix (`__loop${i}`) so the canonical output
@@ -51,17 +53,81 @@
 //     Easing curves are preserved (the curve compresses/stretches with the
 //     tween). Effective span = `scene.duration / scale`.
 //
-// `reverse` is still deferred — would require flipping `from` ↔ `to` per
-// tween and re-sorting them, which interacts awkwardly with sealed-instance
-// parent tweens.
+//   - `reverse {}`: play the scene backwards. Scene-local `t` maps to
+//     `scene.duration - t`, so each tween's span `[s, s+d)` lands at
+//     `[duration - (s+d), duration - s)`, its `from`/`to` swap, and its
+//     easing mirrors (`easeIn* ↔ easeOut*`; see `mirrorEasing`). Emitted
+//     tweens are re-sorted by start so the output reads forward in time.
+//     Effective span = `scene.duration`.
+//
+// Behavior blocks (`$behavior`) normally survive scene expansion unexpanded —
+// `expandBehaviors` runs after this pass. `clip` auto-trim and `reverse` both
+// need a block's concrete `from`/`to` to do their arithmetic, so those two
+// paths expand a block early (via `expandBehavior`) and transform the literal
+// tweens instead. Only blocks that actually need it are expanded: under
+// `clip`, one that straddles a boundary; under `reverse`, all of them. Every
+// other mode leaves blocks alone, byte for byte.
 //
 // Assets: scene-declared assets are merged into the root `assets` array at
 // expansion time. Same id + same src = dedupe. Same id + different src =
 // `E_ASSET_CONFLICT`.
+//
+// Lifetime (§8.6, R-26): the synthetic group's `enter`/`exit` default to the
+// instance's own span — `[start, start + effectiveDuration)` where
+// `effectiveDuration` follows the time-mapping mode (scene.duration for
+// identity/timeScale-adjusted, `toTime - fromTime` for clip, `scene.duration
+// * count` for loop). This makes the instance disappear when its own scene
+// ends instead of riding the parent timeline all the way to its end. An
+// instance may set explicit `enter`/`exit` (same units as `start` — absolute
+// parent-timeline seconds) to override either bound. Nested scene instances'
+// synthetic groups get the same treatment: their window is computed in the
+// child's own frame, then remapped through the parent's time mapping the
+// same way the child's tweens are, so lifetime nests correctly through
+// `loop`/`clip`/`timeScale` levels.
 
+import { mirrorEasing, type Easing } from "../easings/index.js";
 import { MCPToolError } from "../engine/errors.js";
-import type { Asset } from "../schema/types.js";
+import { sampleTweenValue } from "../engine/resolver.js";
+import type { Asset, AudioAsset, VideoAsset } from "../schema/types.js";
+import {
+  expandBehavior,
+  isBehaviorBlock,
+  readBehaviorBlock,
+} from "./behaviors.js";
 import { substitute, type SubstitutionContext } from "./params.js";
+import {
+  expandRepeatItems,
+  expandRepeatTweens,
+  describeItemIds,
+  replaceGroupRepeatRefs,
+} from "./repeat.js";
+
+/**
+ * Scene-expansion semantics version. Bumped when the synthetic group's child
+ * list (paint order) or other structural expansion behavior changes in a way
+ * that alters existing renders. See CHANGELOG.md.
+ *
+ *   v1 → v2: the synthetic group's children now paint in the scene author's
+ *   declaration order (was alphabetized via `Object.keys(...).sort()`, which
+ *   silently reordered overlapping items — an opaque item declared after its
+ *   siblings could paint *behind* them instead of on top).
+ *
+ *   v2 → v3 (R-26): the synthetic group's `enter`/`exit` now default to the
+ *   instance's own effective span instead of being left unset (which let the
+ *   instance ride the parent timeline all the way to the end). A scene
+ *   instance that previously overstayed its own duration now disappears when
+ *   its scene ends; pass explicit `enter`/`exit` to opt back into an
+ *   unbounded or custom window.
+ *
+ *   v3 → v4 (v1.1 S20): `clip` auto-trims a tween that straddles its window
+ *   instead of rejecting it, and the `reverse` mode exists. No composition
+ *   that compiled under v3 renders differently — a straddling tween was a
+ *   hard `E_TIME_MAPPING_TWEEN_SPLIT` error and `reverse` was unparseable, so
+ *   nothing that previously produced pixels changed. The bump marks the
+ *   semantics change for anything keying on expansion behavior; pass
+ *   `clip.strict: true` to keep the v3 rejection.
+ */
+export const SCENE_EXPANSION_VERSION = 4;
 
 // ──────────────── Public types ────────────────
 
@@ -118,9 +184,21 @@ export interface SceneDescriptor {
  */
 export type TimeMapping =
   | { mode: "identity" }
-  | { mode: "clip"; fromTime: number; toTime: number }
+  | {
+      mode: "clip";
+      fromTime: number;
+      toTime: number;
+      /**
+       * Reject a tween that straddles the clip window with
+       * `E_TIME_MAPPING_TWEEN_SPLIT` instead of auto-trimming it. For callers
+       * who would rather fix the scene than accept a sampled approximation of
+       * its easing across the cut. Default `false`.
+       */
+      strict?: boolean | undefined;
+    }
   | { mode: "loop"; count: number }
-  | { mode: "timeScale"; scale: number };
+  | { mode: "timeScale"; scale: number }
+  | { mode: "reverse" };
 
 export interface SceneInstance {
   /** Scene name (matches a `SceneDefinition.id`). */
@@ -135,6 +213,14 @@ export interface SceneInstance {
   transform?: Record<string, unknown>;
   /** Time-mapping spec. Defaults to identity when absent. */
   time?: TimeMapping;
+  /**
+   * Explicit override for the synthetic group's visibility window (§8.6).
+   * Absolute parent-timeline seconds, same axis as `start`. When omitted,
+   * defaults to `[start, start + effectiveDuration)` — see file header.
+   */
+  enter?: number;
+  /** See {@link SceneInstance.enter}. */
+  exit?: number;
 }
 
 export interface ExpandedScene {
@@ -242,12 +328,49 @@ export function expandSceneInstance(
     );
   }
 
+  if (
+    instance.enter !== undefined &&
+    (typeof instance.enter !== "number" ||
+      !Number.isFinite(instance.enter) ||
+      instance.enter < 0)
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Scene instance "${instanceId}" enter must be a non-negative number.`,
+    );
+  }
+  if (
+    instance.exit !== undefined &&
+    (typeof instance.exit !== "number" ||
+      !Number.isFinite(instance.exit) ||
+      instance.exit <= 0)
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Scene instance "${instanceId}" exit must be a positive number.`,
+    );
+  }
+  if (
+    instance.enter !== undefined &&
+    instance.exit !== undefined &&
+    instance.exit <= instance.enter
+  ) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Scene instance "${instanceId}" exit (${instance.exit}) must be greater than enter (${instance.enter}).`,
+    );
+  }
+
   const params = resolveParams(def, instance);
   const ctx: SubstitutionContext = {
     params,
     meta: { start, duration: def.duration },
+    paramTypes: Object.fromEntries(def.params.map((p) => [p.name, p.type])),
   };
-  const localIds = new Set(Object.keys(def.items));
+  // `$repeat` blocks expand here, where the instance's params are bound. Their
+  // products are local items like any other (already substituted).
+  const defItems = expandRepeatItems(def.items, ctx, `scenes.${def.id}.items`);
+  const localIds = new Set(Object.keys(defItems.items));
 
   // 1. Build inner items (prefix ids; substitute params; rewire group children).
   //    Recurse into nested scene instances so `expandSceneInstances` can stay
@@ -259,9 +382,20 @@ export function expandSceneInstance(
     chain: [...chain, def.id],
     ...(options.scenes !== undefined ? { scenes: options.scenes } : {}),
   };
-  for (const localId of Object.keys(def.items).sort()) {
-    const itemRaw = def.items[localId];
-    const substituted = substitute(itemRaw, ctx, `scenes.${def.id}.items.${localId}`);
+  for (const localId of Object.keys(defItems.items)) {
+    const itemRaw = defItems.items[localId];
+    const generated = defItems.generated.has(localId);
+    const substituted = generated
+      ? itemRaw
+      : substitute(itemRaw, ctx, `scenes.${def.id}.items.${localId}`);
+    if (generated && isPlainObject(substituted) && typeof substituted.$template === "string") {
+      throw new MCPToolError(
+        "E_REPEAT_INVALID",
+        `Bad $repeat at scenes.${def.id}.items: it produced a $template instance ("${localId}"), but templates inside a scene expand before the scene's params bind.`,
+        "Repeat the template instance at the composition root instead, or repeat the template's items inside the template definition.",
+        { details: { path: `scenes.${def.id}.items`, reason: "template instance inside a scene $repeat" } },
+      );
+    }
     const prefixedId = `${instanceId}__${localId}`;
     if (isSceneInstance(substituted)) {
       const nestedInstance = readSceneInstanceFromItem(prefixedId, substituted);
@@ -294,7 +428,11 @@ export function expandSceneInstance(
         internalIds.push(innerId);
       }
     } else {
-      const rewritten = rewriteItemRefs(substituted, instanceId, localIds);
+      const rewritten = rewriteItemRefs(
+        replaceGroupRepeatRefs(substituted, defItems.expanded),
+        instanceId,
+        localIds,
+      );
       items[prefixedId] = rewritten;
       internalIds.push(prefixedId);
     }
@@ -332,7 +470,7 @@ export function expandSceneInstance(
   //    expanded items are owned by their wrapper group, not by us.
   const groupChildren: string[] = [];
   if (bgChildId !== undefined) groupChildren.push(bgChildId);
-  for (const localId of Object.keys(def.items).sort()) {
+  for (const localId of Object.keys(defItems.items)) {
     groupChildren.push(`${instanceId}__${localId}`);
   }
   const groupItem: Record<string, unknown> = {
@@ -352,12 +490,51 @@ export function expandSceneInstance(
     def.duration,
   );
 
+  // §8.6 / R-26: default the wrapper's visibility window to the instance's
+  // own effective span, remapped through this level's time mapping. Nested
+  // groups were expanded with their `enter`/`exit` already set in *this*
+  // scene's local time (mirroring how their tweens are in local time before
+  // the shift below) — remap those too so lifetime nests correctly.
+  for (const child of childExpansions) {
+    const childGroup = child.groupItem as { enter?: number; exit?: number };
+    const childEnter = typeof childGroup.enter === "number" ? childGroup.enter : 0;
+    const childExit =
+      typeof childGroup.exit === "number" ? childGroup.exit : undefined;
+    const mapped = mapWindowThroughTimeMapping(
+      childEnter,
+      childExit,
+      timeMapping,
+      start,
+      def.duration,
+    );
+    childGroup.enter = mapped.enter;
+    if (mapped.exit !== undefined && mapped.exit > mapped.enter) {
+      childGroup.exit = mapped.exit;
+    } else {
+      delete childGroup.exit;
+    }
+  }
+
+  const ownWindow = mapWindowThroughTimeMapping(
+    0,
+    def.duration,
+    timeMapping,
+    start,
+    def.duration,
+  );
+  groupItem.enter = instance.enter ?? ownWindow.enter;
+  const finalExit = instance.exit ?? ownWindow.exit;
+  if (finalExit !== undefined && finalExit > (groupItem.enter as number)) {
+    groupItem.exit = finalExit;
+  }
+
   // First pass: lower every scene-local tween into a target/start/id pair
   // expressed in *scene-local* time (start of scene = t=0). Time-mapping is
   // applied uniformly to both own and nested-child tweens afterwards.
   const localTweens: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < def.tweens.length; i += 1) {
-    const tweenRaw = def.tweens[i];
+  const defTweens = expandRepeatTweens(def.tweens, ctx, `scenes.${def.id}.tweens`);
+  for (let i = 0; i < defTweens.length; i += 1) {
+    const { value: tweenRaw, generated } = defTweens[i] as (typeof defTweens)[number];
     if (!isPlainObject(tweenRaw)) {
       throw new MCPToolError(
         "E_INVALID_VALUE",
@@ -365,7 +542,9 @@ export function expandSceneInstance(
       );
     }
     const path = `scenes.${def.id}.tweens[${i}]`;
-    const substituted = substitute(tweenRaw, ctx, path) as Record<string, unknown>;
+    const substituted = generated
+      ? tweenRaw
+      : (substitute(tweenRaw, ctx, path) as Record<string, unknown>);
     localTweens.push(
       rewriteTween(substituted, instanceId, def.id, localIds, 0, i),
     );
@@ -756,6 +935,7 @@ function validateTimeMapping(
 ): TimeMapping {
   switch (spec.mode) {
     case "identity":
+    case "reverse":
       return spec;
     case "clip": {
       const { fromTime, toTime } = spec;
@@ -842,39 +1022,10 @@ function applyTimeMapping(
         return out;
       });
     }
-    case "clip": {
-      const { fromTime, toTime } = spec;
-      const out: unknown[] = [];
-      for (const t of localTweens) {
-        const s = readNumber(t.start);
-        const d = readNumber(t.duration);
-        if (s === undefined || d === undefined) {
-          // No timing fields to clip against — pass through after start-shift.
-          // (Behavior blocks always carry start+duration, so this branch
-          // should be unreachable in well-formed input.)
-          out.push(shiftStart(t, parentStart));
-          continue;
-        }
-        const end = s + d;
-        // Fully outside the clip window → drop.
-        if (end <= fromTime + 1e-9) continue;
-        if (s >= toTime - 1e-9) continue;
-        // Boundary-crossing → not supported in v0.5. Authors must shape the
-        // scene so tweens align with the clip window. Future versions may
-        // add automatic trimming.
-        if (s < fromTime - 1e-9 || end > toTime + 1e-9) {
-          throw new MCPToolError(
-            "E_TIME_MAPPING_TWEEN_SPLIT",
-            `Scene "${sceneId}" tween "${String(t.id ?? "<anonymous>")}" straddles the clip window [${fromTime}, ${toTime}].`,
-            "Split the tween at the clip boundary in the scene definition, or adjust fromTime/toTime so the tween falls fully inside or outside.",
-          );
-        }
-        const next = { ...t };
-        next.start = parentStart + (s - fromTime);
-        out.push(next);
-      }
-      return out;
-    }
+    case "clip":
+      return clipTweens(localTweens, spec, parentStart, sceneId);
+    case "reverse":
+      return reverseTweens(localTweens, parentStart, sceneDuration, sceneId);
     case "loop": {
       const out: unknown[] = [];
       for (let i = 0; i < spec.count; i += 1) {
@@ -894,6 +1045,313 @@ function applyTimeMapping(
         }
       }
       return out;
+    }
+  }
+}
+
+// Boundary comparisons in the clip/reverse arithmetic run against this
+// epsilon, so a tween that misses an edge only by floating-point noise — one
+// authored to end exactly at `toTime` but reached through a chain of adds —
+// counts as aligned rather than straddling.
+const TIME_EPS = 1e-9;
+
+/**
+ * `clip` mode: trim every scene-local tween to `[fromTime, toTime)` and shift
+ * the survivors onto the parent timeline.
+ *
+ * Three outcomes per tween:
+ *   - entirely outside the window → dropped;
+ *   - entirely inside → kept as authored, start shifted by
+ *     `parentStart - fromTime`;
+ *   - straddling a boundary → trimmed (v1.1 S20). The tween's own easing is
+ *     sampled at each surviving edge and the trimmed copy carries those
+ *     values as its `from`/`to`, so at both cut points it reads exactly what
+ *     the untrimmed scene read there.
+ *
+ * The *interior* of a trimmed tween is an approximation: the copy replays the
+ * original `easing` over the shorter span rather than the re-normalised
+ * sub-curve, which no named easing can spell in general. It is exact
+ * throughout for `linear`, and exact at both endpoints for everything else.
+ * `strict: true` rejects straddlers outright instead, for callers who would
+ * rather reshape the scene than accept the approximation.
+ */
+function clipTweens(
+  localTweens: ReadonlyArray<Record<string, unknown>>,
+  spec: Extract<TimeMapping, { mode: "clip" }>,
+  parentStart: number,
+  sceneId: string,
+): unknown[] {
+  const { fromTime, toTime } = spec;
+  const strict = spec.strict === true;
+  // A straddling behavior block has no `from`/`to` of its own to sample, so
+  // lower it to literal tweens first and trim those. Blocks that sit wholly
+  // inside the window (or wholly outside it) keep their authored `$behavior`
+  // shape and flow through the later `expandBehaviors` pass as before.
+  const prepared = strict
+    ? localTweens
+    : expandBehaviorBlocks(localTweens, sceneId, (block) =>
+        straddlesClip(block, fromTime, toTime),
+      );
+
+  const out: unknown[] = [];
+  for (const t of prepared) {
+    const s = readNumber(t.start);
+    const d = readNumber(t.duration);
+    if (s === undefined || d === undefined || d <= 0) {
+      // No usable span to clip against — pass through after the start shift.
+      out.push(shiftStart(t, parentStart));
+      continue;
+    }
+    const end = s + d;
+    if (end <= fromTime + TIME_EPS) continue; // fully before the window
+    if (s >= toTime - TIME_EPS) continue; // fully after it
+
+    if (s >= fromTime - TIME_EPS && end <= toTime + TIME_EPS) {
+      const next = { ...t };
+      next.start = parentStart + (s - fromTime);
+      out.push(next);
+      continue;
+    }
+    if (strict) {
+      throw new MCPToolError(
+        "E_TIME_MAPPING_TWEEN_SPLIT",
+        `Scene "${sceneId}" tween "${String(t.id ?? "<anonymous>")}" straddles the clip window [${fromTime}, ${toTime}].`,
+        "Split the tween at the clip boundary in the scene definition, adjust fromTime/toTime so it falls fully inside or outside, or drop `strict` to let the clip trim it for you.",
+      );
+    }
+    out.push(
+      trimTween(
+        t,
+        s,
+        d,
+        Math.max(s, fromTime),
+        Math.min(end, toTime),
+        parentStart - fromTime,
+        sceneId,
+      ),
+    );
+  }
+  return out;
+}
+
+/**
+ * Cut `tween` — scene-local span `[s, s + d)` — down to `[lo, hi)` and shift
+ * the result by `shift`. `from`/`to` are resampled through the tween's own
+ * easing at the new edges; an edge that coincides with an original edge keeps
+ * the authored value exactly (see {@link sampleTweenValue}).
+ */
+function trimTween(
+  tween: Record<string, unknown>,
+  s: number,
+  d: number,
+  lo: number,
+  hi: number,
+  shift: number,
+  sceneId: string,
+): Record<string, unknown> {
+  const from = tween.from;
+  const to = tween.to;
+  const sampleable =
+    (typeof from === "number" && typeof to === "number") ||
+    (typeof from === "string" && typeof to === "string");
+  if (!sampleable) {
+    throw new MCPToolError(
+      "E_TIME_MAPPING_TWEEN_SPLIT",
+      `Scene "${sceneId}" tween "${String(tween.id ?? "<anonymous>")}" straddles the clip window but has no matching numeric or color from/to to resample.`,
+      "Give the tween explicit `from` and `to` of the same kind, align it with the clip window, or set `strict: true` to reject straddlers outright.",
+    );
+  }
+  const easing = tween.easing as Easing | undefined;
+  const next = { ...tween };
+  next.from = sampleTweenValue(from, to, easing, (lo - s) / d);
+  next.to = sampleTweenValue(from, to, easing, (hi - s) / d);
+  next.start = lo + shift;
+  next.duration = hi - lo;
+  return next;
+}
+
+/** Does this tween cross an edge of `[fromTime, toTime)` rather than sit on one side? */
+function straddlesClip(
+  tween: Record<string, unknown>,
+  fromTime: number,
+  toTime: number,
+): boolean {
+  const s = readNumber(tween.start);
+  const d = readNumber(tween.duration);
+  if (s === undefined || d === undefined || d <= 0) return false;
+  const end = s + d;
+  if (end <= fromTime + TIME_EPS) return false; // fully before
+  if (s >= toTime - TIME_EPS) return false; // fully after
+  return s < fromTime - TIME_EPS || end > toTime + TIME_EPS;
+}
+
+/**
+ * `reverse` mode: mirror the scene's timeline about its own duration.
+ *
+ * A tween covering `[s, s + d)` in scene-local time comes back covering
+ * `[duration - (s + d), duration - s)` with `from`/`to` swapped and its
+ * easing mirrored, so the motion retraces itself exactly rather than
+ * replaying its acceleration backwards.
+ *
+ * Behavior blocks are lowered to literal tweens first: a block names a
+ * direction ("fadeIn") that can't be flipped without the values behind it.
+ *
+ * The result is sorted by start so the emitted timeline reads forward. The
+ * sort is stable, so tweens that end up sharing a start keep their reversed
+ * relative order and the output stays byte-deterministic.
+ */
+function reverseTweens(
+  localTweens: ReadonlyArray<Record<string, unknown>>,
+  parentStart: number,
+  sceneDuration: number,
+  sceneId: string,
+): unknown[] {
+  const prepared = expandBehaviorBlocks(localTweens, sceneId, () => true);
+  const out = prepared.map((t) => {
+    const next = { ...t };
+    const s = readNumber(next.start);
+    if (s !== undefined) {
+      const end = s + (readNumber(next.duration) ?? 0);
+      const mirrored = sceneDuration - end;
+      if (mirrored < -TIME_EPS) {
+        throw new MCPToolError(
+          "E_TIME_MAPPING_INVALID",
+          `Scene "${sceneId}" tween "${String(next.id ?? "<anonymous>")}" runs to ${end}s, past the scene's own duration (${sceneDuration}s), so reversing it would start at ${mirrored}s.`,
+          "`reverse` mirrors about the scene's duration — raise the scene's `duration` to cover its tweens, or shorten the tween.",
+        );
+      }
+      next.start = parentStart + Math.max(0, mirrored);
+    }
+    if (next.from !== undefined || next.to !== undefined) {
+      const from = next.from;
+      next.from = next.to;
+      next.to = from;
+    }
+    if (next.easing !== undefined) {
+      next.easing = mirrorEasing(next.easing as Easing);
+    }
+    return next;
+  });
+  out.sort((a, b) => (readNumber(a.start) ?? 0) - (readNumber(b.start) ?? 0));
+  return out;
+}
+
+/**
+ * Lower the `$behavior` blocks matching `shouldExpand` into their literal
+ * tweens, leaving every other entry untouched and in place.
+ *
+ * `clip` auto-trim and `reverse` both rewrite a tween's `from`/`to`, which a
+ * behavior block hasn't got — it names a behavior and its params, and only
+ * becomes concrete tweens in the later `expandBehaviors` pass. Expanding one
+ * here just runs that pass early for the entries that need it: the emitted
+ * tweens are what the later pass would have produced anyway, since both go
+ * through `expandBehavior` against the same registry.
+ */
+function expandBehaviorBlocks(
+  tweens: ReadonlyArray<Record<string, unknown>>,
+  sceneId: string,
+  shouldExpand: (block: Record<string, unknown>) => boolean,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const t of tweens) {
+    if (!isBehaviorBlock(t) || !shouldExpand(t)) {
+      out.push(t);
+      continue;
+    }
+    let expanded;
+    try {
+      expanded = expandBehavior(readBehaviorBlock(t));
+    } catch (err) {
+      if (err instanceof MCPToolError) {
+        throw new MCPToolError(
+          err.code,
+          `Scene "${sceneId}": ${err.message}`,
+          err.hint,
+        );
+      }
+      throw err;
+    }
+    const source = t.__source;
+    for (const lit of expanded) {
+      const next = { ...lit } as Record<string, unknown>;
+      // Carry the block's provenance onto every tween it produced, so source
+      // maps still point back at the authored `$behavior` entry.
+      if (source !== undefined) next.__source = source;
+      out.push(next);
+    }
+  }
+  return out;
+}
+
+/**
+ * Map a single-item visibility window `[localEnter, localExit)` (scene-local
+ * time; `localExit` undefined = unbounded) through a time-mapping spec into
+ * parent-relative time, producing the `enter`/`exit` a synthetic group
+ * should carry so it disappears when its own scene content ends (§8.6,
+ * R-26).
+ *
+ * Unlike {@link applyTimeMapping}, this never drops, replicates, or throws:
+ * a group is a single item with exactly one lifespan, not a per-tween
+ * animation, so:
+ *   - `loop` collapses every iteration into one continuous window spanning
+ *     the first iteration's start through the last iteration's end (the
+ *     item exists once; only its tweens repeat).
+ *   - `clip` clamps the window to the intersection with `[fromTime, toTime)`
+ *     instead of throwing on a boundary straddle — a visibility window can
+ *     be truncated without the "interpolation would be wrong" problem a
+ *     mid-flight property tween has. A window with no overlap at all
+ *     collapses to zero width at `parentStart` (never visible).
+ */
+function mapWindowThroughTimeMapping(
+  localEnter: number,
+  localExit: number | undefined,
+  spec: TimeMapping,
+  parentStart: number,
+  sceneDuration: number,
+): { enter: number; exit: number | undefined } {
+  switch (spec.mode) {
+    case "identity":
+      return {
+        enter: parentStart + localEnter,
+        exit: localExit === undefined ? undefined : parentStart + localExit,
+      };
+    case "timeScale": {
+      const inv = 1 / spec.scale;
+      return {
+        enter: parentStart + localEnter * inv,
+        exit: localExit === undefined ? undefined : parentStart + localExit * inv,
+      };
+    }
+    case "loop": {
+      const lastIterShift = parentStart + (spec.count - 1) * sceneDuration;
+      return {
+        enter: parentStart + localEnter,
+        exit: localExit === undefined ? undefined : lastIterShift + localExit,
+      };
+    }
+    case "clip": {
+      const { fromTime, toTime } = spec;
+      const clampedEnter = Math.max(localEnter, fromTime);
+      const clampedExit =
+        localExit === undefined ? toTime : Math.min(localExit, toTime);
+      if (clampedExit <= clampedEnter) {
+        return { enter: parentStart, exit: parentStart };
+      }
+      return {
+        enter: parentStart + (clampedEnter - fromTime),
+        exit: parentStart + (clampedExit - fromTime),
+      };
+    }
+    case "reverse": {
+      // Mirror the window about the scene's duration. An unbounded exit means
+      // "still on screen when the scene ends", which reverses to "on screen
+      // from the moment it starts" — so clamp the open side to the scene's
+      // own bounds instead of letting it run off to −∞.
+      const hi = localExit === undefined ? sceneDuration : localExit;
+      const enter = Math.max(0, sceneDuration - hi);
+      const exit = Math.min(sceneDuration, sceneDuration - localEnter);
+      if (exit <= enter) return { enter: parentStart, exit: parentStart };
+      return { enter: parentStart + enter, exit: parentStart + exit };
     }
   }
 }
@@ -977,6 +1435,24 @@ function readSceneInstanceFromItem(
   if (raw.time !== undefined) {
     inst.time = readTimeMappingFromRaw(instanceId, raw.time);
   }
+  if (raw.enter !== undefined) {
+    if (typeof raw.enter !== "number" || !Number.isFinite(raw.enter)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene instance "${instanceId}" enter must be a finite number.`,
+      );
+    }
+    inst.enter = raw.enter;
+  }
+  if (raw.exit !== undefined) {
+    if (typeof raw.exit !== "number" || !Number.isFinite(raw.exit)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Scene instance "${instanceId}" exit must be a finite number.`,
+      );
+    }
+    inst.exit = raw.exit;
+  }
   return inst;
 }
 
@@ -1011,7 +1487,21 @@ function readTimeMappingFromRaw(instanceId: string, raw: unknown): TimeMapping {
           `Scene instance "${instanceId}" clip.toTime must be a finite number.`,
         );
       }
-      return { mode: "clip", fromTime, toTime };
+      const clip: Extract<TimeMapping, { mode: "clip" }> = {
+        mode: "clip",
+        fromTime,
+        toTime,
+      };
+      if (raw.strict !== undefined) {
+        if (typeof raw.strict !== "boolean") {
+          throw new MCPToolError(
+            "E_TIME_MAPPING_INVALID",
+            `Scene instance "${instanceId}" clip.strict must be a boolean.`,
+          );
+        }
+        clip.strict = raw.strict;
+      }
+      return clip;
     }
     case "loop": {
       const count = raw.count;
@@ -1033,11 +1523,13 @@ function readTimeMappingFromRaw(instanceId: string, raw: unknown): TimeMapping {
       }
       return { mode: "timeScale", scale };
     }
+    case "reverse":
+      return { mode: "reverse" };
     default:
       throw new MCPToolError(
         "E_TIME_MAPPING_INVALID",
         `Scene instance "${instanceId}" has unsupported time mode "${String(mode)}".`,
-        'Supported modes: "identity", "clip", "loop", "timeScale".',
+        'Supported modes: "identity", "clip", "loop", "timeScale", "reverse".',
       );
   }
 }
@@ -1144,7 +1636,7 @@ function toDescriptor(def: SceneDefinition): SceneDescriptor {
     id: def.id,
     duration: def.duration,
     params: def.params.map((p) => ({ ...p })),
-    emits: Object.keys(def.items).sort(),
+    emits: describeItemIds(def.items),
     assets: def.assets.map((a) => a.id).sort(),
   };
   if (def.description !== undefined) out.description = def.description;
@@ -1172,9 +1664,36 @@ function numberOr(v: unknown, fallback: number): number {
 }
 
 function cloneAsset(a: Asset): Asset {
-  return a.type === "image"
-    ? { id: a.id, type: "image", src: a.src }
-    : { id: a.id, type: "font", src: a.src, family: a.family };
+  switch (a.type) {
+    case "image":
+      return { id: a.id, type: "image", src: a.src };
+    case "font":
+      return { id: a.id, type: "font", src: a.src, family: a.family };
+    case "audio":
+      return {
+        id: a.id,
+        type: "audio",
+        src: a.src,
+        ...(a.duration !== undefined ? { duration: a.duration } : {}),
+        ...(a.sampleRate !== undefined ? { sampleRate: a.sampleRate } : {}),
+        ...(a.channels !== undefined ? { channels: a.channels } : {}),
+        ...(a.codec !== undefined ? { codec: a.codec } : {}),
+      };
+    case "video":
+      return {
+        id: a.id,
+        type: "video",
+        src: a.src,
+        ...(a.duration !== undefined ? { duration: a.duration } : {}),
+        ...(a.width !== undefined ? { width: a.width } : {}),
+        ...(a.height !== undefined ? { height: a.height } : {}),
+        ...(a.fps !== undefined ? { fps: a.fps } : {}),
+        ...(a.hasAlpha !== undefined ? { hasAlpha: a.hasAlpha } : {}),
+        ...(a.codec !== undefined ? { codec: a.codec } : {}),
+        ...(a.pixelFormat !== undefined ? { pixelFormat: a.pixelFormat } : {}),
+        ...(a.hasAudio !== undefined ? { hasAudio: a.hasAudio } : {}),
+      };
+  }
 }
 
 function cloneRawAsset(a: Record<string, unknown>): Asset {
@@ -1207,6 +1726,55 @@ function cloneRawAsset(a: Record<string, unknown>): Asset {
       );
     }
     return { id, type: "font", src, family };
+  }
+  if (type === "audio") {
+    // Carry any authored metadata through; it is otherwise (re-)derived by
+    // `register_asset` via ffprobe (v0.2 §S2). Only finite numbers / non-empty
+    // strings survive — malformed entries are dropped rather than rejected.
+    const out: AudioAsset = { id, type: "audio", src };
+    if (typeof a.duration === "number" && Number.isFinite(a.duration)) {
+      out.duration = a.duration;
+    }
+    if (typeof a.sampleRate === "number" && Number.isFinite(a.sampleRate)) {
+      out.sampleRate = a.sampleRate;
+    }
+    if (typeof a.channels === "number" && Number.isFinite(a.channels)) {
+      out.channels = a.channels;
+    }
+    if (typeof a.codec === "string" && a.codec.length > 0) {
+      out.codec = a.codec;
+    }
+    return out;
+  }
+  if (type === "video") {
+    // Same as audio: carry authored metadata through (otherwise re-derived by
+    // `register_asset` via ffprobe, §S6); drop malformed entries silently.
+    const out: VideoAsset = { id, type: "video", src };
+    if (typeof a.duration === "number" && Number.isFinite(a.duration)) {
+      out.duration = a.duration;
+    }
+    if (typeof a.width === "number" && Number.isFinite(a.width)) {
+      out.width = a.width;
+    }
+    if (typeof a.height === "number" && Number.isFinite(a.height)) {
+      out.height = a.height;
+    }
+    if (typeof a.fps === "number" && Number.isFinite(a.fps)) {
+      out.fps = a.fps;
+    }
+    if (typeof a.hasAlpha === "boolean") {
+      out.hasAlpha = a.hasAlpha;
+    }
+    if (typeof a.codec === "string" && a.codec.length > 0) {
+      out.codec = a.codec;
+    }
+    if (typeof a.pixelFormat === "string" && a.pixelFormat.length > 0) {
+      out.pixelFormat = a.pixelFormat;
+    }
+    if (typeof a.hasAudio === "boolean") {
+      out.hasAudio = a.hasAudio;
+    }
+    return out;
   }
   throw new MCPToolError(
     "E_INVALID_VALUE",

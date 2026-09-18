@@ -78,12 +78,17 @@ function parseRgbFunction(s: string): RGBA {
   return { r, g, b, a };
 }
 
+// Clamped at parse time (not just at `formatColor` output) so an out-of-range
+// channel like `rgb(999,0,0)` is stored as 255 from the start. Otherwise a
+// tween lerping toward/from the unclamped value snaps to the clamped bound
+// only once the interpolated value crosses back into range, producing a
+// visible jump instead of a smooth fade (R-15).
 function parseChannel(raw: string, original: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) {
     throw new Error(`Invalid color channel "${raw}" in "${original}".`);
   }
-  return n;
+  return clampChannel(n);
 }
 
 function parseAlpha(raw: string, original: string): number {
@@ -91,7 +96,7 @@ function parseAlpha(raw: string, original: string): number {
   if (!Number.isFinite(n)) {
     throw new Error(`Invalid alpha "${raw}" in "${original}".`);
   }
-  return n;
+  return clampAlpha(n);
 }
 
 export function formatColor(c: RGBA): string {

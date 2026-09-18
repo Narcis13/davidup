@@ -3,8 +3,11 @@
 //
 // Renders typed inputs for the currently selected item. The schema for the
 // item type drives which fields are visible: sprite shows asset/width/height/
-// tint, text shows text/font/fontSize/color/align, shape shows kind-specific
-// geometry + colours, and every item type shows its 8 transform params.
+// tint, text shows text/font/fontSize/color/align plus the text v2 layout and
+// paint fields (maxWidth, lineHeight, letterSpacing, weight/style, stroke,
+// shadow — v1.1 S14), shape shows kind-specific
+// geometry + colours, and every item type shows its 8 transform params and
+// its effects stack (blur / shadow / glow — v1.1 S21).
 //
 // Each edit dispatches a single `update_item` command via `useCommandBus`.
 // The server runs the existing MCP handler (`apply_item_update`) so UI and
@@ -28,8 +31,8 @@
 // rather than "what diverges from the source-of-truth defaults".
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EASING_NAMES } from 'davidup/easings'
-import { getTweenable, listTweenable } from 'davidup/schema'
+import type { Easing } from 'davidup/easings'
+import { BLEND_MODES, getTweenable, listTweenable } from 'davidup/schema'
 import type { ItemType } from 'davidup/schema'
 import { useSelection } from '~/composables/useSelection'
 import type { Command, CommandSource, Composition } from '~/composables/useCommandBus'
@@ -44,9 +47,13 @@ import BooleanInput from '~/components/inputs/Boolean.vue'
 import PercentInput from '~/components/inputs/Percent.vue'
 import RawJsonInput from '~/components/inputs/RawJson.vue'
 import AssetPickerInput from '~/components/inputs/AssetPicker.vue'
+import ShadowInput from '~/components/inputs/Shadow.vue'
+import EffectsInput from '~/components/inputs/Effects.vue'
+import EasingInput from '~/components/inputs/Easing.vue'
+import EasingCurve from '~/components/EasingCurve.vue'
 
 type ItemLike = {
-  type: 'sprite' | 'text' | 'shape' | 'group'
+  type: 'sprite' | 'text' | 'shape' | 'group' | 'video'
   kind?: string
   transform: {
     x: number
@@ -103,6 +110,8 @@ const emit = defineEmits<{
   // Step 20.23: provenance line under the item header asks the page to
   // open the SourceDrawer at the picked location (same effect as ⌘J).
   (event: 'reveal-source'): void
+  // v1.1 S28: scrubbing the tween panel's easing curve moves the playhead.
+  (event: 'seek', t: number): void
 }>()
 
 const selection = useSelection()
@@ -260,18 +269,32 @@ const compositionDuration = computed<number>(() => {
 // pickers. Reads through `as` so the typed Composition's `assets` field stays
 // a `ReadonlyArray<{ src?: unknown }>` without forcing AssetPicker to learn
 // that wider shape.
-type InspectorAsset = { id: string; type?: string; family?: string; src?: string }
+type InspectorAsset = {
+  id: string
+  type?: string
+  family?: string
+  src?: string
+  /** U4 — probed media duration (audio/video assets), seconds. */
+  duration?: number
+}
 
 const compositionAssets = computed<ReadonlyArray<InspectorAsset>>(() => {
   const list = props.composition?.assets
   if (!Array.isArray(list)) return []
   const out: InspectorAsset[] = []
-  for (const a of list as Array<{ id?: unknown; type?: unknown; family?: unknown; src?: unknown }>) {
+  for (const a of list as Array<{
+    id?: unknown
+    type?: unknown
+    family?: unknown
+    src?: unknown
+    duration?: unknown
+  }>) {
     if (typeof a?.id !== 'string') continue
     const item: InspectorAsset = { id: a.id }
     if (typeof a.type === 'string') item.type = a.type
     if (typeof a.family === 'string') item.family = a.family
     if (typeof a.src === 'string') item.src = a.src
+    if (typeof a.duration === 'number' && Number.isFinite(a.duration)) item.duration = a.duration
     out.push(item)
   }
   return out
@@ -358,6 +381,8 @@ type FieldKind =
   | 'percent'
   | 'json'
   | 'asset'
+  | 'shadow'
+  | 'effects'
 
 interface FieldDef {
   key: string
@@ -371,7 +396,11 @@ interface FieldDef {
   multiline?: boolean
   placeholder?: string
   /** Used with `kind: 'asset'` to filter the picker by asset type. */
-  assetType?: 'image' | 'font'
+  assetType?: 'image' | 'font' | 'audio' | 'video'
+  /** Stored value → what the input displays (default: unchanged). */
+  toInput?: (value: unknown) => unknown
+  /** Input's emitted value → `update_item` wire value (default: unchanged). */
+  toWire?: (value: unknown) => unknown
 }
 
 const TRANSFORM_FIELDS: ReadonlyArray<FieldDef> = [
@@ -405,6 +434,13 @@ const LIFESPAN_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'exit', label: 'exit', kind: 'time', path: 'exit', min: 0, step: 0.05 },
 ]
 
+// Per-item effects (v1.1 S21), every item type. One compound field: the
+// whole ordered stack goes out in a single `update_item`, and an emptied
+// stack is sent as `null` (removes the field).
+const EFFECTS_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'effects', label: 'stack', kind: 'effects', path: 'effects' },
+]
+
 const SPRITE_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'asset', label: 'asset', kind: 'asset', path: 'asset', assetType: 'image' },
   { key: 'width', label: 'width', kind: 'number', path: 'width', min: 0, step: 1 },
@@ -424,6 +460,46 @@ const TEXT_FIELDS: ReadonlyArray<FieldDef> = [
     path: 'align',
     options: ['left', 'center', 'right'],
   },
+  // Text v2 (v1.1 S14). maxWidth 0 means "no wrap": it sends `null`, which
+  // drops the field and returns the item to point mode.
+  {
+    key: 'maxWidth',
+    label: 'maxWidth (0 = none)',
+    kind: 'number',
+    path: 'maxWidth',
+    min: 0,
+    step: 1,
+    toWire: (v) => (typeof v === 'number' && v <= 0 ? null : v),
+  },
+  {
+    key: 'lineHeight',
+    label: 'lineHeight (× size)',
+    kind: 'number',
+    path: 'lineHeight',
+    step: 0.05,
+    toInput: (v) => v ?? 1.2,
+  },
+  { key: 'letterSpacing', label: 'letterSpacing', kind: 'number', path: 'letterSpacing', step: 0.5 },
+  {
+    key: 'fontWeight',
+    label: 'fontWeight',
+    kind: 'enum',
+    path: 'fontWeight',
+    options: ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900'],
+    toInput: (v) => (v === undefined ? 'normal' : String(v)),
+    toWire: (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v),
+  },
+  {
+    key: 'fontStyle',
+    label: 'fontStyle',
+    kind: 'enum',
+    path: 'fontStyle',
+    options: ['normal', 'italic', 'oblique'],
+    toInput: (v) => v ?? 'normal',
+  },
+  { key: 'strokeColor', label: 'strokeColor', kind: 'color', path: 'strokeColor' },
+  { key: 'strokeWidth', label: 'strokeWidth', kind: 'number', path: 'strokeWidth', min: 0, step: 0.5 },
+  { key: 'shadow', label: 'shadow', kind: 'shadow', path: 'shadow' },
 ]
 
 const SHAPE_FIELDS: ReadonlyArray<FieldDef> = [
@@ -449,6 +525,61 @@ const SHAPE_FIELDS: ReadonlyArray<FieldDef> = [
   },
 ]
 
+// U4 — VideoItem fields. Spatial (x/y/scale/rotation/anchor/opacity) is
+// already covered by TRANSFORM_FIELDS since VideoItemSchema carries the same
+// `transform` shape as a sprite. This registry only adds the video-specific
+// source/time/display fields: asset (filtered to video), trim window, the
+// item's own temporal placement (start/end — distinct from the Lifespan
+// enter/exit window every item type has), display fit mode, loop, and
+// keepAudio (v1.1 S11 — mux the clip's own sound at render).
+const VIDEO_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'asset', label: 'asset', kind: 'asset', path: 'asset', assetType: 'video' },
+  { key: 'start', label: 'start', kind: 'time', path: 'start', min: 0, step: 0.05 },
+  { key: 'end', label: 'end', kind: 'time', path: 'end', min: 0, step: 0.05 },
+  { key: 'trimIn', label: 'trimIn', kind: 'time', path: 'trimIn', min: 0, step: 0.05 },
+  { key: 'trimOut', label: 'trimOut', kind: 'time', path: 'trimOut', min: 0, step: 0.05 },
+  {
+    key: 'fit',
+    label: 'fit',
+    kind: 'enum',
+    path: 'fit',
+    options: ['cover', 'contain', 'fill', 'none'],
+  },
+  { key: 'loop', label: 'loop', kind: 'boolean', path: 'loop' },
+  { key: 'keepAudio', label: 'keep audio', kind: 'boolean', path: 'keepAudio' },
+  { key: 'width', label: 'width', kind: 'number', path: 'width', min: 0, step: 1 },
+  { key: 'height', label: 'height', kind: 'number', path: 'height', min: 0, step: 1 },
+]
+
+// Group compositing (v1.1 S18). A group has no box of its own, so these are
+// the only non-transform fields it carries: `isolate` flattens the children
+// onto a scratch surface and composites once — the fix for a faded group
+// showing its children's overlap seams — and `blendMode` sets how that
+// composite (or, un-isolated, each child) blends with the backdrop.
+const GROUP_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'isolate', label: 'isolate', kind: 'boolean', path: 'isolate' },
+  {
+    key: 'blendMode',
+    label: 'blendMode',
+    kind: 'enum',
+    path: 'blendMode',
+    options: [...BLEND_MODES],
+    toInput: (v) => v ?? 'normal',
+  },
+]
+
+// Video-only keys `update_item` doesn't carry (its props schema would strip
+// them); these edits go through `update_video` instead.
+const VIDEO_ONLY_KEYS: ReadonlySet<string> = new Set([
+  'start',
+  'end',
+  'trimIn',
+  'trimOut',
+  'fit',
+  'loop',
+  'keepAudio',
+])
+
 const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
   // Multi-select across mixed item types: hide the type-specific section
   // entirely. Only Transform — common to every item — keeps rendering.
@@ -461,14 +592,80 @@ const itemSpecificFields = computed<ReadonlyArray<FieldDef>>(() => {
       return TEXT_FIELDS
     case 'shape':
       return SHAPE_FIELDS
+    case 'video':
+      return VIDEO_FIELDS
     case 'group':
-      return []
+      return GROUP_FIELDS
     default:
       return []
   }
 })
 
+// U4 — computed duration breakdown shown next to the video section header:
+// "Source: 12.5s · Visible: 8.0s · Freeze: 0.3s" or "… · Loops: 1.6x".
+// Resolves the asset's registered duration (from composition.assets) so the
+// hint stays accurate even before trimOut has been set explicitly.
+const selectedVideoAsset = computed<InspectorAsset | null>(() => {
+  const item = selectedItem.value
+  if (!item || item.type !== 'video') return null
+  const assetId = typeof item.asset === 'string' ? item.asset : null
+  if (!assetId) return null
+  return compositionAssets.value.find((a) => a.id === assetId) ?? null
+})
+
+const selectedVideoAssetDuration = computed<number | null>(() => {
+  const d = selectedVideoAsset.value?.duration
+  return typeof d === 'number' && Number.isFinite(d) ? d : null
+})
+
+const videoDurationSummary = computed<string | null>(() => {
+  const item = selectedItem.value
+  if (!item || item.type !== 'video' || isMultiSelect.value) return null
+  const start = typeof item.start === 'number' ? item.start : 0
+  const end = typeof item.end === 'number' ? item.end : null
+  const trimIn = typeof item.trimIn === 'number' ? item.trimIn : 0
+  const trimOut = typeof item.trimOut === 'number' ? item.trimOut : selectedVideoAssetDuration.value
+  const sourceDur = selectedVideoAssetDuration.value
+  const parts: string[] = []
+  if (sourceDur !== null) parts.push(`Source: ${sourceDur.toFixed(1)}s`)
+  if (trimOut !== null) {
+    const visible = Math.max(0, trimOut - trimIn)
+    parts.push(`Visible: ${visible.toFixed(1)}s`)
+    if (end !== null) {
+      const span = Math.max(0, end - start)
+      const tail = span - visible
+      if (tail > 0.05) {
+        if (item.loop === true) {
+          parts.push(`Loops: ${(span / Math.max(visible, 0.001)).toFixed(1)}x`)
+        } else {
+          parts.push(`Freeze: ${tail.toFixed(1)}s`)
+        }
+      }
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+})
+
+function resetVideoTrim(): void {
+  const id = selection.selectedItemId.value
+  if (!id) return
+  const dur = selectedVideoAssetDuration.value
+  emit('apply', {
+    kind: 'update_video',
+    payload: {
+      id,
+      props: { trimIn: 0, ...(dur !== null ? { trimOut: dur } : {}) },
+    },
+    source: 'ui',
+  })
+}
+
 function valueFor(field: FieldDef): unknown {
+  const raw = rawValueFor(field)
+  return field.toInput ? field.toInput(raw) : raw
+}
+
+function rawValueFor(field: FieldDef): unknown {
   // UX_FINDINGS §7 — for an animated property, return the value that the
   // engine resolves at the current playhead (matches the painted frame),
   // not the authored base value. Single-select only: multi-select still
@@ -531,6 +728,10 @@ function sameValue(a: unknown, b: unknown): boolean {
   if (typeof a === 'number' && typeof b === 'number') {
     return Math.abs(a - b) < 1e-9
   }
+  // Compound values (text shadow) are small plain objects.
+  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+    return JSON.stringify(a) === JSON.stringify(b)
+  }
   return false
 }
 
@@ -546,6 +747,8 @@ const INPUT_FOR_KIND = {
   percent: PercentInput,
   json: RawJsonInput,
   asset: AssetPickerInput,
+  shadow: ShadowInput,
+  effects: EffectsInput,
 } as const
 
 function inputFor(field: FieldDef) {
@@ -661,10 +864,14 @@ function dispatchEdit(field: FieldDef, raw: unknown): void {
         ? [selection.selectedItemId.value]
         : []
   if (targets.length === 0) return
+  const kind =
+    commonItemType.value === 'video' && VIDEO_ONLY_KEYS.has(field.key)
+      ? 'update_video'
+      : 'update_item'
   for (const id of targets) {
     emit('apply', {
-      kind: 'update_item',
-      payload: { id, props: { [field.key]: raw } },
+      kind,
+      payload: { id, props: { [field.key]: field.toWire ? field.toWire(raw) : raw } },
       source: 'ui',
     } as Command)
   }
@@ -684,7 +891,7 @@ interface AddTweenPopoverState {
   to: number | string
   start: number
   duration: number
-  easing: string
+  easing: Easing
 }
 
 const addTweenPopover = ref<AddTweenPopoverState | null>(null)
@@ -733,7 +940,8 @@ function openAddTweenPopover(field: FieldDef): void {
   if (!item) return
   const desc = getTweenable(item.type as ItemType, field.path)
   if (!desc) return
-  const current = readPath(item, field.path)
+  const stored = readPath(item, field.path)
+  const current = field.toInput ? field.toInput(stored) : stored
   // Sensible defaults: from = current value, to = current value (user nudges
   // it), start = current playhead clipped into the composition, duration =
   // min(1s, remaining time). Falls back to neutral colours/0 when the field
@@ -863,8 +1071,9 @@ function deleteSelectedTween(): void {
 // swaps its item editor for a minimal 6-field tween panel:
 //   property · from · to · start · duration · easing
 // Edits dispatch a single `update_tween` per change (no diffing — the
-// server's `applyTweenUpdate` accepts partial `props`). A full curve
-// editor is deferred to v1.1 per polish_plan §R-P1.
+// server's `applyTweenUpdate` accepts partial `props`). Under the easing
+// picker, `EasingCurve` (v1.1 S28) previews the curve, drags bezier handles
+// and scrubs the playhead through the tween.
 
 type TweenLike = {
   id: string
@@ -874,7 +1083,7 @@ type TweenLike = {
   to: unknown
   start: number
   duration: number
-  easing?: string
+  easing?: Easing
 }
 
 const selectedTween = computed<TweenLike | null>(() => {
@@ -958,6 +1167,105 @@ function onSelectionChange(event: Event): void {
   const target = event.target as HTMLSelectElement
   selection.setSelection(target.value || null)
 }
+
+// ──────────────── U2: Audio track editor ────────────────
+//
+// Audio tracks aren't items — they live in `composition.audio[]`, addressed
+// through `selection.selectedAudioTrackId` (mutually exclusive with the
+// item/tween editor modes above). Mirrors the tween editor's shape: a small
+// fixed field set, one `update_audio_track` per edit.
+
+type AudioTrackLike = {
+  id: string
+  asset: string
+  start: number
+  end?: number
+  trimIn?: number
+  volume?: number
+  fadeIn?: number
+  fadeOut?: number
+  loop?: boolean
+}
+
+const selectedAudioTrack = computed<AudioTrackLike | null>(() => {
+  const comp = props.composition
+  const id = selection.selectedAudioTrackId.value
+  if (!comp || !id) return null
+  const list = (comp as { audio?: unknown }).audio
+  if (!Array.isArray(list)) return null
+  for (const t of list as ReadonlyArray<AudioTrackLike>) {
+    if (t && t.id === id) return t
+  }
+  return null
+})
+
+const audioTrackAssetDuration = computed<number | null>(() => {
+  const track = selectedAudioTrack.value
+  if (!track) return null
+  const asset = compositionAssets.value.find((a) => a.id === track.asset)
+  return asset?.duration ?? null
+})
+
+// Half-open [start, end) validity check mirroring the S1 schema invariant —
+// purely advisory here (the server is the source of truth); flags when the
+// track's end runs past the composition so the user gets an inline nudge
+// before dispatching an edit the validator would otherwise flag as a
+// warning post-hoc.
+const audioTrackExceedsComposition = computed<boolean>(() => {
+  const track = selectedAudioTrack.value
+  if (!track || typeof track.end !== 'number') return false
+  return compositionDuration.value > 0 && track.end > compositionDuration.value
+})
+
+type AudioTrackEditableKey =
+  | 'asset'
+  | 'start'
+  | 'end'
+  | 'trimIn'
+  | 'volume'
+  | 'fadeIn'
+  | 'fadeOut'
+  | 'loop'
+
+function dispatchAudioTrackEdit(key: AudioTrackEditableKey, value: unknown): void {
+  const track = selectedAudioTrack.value
+  if (!track) return
+  emit('apply', {
+    kind: 'update_audio_track',
+    payload: { id: track.id, props: { [key]: value } },
+    source: 'ui',
+  })
+}
+
+// Mute toggle (U2 spec): volume → 0, remembered per-track so a second click
+// restores the pre-mute value rather than snapping to a fixed default.
+const preMuteVolume = ref<Map<string, number>>(new Map())
+
+const isAudioTrackMuted = computed<boolean>(() => {
+  const track = selectedAudioTrack.value
+  if (!track) return false
+  return (typeof track.volume === 'number' ? track.volume : 1) <= 0
+})
+
+function toggleMuteAudioTrack(): void {
+  const track = selectedAudioTrack.value
+  if (!track) return
+  const current = typeof track.volume === 'number' ? track.volume : 1
+  if (current > 0) {
+    preMuteVolume.value.set(track.id, current)
+    dispatchAudioTrackEdit('volume', 0)
+  } else {
+    const restore = preMuteVolume.value.get(track.id) ?? 1
+    dispatchAudioTrackEdit('volume', restore > 0 ? restore : 1)
+  }
+}
+
+function deleteSelectedAudioTrack(): void {
+  const track = selectedAudioTrack.value
+  if (!track) return
+  selection.setAudioTrackSelection(null)
+  emit('apply', { kind: 'remove_audio_track', payload: { id: track.id }, source: 'ui' })
+}
 </script>
 
 <template>
@@ -991,9 +1299,109 @@ function onSelectionChange(event: Event): void {
 
     <div v-if="error" class="error">{{ error }}</div>
 
-    <div v-if="!selectedItem && !selectedTween" class="empty">
+    <div v-if="!selectedItem && !selectedTween && !selectedAudioTrack" class="empty">
       <p>Select an item to edit its parameters.</p>
     </div>
+
+    <section
+      v-else-if="selectedAudioTrack"
+      class="section"
+      data-testid="inspector-audio-track-editor"
+    >
+      <header class="section-header">
+        <span class="section-title">Audio track</span>
+        <span class="section-meta-group">
+          <span class="section-meta">{{ selectedAudioTrack.id }}</span>
+          <button
+            type="button"
+            class="tween-delete"
+            data-testid="inspector-audio-track-delete"
+            title="Remove this audio track"
+            :disabled="pending"
+            @click="deleteSelectedAudioTrack"
+          >Delete track</button>
+        </span>
+      </header>
+      <p
+        v-if="audioTrackExceedsComposition"
+        class="multi-note"
+        data-testid="inspector-audio-track-overflow-warning"
+      >
+        This track's <code>end</code> runs past the composition duration ({{ compositionDuration.toFixed(2) }}s).
+      </p>
+      <div class="fields">
+        <AssetPickerInput
+          :model-value="selectedAudioTrack.asset"
+          label="asset"
+          asset-type="audio"
+          :assets="compositionAssets"
+          :disabled="pending"
+          @update:model-value="(v: string) => dispatchAudioTrackEdit('asset', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.start"
+          label="start"
+          :max="compositionDuration"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('start', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.end ?? (selectedAudioTrack.loop ? compositionDuration : (audioTrackAssetDuration ?? 0) + selectedAudioTrack.start)"
+          label="end"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('end', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.trimIn ?? 0"
+          label="trimIn"
+          :max="audioTrackAssetDuration ?? undefined"
+          :disabled="pending"
+          title="Seconds into the source file to start reading from — independent of start/end (timeline placement)"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('trimIn', v)"
+        />
+        <PercentInput
+          :model-value="selectedAudioTrack.volume ?? 1"
+          label="volume"
+          :max="2"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('volume', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.fadeIn ?? 0"
+          label="fadeIn"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('fadeIn', v)"
+        />
+        <TimeInput
+          :model-value="selectedAudioTrack.fadeOut ?? 0"
+          label="fadeOut"
+          :disabled="pending"
+          @update:model-value="(v: number) => dispatchAudioTrackEdit('fadeOut', v)"
+        />
+        <label
+          class="audio-loop"
+          title="Repeat the source (from trimIn) until end — or the composition end when end is unset"
+        >
+          <input
+            type="checkbox"
+            :checked="selectedAudioTrack.loop === true"
+            :disabled="pending"
+            data-testid="inspector-audio-track-loop"
+            @change="(e: Event) => dispatchAudioTrackEdit('loop', (e.target as HTMLInputElement).checked)"
+          />
+          <span>loop</span>
+        </label>
+        <button
+          type="button"
+          class="animate-btn"
+          :class="{ active: isAudioTrackMuted }"
+          data-testid="inspector-audio-track-mute"
+          :disabled="pending"
+          :title="isAudioTrackMuted ? 'Unmute (restore previous volume)' : 'Mute (volume → 0, restorable)'"
+          @click="toggleMuteAudioTrack"
+        >{{ isAudioTrackMuted ? 'Unmute' : 'Mute' }}</button>
+      </div>
+    </section>
 
     <section v-else-if="selectedTween" class="section" data-testid="inspector-tween-editor">
       <header class="section-header">
@@ -1053,17 +1461,34 @@ function onSelectionChange(event: Event): void {
           :disabled="pending"
           @update:model-value="(v: number) => dispatchTweenEdit('duration', v)"
         />
-        <EnumInput
-          :model-value="selectedTween.easing ?? 'linear'"
+        <EasingInput
+          :model-value="selectedTween.easing"
           label="easing"
-          :options="EASING_NAMES"
           :disabled="pending"
-          @update:model-value="(v: string) => dispatchTweenEdit('easing', v)"
+          @update:model-value="(v: Easing) => dispatchTweenEdit('easing', v)"
+        />
+        <EasingCurve
+          :tween="selectedTween"
+          :playhead="playhead"
+          :disabled="pending"
+          @apply="(c: Command) => emit('apply', c)"
+          @seek="(t: number) => emit('seek', t)"
         />
       </div>
     </section>
 
-    <template v-else>
+    <!--
+      This branch is only reachable once the empty/audio-track/tween branches
+      above have all failed, which — given the empty-state check at the top
+      covers "none of the three are set" — means `selectedItem` must be set.
+      That's true by construction, but a plain `v-else` doesn't let vue-tsc
+      narrow `selectedItem` from `ItemLike | null` to `ItemLike` inside this
+      block (it only narrows on the condition actually written), so every
+      `selectedItem.foo` access below was a possibly-null type error. Spelling
+      the (equivalent) condition out as `v-else-if="selectedItem"` fixes the
+      narrowing with no behavior change.
+    -->
+    <template v-else-if="selectedItem">
       <div
         v-if="selectedItemLocked && !isMultiSelect"
         class="locked-banner"
@@ -1222,12 +1647,11 @@ function onSelectionChange(event: Event): void {
                   :disabled="pending"
                   @update:model-value="(v: number) => updateAddTweenField('duration', v)"
                 />
-                <EnumInput
+                <EasingInput
                   :model-value="addTweenPopover.easing"
                   label="easing"
-                  :options="EASING_NAMES"
                   :disabled="pending"
-                  @update:model-value="(v: string) => updateAddTweenField('easing', v)"
+                  @update:model-value="(v: Easing) => updateAddTweenField('easing', v)"
                 />
                 <div class="animate-popover-actions">
                   <button
@@ -1294,6 +1718,40 @@ function onSelectionChange(event: Event): void {
         </div>
       </section>
 
+      <section class="section" data-testid="inspector-effects-section">
+        <header class="section-header">
+          <span class="section-title">Effects</span>
+          <span class="section-meta">applied in order</span>
+        </header>
+        <div class="fields">
+          <template v-for="field in EFFECTS_FIELDS" :key="`fx-${field.key}`">
+            <div
+              class="field-row"
+              :class="{ mixed: isMixed(field) }"
+              :data-field="field.key"
+              :data-mixed="isMixed(field) ? 'true' : 'false'"
+            >
+              <div class="field-row-input">
+                <component
+                  :is="inputFor(field)"
+                  :model-value="valueFor(field)"
+                  :label="field.label"
+                  :overridden="isOverridden(field)"
+                  :disabled="pending"
+                  @update:model-value="(v: unknown) => dispatchEdit(field, v)"
+                />
+                <span
+                  v-if="isMixed(field)"
+                  class="mixed-badge"
+                  :data-testid="`inspector-mixed-${field.key}`"
+                  title="Selected items have different effects. Editing will set them all to the same stack."
+                >Mixed</span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
       <section
         v-if="!isMultiSelect && selectedItemLayerId !== null && compositionLayers.length > 0"
         class="section"
@@ -1330,6 +1788,28 @@ function onSelectionChange(event: Event): void {
             {{ multiCount }} selected
           </span>
         </header>
+        <template v-if="commonItemType === 'video' && !isMultiSelect">
+          <p
+            v-if="videoDurationSummary"
+            class="video-duration-summary"
+            data-testid="inspector-video-duration-summary"
+          >{{ videoDurationSummary }}</p>
+          <img
+            v-if="selectedItem.asset"
+            class="video-preview-thumb"
+            data-testid="inspector-video-preview"
+            :src="`/api/library/thumbnail?kind=asset&id=${encodeURIComponent(String(selectedItem.asset))}`"
+            alt="Video preview"
+          />
+          <button
+            type="button"
+            class="animate-btn"
+            data-testid="inspector-video-reset-trim"
+            title="Reset trim — trimIn=0, trimOut=asset duration"
+            :disabled="pending"
+            @click="resetVideoTrim"
+          >Reset trim</button>
+        </template>
         <div class="fields">
           <template v-for="field in itemSpecificFields" :key="`item-${field.key}`">
             <div
@@ -1414,12 +1894,11 @@ function onSelectionChange(event: Event): void {
                   :disabled="pending"
                   @update:model-value="(v: number) => updateAddTweenField('duration', v)"
                 />
-                <EnumInput
+                <EasingInput
                   :model-value="addTweenPopover.easing"
                   label="easing"
-                  :options="EASING_NAMES"
                   :disabled="pending"
-                  @update:model-value="(v: string) => updateAddTweenField('easing', v)"
+                  @update:model-value="(v: Easing) => updateAddTweenField('easing', v)"
                 />
                 <div class="animate-popover-actions">
                   <button
@@ -1764,6 +2243,15 @@ function onSelectionChange(event: Event): void {
   letter-spacing: 0.04em;
 }
 
+.audio-loop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #cfcfcf;
+  cursor: pointer;
+}
+
 .multi-note {
   margin: 0 0 4px;
   padding: 6px 8px;
@@ -1994,5 +2482,23 @@ function onSelectionChange(event: Event): void {
 
 .item-name-input:disabled {
   opacity: 0.45;
+}
+
+.video-duration-summary {
+  margin: 0;
+  font-size: 11px;
+  color: #a3a3a3;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.video-preview-thumb {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #050505;
 }
 </style>

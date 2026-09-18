@@ -60,7 +60,22 @@
     }
   </script>
 
-  @vite(['inertia/app/app.ts', `inertia/pages/${page.component}.vue`])
+  {{--
+    Only the app entrypoint here, per the documented AdonisJS+Inertia pattern
+    (@adonisjs/inertia's own example layout does `@vite(['inertia/app/app.tsx'])`
+    — no per-page component). Requesting the page component directly used to
+    work by accident for pages whose Vite chunk happened to keep its literal
+    source path as the manifest key, but breaks for any page Rollup renames —
+    e.g. `editor.vue`, which has a circular chunk reference with the
+    dynamically-imported `davidup/browser` and gets emitted as a hashed
+    `editor-*.js` chunk instead of a `inertia/pages/editor.vue` manifest entry,
+    so `@vite()` 500s with "Cannot find ... chunk in the manifest file" the
+    moment you hit a real production build (R-9). The app entrypoint's own
+    `import.meta.glob` already resolves + loads the right page chunk (and its
+    CSS) client-side at runtime; a server-rendered <link>/<script> tag for the
+    page file was never required.
+  --}}
+  @vite(['inertia/app/app.ts'])
   @inertiaHead()
   @stack('dumper')
 </head>

@@ -1,8 +1,9 @@
-import { promises as fs } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
 import { precompile, type SourceMap } from 'davidup/compose'
-import { validateComposition, type ValidationResult } from 'davidup/schema'
+import { validateComposition, type Composition, type ValidationResult } from 'davidup/schema'
 import libraryIndex from '#services/library_index'
 import recents from '#services/recents'
 import projectEvents from '#services/project_events'
@@ -56,7 +57,67 @@ export class ProjectLoadError extends Error {
   }
 }
 
+/**
+ * Parse, precompile and validate the raw text of a composition.json. Shared
+ * by `load()` and the external-edit watcher. Throws `ProjectLoadError`.
+ */
+async function compileComposition(
+  raw: string,
+  compositionPath: string
+): Promise<{ compiled: unknown; sourceMap: SourceMap; result: ValidationResult }> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (err) {
+    throw new ProjectLoadError(
+      'E_COMPOSITION_PARSE',
+      `composition.json is not valid JSON: ${(err as Error).message}`
+    )
+  }
+
+  // Lower authoring-form constructs ($ref / $template / type:"scene" / $behavior)
+  // into the canonical form the engine + validator + editor commands expect.
+  // For canonical-v0.1 input every pass short-circuits, returning the same
+  // object reference — so this is a near-zero-cost no-op.
+  //
+  // `emitSourceMap: true` returns the same canonical JSON plus an
+  // authorship trail (PRD step 15). The Timeline reads `originKind` from
+  // this map to colour bars by their true origin (literal / template /
+  // scene / behavior / background).
+  let compiled: unknown
+  let sourceMap: SourceMap
+  try {
+    const out = await precompile(parsed, {
+      sourcePath: compositionPath,
+      emitSourceMap: true,
+    })
+    compiled = out.resolved
+    sourceMap = out.sourceMap
+  } catch (err) {
+    throw new ProjectLoadError(
+      'E_COMPOSITION_INVALID',
+      `composition.json failed to precompile: ${(err as Error).message}`,
+      { precompileError: (err as Error).message }
+    )
+  }
+
+  const result: ValidationResult = validateComposition(compiled)
+  if (!result.valid) {
+    throw new ProjectLoadError(
+      'E_COMPOSITION_INVALID',
+      `composition.json failed validation (${result.errors.length} error(s))`,
+      result
+    )
+  }
+  return { compiled, sourceMap, result }
+}
+
+function hashText(text: string): string {
+  return createHash('sha1').update(text).digest('hex')
+}
+
 const DEFAULT_DEBOUNCE_MS = 500
+const DEFAULT_WATCH_DEBOUNCE_MS = 100
 
 /**
  * Single in-memory composition with a debounced disk writer.
@@ -64,6 +125,11 @@ const DEFAULT_DEBOUNCE_MS = 500
  * Source of truth: the in-memory `composition` object. `update()` mutates it
  * synchronously and schedules a write; multiple updates within the debounce
  * window coalesce into one atomic file rewrite (write tmp + rename).
+ *
+ * External edits (v1.1 S25): the project root is watched for changes to
+ * composition.json. A SHA-1 of the last text we loaded or wrote lets the
+ * watcher skip our own writes; any other content is re-compiled, swapped in
+ * as one undo step, and broadcast as `changed` (`reason: 'external'`).
  */
 export class ProjectStore {
   #project: LoadedProject | null = null
@@ -73,8 +139,15 @@ export class ProjectStore {
   #writePending = false
   #writeInFlight: Promise<void> | null = null
 
-  constructor(opts: { debounceMs?: number } = {}) {
+  #watchDebounceMs: number
+  #watcher: FSWatcher | null = null
+  #watchTimer: NodeJS.Timeout | null = null
+  /** Hash of the composition.json text last loaded from or written to disk. */
+  #diskHash: string | null = null
+
+  constructor(opts: { debounceMs?: number; watchDebounceMs?: number } = {}) {
     this.#debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS
+    this.#watchDebounceMs = opts.watchDebounceMs ?? DEFAULT_WATCH_DEBOUNCE_MS
   }
 
   get isLoaded(): boolean {
@@ -119,50 +192,7 @@ export class ProjectStore {
     }
 
     const raw = await fs.readFile(compositionPath, 'utf8')
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw)
-    } catch (err) {
-      throw new ProjectLoadError(
-        'E_COMPOSITION_PARSE',
-        `composition.json is not valid JSON: ${(err as Error).message}`
-      )
-    }
-
-    // Lower authoring-form constructs ($ref / $template / type:"scene" / $behavior)
-    // into the canonical form the engine + validator + editor commands expect.
-    // For canonical-v0.1 input every pass short-circuits, returning the same
-    // object reference — so this is a near-zero-cost no-op.
-    //
-    // `emitSourceMap: true` returns the same canonical JSON plus an
-    // authorship trail (PRD step 15). The Timeline reads `originKind` from
-    // this map to colour bars by their true origin (literal / template /
-    // scene / behavior / background).
-    let compiled: unknown
-    let sourceMap: SourceMap
-    try {
-      const result = await precompile(parsed, {
-        sourcePath: compositionPath,
-        emitSourceMap: true,
-      })
-      compiled = result.resolved
-      sourceMap = result.sourceMap
-    } catch (err) {
-      throw new ProjectLoadError(
-        'E_COMPOSITION_INVALID',
-        `composition.json failed to precompile: ${(err as Error).message}`,
-        { precompileError: (err as Error).message }
-      )
-    }
-
-    const result: ValidationResult = validateComposition(compiled)
-    if (!result.valid) {
-      throw new ProjectLoadError(
-        'E_COMPOSITION_INVALID',
-        `composition.json failed validation (${result.errors.length} error(s))`,
-        result
-      )
-    }
+    const { compiled, sourceMap, result } = await compileComposition(raw, compositionPath)
 
     const libraryIndexPath = join(root, 'library', 'index.json')
     const hasLibrary = await fs
@@ -219,6 +249,8 @@ export class ProjectStore {
       sourceMap,
       loadedAt: Date.now(),
     }
+    this.#diskHash = hashText(raw)
+    this.#startWatcher(root)
 
     logger.info(
       {
@@ -292,6 +324,9 @@ export class ProjectStore {
     const { compositionPath, composition } = this.#project
     const tmp = `${compositionPath}.tmp`
     const json = `${JSON.stringify(composition, null, 2)}\n`
+    // Record the hash before the rename lands so the watcher event it
+    // triggers is recognised as our own write.
+    this.#diskHash = hashText(json)
     await fs.writeFile(tmp, json, 'utf8')
     await fs.rename(tmp, compositionPath)
   }
@@ -317,8 +352,121 @@ export class ProjectStore {
   /** Drop the in-memory project. Flushes pending writes first. */
   async unload(): Promise<void> {
     await this.flush()
+    this.#stopWatcher()
     this.#project = null
+    this.#diskHash = null
     await libraryIndex.detach()
+  }
+
+  #startWatcher(root: string): void {
+    this.#stopWatcher()
+    try {
+      // Watch the directory, not the file: the atomic writer (and most
+      // editors / git) replace composition.json via rename, which orphans a
+      // watch bound to the old inode.
+      const watcher = watch(root, (_event, filename) => {
+        if (filename && filename.toString() !== 'composition.json') return
+        this.#scheduleExternalCheck()
+      })
+      watcher.on('error', (err) => {
+        logger.warn({ err, root }, 'project_store: composition watcher error')
+      })
+      // Never keep the process alive just for the watcher.
+      watcher.unref()
+      this.#watcher = watcher
+    } catch (err) {
+      logger.warn({ err, root }, 'project_store: failed to watch composition.json')
+    }
+  }
+
+  #stopWatcher(): void {
+    if (this.#watchTimer) {
+      clearTimeout(this.#watchTimer)
+      this.#watchTimer = null
+    }
+    if (this.#watcher) {
+      try {
+        this.#watcher.close()
+      } catch {
+        // already closed
+      }
+      this.#watcher = null
+    }
+  }
+
+  #scheduleExternalCheck(): void {
+    if (this.#watchTimer) clearTimeout(this.#watchTimer)
+    this.#watchTimer = setTimeout(() => {
+      this.#watchTimer = null
+      this.checkExternalChange().catch((err) => {
+        logger.error({ err }, 'project_store: external reload failed')
+      })
+    }, this.#watchDebounceMs)
+    this.#watchTimer.unref()
+  }
+
+  /**
+   * Re-read composition.json and, if its text differs from what we last
+   * loaded or wrote, swap it in: recompile, record the replaced in-memory
+   * state as one undo step, drop any pending (now superseded) write, and
+   * broadcast `changed` with `reason: 'external'`. Returns true when the
+   * disk state was adopted. Invalid or half-written files are logged and
+   * ignored — the in-memory composition stays authoritative until the file
+   * is valid again. Called by the watcher; public for tests.
+   */
+  async checkExternalChange(): Promise<boolean> {
+    const { default: commandBus } = await import('#services/command_bus')
+    return commandBus.exclusive(async () => {
+      // Let our own in-flight write land (and set #diskHash) first.
+      if (this.#writeInFlight) await this.#writeInFlight.catch(() => {})
+      const project = this.#project
+      if (!project) return false
+
+      const raw = await fs.readFile(project.compositionPath, 'utf8').catch(() => null)
+      if (raw === null) return false
+      const hash = hashText(raw)
+      if (hash === this.#diskHash) return false
+
+      let compiled: unknown
+      let sourceMap: SourceMap
+      try {
+        ;({ compiled, sourceMap } = await compileComposition(raw, project.compositionPath))
+      } catch (err) {
+        logger.warn(
+          { err, path: project.compositionPath },
+          'project_store: ignoring external composition.json edit that does not load'
+        )
+        return false
+      }
+      // A project switch or unload may have happened while we compiled.
+      if (this.#project !== project) return false
+
+      // The external file supersedes any edits still waiting on the
+      // debounced writer; those edits survive in the undo snapshot below.
+      if (this.#writeTimer) {
+        clearTimeout(this.#writeTimer)
+        this.#writeTimer = null
+      }
+      this.#writePending = false
+
+      const prev = project.composition
+      this.#project = {
+        ...project,
+        composition: compiled,
+        defaults: JSON.parse(JSON.stringify(compiled)) as unknown,
+        sourceMap,
+        loadedAt: Date.now(),
+      }
+      this.#diskHash = hash
+      commandBus.recordExternalChange(prev as Composition)
+
+      logger.info({ root: project.root }, 'project_store: reloaded external composition.json edit')
+      projectEvents.emitChanged(project.root, 'external', {
+        undoStackSize: commandBus.undoStackSize,
+        redoStackSize: commandBus.redoStackSize,
+      })
+      return true
+    })
   }
 }
 

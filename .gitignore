@@ -3,7 +3,9 @@ node_modules/
 
 # build
 dist/
+editor-dist/
 *.tsbuildinfo
+davidup-*.tgz
 
 # bun
 bun.lockb
@@ -21,6 +23,7 @@ coverage/
 
 # render outputs
 output/
+eval-results/
 *.mp4
 *.mov
 *.webm
@@ -35,3 +38,4 @@ npm-debug.log*
 # env
 .env
 .env.local
+.review-artifacts/

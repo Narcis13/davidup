@@ -8,25 +8,44 @@
  * is exposed via a native SSE endpoint that follows the same wire shape.
  *
  * Today there is one event type — `changed` — emitted by `ProjectStore#load`
- * when called against an already-loaded server. Inertia's editor page
- * subscribes and calls `router.reload()` so the new composition prop arrives
- * without a full navigation.
+ * when called against an already-loaded server (`reason: 'switch'`), and by
+ * the composition.json watcher when the file is edited out-of-band
+ * (`reason: 'external'`, v1.1 S25). Inertia's editor page subscribes and
+ * calls `router.reload()` so the new composition prop arrives without a full
+ * navigation.
  */
 import { EventEmitter } from 'node:events'
 
 export type ProjectEventName = 'changed'
 
+export type ProjectChangeReason = 'switch' | 'external'
+
 export interface ProjectChangedPayload {
   type: 'changed'
+  /** Why the composition changed: a project switch, or an out-of-band file edit. */
+  reason: ProjectChangeReason
   /** Resolved on-disk root of the now-current project. */
   root: string
   /** Server-time wall clock for ordering on the client side. */
   at: number
+  /** Undo/redo stack sizes after the change, so the client can resync its buttons. */
+  undoStackSize?: number
+  redoStackSize?: number
 }
 
 export class ProjectEvents extends EventEmitter {
-  emitChanged(root: string): void {
-    const payload: ProjectChangedPayload = { type: 'changed', root, at: Date.now() }
+  emitChanged(
+    root: string,
+    reason: ProjectChangeReason = 'switch',
+    stacks: { undoStackSize?: number; redoStackSize?: number } = {}
+  ): void {
+    const payload: ProjectChangedPayload = {
+      type: 'changed',
+      reason,
+      root,
+      at: Date.now(),
+      ...stacks,
+    }
     this.emit('changed', payload)
   }
 }

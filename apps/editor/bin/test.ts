@@ -12,7 +12,18 @@
 
 process.env.NODE_ENV = 'test'
 
+// Isolate the suite from the developer's real shared library
+// (`~/.davidup/library`). `preload_global_library` attaches this root at app
+// boot — before Japa's runner hooks can redirect it — so the override must
+// happen here. Without it, user-authored behaviors that shadow built-ins
+// (e.g. a personal `fadeIn.behavior.json`) leak into the engine registry and
+// break tests that rely on built-in behaviors after a detach.
+process.env.DAVIDUP_LIBRARY = mkdtempSync(join(tmpdir(), 'davidup-test-library-'))
+
 import 'reflect-metadata'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Ignitor, prettyPrintError } from '@adonisjs/core'
 import { configure, processCLIArgs, run } from '@japa/runner'
 

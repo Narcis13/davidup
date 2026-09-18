@@ -31,6 +31,11 @@ export abstract class BaseAssetLoader implements AssetLoader {
 
   load(asset: Asset): Promise<void> {
     if (this.has(asset.id)) return Promise.resolve();
+    // Audio (and any future non-visual) assets are not canvas resources — the
+    // render pipeline muxes them in a separate post-render stage (v0.2 §S4), so
+    // there is nothing to fetch into the image/font caches here. Skipping keeps
+    // `preloadAll(comp.assets)` from routing an audio asset into `fetchFont`.
+    if (asset.type !== "image" && asset.type !== "font") return Promise.resolve();
     const existing = this.inflight.get(asset.id);
     if (existing) return existing;
 

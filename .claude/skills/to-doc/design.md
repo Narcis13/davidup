@@ -80,6 +80,12 @@ Type scale:
 | `.eyebrow`      | mono     | 11px                          | 1.4    | 0.18em UPPER  | 500    |
 | code            | mono     | 0.92em                        | inherit| normal        | 400    |
 
+- **Offline / archival mode:** if the user asks for a fully self-contained,
+  air-gapped, or archival doc, omit the Google Fonts `<link>` tags entirely —
+  the fallback stacks above are the design in that mode. Never embed font
+  files as data URIs (blows the size budget). Every `font-family` reference
+  must always carry its full fallback stack so a doc opened offline degrades
+  to Georgia / system sans / system mono, not to browser defaults.
 - Italic is **display-only**. Use sparingly, for emphasis inside `h1`/`h2` and
   for pull-quotes. Body italics look weak on dark.
 - Bold is **500**, not 700. Heavier weights look chunky on dark.
@@ -160,15 +166,21 @@ Section pattern (preferred for long-form docs):
 - Then a display-font headline (22px), then 1–2 lines of `--ink-2` body.
 
 ### Tables (matrix / comparison)
-- Header row: `bg: var(--bg-2)`, mono 11px UPPERCASE letter-spacing 0.16em,
-  color `--mute`.
-- Row dividers: 1px `--line`.
-- Cell padding: 14px 16px.
+- **Real `<table>` markup** — `thead` / `tbody` / `th scope="col"` / `td` —
+  never div grids styled to look like tables; screen readers need the
+  semantics. Wrap in a `.tbl-wrap` div that carries the border, radius, and
+  `overflow-x: auto`.
+- Header row (`thead th`): `bg: var(--bg-2)`, mono 11px UPPERCASE
+  letter-spacing 0.16em, color `--mute`, weight 500.
+- Row dividers: 1px `--line` on `tbody tr` tops.
+- Cell padding: 14px 16px; `text-align: left`, `vertical-align: top`.
 - State cues — always pair color **with** the textual label, never color alone:
   - `WIN` → `--good`
   - `MEH` → `--mute`
   - `LOSE` → `--bad`
-- At ≤ 760px, collapse to one column with 1px dashed `--line` top dividers.
+- Narrow screens: the table keeps its `min-width` and scrolls inside
+  `.tbl-wrap` — the wrapper scrolls, the page never scrolls horizontally.
+  Don't restack cells with display overrides; that strips table semantics.
 
 ### Code blocks
 - `bg: #06090F`, `color: #D7DEEA`, padding 18px 22px, radius 6px,
@@ -258,7 +270,38 @@ or per-pixel effects (rare for docs).
 
 ---
 
-## 7. Slide variant
+## 7. Print
+
+The screen design is deliberately dark; paper is not a screen. Every doc
+carries an `@media print` block (both scaffolds ship it) that flips the token
+values to a light equivalent and strips decoration — the layout, spacing, and
+component structure stay identical.
+
+Print token mapping (override inside `@media print { :root { … } }`):
+
+| Token | Print value |
+|---|---|
+| `--bg` / `--bg-2` / `--bg-3` | `#FFFFFF` / `#F3F5F8` / `#E9EDF2` |
+| `--ink` / `--ink-2` | `#141A22` / `#333B47` |
+| `--mute` / `--mute-2` | `#5B6472` / `#8A93A1` |
+| `--line` / `--line-2` | `rgba(0,0,0,0.10)` / `rgba(0,0,0,0.18)` |
+| `--accent` / `--accent-2` | `#1D4ED8` / `#1E40AF` |
+| `--accent-dim` / `--accent-line` | `rgba(29,78,216,0.08)` / `rgba(29,78,216,0.35)` |
+| `--good` / `--warn` / `--bad` | `#047857` / `#B45309` / `#B91C1C` |
+
+Print rules:
+
+- Hide decorative layers: hero backgrounds, canvas, progress bars, nav hints.
+- Un-stick the topbar (`position: static`, no blur).
+- Code blocks: light bg (`#F3F5F8`), dark text, `white-space: pre-wrap`; the
+  hardcoded string-token green becomes `#1E7A46`.
+- Page-break hygiene: `break-after: avoid` on headings; `break-inside: avoid`
+  on cards, callouts, tables, code blocks, stats rows.
+- Slides print one per page (`break-after: page`, static positioning, all
+  slides visible).
+- Compress vertical padding (96px sections → ~36px) — paper has no scroll.
+
+## 8. Slide variant
 
 When rendering as slides (one `<section class="slide">` per slide):
 
@@ -278,7 +321,7 @@ When rendering as slides (one `<section class="slide">` per slide):
 
 ---
 
-## 8. Don'ts (hard constraints)
+## 9. Don'ts (hard constraints)
 
 - **No external CSS / JS beyond Google Fonts.** No CDN script tags. No Prism,
   no Chart.js, no jQuery, no Tailwind CDN, no Alpine.
@@ -299,7 +342,7 @@ When rendering as slides (one `<section class="slide">` per slide):
 
 ---
 
-## 9. Project-local override
+## 10. Project-local override
 
 If the repo has `.claude/design.md` at its root (not inside the skill folder),
 treat it as a **delta** on top of this file. Most projects shouldn't override —

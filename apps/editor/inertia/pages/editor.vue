@@ -25,6 +25,7 @@ import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
 import { useRender } from '~/composables/useRender'
 import { useShortcuts } from '~/composables/useShortcuts'
+import { useNudge } from '~/composables/useNudge'
 import { useToasts } from '~/composables/useToasts'
 import { useGroupActions } from '~/composables/useGroupActions'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
@@ -55,7 +56,7 @@ interface CompositionSource {
 interface SourceLocation {
   file: string
   jsonPointer: string
-  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background'
+  originKind: 'literal' | 'ref' | 'template' | 'behavior' | 'scene' | 'background' | 'repeat'
 }
 
 interface SourceMap {
@@ -141,6 +142,18 @@ watch(
     void refetchCompositionSource()
   }
 )
+
+// v1.1 S29 — the drawer's Save: one `replace_composition` command, so the
+// whole-document edit is validated server-side and undoes as a single step.
+// Rejections already raise a toast via the bus; the drawer also shows the
+// message inline and keeps the draft open for fixing.
+async function onSourceSave(json: Record<string, unknown>): Promise<string | null> {
+  await bus.apply({ kind: 'replace_composition', payload: { json } })
+  const report = bus.errorReport.value
+  if (bus.error.value === null) return null
+  const first = report?.issues?.[0] ?? report?.details?.errors?.[0]
+  return first ? `${report?.message} ${first.path ? `${first.path}: ` : ''}${first.message}` : bus.error.value
+}
 
 function onDrawerClose(): void {
   drawerOpen.value = false
@@ -277,12 +290,37 @@ function deleteSelection(): void {
   void bus.apply({ kind: 'remove_item', payload: { id } })
 }
 
+// U8 — `V` / `A` shortcuts route through the same window-event ItemToolbar
+// already listens on for OnboardingOverlay's "focus this button" CTAs, so
+// the keyboard path and the onboarding-driven path share one entry point.
+function addVideoViaShortcut(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('davidup:focus-toolbar-button', { detail: { kind: 'video' } }))
+}
+
+function addAudioTrackViaShortcut(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('davidup:focus-toolbar-button', { detail: { kind: 'audio' } }))
+}
+
+// v1.1 S27 — the Timeline owns zoom state; the shortcut registry reaches it
+// through the component's exposed API.
+const timelineRef = ref<{
+  zoomIn: () => void
+  zoomOut: () => void
+  fitToWindow: () => void
+} | null>(null)
+
 function fitTimeline(): void {
-  // The timeline already auto-fits the panel width (no zoom state yet), so
-  // "fit" collapses to the canonical reset action: seek the playhead back to
-  // the start. Cheap, observable, and on-message with what ⌘0 means in most
-  // media tools ("reset view").
-  stage.seek(0)
+  timelineRef.value?.fitToWindow()
+}
+
+function zoomTimelineIn(): void {
+  timelineRef.value?.zoomIn()
+}
+
+function zoomTimelineOut(): void {
+  timelineRef.value?.zoomOut()
 }
 
 // ─── UX_GAPS §N: render configuration dialog ─────────────────────────────
@@ -630,10 +668,20 @@ const groupActions = useGroupActions({
   apply: bus.apply,
 })
 
+// v1.1 S26 — arrow-key nudge; a burst of presses is one undo step.
+const nudger = useNudge({
+  getComposition: () => bus.composition.value,
+  getSelectedIds: () => selection.selectedItemIds.value,
+  apply: bus.apply,
+})
+
 useShortcuts({
   togglePlay: () => stage.togglePlay(),
   deleteSelection,
+  nudge: nudger.nudge,
   fitTimeline,
+  zoomTimelineIn,
+  zoomTimelineOut,
   toggleSourceDrawer,
   render: startRender,
   forceFlush,
@@ -642,6 +690,8 @@ useShortcuts({
   redo: () => bus.redo(),
   group: () => groupActions.group(),
   ungroup: () => groupActions.ungroup(),
+  addVideo: addVideoViaShortcut,
+  addAudioTrack: addAudioTrackViaShortcut,
 })
 
 // ─── Step 18b: window-level file drop ────────────────────────────────────
@@ -704,6 +754,22 @@ function onWindowDrop(event: DragEvent): void {
 // scroll position and other ephemeral UI state; only Inertia-provided props
 // are refetched.
 let projectEventSource: EventSource | null = null
+// Stack sizes carried by the last `changed` event, applied once the reloaded
+// props arrive.
+let pendingResyncStacks: { undoStackSize?: number; redoStackSize?: number } | null = null
+
+// `router.reload()` swaps the Inertia props but `useCommandBus` only seeds
+// from them once — push the fresh composition (and drawer source) into the
+// live state so the stage, timeline and inspector redraw.
+watch(
+  () => props.composition,
+  (next, prev) => {
+    if (next === prev) return
+    bus.resync(next, pendingResyncStacks ?? undefined)
+    pendingResyncStacks = null
+    compositionSource.value = props.compositionSource
+  }
+)
 
 onMounted(() => {
   if (typeof window !== 'undefined') {
@@ -731,23 +797,45 @@ onMounted(() => {
       projectEventSource = new EventSource('/api/projects/events')
       projectEventSource.addEventListener('changed', (ev) => {
         const data = (ev as MessageEvent).data
-        let projectName: string | null = null
+        let payload: {
+          reason?: string
+          root?: string
+          undoStackSize?: number
+          redoStackSize?: number
+        } = {}
         if (typeof data === 'string' && data.length > 0) {
           try {
-            const parsed = JSON.parse(data) as { root?: string }
-            if (typeof parsed?.root === 'string') {
-              const dir = parsed.root.replace(/[\\/]+$/, '')
-              const i = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'))
-              projectName = i >= 0 ? dir.slice(i + 1) : dir
-            }
+            payload = JSON.parse(data) as typeof payload
           } catch {
             /* not JSON */
           }
         }
-        toasts.info('Project switched', {
-          message: projectName ? `Loaded ${projectName}` : 'Reloading composition…',
-          dedupeKey: 'project:switched',
-        })
+        if (payload.reason === 'external') {
+          // v1.1 S25: composition.json was rewritten out-of-band (an agent,
+          // `git checkout`, a text editor). The server already adopted it as
+          // one undo step, so ⌘Z restores the pre-edit state.
+          pendingResyncStacks = {
+            undoStackSize: payload.undoStackSize,
+            redoStackSize: payload.redoStackSize,
+          }
+          toasts.info('composition.json changed on disk', {
+            message: 'Reloaded the external edit — ⌘Z to revert it.',
+            dedupeKey: 'project:external-edit',
+          })
+        } else {
+          // A project switch resets server-side history.
+          pendingResyncStacks = { undoStackSize: 0, redoStackSize: 0 }
+          let projectName: string | null = null
+          if (typeof payload.root === 'string') {
+            const dir = payload.root.replace(/[\\/]+$/, '')
+            const i = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'))
+            projectName = i >= 0 ? dir.slice(i + 1) : dir
+          }
+          toasts.info('Project switched', {
+            message: projectName ? `Loaded ${projectName}` : 'Reloading composition…',
+            dedupeKey: 'project:switched',
+          })
+        }
         router.reload()
       })
     }
@@ -796,6 +884,7 @@ onBeforeUnmount(() => {
     <template #library>
       <Library
         :composition="bus.composition.value"
+        :selected-item-id="selection.selectedItemId.value"
         @apply-template="onLibraryApply"
         @add-item="onLibraryAdd"
         @remove-asset="onLibraryRemoveAsset"
@@ -808,8 +897,10 @@ onBeforeUnmount(() => {
         :composition="bus.composition.value"
         :can-group="groupActions.canGroup.value"
         :can-ungroup="groupActions.canUngroup.value"
+        :playhead="stage.playhead.value"
         @group="groupActions.group"
         @ungroup="groupActions.ungroup"
+        @apply="bus.apply"
       />
       <LayersPanel
         v-if="bus.composition.value"
@@ -852,11 +943,13 @@ onBeforeUnmount(() => {
         :get-resolved-item-at="stage.getResolvedItemAt"
         @apply="bus.apply"
         @reveal-source="onRevealSourceFromInspector"
+        @seek="(t: number) => stage.seek(t)"
       />
     </template>
 
     <template #timeline>
       <Timeline
+        ref="timelineRef"
         :composition="bus.composition.value"
         :playhead="stage.playhead.value"
         :status="bus.composition.value ? stage.status.value : null"
@@ -886,6 +979,7 @@ onBeforeUnmount(() => {
     :pick-source-json-pointer="manualSourcePointer?.jsonPointer ?? selection.lastPickSource.value?.jsonPointer ?? null"
     :pick-source-file="manualSourcePointer?.file ?? selection.lastPickSource.value?.file ?? null"
     :open="drawerOpen"
+    :on-save="onSourceSave"
     @close="onDrawerClose"
   />
 

@@ -12,6 +12,11 @@ import type { FfmpegSpawn } from "../../src/drivers/node/index.js";
 
 export interface FakeFfmpegOptions {
   exitCode?: number;
+  // When set, the process "closes" with code=null and this signal instead of
+  // `exitCode` — simulating a signal-killed ffmpeg (e.g. SIGABRT from a
+  // missing dynamic library, or an external SIGKILL) rather than a clean
+  // nonzero exit.
+  signal?: NodeJS.Signals;
   // Cumulative byte threshold at which write() returns false. Backpressure is
   // released asynchronously so the driver must actually await 'drain'.
   backpressureBytes?: number;
@@ -91,8 +96,13 @@ export class FakeFfmpeg extends EventEmitter {
       // Match real ffmpeg's order: stderr text first, then close with code.
       setImmediate(() => {
         if (opts.stderr) this.stderr.emit("data", opts.stderr);
-        this.exitCode = opts.exitCode ?? 0;
-        this.emit("close", this.exitCode, null);
+        if (opts.signal) {
+          this.exitCode = null;
+          this.emit("close", null, opts.signal);
+        } else {
+          this.exitCode = opts.exitCode ?? 0;
+          this.emit("close", this.exitCode, null);
+        }
       });
     });
   }

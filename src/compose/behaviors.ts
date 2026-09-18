@@ -16,9 +16,22 @@
 // `${target}_${behavior}_${start}`). Each emitted tween gets a stable
 // `${parentId}__${suffix}` id where `suffix` is fixed per behavior step.
 
-import type { EasingName } from "../easings/index.js";
+import type { Easing } from "../easings/index.js";
 import { MCPToolError } from "../engine/errors.js";
 import type { Tween } from "../schema/types.js";
+import { OVERLAP_EPS } from "../schema/validator.js";
+import { substitute, type SubstitutionContext } from "./params.js";
+import { expandRepeatTweens, isRepeatBlock } from "./repeat.js";
+
+/**
+ * Behavior-expansion semantics version. Bumped when a *registered* behavior's
+ * emitted tweens change in a way that alters existing renders (not merely
+ * when a new behavior/param is added). See CHANGELOG.md.
+ *
+ *   v1 → v2: `kenburns` now emits `scaleX` + `scaleY` (was `scaleX`-only,
+ *   which rendered a horizontal stretch instead of a zoom).
+ */
+export const BEHAVIOR_EXPANSION_VERSION = 2;
 
 // ──────────────── Public types ────────────────
 
@@ -41,8 +54,34 @@ export interface BehaviorDescriptor {
   name: string;
   description: string;
   params: BehaviorParamDescriptor[];
-  /** Suffixes appended to the parent block id, in expansion order. */
+  /**
+   * Suffixes appended to the parent block id, in expansion order. *Derived*
+   * for tween-body behaviors (REPEAT_EXPRESSIONS_DESIGN.md §5.2 — a
+   * caller-supplied `produces` on a body-carrying descriptor is ignored
+   * rather than trusted on the honor system).
+   */
   produces: ReadonlyArray<string> | "dynamic";
+  /**
+   * Executable body (v1.1 S19, spec §6.6). Each entry is a tween written
+   * against the `${params.X}` / `${$.X}` substitution syntax templates and
+   * scenes already use; `$repeat` blocks are allowed. A descriptor that
+   * carries one expands for real — a descriptor without one stays catalog
+   * metadata (`expandBehavior` throws E_BEHAVIOR_UNKNOWN unless it shadows a
+   * built-in of the same name). Stored as opaque JSON; validated at expansion
+   * time, where param values are known.
+   */
+  tweens?: ReadonlyArray<unknown>;
+  /**
+   * Reserved for the §16-O9 `name@version` library lock. Stored and echoed
+   * back, never interpreted in v1.1.
+   */
+  version?: string;
+  /**
+   * Derived, read-only: whether `apply_behavior` will expand this name (a
+   * body of its own, or a built-in expansion it shadows). Never an input —
+   * `registerBehavior` recomputes it.
+   */
+  executable?: boolean;
 }
 
 export interface BehaviorBlock {
@@ -55,7 +94,7 @@ export interface BehaviorBlock {
   /** Total duration covered by the behavior's tweens combined. */
   duration: number;
   /** Optional easing applied to every emitted tween that doesn't pin its own. */
-  easing?: EasingName;
+  easing?: Easing;
   /** Per-behavior parameter map. See each behavior's descriptor. */
   params?: Record<string, unknown>;
   /** Optional explicit parent id. If absent, derived from target+name+start. */
@@ -69,7 +108,7 @@ interface ExpandContext {
   block: BehaviorBlock;
   duration: number;
   start: number;
-  easing: EasingName | undefined;
+  easing: Easing | undefined;
   params: Record<string, unknown>;
 }
 
@@ -80,85 +119,187 @@ interface RawTween {
   to: number | string;
   start: number;
   duration: number;
-  easing?: EasingName;
+  easing?: Easing;
+  /** Tween-body behaviors may retarget a companion item; defaults to the block's target. */
+  target?: string;
 }
 
 type BehaviorExpand = (ctx: ExpandContext) => RawTween[];
 
 interface BehaviorEntry {
   descriptor: BehaviorDescriptor;
-  /** Built-in behaviors carry an expansion function; user-defined registrations
-   * from `library_index` register descriptor-only entries (see §6 audit). */
+  /** Built-ins carry a code expansion; user/library descriptors with a
+   * `tweens` body get one synthesized; bodyless registrations have none. */
   expand?: BehaviorExpand;
 }
 
-const REGISTRY = new Map<string, BehaviorEntry>();
+// Two layers, not one map (BUGS.md 2.1). `BUILTINS` is written once at module
+// load by the `register()` calls below and never mutated again; `OVERLAY`
+// holds every user/library registration. Lookups read the overlay first, so
+// library JSON still shadows a built-in name — but dropping that overlay entry
+// (a watcher delete, a library reload) uncovers the built-in again instead of
+// deleting it for the lifetime of the process.
+const BUILTINS = new Map<string, BehaviorEntry>();
+const OVERLAY = new Map<string, BehaviorEntry>();
 
 function register(entry: BehaviorEntry): void {
-  REGISTRY.set(entry.descriptor.name, entry);
+  BUILTINS.set(entry.descriptor.name, entry);
+}
+
+function lookupEntry(name: string): BehaviorEntry | undefined {
+  return OVERLAY.get(name) ?? BUILTINS.get(name);
+}
+
+/** Catalog view of an entry: no body, plus the derived `executable` flag. */
+function publicDescriptor(entry: BehaviorEntry): BehaviorDescriptor {
+  const d = entry.descriptor;
+  const out: BehaviorDescriptor = {
+    name: d.name,
+    description: d.description,
+    params: d.params.map((p) => ({ ...p })),
+    produces: typeof d.produces === "string" ? d.produces : [...d.produces],
+    executable: entry.expand !== undefined,
+  };
+  if (d.version !== undefined) out.version = d.version;
+  return out;
 }
 
 // ──────────────── Public API ────────────────
 
 /**
- * Descriptor-only registration for user-authored behaviors discovered by the
- * library index. A behavior registered this way appears in `list_behaviors`
- * and `hasBehavior` is true for its name, but `expandBehavior` will throw
- * `E_BEHAVIOR_UNKNOWN` (with a hint) because user-defined expansion is not
- * yet supported. Re-registering a name preserves any existing `expand`
- * function — so library JSON can override the description/params of a
- * built-in without breaking its expansion semantics.
+ * Validate + clone a descriptor into the canonical shape stored in the
+ * registry (and in the MCP store's session record). Derives `produces` from
+ * the body when there is one. Throws E_INVALID_VALUE on a malformed shape.
  */
-export function registerBehavior(descriptor: BehaviorDescriptor): void {
+export function normalizeBehaviorDescriptor(
+  descriptor: BehaviorDescriptor,
+): BehaviorDescriptor {
   if (typeof descriptor.name !== "string" || descriptor.name.length === 0) {
-    throw new Error("registerBehavior: descriptor is missing a non-empty name.");
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "Behavior descriptor is missing a non-empty name.",
+    );
   }
-  const cloned: BehaviorDescriptor = {
+  const tweens = readTweenBodies(descriptor.name, descriptor.tweens);
+  const out: BehaviorDescriptor = {
     name: descriptor.name,
     description: descriptor.description ?? "",
-    params: descriptor.params.map((p) => ({ ...p })),
+    params: (descriptor.params ?? []).map((p) => ({ ...p })),
     produces:
-      typeof descriptor.produces === "string"
-        ? descriptor.produces
-        : [...descriptor.produces],
+      tweens !== undefined
+        ? deriveProduces(tweens)
+        : typeof descriptor.produces === "string"
+          ? descriptor.produces
+          : [...(descriptor.produces ?? [])],
   };
-  const existing = REGISTRY.get(descriptor.name);
-  const next: BehaviorEntry = { descriptor: cloned };
-  if (existing && existing.expand) next.expand = existing.expand;
-  REGISTRY.set(descriptor.name, next);
+  if (tweens !== undefined) out.tweens = tweens;
+  if (descriptor.version !== undefined) {
+    if (typeof descriptor.version !== "string" || descriptor.version.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${descriptor.name}" version must be a non-empty string.`,
+      );
+    }
+    out.version = descriptor.version;
+  }
+  return out;
 }
 
-/** Remove a behavior from the registry. Returns false if no entry existed. */
+/**
+ * Register a user-authored behavior (library `*.behavior.json`, or
+ * `define_user_behavior` at composition scope) into the overlay layer.
+ *
+ * A descriptor carrying `tweens` is *executable*: an `expand` closure over the
+ * body is synthesized here, and `apply_behavior` expands it like a built-in.
+ * A descriptor without one inherits the expansion of whatever it shadows, so
+ * library JSON can still override the description/params of e.g. `fadeIn`
+ * without breaking its semantics; shadowing nothing leaves it catalog-only.
+ */
+export function registerBehavior(descriptor: BehaviorDescriptor): void {
+  const cloned = normalizeBehaviorDescriptor(descriptor);
+  const next: BehaviorEntry = { descriptor: cloned };
+  if (cloned.tweens !== undefined) {
+    next.expand = makeTweenBodyExpand(cloned);
+  } else {
+    const existing = lookupEntry(cloned.name);
+    if (existing && existing.expand) next.expand = existing.expand;
+  }
+  OVERLAY.set(cloned.name, next);
+}
+
+/**
+ * Drop an overlay registration. Built-ins live in a separate base layer, so
+ * removing an entry that *shadowed* one uncovers the built-in again instead of
+ * deleting it (BUGS.md 2.1 — the library watcher's reload diff hits this every
+ * time a shadowing `*.behavior.json` is deleted). Returns false when the name
+ * had no overlay entry; built-ins themselves can't be unregistered.
+ */
 export function unregisterBehavior(name: string): boolean {
-  return REGISTRY.delete(name);
+  return OVERLAY.delete(name);
 }
 
 export function listBehaviors(): BehaviorDescriptor[] {
-  return Array.from(REGISTRY.values()).map((e) => ({
-    name: e.descriptor.name,
-    description: e.descriptor.description,
-    params: e.descriptor.params.map((p) => ({ ...p })),
-    produces: typeof e.descriptor.produces === "string"
-      ? e.descriptor.produces
-      : [...e.descriptor.produces],
-  }));
+  // Built-ins first, in registration order; an overlay entry replaces the
+  // built-in in place (Map.set keeps the original slot) and new names append.
+  const merged = new Map<string, BehaviorEntry>();
+  for (const [name, entry] of BUILTINS) merged.set(name, entry);
+  for (const [name, entry] of OVERLAY) merged.set(name, entry);
+  return Array.from(merged.values()).map(publicDescriptor);
 }
 
 export function getBehaviorDescriptor(name: string): BehaviorDescriptor | undefined {
-  const entry = REGISTRY.get(name);
-  return entry ? entry.descriptor : undefined;
+  const entry = lookupEntry(name);
+  return entry ? publicDescriptor(entry) : undefined;
+}
+
+/** Full definition including the body — for callers that re-expand it. */
+export function getBehaviorDefinition(name: string): BehaviorDescriptor | undefined {
+  const entry = lookupEntry(name);
+  return entry ? normalizeBehaviorDescriptor(entry.descriptor) : undefined;
 }
 
 export function hasBehavior(name: string): boolean {
-  return REGISTRY.has(name);
+  return OVERLAY.has(name) || BUILTINS.has(name);
+}
+
+export interface ExpandBehaviorOptions {
+  /**
+   * Session-scoped definitions that shadow the process-global registry, keyed
+   * by name. `apply_behavior` passes the MCP store's `define_user_behavior`
+   * record here so two sessions on one backend never see each other's
+   * definitions (the same split `expandTemplate(options.templates)` uses).
+   */
+  behaviors?: Record<string, BehaviorDescriptor>;
+}
+
+/** Resolve a name against session definitions first, then the registry. */
+function resolveEntry(
+  name: string,
+  options: ExpandBehaviorOptions,
+): BehaviorEntry | undefined {
+  const session = options.behaviors?.[name];
+  if (session === undefined) return lookupEntry(name);
+  const normalized = normalizeBehaviorDescriptor(session);
+  if (normalized.tweens !== undefined) {
+    return { descriptor: normalized, expand: makeTweenBodyExpand(normalized) };
+  }
+  // Bodyless session entry: inherit the registry expansion of the same name,
+  // mirroring registerBehavior — retitling `fadeIn` mustn't break it.
+  const entry: BehaviorEntry = { descriptor: normalized };
+  const base = lookupEntry(name);
+  if (base && base.expand) entry.expand = base.expand;
+  return entry;
 }
 
 /**
  * Expand a single behavior block into concrete tweens with stable ids.
  * Throws MCPToolError on unknown name / missing or wrongly-typed params.
  */
-export function expandBehavior(block: BehaviorBlock): Tween[] {
-  const entry = REGISTRY.get(block.behavior);
+export function expandBehavior(
+  block: BehaviorBlock,
+  options: ExpandBehaviorOptions = {},
+): Tween[] {
+  const entry = resolveEntry(block.behavior, options);
   if (!entry) {
     throw new MCPToolError(
       "E_BEHAVIOR_UNKNOWN",
@@ -169,8 +310,8 @@ export function expandBehavior(block: BehaviorBlock): Tween[] {
   if (!entry.expand) {
     throw new MCPToolError(
       "E_BEHAVIOR_UNKNOWN",
-      `Behavior "${block.behavior}" is registered without an expansion implementation.`,
-      "Library-authored behaviors are catalog metadata only in v1.0 — use a built-in behavior name with apply_behavior.",
+      `Behavior "${block.behavior}" is registered as catalog metadata without a \`tweens\` body.`,
+      "Add a `tweens` array to the definition (see define_user_behavior) so it can expand, or use a built-in behavior name.",
     );
   }
   if (!Number.isFinite(block.duration) || block.duration <= 0) {
@@ -199,7 +340,7 @@ export function expandBehavior(block: BehaviorBlock): Tween[] {
   const tweens: Tween[] = raw.map((r) => {
     const t: Tween = {
       id: `${parentId}__${r.suffix}`,
-      target: block.target,
+      target: r.target ?? block.target,
       property: r.property,
       from: r.from,
       to: r.to,
@@ -221,7 +362,10 @@ export function expandBehavior(block: BehaviorBlock): Tween[] {
  * unchanged. After this runs, the result is a v0.1-shaped composition (no
  * `$behavior` markers anywhere in `tweens`).
  */
-export function expandBehaviors(comp: unknown): unknown {
+export function expandBehaviors(
+  comp: unknown,
+  options: ExpandBehaviorOptions = {},
+): unknown {
   if (!isPlainObject(comp)) return comp;
   const rawTweens = (comp as { tweens?: unknown }).tweens;
   if (!Array.isArray(rawTweens)) return comp;
@@ -231,7 +375,7 @@ export function expandBehaviors(comp: unknown): unknown {
     if (isBehaviorBlock(entry)) {
       touched = true;
       const block = readBehaviorBlock(entry);
-      const expanded = expandBehavior(block);
+      const expanded = expandBehavior(block, options);
       for (const t of expanded) out.push(t);
     } else {
       out.push(entry);
@@ -245,18 +389,49 @@ export function expandBehaviors(comp: unknown): unknown {
 
 function deriveParentId(block: BehaviorBlock): string {
   if (block.id !== undefined && block.id.length > 0) return block.id;
-  return `${block.target}_${block.behavior}_${block.start}`;
+  return `${block.target}_${block.behavior}_${idNumber(block.start)}`;
+}
+
+// Ids are read by humans (and re-typed as MCP addressing keys), so a `start`
+// that arrived with FP noise from an upstream chained sum (e.g.
+// 4.8999999999999995 instead of 4.9) shouldn't be embedded verbatim. Round to
+// microsecond precision — far finer than any authored timing — before
+// formatting, purely for id text; the tween's numeric `start` is untouched.
+function idNumber(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+// Divide [start, start+duration] into `segments` equal pieces as an explicit
+// breakpoint array (rather than each tween independently computing its own
+// `start + i*step`). Two tweens that each recomputed `start + i*step` and
+// `start + (i+1)*step` from scratch can disagree in the last bit or two
+// (floating-point addition isn't associative), so segment i's `start+duration`
+// wouldn't bit-match segment i+1's `start` — exactly the E_TWEEN_OVERLAP false
+// positive this fixes. Deriving every tween's start/duration from the same
+// breakpoints array guarantees prev.start + prev.duration === next.start.
+function segmentBreakpoints(
+  start: number,
+  duration: number,
+  segments: number,
+): number[] {
+  const step = duration / segments;
+  const points: number[] = [start];
+  for (let i = 1; i < segments; i++) points.push(start + i * step);
+  // Pin the final point to start+duration exactly, rather than start+segments*step,
+  // so the total span always matches the requested duration bit-for-bit.
+  points.push(start + duration);
+  return points;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function isBehaviorBlock(v: unknown): v is Record<string, unknown> {
+export function isBehaviorBlock(v: unknown): v is Record<string, unknown> {
   return isPlainObject(v) && typeof v.$behavior === "string";
 }
 
-function readBehaviorBlock(raw: Record<string, unknown>): BehaviorBlock {
+export function readBehaviorBlock(raw: Record<string, unknown>): BehaviorBlock {
   const behavior = raw.$behavior;
   if (typeof behavior !== "string" || behavior.length === 0) {
     throw new MCPToolError(
@@ -287,13 +462,15 @@ function readBehaviorBlock(raw: Record<string, unknown>): BehaviorBlock {
   }
   const block: BehaviorBlock = { behavior, target, start, duration };
   if (raw.easing !== undefined) {
-    if (typeof raw.easing !== "string") {
+    // Shape check only — the name / bezier / steps contents are validated by
+    // TweenSchema once the emitted tweens reach the composition.
+    if (typeof raw.easing !== "string" && !isPlainObject(raw.easing)) {
       throw new MCPToolError(
         "E_INVALID_VALUE",
-        `Behavior "${behavior}" easing must be a string.`,
+        `Behavior "${behavior}" easing must be an easing name, { bezier: [x1, y1, x2, y2] } or { steps: n }.`,
       );
     }
-    block.easing = raw.easing as EasingName;
+    block.easing = raw.easing as Easing;
   }
   if (raw.params !== undefined) {
     if (!isPlainObject(raw.params)) {
@@ -466,6 +643,349 @@ function readColorParam(
   return v;
 }
 
+// ──────────────── Tween-body behaviors (v1.1 S19, spec §6.6) ────────────────
+//
+// A user/library definition ships a `tweens` array written against the same
+// `${params.X}` / `${$.X}` substitution the template and scene layers use, so
+// agents and the Library can publish real reusable motion instead of catalog
+// cards. Times are **absolute** — the published §6.6 shape writes
+// `"start": "${$.start + 0.2}"`, and an omitted `start` defaults to `$.start`
+// — so library JSON already authored against the spec expands as written.
+//
+// The `$` context is: `start` / `duration` / `end` of the behavior block, plus
+// `target` (the item it was applied to, for companion-item tweens).
+
+/** Validate + clone a `tweens` body. `undefined` in, `undefined` out. */
+function readTweenBodies(
+  name: string,
+  tweens: BehaviorDescriptor["tweens"],
+): ReadonlyArray<unknown> | undefined {
+  if (tweens === undefined) return undefined;
+  if (!Array.isArray(tweens)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Behavior "${name}" tweens must be an array.`,
+      "Each entry is a tween object, or a `$repeat` block producing tweens.",
+    );
+  }
+  for (let i = 0; i < tweens.length; i += 1) {
+    if (!isPlainObject(tweens[i])) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" tweens[${i}] must be an object.`,
+      );
+    }
+  }
+  // Bodies are JSON (library files, MCP arguments) — a structural clone keeps
+  // the registry immune to later mutation by the caller.
+  return JSON.parse(JSON.stringify(tweens)) as ReadonlyArray<unknown>;
+}
+
+/**
+ * `produces` for a body-carrying descriptor, derived rather than trusted. A
+ * `$repeat` block or an interpolated suffix makes the suffix list
+ * param-dependent, so the whole thing reports "dynamic".
+ */
+function deriveProduces(
+  tweens: ReadonlyArray<unknown>,
+): ReadonlyArray<string> | "dynamic" {
+  const out: string[] = [];
+  for (let i = 0; i < tweens.length; i += 1) {
+    const entry = tweens[i];
+    if (isRepeatBlock(entry)) return "dynamic";
+    const suffix = (entry as Record<string, unknown>).suffix;
+    if (typeof suffix === "string" && suffix.length > 0) {
+      if (suffix.includes("${")) return "dynamic";
+      out.push(suffix);
+    } else {
+      out.push(pad(i, tweens.length));
+    }
+  }
+  return out;
+}
+
+function makeTweenBodyExpand(def: BehaviorDescriptor): BehaviorExpand {
+  return (ctx) => expandTweenBodies(def, ctx);
+}
+
+function expandTweenBodies(def: BehaviorDescriptor, ctx: ExpandContext): RawTween[] {
+  const bodies = def.tweens ?? [];
+  const sctx: SubstitutionContext = {
+    params: resolveBehaviorParams(def, ctx.params),
+    meta: {
+      start: ctx.start,
+      duration: ctx.duration,
+      end: ctx.start + ctx.duration,
+      target: ctx.block.target,
+    },
+    paramTypes: Object.fromEntries(def.params.map((p) => [p.name, p.type])),
+  };
+  const path = `behaviors.${def.name}.tweens`;
+  // `$repeat` entries come back already substituted (the repeat expander holds
+  // the loop variable); literal entries still need their own pass — same split
+  // `expandTemplate` uses.
+  const expanded = expandRepeatTweens([...bodies], sctx, path);
+  const out: RawTween[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < expanded.length; i += 1) {
+    const entry = expanded[i] as (typeof expanded)[number];
+    const where = `${path}[${i}]`;
+    const value = entry.generated
+      ? entry.value
+      : substitute(entry.value, sctx, where);
+    out.push(readTweenBody(def.name, value, i, expanded.length, ctx, seen, where));
+  }
+  ensureNoInternalOverlap(def.name, out, ctx.block.target);
+  return out;
+}
+
+function readTweenBody(
+  name: string,
+  value: unknown,
+  index: number,
+  total: number,
+  ctx: ExpandContext,
+  seen: Set<string>,
+  where: string,
+): RawTween {
+  if (!isPlainObject(value)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Behavior "${name}" ${where} must be an object.`,
+    );
+  }
+  const property = value.property;
+  if (typeof property !== "string" || property.length === 0) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Behavior "${name}" ${where} requires a non-empty "property".`,
+      'e.g. "transform.opacity", "transform.x", "tint".',
+    );
+  }
+  const from = readEndpoint(name, where, "from", value.from);
+  const to = readEndpoint(name, where, "to", value.to);
+
+  // Absolute times (§6.6): default `start` is the block's own start, and the
+  // default `duration` runs to the block's end, so the common "fill the
+  // block" tween needs neither field.
+  const blockEnd = ctx.start + ctx.duration;
+  let start = ctx.start;
+  if (value.start !== undefined) {
+    if (typeof value.start !== "number" || !Number.isFinite(value.start)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" ${where} start must be a finite number (absolute time; use \${$.start} as the base).`,
+      );
+    }
+    if (value.start < 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" ${where} start must be non-negative, got ${value.start}.`,
+      );
+    }
+    start = value.start;
+  }
+  let duration = blockEnd - start;
+  if (value.duration !== undefined) {
+    if (typeof value.duration !== "number" || !Number.isFinite(value.duration)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" ${where} duration must be a finite number.`,
+      );
+    }
+    duration = value.duration;
+  }
+  if (duration <= 0) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Behavior "${name}" ${where} resolved to a non-positive duration (${duration}).`,
+      value.duration === undefined
+        ? `The default duration runs from this tween's start to the block end (${blockEnd}); give the tween an explicit duration.`
+        : "Give the tween a positive duration.",
+    );
+  }
+
+  const raw: RawTween = {
+    suffix: readSuffix(name, value.suffix, index, total, seen, where),
+    property,
+    from,
+    to,
+    start,
+    duration,
+  };
+  if (value.target !== undefined) {
+    if (typeof value.target !== "string" || value.target.length === 0) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" ${where} target must be a non-empty string.`,
+      );
+    }
+    raw.target = value.target;
+  }
+  if (value.easing !== undefined) {
+    // Shape check only — names / bezier / steps contents are validated by
+    // TweenSchema once the emitted tweens reach the composition.
+    if (typeof value.easing !== "string" && !isPlainObject(value.easing)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" ${where} easing must be an easing name, { bezier: [x1, y1, x2, y2] } or { steps: n }.`,
+      );
+    }
+    raw.easing = value.easing as Easing;
+  }
+  return raw;
+}
+
+function readEndpoint(
+  name: string,
+  where: string,
+  field: "from" | "to",
+  v: unknown,
+): number | string {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior "${name}" ${where} ${field} must be a finite number.`,
+      );
+    }
+    return v;
+  }
+  if (typeof v === "string" && v.length > 0) return v;
+  throw new MCPToolError(
+    "E_INVALID_VALUE",
+    `Behavior "${name}" ${where} requires "${field}" (a number, or a color string).`,
+  );
+}
+
+function readSuffix(
+  name: string,
+  v: unknown,
+  index: number,
+  total: number,
+  seen: Set<string>,
+  where: string,
+): string {
+  let suffix: string;
+  if (v === undefined) {
+    suffix = pad(index, total);
+  } else if (typeof v === "string" && v.length > 0) {
+    suffix = v;
+  } else {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Behavior "${name}" ${where} suffix must be a non-empty string.`,
+    );
+  }
+  if (seen.has(suffix)) {
+    throw new MCPToolError(
+      "E_DUPLICATE_ID",
+      `Behavior "${name}" emits two tweens with suffix "${suffix}" — ids would collide.`,
+      "Give each tween a distinct `suffix` (inside a `$repeat`, interpolate the loop variable).",
+    );
+  }
+  seen.add(suffix);
+  return suffix;
+}
+
+/**
+ * Catch a body that overlaps itself before the tweens reach the store, where
+ * the same clash would surface as a partially-applied `apply_behavior` (it
+ * rolls back, but the error would name store ids rather than the definition).
+ * Same strict-overlap + OVERLAP_EPS rule the validator and store apply.
+ */
+function ensureNoInternalOverlap(
+  name: string,
+  tweens: RawTween[],
+  blockTarget: string,
+): void {
+  const buckets = new Map<string, RawTween[]>();
+  for (const t of tweens) {
+    const key = `${t.target ?? blockTarget}::${t.property}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(t);
+    else buckets.set(key, [t]);
+  }
+  for (const [key, bucket] of buckets) {
+    if (bucket.length < 2) continue;
+    const sorted = [...bucket].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < sorted.length; i += 1) {
+      const prev = sorted[i - 1] as RawTween;
+      const curr = sorted[i] as RawTween;
+      const prevEnd = prev.start + prev.duration;
+      if (curr.start + OVERLAP_EPS < prevEnd) {
+        throw new MCPToolError(
+          "E_TWEEN_OVERLAP",
+          `Behavior "${name}" emits overlapping tweens on ${key}: ` +
+            `"${prev.suffix}" [${prev.start}, ${prevEnd}] vs "${curr.suffix}" [${curr.start}, ${curr.start + curr.duration}].`,
+          "Two tweens may touch at their endpoints but not intersect — adjust the body's start/duration.",
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Resolve the block's params against the descriptor: supplied value, else
+ * declared default, else E_BEHAVIOR_PARAM_MISSING when required. Optional
+ * params with no default stay unset, so a `${params.X}` that references one
+ * fails with the precise E_TEMPLATE_PARAM_MISSING from `substitute`.
+ */
+function resolveBehaviorParams(
+  def: BehaviorDescriptor,
+  supplied: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const p of def.params) {
+    let v: unknown;
+    if (Object.prototype.hasOwnProperty.call(supplied, p.name)) {
+      v = supplied[p.name];
+    } else if (Object.prototype.hasOwnProperty.call(p, "default")) {
+      v = p.default;
+    } else if (p.required === true) {
+      throw new MCPToolError(
+        "E_BEHAVIOR_PARAM_MISSING",
+        `Behavior "${def.name}" requires param "${p.name}".`,
+      );
+    } else {
+      continue;
+    }
+    if (!matchesBehaviorType(v, p.type)) {
+      throw new MCPToolError(
+        "E_BEHAVIOR_PARAM_TYPE",
+        `Behavior "${def.name}" param "${p.name}" expected ${p.type}, got ${describeParamValue(v)}.`,
+      );
+    }
+    out[p.name] = v;
+  }
+  return out;
+}
+
+function matchesBehaviorType(v: unknown, t: BehaviorParamType): boolean {
+  switch (t) {
+    case "number":
+      return typeof v === "number" && Number.isFinite(v);
+    case "string":
+      return typeof v === "string";
+    case "color":
+      return typeof v === "string" && v.length > 0;
+    case "colorArray":
+      return (
+        Array.isArray(v) && v.every((c) => typeof c === "string" && c.length > 0)
+      );
+    case "axis":
+      return v === "x" || v === "y";
+    default:
+      return false;
+  }
+}
+
+function describeParamValue(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+
 // ──────────────── Built-in behaviors (§6.3) ────────────────
 
 register({
@@ -629,7 +1149,7 @@ register({
   descriptor: {
     name: "kenburns",
     description:
-      "Slow positional drift on the chosen axis plus uniform scale drift — a classic still-frame ken burns.",
+      "Slow positional drift on the chosen axis plus uniform scale drift on both axes — a classic still-frame ken burns.",
     params: [
       { name: "fromScale", type: "number", required: true, description: "Scale at start of move." },
       { name: "toScale", type: "number", required: true, description: "Scale at end of move." },
@@ -655,8 +1175,16 @@ register({
         duration,
       },
       {
-        suffix: "scale",
+        suffix: "scaleX",
         property: "transform.scaleX",
+        from: fromScale,
+        to: toScale,
+        start,
+        duration,
+      },
+      {
+        suffix: "scaleY",
+        property: "transform.scaleY",
         from: fromScale,
         to: toScale,
         start,
@@ -686,7 +1214,6 @@ register({
     const axis = readAxisParam(params, "axis", "shake", "x");
     const center = readNumberParam(params, "center", "shake", 0);
     const segments = cycles * 4; // quarter-waves
-    const seg = duration / segments;
     // 0 → +amp → 0 → -amp → 0   (per cycle)
     const path: number[] = [center];
     for (let c = 0; c < cycles; c += 1) {
@@ -695,6 +1222,7 @@ register({
       path.push(center - amplitude);
       path.push(center);
     }
+    const breakpoints = segmentBreakpoints(start, duration, segments);
     const tweens: RawTween[] = [];
     for (let i = 0; i < segments; i += 1) {
       tweens.push({
@@ -702,8 +1230,8 @@ register({
         property: `transform.${axis}`,
         from: path[i] as number,
         to: path[i + 1] as number,
-        start: start + i * seg,
-        duration: seg,
+        start: breakpoints[i] as number,
+        duration: (breakpoints[i + 1] as number) - (breakpoints[i] as number),
       });
     }
     return tweens;
@@ -725,7 +1253,7 @@ register({
     const colors = requireColorArrayParam(params, "colors", "colorCycle", 2);
     const property = readColorParam(params, "property", "colorCycle", "tint");
     const segments = colors.length - 1;
-    const seg = duration / segments;
+    const breakpoints = segmentBreakpoints(start, duration, segments);
     const tweens: RawTween[] = [];
     for (let i = 0; i < segments; i += 1) {
       tweens.push({
@@ -733,8 +1261,8 @@ register({
         property,
         from: colors[i] as string,
         to: colors[i + 1] as string,
-        start: start + i * seg,
-        duration: seg,
+        start: breakpoints[i] as number,
+        duration: (breakpoints[i + 1] as number) - (breakpoints[i] as number),
       });
     }
     return tweens;

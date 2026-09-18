@@ -183,6 +183,114 @@ test.group('useLibraryDrag · buildCommandsForStageDrop', () => {
   })
 })
 
+test.group('useLibraryDrag · U1/U3 media-type branching', () => {
+  test('video asset dropped on stage → add_video, centred by anchor at drop coords', ({
+    assert,
+  }) => {
+    const payload: LibraryDragPayload = {
+      kind: 'asset',
+      id: 'intro.mp4',
+      name: 'intro.mp4',
+      defaults: {},
+      mediaType: 'video',
+    }
+    const cmds = buildCommandsForStageDrop(payload, {
+      layerId: 'fg',
+      x: 640,
+      y: 360,
+      start: 1.5,
+    })
+    assert.lengthOf(cmds, 1)
+    const cmd = cmds[0]!
+    assert.equal(cmd.kind, 'add_video')
+    assert.equal(cmd.payload.layerId, 'fg')
+    assert.equal(cmd.payload.asset, 'intro.mp4')
+    assert.equal(cmd.payload.x, 640)
+    assert.equal(cmd.payload.y, 360)
+    assert.equal(cmd.payload.anchorX, 0.5)
+    assert.equal(cmd.payload.anchorY, 0.5)
+    assert.equal(cmd.payload.start, 1.5)
+  })
+
+  test('audio asset dropped on stage produces no commands (audio has no stage surface)', ({
+    assert,
+  }) => {
+    const payload: LibraryDragPayload = {
+      kind: 'asset',
+      id: 'voiceover.mp3',
+      name: 'voiceover.mp3',
+      defaults: {},
+      mediaType: 'audio',
+    }
+    const cmds = buildCommandsForStageDrop(payload, { layerId: 'fg', x: 10, y: 10, start: 0 })
+    assert.deepEqual(cmds, [])
+  })
+
+  test('image asset (no mediaType) dropped on stage still yields add_sprite (back-compat)', ({
+    assert,
+  }) => {
+    const payload: LibraryDragPayload = {
+      kind: 'asset',
+      id: 'ball',
+      name: 'Ball',
+      defaults: {},
+      mediaType: 'image',
+    }
+    const cmds = buildCommandsForStageDrop(payload, { layerId: 'fg', x: 5, y: 5, start: 0 })
+    assert.lengthOf(cmds, 1)
+    assert.equal(cmds[0]!.kind, 'add_sprite')
+  })
+
+  test('audio asset dropped on a timeline track/new-track → add_audio_track', ({ assert }) => {
+    const payload: LibraryDragPayload = {
+      kind: 'asset',
+      id: 'music.wav',
+      name: 'music.wav',
+      defaults: {},
+      mediaType: 'audio',
+    }
+    const onRow = buildCommandsForTrackDrop(payload, {
+      targetItemId: 'irrelevant',
+      defaultLayerId: 'fg',
+      start: 2,
+    })
+    assert.lengthOf(onRow, 1)
+    assert.equal(onRow[0]!.kind, 'add_audio_track')
+    assert.equal(onRow[0]!.payload.asset, 'music.wav')
+    assert.equal(onRow[0]!.payload.start, 2)
+
+    const onNewTrack = buildCommandsForNewTrackDrop(payload, { layerId: 'fg', start: 3 })
+    assert.lengthOf(onNewTrack, 1)
+    assert.equal(onNewTrack[0]!.kind, 'add_audio_track')
+    assert.equal(onNewTrack[0]!.payload.start, 3)
+  })
+
+  test('video/image asset dropped on a timeline track yields no commands', ({ assert }) => {
+    const video: LibraryDragPayload = {
+      kind: 'asset',
+      id: 'clip.mp4',
+      name: 'clip.mp4',
+      defaults: {},
+      mediaType: 'video',
+    }
+    assert.deepEqual(
+      buildCommandsForTrackDrop(video, { targetItemId: 'x', defaultLayerId: 'fg', start: 0 }),
+      [],
+    )
+    const image: LibraryDragPayload = {
+      kind: 'asset',
+      id: 'ball',
+      name: 'ball',
+      defaults: {},
+      mediaType: 'image',
+    }
+    assert.deepEqual(
+      buildCommandsForTrackDrop(image, { targetItemId: 'x', defaultLayerId: 'fg', start: 0 }),
+      [],
+    )
+  })
+})
+
 test.group('useLibraryDrag · brand defaults resolution', () => {
   test('LibraryItem with required string param without default falls back to item.name', async ({
     assert,

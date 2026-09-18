@@ -1,7 +1,8 @@
 import { createReadStream } from 'node:fs'
 import { promises as fs } from 'node:fs'
-import { normalize, relative, resolve } from 'node:path'
+import { join, normalize, relative, resolve } from 'node:path'
 import type { HttpContext } from '@adonisjs/core/http'
+import { bundledFileName, bundledFontsDir } from 'davidup/assets'
 import projectStore from '#services/project_store'
 import globalLibraryRoot from '#services/global_library_root'
 
@@ -152,6 +153,32 @@ export default class EditorController {
       })
     }
     return response.ok(source)
+  }
+
+  /**
+   * GET /bundled-fonts/:file — stream a font that ships inside the davidup
+   * package (the `font:default` Inter Regular, R-30). The browser asset
+   * loader maps `bundled:<file>` srcs here. Only plain file names are
+   * accepted, so nothing outside the package's `fonts/` is reachable.
+   */
+  async bundledFont({ params, response }: HttpContext) {
+    const name = bundledFileName(`bundled:${String(params.file ?? '')}`)
+    if (name === undefined) {
+      return response.badRequest({
+        error: { code: 'E_INVALID_PATH', message: 'Expected a bare font file name' },
+      })
+    }
+    const target = join(bundledFontsDir(), name)
+    const stat = await fs.stat(target).catch(() => null)
+    if (!stat || !stat.isFile()) {
+      return response.notFound({
+        error: { code: 'E_FILE_NOT_FOUND', message: `Not found: ${name}` },
+      })
+    }
+    response.header('content-length', String(stat.size))
+    response.header('cache-control', 'public, max-age=86400')
+    response.type(extToContentType(target))
+    return response.stream(createReadStream(target))
   }
 
   /**

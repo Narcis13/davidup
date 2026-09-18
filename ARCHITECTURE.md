@@ -35,7 +35,7 @@
     - 8.3 [JSON pointer & imports](#83-json-pointer--imports-ref)
     - 8.4 [Params](#84-params-token-substitution)
     - 8.5 [Templates](#85-templates)
-    - 8.6 [Scenes (v0.4)](#86-scenes-v04)
+    - 8.6 [Scenes](#86-scenes)
     - 8.7 [Behaviors](#87-behaviors)
 9. [The MCP layer (`src/mcp`)](#9-the-mcp-layer)
 10. [End-to-end data flow](#10-end-to-end-data-flow)
@@ -344,9 +344,11 @@ interface Canvas2DContext {
 
 ### 5.1 Easings (`src/easings`)
 
-19 named easings, all canonical easings.net formulas. Hard invariant for
-each: `f(0) === 0` and `f(1) === 1` (back-easings overshoot in the middle
-but hit endpoints exactly). Default is `linear`.
+19 named easings, all canonical easings.net formulas, plus two parametric
+object forms (v1.1): `{ bezier: [x1, y1, x2, y2] }` (CSS cubic-bezier) and
+`{ steps: n }` (CSS steps(n), jump-end). Hard invariant for each:
+`f(0) === 0` and `f(1) === 1` (back-easings and overshooting beziers leave
+[0, 1] in the middle but hit endpoints exactly). Default is `linear`.
 
 ```
 linear
@@ -355,8 +357,13 @@ easeInQuart/Out/InOut         easeInBack/Out/InOut        (overshoots)
 easeInSine/Out/InOut          easeInExpo/Out/InOut        (edge-cased at 0/1)
 ```
 
-`getEasing(name | undefined): (t: number) => number` is the only entry
-point the resolver uses.
+`getEasing(easing | undefined): (t: number) => number` is the only entry
+point the resolver uses. `cubicBezier(x1, y1, x2, y2)` solves x(s) = t with
+Newton–Raphson and a bisection fallback, the same method browsers use, with
+only + − × ÷ so node and browser agree; the closed-form cube-root solution
+would need `cbrt`/`acos`, whose last bits can differ between JS engines.
+`steps(n)` is `floor(t·n)/n`. Nothing is cached: a closure is built per
+call.
 
 ### 5.2 Color (`src/color`)
 
@@ -744,7 +751,7 @@ Each emits items at rest with `opacity: 0` and applies entry tweens. Arithmetic
 on params (e.g., `y + 80`) is **resolved by the caller**, not in placeholder
 strings — keeps templates declarative.
 
-### 8.6 Scenes (v0.4)
+### 8.6 Scenes
 
 A scene is a **self-contained mini-composition**: own duration, own
 items, own tweens, own assets, own parameters. Conceptually equivalent
@@ -802,11 +809,32 @@ recursion (`drawGroupChildren`) handles transform composition
 automatically — moving, scaling, or fading the wrapper group cascades to
 every inner item without any new engine code.
 
-#### Time mapping: identity only (v0.4)
+#### Time mapping
 
-Scene-local `t = 0` plays at parent `instance.start`. Every scene tween
-shifts by the same delta. There is **no** clipping, looping, time-scaling,
-or reversing in v0.4 — those are reserved for v0.5.
+`SceneInstance.time` selects one of four shipped modes (validated and
+applied in `src/compose/scenes.ts`):
+
+- `identity` (default) — scene-local `t = 0` plays at `instance.start`;
+  every scene tween shifts by the same delta.
+- `clip { fromTime, toTime, strict? }` — plays the half-open scene-local
+  window; tweens fully outside are dropped, and a tween straddling an edge is
+  trimmed to the window with its `from`/`to` resampled through its own easing
+  at the cut (`strict: true` rejects it with `E_TIME_MAPPING_TWEEN_SPLIT`
+  instead, the pre-v4 behavior).
+- `loop { count }` — plays the scene `count` times back-to-back, each
+  iteration with deterministic `__loop${i}` id suffixes.
+- `timeScale { scale }` — plays the scene at `scale×` speed (`scale > 0`).
+- `reverse {}` — plays the scene backwards. A tween on `[s, s+d)` lands on
+  `[duration − (s+d), duration − s)` with `from`/`to` swapped and its easing
+  mirrored (`easeIn* ↔ easeOut*`, exact for every name and for
+  cubic-bezier), so the motion retraces itself rather than replaying its
+  acceleration backwards.
+
+`clip` auto-trim and `reverse` need concrete `from`/`to` values, so both
+lower the `$behavior` blocks they touch into literal tweens early, via the
+same `expandBehavior` the later pass uses. Every other mode leaves blocks
+alone. The wrapper group's default `enter`/`exit` spans the mode's effective
+duration (see CHANGELOG "Expansion v3").
 
 #### Sealed instances (§8.7)
 
@@ -1027,7 +1055,7 @@ substring-matching `message`.
 | `list_templates`        | no       | Enumerate built-in + user-defined                          |
 | `define_user_template`  | yes      | Register custom template (global registry, last-write-wins)|
 
-#### Scenes (composability, v0.4)
+#### Scenes (composability)
 
 | Tool                     | Mutates? | Purpose                                                                |
 |--------------------------|----------|------------------------------------------------------------------------|
@@ -1193,7 +1221,14 @@ is bit-deterministic.
 | `E_VALUE_KIND`                    | validator           | from/to type mismatch (number vs color)                    |
 | `E_TWEEN_OVERLAP`                 | validator / store   | two tweens on same (target,property) overlap               |
 | `E_GROUP_CYCLE`                   | validator           | cycle in group containment                                 |
+| `E_DIMENSION_ODD`                 | validator / MCP     | composition width or height is odd (libx264 + yuv420p needs even) |
+| `W_DIMENSION_LARGE`               | validator (warning) | composition width or height exceeds 4096px                 |
 | `W_TWEEN_TRUNCATED`               | validator (warning) | tween extends past composition.duration                    |
+| `W_ITEM_INVISIBLE_OPACITY`        | validator (warning) | item/ancestor group/layer opacity is 0 for the whole run, untweened |
+| `W_ITEM_OFF_CANVAS`               | validator (warning) | item's full range of motion never overlaps the canvas rect  |
+| `W_FONT_UNREGISTERED`             | validator (warning) | text.font doesn't resolve to a registered font asset (host-dependent fallback at render) |
+| `W_SCENE_INSTANCE_OUTLIVES`       | validator (warning) | scene-instance wrapper group stays visible well past its content's last tween |
+| `W_VIDEO_NO_AUDIO_STREAM`         | validator (warning) | video item sets `keepAudio` but its asset was probed with no audio stream |
 | `E_NO_COMPOSITION`                | store / dispatch    | no default composition; pass `compositionId`               |
 | `E_DUPLICATE_ID`                  | store               | id already in use                                          |
 | `E_NOT_FOUND`                     | store               | entity (item/layer/asset/tween) does not exist             |

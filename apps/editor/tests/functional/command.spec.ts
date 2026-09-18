@@ -11,7 +11,7 @@ import commandBus, {
   CommandValidationError,
   PostValidationError,
 } from '#services/command_bus'
-import type { Command } from '#types/commands'
+import { CommandSchema, type Command } from '#types/commands'
 
 const BASE_COMP = {
   version: '0.1',
@@ -211,6 +211,506 @@ test.group('applyCommand · pure', () => {
     const a = await applyCommand(cloneComp(), cmd)
     const b = await applyCommand(cloneComp(), cmd)
     assert.equal(JSON.stringify(a), JSON.stringify(b))
+  })
+})
+
+// ──────────────── U2/U4 — editor UI's audio/video command round trip ────────────────
+//
+// The engine's own MCP test suite (tests/mcp/audioTracks.test.ts,
+// videoItems.test.ts) covers `add_video`/`add_audio_track` at the tool
+// layer. This exercises the SAME commands through the editor's
+// `applyCommand` dispatch — the code path the Inspector/Timeline/ItemToolbar
+// UI added in this session actually calls — so a regression in the dual
+// `commands.ts` schema or the COMMAND_TO_TOOL wiring fails here even if the
+// engine-level tests stay green.
+
+function compWithMedia() {
+  const c = cloneComp()
+  c.assets.push(
+    { id: 'clip', type: 'video', src: './clip.mp4', duration: 5, width: 1280, height: 720, fps: 30 },
+    { id: 'voice', type: 'audio', src: './voice.mp3', duration: 8 },
+  )
+  return c
+}
+
+test.group('applyCommand · video items (U4)', () => {
+  test('add_video + update_video round-trip', async ({ assert }) => {
+    const a = await applyCommand(compWithMedia(), {
+      kind: 'add_video',
+      payload: {
+        layerId: 'fg',
+        asset: 'clip',
+        x: 640,
+        y: 360,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        id: 'clip1',
+      },
+      source: 'ui',
+    })
+    const item = a.items.clip1 as { type: string; fit: string; loop: boolean; asset: string }
+    assert.equal(item.type, 'video')
+    assert.equal(item.asset, 'clip')
+    // Engine defaults (v0.2-plan S9): fit → contain, loop → false.
+    assert.equal(item.fit, 'contain')
+    assert.equal(item.loop, false)
+    assert.include(a.layers[0].items, 'clip1')
+
+    const b = await applyCommand(a, {
+      kind: 'update_video',
+      payload: { id: 'clip1', props: { trimIn: 0, trimOut: 5, fit: 'cover', loop: true } },
+      source: 'ui',
+    })
+    const updated = b.items.clip1 as {
+      trimIn: number
+      trimOut: number
+      fit: string
+      loop: boolean
+    }
+    assert.equal(updated.trimIn, 0)
+    assert.equal(updated.trimOut, 5)
+    assert.equal(updated.fit, 'cover')
+    assert.equal(updated.loop, true)
+  })
+
+  test('keepAudio survives add_video + update_video (v1.1 S11 dual schema)', async ({ assert }) => {
+    const a = await applyCommand(compWithMedia(), {
+      kind: 'add_video',
+      payload: { layerId: 'fg', asset: 'clip', x: 0, y: 0, id: 'clip1', keepAudio: true },
+      source: 'ui',
+    })
+    assert.equal((a.items.clip1 as { keepAudio?: boolean }).keepAudio, true)
+
+    const b = await applyCommand(a, {
+      kind: 'update_video',
+      payload: { id: 'clip1', props: { keepAudio: false } },
+      source: 'ui',
+    })
+    assert.equal((b.items.clip1 as { keepAudio?: boolean }).keepAudio, false)
+  })
+
+  test('add_video rejects an unregistered asset id', async ({ assert }) => {
+    await assert.rejects(() =>
+      applyCommand(compWithMedia(), {
+        kind: 'add_video',
+        payload: { layerId: 'fg', asset: 'does-not-exist', x: 0, y: 0 },
+        source: 'ui',
+      }),
+    )
+  })
+})
+
+test.group('applyCommand · audio tracks (U2)', () => {
+  test('add_audio_track + update_audio_track + remove_audio_track round-trip', async ({
+    assert,
+  }) => {
+    const a = await applyCommand(compWithMedia(), {
+      kind: 'add_audio_track',
+      payload: { asset: 'voice', start: 0.5, id: 'vo1' },
+      source: 'ui',
+    })
+    const audio = (a as { audio?: ReadonlyArray<{ id: string; asset: string; start: number }> }).audio
+    assert.exists(audio)
+    assert.lengthOf(audio!, 1)
+    assert.equal(audio![0]!.id, 'vo1')
+    assert.equal(audio![0]!.asset, 'voice')
+    assert.equal(audio![0]!.start, 0.5)
+
+    const b = await applyCommand(a, {
+      kind: 'update_audio_track',
+      payload: { id: 'vo1', props: { volume: 0, fadeIn: 0.2 } },
+      source: 'ui',
+    })
+    const bAudio = (b as { audio?: ReadonlyArray<{ id: string; volume?: number; fadeIn?: number }> }).audio
+    assert.equal(bAudio![0]!.volume, 0)
+    assert.equal(bAudio![0]!.fadeIn, 0.2)
+
+    const c = await applyCommand(b, {
+      kind: 'remove_audio_track',
+      payload: { id: 'vo1' },
+      source: 'ui',
+    })
+    const cAudio = (c as { audio?: ReadonlyArray<unknown> }).audio
+    assert.lengthOf(cAudio ?? [], 0)
+  })
+})
+
+test.group('applyCommand · audio loop + master bus (v1.1 S10)', () => {
+  // Parse through the dual schema first, exactly as the command bus does — a
+  // field missing from commands.ts would be stripped here.
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  test('`loop` survives the dual schema on add and update', async ({ assert }) => {
+    const a = await applyCommand(
+      compWithMedia(),
+      parsed({
+        kind: 'add_audio_track',
+        payload: { asset: 'voice', start: 0, id: 'bed', loop: true },
+        source: 'ui',
+      })
+    )
+    const aAudio = (a as { audio?: ReadonlyArray<{ loop?: boolean }> }).audio
+    assert.equal(aAudio![0]!.loop, true)
+
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'update_audio_track',
+        payload: { id: 'bed', props: { loop: false } },
+        source: 'ui',
+      })
+    )
+    const bAudio = (b as { audio?: ReadonlyArray<{ loop?: boolean }> }).audio
+    assert.equal(bAudio![0]!.loop, false)
+  })
+
+  test('audioMaster set via set_composition_property persists across hydration', async ({
+    assert,
+  }) => {
+    const a = await applyCommand(
+      compWithMedia(),
+      parsed({
+        kind: 'set_composition_property',
+        payload: { property: 'audioMaster', value: { limiter: false, targetLufs: -16 } },
+        source: 'ui',
+      })
+    )
+    assert.deepEqual(a.composition.audioMaster, { limiter: false, targetLufs: -16 })
+
+    // Any later command rehydrates from JSON — audioMaster must not be dropped.
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'set_composition_property',
+        payload: { property: 'duration', value: 4 },
+        source: 'ui',
+      })
+    )
+    assert.deepEqual(b.composition.audioMaster, { limiter: false, targetLufs: -16 })
+
+    const c = await applyCommand(
+      b,
+      parsed({
+        kind: 'set_composition_property',
+        payload: { property: 'audioMaster', value: null },
+        source: 'ui',
+      })
+    )
+    assert.notProperty(c.composition, 'audioMaster')
+  })
+
+  test('dual schema rejects an out-of-range targetLufs', async ({ assert }) => {
+    assert.isFalse(
+      CommandSchema.safeParse({
+        kind: 'set_composition_property',
+        payload: { property: 'audioMaster', value: { targetLufs: 2 } },
+        source: 'ui',
+      }).success
+    )
+  })
+})
+
+test.group('applyCommand · text v2 fields (v1.1 S14)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  const V2 = {
+    maxWidth: 400,
+    lineHeight: 1.4,
+    letterSpacing: 2,
+    fontWeight: 700,
+    fontStyle: 'italic',
+    strokeColor: '#000000',
+    strokeWidth: 3,
+    shadow: { color: '#00000080', blur: 6, offsetX: 2, offsetY: 4 },
+  }
+
+  function compWithFont() {
+    const comp = cloneComp()
+    comp.assets = [{ id: 'f', type: 'font', src: 'f.ttf', family: 'F' }]
+    return comp
+  }
+
+  test('add_text keeps every text v2 field through the dual schema', async ({ assert }) => {
+    const next = await applyCommand(
+      compWithFont(),
+      parsed({
+        kind: 'add_text',
+        payload: {
+          layerId: 'fg',
+          id: 'title',
+          text: 'Ship faster.\nBreak nothing.',
+          font: 'f',
+          fontSize: 48,
+          color: '#ffffff',
+          x: 100,
+          y: 100,
+          ...V2,
+        },
+        source: 'ui',
+      })
+    )
+    const title = next.items.title as Record<string, unknown>
+    for (const [key, value] of Object.entries(V2)) {
+      assert.deepEqual(title[key], value, key)
+    }
+  })
+
+  test('update_item patches text v2 fields and survives rehydration', async ({ assert }) => {
+    const a = await applyCommand(
+      compWithFont(),
+      parsed({
+        kind: 'add_text',
+        payload: { layerId: 'fg', id: 't', text: 'hi', font: 'f', fontSize: 24, color: '#fff', x: 0, y: 0 },
+        source: 'ui',
+      })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({ kind: 'update_item', payload: { id: 't', props: V2 }, source: 'ui' })
+    )
+    // An unrelated command rehydrates the store from JSON — nothing is dropped.
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { x: 10 } }, source: 'ui' })
+    )
+    const t = c.items.t as Record<string, unknown>
+    for (const [key, value] of Object.entries(V2)) {
+      assert.deepEqual(t[key], value, key)
+    }
+  })
+
+  test('null clears maxWidth and shadow', async ({ assert }) => {
+    const a = await applyCommand(
+      compWithFont(),
+      parsed({
+        kind: 'add_text',
+        payload: { layerId: 'fg', id: 't', text: 'hi', font: 'f', fontSize: 24, color: '#fff', x: 0, y: 0, ...V2 },
+        source: 'ui',
+      })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'update_item',
+        payload: { id: 't', props: { maxWidth: null, shadow: null } },
+        source: 'ui',
+      })
+    )
+    const t = b.items.t as Record<string, unknown>
+    assert.notProperty(t, 'maxWidth')
+    assert.notProperty(t, 'shadow')
+    assert.equal(t.strokeWidth, 3)
+  })
+
+  test('dual schema rejects invalid text v2 values', async ({ assert }) => {
+    for (const props of [{ maxWidth: 0 }, { fontWeight: 1001 }, { fontStyle: 'slanted' }, { shadow: { blur: 1 } }]) {
+      assert.isFalse(
+        CommandSchema.safeParse({ kind: 'update_item', payload: { id: 't', props }, source: 'ui' })
+          .success,
+        JSON.stringify(props)
+      )
+    }
+  })
+})
+
+test.group('applyCommand · parametric easings (v1.1 S17)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+  const EASE = { bezier: [0.25, 0.1, 0.25, 1] }
+
+  test('add_tween keeps { bezier } and update_tween swaps to { steps }, surviving rehydration', async ({
+    assert,
+  }) => {
+    const a = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'add_tween',
+        payload: {
+          id: 'move',
+          target: 'logo',
+          property: 'transform.x',
+          from: 0,
+          to: 400,
+          start: 0,
+          duration: 1,
+          easing: EASE,
+        },
+        source: 'ui',
+      })
+    )
+    assert.deepEqual(a.tweens[0].easing, EASE)
+
+    const b = await applyCommand(
+      a,
+      parsed({ kind: 'update_tween', payload: { id: 'move', props: { easing: { steps: 4 } } }, source: 'ui' })
+    )
+    assert.deepEqual(b.tweens[0].easing, { steps: 4 })
+
+    // An unrelated command rehydrates the store from JSON — the object easing stays.
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { y: 10 } }, source: 'ui' })
+    )
+    assert.deepEqual(c.tweens[0].easing, { steps: 4 })
+  })
+
+  test('apply_behavior forwards an object easing to every emitted tween', async ({ assert }) => {
+    const next = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'apply_behavior',
+        payload: { target: 'logo', behavior: 'popIn', start: 0, duration: 1, easing: EASE },
+        source: 'ui',
+      })
+    )
+    assert.lengthOf(next.tweens, 3)
+    for (const t of next.tweens) assert.deepEqual(t.easing, EASE)
+  })
+
+  test('dual schema rejects malformed easings', async ({ assert }) => {
+    for (const easing of [
+      'easeBogus',
+      { bezier: [1.5, 0, 0.5, 1] },
+      { bezier: [0.25, 0.1, 0.25] },
+      { steps: 0 },
+      { steps: 2.5 },
+      { bezier: [0.25, 0.1, 0.25, 1], steps: 2 },
+    ]) {
+      assert.isFalse(
+        CommandSchema.safeParse({
+          kind: 'update_tween',
+          payload: { id: 'move', props: { easing } },
+          source: 'ui',
+        }).success,
+        JSON.stringify(easing)
+      )
+    }
+  })
+})
+
+test.group('applyCommand · group compositing (v1.1 S18)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  // `isolate` / `blendMode` are the dual-schema risk here: the command bus
+  // strips anything the UI-side schema doesn't declare, so a group saved from
+  // the Inspector would silently lose them.
+  test('add_group carries isolate + blendMode through the dual schema', async ({ assert }) => {
+    const next = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'add_group',
+        payload: {
+          layerId: 'fg',
+          id: 'g',
+          x: 0,
+          y: 0,
+          childItemIds: ['logo'],
+          isolate: true,
+          blendMode: 'multiply',
+        },
+        source: 'ui',
+      })
+    )
+    const group = next.items.g as Record<string, unknown>
+    assert.equal(group.isolate, true)
+    assert.equal(group.blendMode, 'multiply')
+  })
+
+  test('update_item toggles both and survives rehydration', async ({ assert }) => {
+    const a = await applyCommand(
+      cloneComp(),
+      parsed({
+        kind: 'add_group',
+        payload: { layerId: 'fg', id: 'g', x: 0, y: 0, childItemIds: ['logo'] },
+        source: 'ui',
+      })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({
+        kind: 'update_item',
+        payload: { id: 'g', props: { isolate: true, blendMode: 'screen' } },
+        source: 'ui',
+      })
+    )
+    // An unrelated command rehydrates the store from JSON — nothing is dropped.
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'g', props: { x: 10 } }, source: 'ui' })
+    )
+    const group = c.items.g as Record<string, unknown>
+    assert.equal(group.isolate, true)
+    assert.equal(group.blendMode, 'screen')
+
+    // Defaults clear the fields rather than storing a no-op override.
+    const d = await applyCommand(
+      c,
+      parsed({
+        kind: 'update_item',
+        payload: { id: 'g', props: { isolate: false, blendMode: 'normal' } },
+        source: 'ui',
+      })
+    )
+    const cleared = d.items.g as Record<string, unknown>
+    assert.notProperty(cleared, 'isolate')
+    assert.notProperty(cleared, 'blendMode')
+  })
+
+  test('dual schema rejects a blendMode that is not a Canvas2D operator', async ({ assert }) => {
+    assert.isFalse(
+      CommandSchema.safeParse({
+        kind: 'update_item',
+        payload: { id: 'g', props: { blendMode: 'divide' } },
+        source: 'ui',
+      }).success
+    )
+  })
+})
+
+test.group('applyCommand · effects (v1.1 S21)', () => {
+  const parsed = (cmd: unknown) => CommandSchema.parse(cmd) as Command
+
+  // `effects` is the dual-schema risk: the bus strips undeclared props, so an
+  // Inspector edit would silently drop the stack.
+  test('update_item carries an effects stack through the dual schema and survives rehydration', async ({
+    assert,
+  }) => {
+    const effects = [
+      { type: 'blur', radius: 3 },
+      { type: 'shadow', color: '#000000', blur: 8, offsetX: 2, offsetY: 4 },
+      { type: 'glow', color: '#40c8ff', radius: 6 },
+    ]
+    const a = await applyCommand(
+      cloneComp(),
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { effects } }, source: 'ui' })
+    )
+    const b = await applyCommand(
+      a,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { x: 10 } }, source: 'ui' })
+    )
+    assert.deepEqual((b.items.logo as Record<string, unknown>).effects, effects)
+
+    const c = await applyCommand(
+      b,
+      parsed({ kind: 'update_item', payload: { id: 'logo', props: { effects: null } }, source: 'ui' })
+    )
+    assert.notProperty(c.items.logo as Record<string, unknown>, 'effects')
+  })
+
+  test('dual schema rejects malformed effects', async ({ assert }) => {
+    for (const bad of [
+      [{ type: 'blur', radius: -1 }],
+      [{ type: 'glow', radius: 4 }],
+      [{ type: 'sepia', amount: 1 }],
+    ]) {
+      assert.isFalse(
+        CommandSchema.safeParse({
+          kind: 'update_item',
+          payload: { id: 'logo', props: { effects: bad } },
+          source: 'ui',
+        }).success,
+        JSON.stringify(bad)
+      )
+    }
   })
 })
 

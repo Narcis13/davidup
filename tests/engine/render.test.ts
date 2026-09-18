@@ -75,6 +75,16 @@ describe("renderFrame — background", () => {
       expect(firstFill.composite).toBe("source-over");
     }
   });
+
+  it('"transparent" clears instead of filling (v1.1 S9 alpha export)', () => {
+    const ctx = new FakeContext();
+    const comp = compWith({}, []);
+    comp.composition.background = "transparent";
+    renderFrame(comp, 0, ctx);
+    expect(ctx.calls.some((c) => c.op === "fillRect")).toBe(false);
+    const clear = ctx.calls.find((c) => c.op === "clearRect");
+    expect(clear).toMatchObject({ x: 0, y: 0, w: 200, h: 100 });
+  });
 });
 
 describe("renderFrame — layer ordering", () => {
@@ -269,11 +279,13 @@ describe("drawItem — sprite", () => {
     }
   });
 
-  it("tints via offscreen multiply + destination-in, then composites to main ctx", () => {
-    // Pre-fix tint used `source-atop` + solid fillRect on the main ctx, which
-    // *replaced* the image's RGB with a flat colour and erased the texture.
-    // The fix moves tinting onto a scratch surface and uses `multiply` so the
-    // sprite's luminance survives.
+  it("tints via an offscreen source-atop fill, then composites to main ctx", () => {
+    // Shipping algorithm (render.ts drawSprite): draw the image onto a
+    // scratch surface, then fillRect the tint colour with `source-atop` so
+    // the image's own alpha clips the fill. The earlier multiply +
+    // destination-in variant double-counted source alpha on semi-transparent
+    // PNGs (E2). Trade-off: flat tint over the silhouette rather than a
+    // luminance-preserving multiply — that's intentional.
     const ctx = new FakeContext();
     const offCtx = new FakeContext();
     const offSource = { __offscreen: true };
@@ -312,50 +324,39 @@ describe("drawItem — sprite", () => {
 
     expect(lastSize).toEqual({ w: 200, h: 100 });
 
-    // Offscreen sequence: drawImage → multiply fillRect → destination-in drawImage.
+    // Offscreen sequence: base drawImage → source-atop fillRect.
     const offDrawImages = offCtx.calls.filter((c) => c.op === "drawImage");
-    const offMultiplyFill = offCtx.calls.find(
-      (c) => c.op === "fillRect" && c.composite === "multiply",
-    );
-    const offMaskDraw = offCtx.calls.find(
-      (c) => c.op === "drawImage" && c.alpha !== undefined,
-    );
-    expect(offDrawImages.length).toBe(2); // base image + alpha re-mask
-    expect(offMultiplyFill).toBeDefined();
-    if (offMultiplyFill && offMultiplyFill.op === "fillRect") {
-      expect(offMultiplyFill.fillStyle).toBe("#ff00aa");
-      expect(offMultiplyFill.w).toBe(200);
-      expect(offMultiplyFill.h).toBe(100);
+    expect(offDrawImages.length).toBe(1);
+    if (offDrawImages[0] && offDrawImages[0].op === "drawImage") {
+      expect(offDrawImages[0].image).toEqual({ __image: "logo" });
+      expect(offDrawImages[0].dw).toBe(200);
+      expect(offDrawImages[0].dh).toBe(100);
     }
-    expect(offMaskDraw).toBeDefined();
+    const offAtopFill = offCtx.calls.find(
+      (c) => c.op === "fillRect" && c.composite === "source-atop",
+    );
+    expect(offAtopFill).toBeDefined();
+    if (offAtopFill && offAtopFill.op === "fillRect") {
+      expect(offAtopFill.fillStyle).toBe("#ff00aa");
+      expect(offAtopFill.w).toBe(200);
+      expect(offAtopFill.h).toBe(100);
+    }
 
-    // The offscreen ops must be in the right order for the multiply+mask trick.
+    // The fill must land on top of the image for source-atop to clip it.
     const idxImage = offCtx.calls.findIndex((c) => c.op === "drawImage");
-    const idxMultiply = offCtx.calls.findIndex(
-      (c) => c.op === "fillRect" && c.composite === "multiply",
+    const idxAtop = offCtx.calls.findIndex(
+      (c) => c.op === "fillRect" && c.composite === "source-atop",
     );
-    const lastDraw = offCtx.calls
-      .map((c, i) => ({ c, i }))
-      .filter((x) => x.c.op === "drawImage")
-      .pop();
-    expect(idxMultiply).toBeGreaterThan(idxImage);
-    expect(lastDraw && lastDraw.i).toBeGreaterThan(idxMultiply);
-    const maskCall = lastDraw?.c;
-    if (maskCall && maskCall.op === "drawImage") {
-      // The mask drawImage runs while compositeOperation is "destination-in".
-      // FakeContext doesn't snapshot composite on drawImage, but we can prove
-      // it via the explicit composite-state set right before it: search backwards.
-      // Simpler: the second drawImage must reuse the same image as the first.
-      expect(maskCall.image).toEqual({ __image: "logo" });
-    }
+    expect(idxAtop).toBeGreaterThan(idxImage);
 
-    // The MAIN context must NOT show the legacy source-atop fillRect, and must
-    // composite the offscreen surface as its single sprite-level drawImage.
-    expect(
-      ctx.calls.some(
-        (c) => c.op === "fillRect" && c.composite === "source-atop",
-      ),
-    ).toBe(false);
+    // Composite state is restored so a reused offscreen doesn't leak
+    // source-atop into other code paths.
+    expect(offCtx.globalCompositeOperation).toBe("source-over");
+
+    // The MAIN context must not tint directly (no fillRect at all for this
+    // sprite) and must composite the offscreen surface as its single
+    // sprite-level drawImage.
+    expect(ctx.calls.some((c) => c.op === "fillRect")).toBe(false);
     const mainDraws = ctx.calls.filter((c) => c.op === "drawImage");
     expect(mainDraws.length).toBe(1);
     if (mainDraws[0] && mainDraws[0].op === "drawImage") {
@@ -572,6 +573,110 @@ describe("drawItem — text", () => {
       expect(ft.font).toContain("fallback-id");
       expect(ft.textAlign).toBe("left");
     }
+  });
+});
+
+describe("drawItem — text v2", () => {
+  function v2(overrides: Partial<TextItem> = {}, anchor: [number, number] = [0, 0]): TextItem {
+    return {
+      type: "text",
+      text: "Hi",
+      font: "inter",
+      fontSize: 20,
+      color: "#ffffff",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: anchor[0],
+        anchorY: anchor[1],
+        opacity: 0.5,
+      },
+      ...overrides,
+    };
+  }
+  function draw(item: TextItem): FakeContext {
+    const ctx = new FakeContext();
+    const scene: ResolvedScene = {
+      composition: { width: 1, height: 1, fps: 1, duration: 1, background: "#000" },
+      layers: [],
+      items: { t: item },
+    };
+    drawItem(ctx, item, scene, stubAssets);
+    return ctx;
+  }
+  const fills = (ctx: FakeContext) =>
+    ctx.calls.flatMap((c) => (c.op === "fillText" ? [c] : []));
+
+  it("legacy single line: one fillText at the origin, no translate for the anchor", () => {
+    const ctx = draw(v2({ align: "center" }));
+    expect(ctx.calls.filter((c) => c.op === "translate")).toHaveLength(1);
+    const [ft] = fills(ctx);
+    expect([ft!.x, ft!.y, ft!.textAlign, ft!.font]).toEqual([0, 0, "center", '20px "Inter"']);
+  });
+
+  it("point mode draws one fillText per line break", () => {
+    const ctx = draw(v2({ text: "a\nbb\nccc", lineHeight: 1.5 }));
+    expect(fills(ctx).map((c) => [c.text, c.y])).toEqual([
+      ["a", 0],
+      ["bb", 30],
+      ["ccc", 60],
+    ]);
+  });
+
+  it("box mode wraps, aligns explicitly and translates by the measured anchor box", () => {
+    const ctx = draw(v2({ text: "aa bb cc", maxWidth: 60, align: "center" }, [0.5, 1]));
+    // 2 lines × 24 = 48 tall, 60 wide (FakeContext: 10px per code point).
+    const translates = ctx.calls.filter((c) => c.op === "translate");
+    expect(translates.at(-1)).toEqual({ op: "translate", x: -30, y: -48 });
+    expect(fills(ctx).map((c) => [c.text, c.x, c.y, c.textAlign])).toEqual([
+      ["aa bb", 5, 16, "left"],
+      ["cc", 20, 40, "left"],
+    ]);
+  });
+
+  it("applies weight, style and letterSpacing", () => {
+    const [ft] = fills(draw(v2({ fontWeight: "bold", fontStyle: "italic", letterSpacing: 2 })));
+    expect(ft!.font).toBe('italic bold 20px "Inter"');
+    expect(ft!.letterSpacing).toBe("2px");
+  });
+
+  it("fill carries the shadow; the stroke draws over it without one, at the same alpha", () => {
+    const ctx = draw(
+      v2({
+        strokeColor: "#000000",
+        strokeWidth: 3,
+        shadow: { color: "rgba(0,0,0,0.5)", blur: 6, offsetX: 2, offsetY: 4 },
+      }),
+    );
+    const ops = ctx.calls.map((c) => c.op).filter((o) => o.endsWith("Text"));
+    expect(ops).toEqual(["fillText", "strokeText"]);
+    const [ft] = fills(ctx);
+    expect([ft!.shadowColor, ft!.shadowBlur, ft!.shadowOffsetX, ft!.shadowOffsetY]).toEqual([
+      "rgba(0,0,0,0.5)",
+      6,
+      2,
+      4,
+    ]);
+    const st = ctx.calls.find((c) => c.op === "strokeText");
+    if (st?.op !== "strokeText") throw new Error("no strokeText");
+    expect([st.strokeStyle, st.lineWidth, st.lineJoin, st.shadowColor, st.alpha]).toEqual([
+      "#000000",
+      3,
+      "round",
+      "rgba(0, 0, 0, 0)",
+      0.5,
+    ]);
+    expect(ft!.alpha).toBe(0.5);
+  });
+
+  it("skips the stroke when strokeWidth is 0 or absent", () => {
+    expect(draw(v2({ strokeColor: "#000" })).calls.some((c) => c.op === "strokeText")).toBe(false);
+    expect(
+      draw(v2({ strokeColor: "#000", strokeWidth: 0 })).calls.some((c) => c.op === "strokeText"),
+    ).toBe(false);
   });
 });
 
@@ -806,6 +911,533 @@ describe("drawItem — group transform stack", () => {
     if (fill && fill.op === "fill") {
       expect(fill.alpha).toBeCloseTo(0.4 * 0.5, 10);
     }
+  });
+});
+
+// ──────────── v1.1 S18 — isolated group compositing ────────────
+//
+// `isolate: true` takes the group off the multiplicative path: the children
+// flatten onto a scratch surface at full alpha, and that surface composites
+// once, carrying the group's opacity and blend mode. These tests read the
+// recorded calls; the pixel-level proof (overlapping children come out at a
+// uniform alpha) is in tests/engine/isolatedGroup.pixels.test.ts.
+
+function isolateScene(
+  group: GroupItem,
+  children: Record<string, ShapeItem>,
+): ResolvedScene {
+  return {
+    composition: { width: 200, height: 100, fps: 30, duration: 1, background: "#000" },
+    layers: [],
+    items: { g: group, ...children },
+  };
+}
+
+function offscreenFactory(): {
+  createOffscreen: (w: number, h: number) => { context: FakeContext; source: unknown };
+  surfaces: Array<{ w: number; h: number; ctx: FakeContext; source: unknown }>;
+} {
+  const surfaces: Array<{ w: number; h: number; ctx: FakeContext; source: unknown }> = [];
+  const createOffscreen = (w: number, h: number) => {
+    const ctx = new FakeContext();
+    const source = { __offscreen: surfaces.length };
+    surfaces.push({ w, h, ctx, source });
+    return { context: ctx, source };
+  };
+  return { createOffscreen, surfaces };
+}
+
+function isolatedGroup(overrides: Partial<GroupItem> = {}): GroupItem {
+  return {
+    type: "group",
+    items: ["a", "b"],
+    isolate: true,
+    transform: {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      anchorX: 0,
+      anchorY: 0,
+      opacity: 0.5,
+    },
+    ...overrides,
+  };
+}
+
+describe("drawItem — isolated groups (v1.1 S18)", () => {
+  it("draws the children at full alpha on a composition-sized scratch surface, then composites once at the group's opacity", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = isolatedGroup();
+    const scene = isolateScene(group, { a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    // One scratch surface, sized to the composition.
+    expect(surfaces.length).toBe(1);
+    expect(surfaces[0]!.w).toBe(200);
+    expect(surfaces[0]!.h).toBe(100);
+
+    // Both children painted on the scratch surface, neither dimmed: the
+    // group's 0.5 is applied to the composite, not to each child.
+    const offFills = surfaces[0]!.ctx.calls.filter((c) => c.op === "fill");
+    expect(offFills.length).toBe(2);
+    for (const f of offFills) {
+      if (f.op === "fill") expect(f.alpha).toBe(1);
+    }
+
+    // Nothing painted straight onto the main context — only the composite.
+    expect(ctx.calls.some((c) => c.op === "fill")).toBe(false);
+    const composites = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(composites.length).toBe(1);
+    const composite = composites[0]!;
+    if (composite.op === "drawImage") {
+      expect(composite.image).toBe(surfaces[0]!.source);
+      expect(composite.alpha).toBeCloseTo(0.5, 10);
+      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 200, 100]);
+    }
+  });
+
+  it("composites at the canvas's own frame, with the scratch surface seeded from the inherited matrix", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    // An ancestor transform the group inherits: the children must still land
+    // where they would have without isolation, so the scratch surface takes
+    // the matrix verbatim while the composite runs at identity.
+    ctx.translate(30, 40);
+    ctx.scale(2, 2);
+    const group = isolatedGroup();
+    const scene = isolateScene(group, { a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    const seed = surfaces[0]!.ctx.calls.find((c) => c.op === "setTransform");
+    expect(seed).toBeDefined();
+    if (seed?.op === "setTransform") {
+      expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 30, 40]);
+    }
+
+    // The main context is reset to identity for the 1:1 composite, then
+    // restored — the inherited matrix survives for whatever draws next.
+    const reset = ctx.calls.find((c) => c.op === "setTransform");
+    expect(reset).toBeDefined();
+    if (reset?.op === "setTransform") {
+      expect([reset.a, reset.b, reset.c, reset.d, reset.e, reset.f]).toEqual([1, 0, 0, 1, 0, 0]);
+    }
+    expect(ctx.getTransform()).toEqual({ a: 2, b: 0, c: 0, d: 2, e: 30, f: 40 });
+  });
+
+  it("applies the group's own transform to the children on the scratch surface", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = isolatedGroup({
+      items: ["a"],
+      transform: {
+        x: 100,
+        y: 100,
+        scaleX: 2,
+        scaleY: 2,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    });
+    const scene = isolateScene(group, {
+      a: tinyShape({
+        transform: {
+          x: 5,
+          y: 5,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      }),
+    });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    // Group's (100,100), then the child's (5,5), then the child's anchor
+    // offset — the same nesting the multiplicative path produces, just on the
+    // scratch surface.
+    const translates = surfaces[0]!.ctx.calls.filter((c) => c.op === "translate");
+    expect(translates.length).toBe(3);
+    if (translates[0]?.op === "translate") {
+      expect([translates[0].x, translates[0].y]).toEqual([100, 100]);
+    }
+    if (translates[1]?.op === "translate") {
+      expect([translates[1].x, translates[1].y]).toEqual([5, 5]);
+    }
+    const scales = surfaces[0]!.ctx.calls.filter((c) => c.op === "scale");
+    expect(scales.length).toBe(1);
+    if (scales[0]?.op === "scale") expect([scales[0].x, scales[0].y]).toEqual([2, 2]);
+  });
+
+  it("carries the group's blendMode on the composite, not on each child", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = isolatedGroup({ blendMode: "multiply" });
+    const scene = isolateScene(group, { a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    // Children blend against their siblings on a transparent surface with the
+    // default operator — that isolation is the point.
+    const offFills = surfaces[0]!.ctx.calls.filter((c) => c.op === "fill");
+    expect(offFills.length).toBe(2);
+    for (const f of offFills) {
+      if (f.op === "fill") expect(f.composite).toBe("source-over");
+    }
+    // …and `multiply` lands on the one composite instead.
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite).toBeDefined();
+    if (composite?.op === "drawImage") expect(composite.composite).toBe("multiply");
+  });
+
+  it("keeps the multiplicative path when the host wires no offscreen factory", () => {
+    const ctx = new FakeContext();
+    const group = isolatedGroup({ items: ["a"] });
+    const scene = isolateScene(group, {
+      a: tinyShape({
+        transform: {
+          x: 0,
+          y: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      }),
+    });
+
+    drawItem(ctx, group, scene, undefined);
+
+    // No surface to flatten onto ⇒ children paint straight onto the canvas,
+    // dimmed by the group as they were before isolation existed.
+    expect(ctx.calls.some((c) => c.op === "drawImage")).toBe(false);
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill).toBeDefined();
+    if (fill?.op === "fill") expect(fill.alpha).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe("drawItem — group blendMode (v1.1 S18)", () => {
+  it("applies an un-isolated group's blendMode to each child's own draw", () => {
+    const ctx = new FakeContext();
+    const group: GroupItem = {
+      type: "group",
+      items: ["a"],
+      blendMode: "screen",
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene = isolateScene(group, { a: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined);
+
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill).toBeDefined();
+    if (fill?.op === "fill") expect(fill.composite).toBe("screen");
+  });
+
+  it("leaves the inherited composite operator alone when the group declares no blendMode", () => {
+    const ctx = new FakeContext();
+    ctx.globalCompositeOperation = "multiply";
+    const group: GroupItem = {
+      type: "group",
+      items: ["a"],
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 1,
+      },
+    };
+    const scene = isolateScene(group, { a: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined);
+
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill).toBeDefined();
+    if (fill?.op === "fill") expect(fill.composite).toBe("multiply");
+  });
+});
+
+// ──────────── v1.1 S21 — per-item effects ────────────
+//
+// An item with `effects` is flattened onto a scratch surface, each effect is
+// applied surface-to-surface, and the result composites once with the item's
+// opacity. Pixel-level proof lives in tests/engine/effects.pixels.test.ts.
+
+function fxDc(createOffscreen: (w: number, h: number) => { context: FakeContext; source: unknown }) {
+  return { assets: undefined, createOffscreen, time: 0, video: undefined };
+}
+
+function fxScene(items: Record<string, ShapeItem | GroupItem>): ResolvedScene {
+  return {
+    composition: { width: 200, height: 100, fps: 30, duration: 1, background: "#000" },
+    layers: [],
+    items,
+  };
+}
+
+describe("drawItem — effects (v1.1 S21)", () => {
+  it("flattens the item at full alpha, blurs it in place, then composites once at the item's opacity", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({
+      effects: [{ type: "blur", radius: 4 }],
+      transform: {
+        x: 10,
+        y: 20,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.6,
+      },
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    // One composition-sized surface: blur works on its pixels in place.
+    expect(surfaces.map((s) => [s.w, s.h])).toEqual([[200, 100]]);
+    const off = surfaces[0]!.ctx.calls;
+    // The item itself lands undimmed, then the whole surface is read back
+    // and rewritten.
+    const fillAt = off.findIndex((c) => c.op === "fill");
+    const readAt = off.findIndex((c) => c.op === "getImageData");
+    const writeAt = off.findIndex((c) => c.op === "putImageData");
+    const fill = off[fillAt];
+    expect(fill?.op === "fill" && fill.alpha).toBe(1);
+    expect(fillAt).toBeLessThan(readAt);
+    expect(readAt).toBeLessThan(writeAt);
+    const read = off[readAt];
+    if (read?.op === "getImageData") expect([read.x, read.y, read.w, read.h]).toEqual([0, 0, 200, 100]);
+    // Nothing but the composite touches the canvas, and it carries opacity.
+    expect(ctx.calls.some((c) => c.op === "fill")).toBe(false);
+    const composites = ctx.calls.filter((c) => c.op === "drawImage");
+    expect(composites.length).toBe(1);
+    const composite = composites[0]!;
+    if (composite.op === "drawImage") {
+      expect(composite.image).toBe(surfaces[0]!.source);
+      expect(composite.alpha).toBeCloseTo(0.6, 10);
+      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 200, 100]);
+    }
+  });
+
+  it("applies a stack in order, ping-ponging shadow passes between two surfaces", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({
+      effects: [
+        { type: "blur", radius: 2 },
+        { type: "shadow", color: "#000000", blur: 6, offsetX: 3, offsetY: 5 },
+        { type: "glow", color: "#40c8ff", radius: 8 },
+      ],
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    // Three effects, still only two surfaces.
+    expect(surfaces.length).toBe(2);
+    // Blur first, in place on the flatten surface, before any redraw.
+    expect(surfaces[0]!.ctx.calls.some((c) => c.op === "putImageData")).toBe(true);
+    // Shadow: surface 0 → surface 1.
+    const shadow = surfaces[1]!.ctx.calls.find((c) => c.op === "drawImage");
+    if (shadow?.op !== "drawImage") throw new Error("no shadow pass");
+    expect(shadow.image).toBe(surfaces[0]!.source);
+    expect([shadow.shadowColor, shadow.shadowBlur, shadow.shadowOffsetX, shadow.shadowOffsetY]).toEqual([
+      "#000000",
+      6,
+      3,
+      5,
+    ]);
+    // Glow: surface 1 → surface 0, which is cleared first so the flattened
+    // item doesn't survive underneath.
+    const glowCalls = surfaces[0]!.ctx.calls;
+    const glowAt = glowCalls.findIndex((c) => c.op === "drawImage");
+    const glow = glowCalls[glowAt];
+    if (glow?.op !== "drawImage") throw new Error("no glow pass");
+    expect(glow.image).toBe(surfaces[1]!.source);
+    // Glow's radius is σ; Canvas2D's shadowBlur is 2σ.
+    expect([glow.shadowColor, glow.shadowBlur, glow.shadowOffsetX, glow.shadowOffsetY]).toEqual([
+      "#40c8ff",
+      16,
+      0,
+      0,
+    ]);
+    const clearAt = glowCalls.findIndex((c) => c.op === "clearRect");
+    expect(clearAt).toBeGreaterThan(-1);
+    expect(clearAt).toBeLessThan(glowAt);
+    // The last surface written is the one composited.
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite?.op === "drawImage" && composite.image).toBe(surfaces[0]!.source);
+    expect(composite?.op === "drawImage" && composite.shadowBlur).toBe(0);
+  });
+
+  it("skips zero-radius blur and glow passes", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({
+      effects: [
+        { type: "blur", radius: 0 },
+        { type: "glow", color: "#ffffff", radius: 0 },
+      ],
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    // Only the flatten surface, never read back; it composites straight on.
+    expect(surfaces.length).toBe(1);
+    expect(surfaces[0]!.ctx.calls.some((c) => c.op === "getImageData")).toBe(false);
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite?.op === "drawImage" && composite.image).toBe(surfaces[0]!.source);
+  });
+
+  it("flattens a group with effects like an isolated group, carrying its blendMode on the composite", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group: GroupItem = {
+      type: "group",
+      items: ["a", "b"],
+      blendMode: "screen",
+      effects: [{ type: "glow", color: "#ffffff", radius: 5 }],
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.5,
+      },
+    };
+    const scene = fxScene({ g: group, a: tinyShape(), b: tinyShape() });
+
+    drawItem(ctx, group, scene, undefined, fxDc(createOffscreen), "g");
+
+    // Children at full alpha and default operator on the flatten surface —
+    // not dimmed by the group, not blended per child.
+    const offFills = surfaces[0]!.ctx.calls.filter((c) => c.op === "fill");
+    expect(offFills.length).toBe(2);
+    for (const f of offFills) {
+      if (f.op === "fill") {
+        expect(f.alpha).toBe(1);
+        expect(f.composite).toBe("source-over");
+      }
+    }
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    if (composite?.op !== "drawImage") throw new Error("no composite");
+    expect(composite.alpha).toBeCloseTo(0.5, 10);
+    expect(composite.composite).toBe("screen");
+  });
+
+  it("keeps the layer's blend mode on the composite", () => {
+    const ctx = new FakeContext();
+    ctx.globalCompositeOperation = "multiply";
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({ effects: [{ type: "blur", radius: 3 }] });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    const fill = surfaces[0]!.ctx.calls.find((c) => c.op === "fill");
+    expect(fill?.op === "fill" && fill.composite).toBe("source-over");
+    const composite = ctx.calls.find((c) => c.op === "drawImage");
+    expect(composite?.op === "drawImage" && composite.composite).toBe("multiply");
+  });
+
+  it("seeds the flatten surface with the inherited matrix and composites at identity", () => {
+    const ctx = new FakeContext();
+    ctx.translate(30, 40);
+    ctx.scale(2, 2);
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({ effects: [{ type: "blur", radius: 3 }] });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    const seed = surfaces[0]!.ctx.calls.find((c) => c.op === "setTransform");
+    if (seed?.op !== "setTransform") throw new Error("flatten surface was not seeded");
+    expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 30, 40]);
+    const reset = ctx.calls.find((c) => c.op === "setTransform");
+    if (reset?.op !== "setTransform") throw new Error("composite not at identity");
+    expect([reset.a, reset.b, reset.c, reset.d, reset.e, reset.f]).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(ctx.getTransform()).toEqual({ a: 2, b: 0, c: 0, d: 2, e: 30, f: 40 });
+  });
+
+  it("draws the item plainly when the host wires no offscreen factory", () => {
+    const ctx = new FakeContext();
+    const item = tinyShape({
+      effects: [{ type: "blur", radius: 4 }],
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.5,
+      },
+    });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined);
+
+    expect(ctx.calls.some((c) => c.op === "drawImage")).toBe(false);
+    const fill = ctx.calls.find((c) => c.op === "fill");
+    expect(fill?.op === "fill" && fill.alpha).toBeCloseTo(0.5, 10);
+  });
+
+  it("an empty effects list takes the ordinary path", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const item = tinyShape({ effects: [] });
+
+    drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
+
+    expect(surfaces.length).toBe(0);
+    expect(ctx.calls.some((c) => c.op === "fill")).toBe(true);
   });
 });
 
