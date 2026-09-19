@@ -7,6 +7,13 @@ own `{ look }` option (innermost wins). That is why the same cel renders as ink
 on warm paper, riso dots, a screen print or graphite by changing one name, and
 why `hdf sheet` can show every cel in every look.
 
+`tools` holds each tool's defaults (the pen is 2.6 wide, 1.6 in
+`pencilMinimal`, 4 in `doodlePastel`); a stroke without its own `w` or
+`wobble` takes them. `edition` (0 in every preset) reseeds every shot drawn in
+the look: `withLook('risoPop', { edition: 2 })` is a second print of the same
+film, with other hatching, grain, wobble and dot jitter. Ops with an explicit
+`seed` keep it.
+
 ## Roles
 
 | role | what it is for |

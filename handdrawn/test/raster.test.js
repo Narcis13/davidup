@@ -5,11 +5,12 @@ import { Canvas } from 'skia-canvas';
 import mini from '../films/mini.js';
 import { frame } from '../core/tree.js';
 import { expand } from '../core/finish.js';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRenderer, draw, outputSize, renderFrame } from '../core/raster.js';
-import { fill, circle, text, paper, walk, group } from '../core/list.js';
+import { fill, circle, line, stroke, text, paper, walk, group } from '../core/list.js';
+import { withLook } from '../core/looks.js';
 import { cut, film, place, seq, shot } from '../core/tree.js';
 import { frameRenderer, produceFrames } from '../cli/frames.mjs';
 import { goldenOf } from '../cli/golden.mjs';
@@ -123,12 +124,16 @@ test('a disk-cached second run reads layers back and draws the same frames', asy
       return out;
     };
     const plain = await hashes(undefined), first = await hashes(dir);
-    assert.ok(readdirSync(dir).length >= 2);
+    const [salt, ...others] = readdirSync(dir);   // one engine-<salt> folder: the hash of core/ and engines/
+    assert.ok(/^engine-[0-9a-f]{12}$/.test(salt) && !others.length);
+    assert.ok(readdirSync(join(dir, salt)).length >= 2);
+    mkdirSync(join(dir, 'engine-000000000000'));   // a stale engine's folder goes on the next open
     const r = frameRenderer(mini, { width: 240, diskCache: dir });
     for (let i = 0; i < mini.n; i++) r.render(i);
     assert.ok(r.stats.disk > 0);
     assert.deepEqual(first, plain);
     assert.deepEqual(await hashes(dir), plain);   // stock is opaque, so PNG round trips are exact here
+    assert.deepEqual(readdirSync(dir), [salt]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -143,4 +148,26 @@ test('fx ops dispatch to fx.js: a dissolve cut renders, unknown kinds fail loudl
   assert.notEqual(sha(mid.buf), sha(end.buf));
   const g = film({ name: 'badfx', look: 'paperInk', timeline: seq(a, cut('nope', 0.5, a, b)) });
   assert.throws(() => frameRenderer(g, { width: 120 }).render(7), /fx 'nope' is unknown/);
+});
+
+test('a stroke without w takes its width from the look; an explicit w wins', () => {
+  const inked = (look, o) => {
+    const c = new Canvas(60, 20), ctx = c.getContext('2d');
+    draw(ctx, [stroke(line(5, 10, 55, 10), 'ink', { wobble: 0, seed: 1, ...o })], { look });
+    const px = c.toBufferSync('raw');
+    let ink = 0;   // coverage down one column, in pixels
+    for (let y = 0; y < 20; y++) ink += px[(y * 60 + 30) * 4 + 3] / 255;
+    return Math.round(ink * 10) / 10;
+  };
+  assert.ok(inked('pencilMinimal') < inked('paperInk'), 'pencil pen (1.6) thinner than the default pen (2.6)');
+  assert.ok(inked('doodlePastel') > inked('paperInk'), 'doodle pen (4) thicker than the default pen (2.6)');
+  assert.equal(inked('pencilMinimal', { w: 4 }), inked('doodlePastel', { w: 4 }));
+});
+
+test('another edition of the look prints other pixels; edition 0 is the preset', () => {
+  const sheet = (look) => film({ name: 'ed', look, timeline: [shot('s', 1, () => [paper(), fill(circle(40, 40, 30), 'fills.0', { finish: true }), text('ab', 10, 70, { size: 20 })])] });
+  const px = (f) => { const c = new Canvas(80, 80); draw(c.getContext('2d'), frame(f, 0).list, { look: f.look }); return sha(c.toBufferSync('raw')); };
+  const base = px(sheet('paperInk'));
+  assert.equal(px(sheet(withLook('paperInk', { edition: 0 }))), base);
+  assert.notEqual(px(sheet(withLook('paperInk', { edition: 7 }))), base);
 });

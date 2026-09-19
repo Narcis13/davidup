@@ -10,6 +10,7 @@ import { clip, dots, group, fill, hashOp, inside, rect, stroke, translate, withP
 import { hashLook, parse as parseColour, resolveLook } from './looks.js';
 import { rng } from './rand.js';
 import { handText } from './text.js';
+import { reveal } from './tools.js';
 import { seedList } from './tree.js';
 
 // { op: 'specks', rects: [x, y, w, h, ...], role, alpha }: grain as explicit rectangles.
@@ -197,14 +198,33 @@ function remember(op, key, make) {
   if (!out) { out = make(); if (per.size > 16) per.clear(); per.set(key, out); }
   return out;
 }
+// LRU capped by entries and by a rough size (points + specks), so a finished fill that moves every frame
+// cannot grow it to gigabytes; each render worker holds its own.
 const byHash = new Map();
+const LEAF_MAX = 4096, LEAF_BUDGET = 24e6;   // ~24M numbers (~200 MB of arrays) at most
+let leafSize = 0;
+const sizeOf = (ops) => {
+  let n = 0;
+  const walk = (op) => {
+    if (op.path) for (const s of op.path.sub) n += s.pts.length;
+    if (op.rects) n += op.rects.length;
+    if (op.kids) op.kids.forEach(walk);
+  };
+  (Array.isArray(ops) ? ops : [ops]).forEach(walk);
+  return n;
+};
 function rememberLeaf(op, key, make) {
   const k = `${hashOp(op)}:${key}`;
-  let out = byHash.get(k);
-  if (out) { byHash.delete(k); byHash.set(k, out); return out; }   // refresh LRU position
-  out = make();
-  byHash.set(k, out);
-  if (byHash.size > 4096) byHash.delete(byHash.keys().next().value);
+  let hit = byHash.get(k);
+  if (hit) { byHash.delete(k); byHash.set(k, hit); return hit.out; }   // refresh LRU position
+  const out = make(), n = sizeOf(out);
+  byHash.set(k, { out, n });
+  leafSize += n;
+  while (byHash.size > 1 && (byHash.size > LEAF_MAX || leafSize > LEAF_BUDGET)) {
+    const [old, v] = byHash.entries().next().value;
+    byHash.delete(old);
+    leafSize -= v.n;
+  }
   return out;
 }
 
@@ -219,8 +239,8 @@ export function expandOp(op, look, { W = 1080, H = 1080 } = {}) {
     case 'night': return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, true))];
     case 'fill': return op.finish ? rememberLeaf(op, key, () => finished(op, lk)) : [op];
     case 'text': return rememberLeaf(op, key, () => {
-      const g = handText(op);
-      return [withProps(g, { kids: seedList(g.kids, op.seed ?? 1) })];
+      const g = handText(op), seeded = withProps(g, { kids: seedList(g.kids, op.seed ?? 1) });
+      return [op.p != null && op.p < 1 ? reveal(op.p, seeded) : seeded];   // p: set by reveal() on a text op
     });
     default: return [op];
   }

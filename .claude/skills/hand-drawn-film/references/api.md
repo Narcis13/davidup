@@ -112,7 +112,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/tools.js
 
-- `reveal(p, node)` reveal(p, node): the node (op or list) with its strokes drawn up to p of their total length, in `order` (ties keep list order).
+- `reveal(p, node)` reveal(p, node): the node (op or list) with its strokes and text drawn up to p of their total length, in `order` (ties keep list order).
 
 ### core/finish.js
 
@@ -293,6 +293,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 ### Helpers
 
 - `BOAT` the boat's hull and sail paths <sub>recipes/shots.js</sub>
+- `CARDS` Three sample riso cards (sun over the sea, a big moon, stripes under a disc), the default for recipes that take cards (O, P, Q), so each renders with no arguments; N's iris takes one (`iris: { card: CARDS[0] }`). <sub>recipes/shots.js</sub>
 - `CAST` the doodle characters by name <sub>recipes/doodle.js</sub>
 - `DOODLE` The set by v1 letter, so scenes.md stays a lookup. <sub>recipes/doodle.js</sub>
 - `ROLES` Roles the doodle cast and props share (quills, tea, star, ...), as role objects. <sub>recipes/doodle.js</sub>

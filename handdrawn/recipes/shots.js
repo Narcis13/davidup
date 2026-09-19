@@ -11,7 +11,7 @@
 import {
   FPS, paper, night, fill, stroke, dots, group, clip, fx, meta, circle, ellipse, rect, poly, line, spline, xf,
   translate, rotate, scale, mmul, inside, shot, place, cel, ramp, ease, flicker, rng, handText, signOff,
-  squiggleText, reveal, duotone, resolveLook, plate, grain, hatchIn, linear, radial,
+  squiggleText, reveal, duotone, resolveLook, plate, knockout, grain, hatchIn, linear, radial,
   cross, hexLattice, aster, dotBurst, speedLines, loops, construction, seedDot, ripples, dashedRing, dottedArc,
   plant, section, stickyNote, thread, cam,
 } from '../core/index.js';
@@ -350,6 +350,27 @@ export function risoCard(plates, { inks = ['inks.0', 'inks.1', 'inks.2'], angles
   return group('card', plates.map((kids, k) => kids && plate(inks[k], kids, { angle: angles[k % angles.length], cell, seed: seed + k, box })));
 }
 
+const cov = (path, c) => fill(path, 'ink', { cov: c });
+// Three sample riso cards (sun over the sea, a big moon, stripes under a disc), the default for recipes that
+// take cards (O, P, Q), so each renders with no arguments; N's iris takes one (`iris: { card: CARDS[0] }`).
+export const CARDS = Object.freeze([
+  () => risoCard([
+    [cov(rect(0, 0, 1080, 600), linear(0, 0, 0, 600, 0.02, 0.35)), knockout(circle(540, 430, 150)), cov(rect(0, 600, 1080, 480), 0.85)],
+    [cov(rect(0, 0, 1080, 600), radial(540, 430, 60, 520, 0.9, 0))],
+    [cov(circle(540, 430, 150), 0.95), cov(rect(0, 600, 1080, 480), 0.4)],
+  ]),
+  () => risoCard([
+    [cov(rect(0, 0, 1080, 1080), 0.9), knockout(circle(540, 420, 300))],
+    [cov(rect(0, 0, 1080, 1080), radial(540, 420, 300, 520, 0.6, 0))],
+    [cov(circle(540, 420, 300), 0.7), ...[[470, 350, 40], [600, 480, 60], [520, 560, 25]].map(([x, y, r]) => cov(circle(x, y, r), 0.3))],
+  ]),
+  () => risoCard([
+    [...[0, 1, 2, 3, 4].map((j) => cov(rect(0, j * 216, 1080, 108), 0.7))],
+    [cov(circle(540, 540, 260), 0.9), knockout(circle(540, 540, 120))],
+    [cov(rect(0, 760, 1080, 320), linear(0, 760, 0, 1080, 0, 0.8))],
+  ]),
+]);
+
 // N. Seed dot and ripples (1.5 to 2.5 s): a ring is born every `every` drawn frames and travels outward
 // at `speed`, alternating two accents; optionally an iris opens on a card at the end.
 export const seedRipples = recipe('N', 'intro', {
@@ -369,14 +390,14 @@ export const seedRipples = recipe('N', 'intro', {
 }, { anchor: [{ name: 'seedDot' }, { name: 'ripples' }], crop: true });
 
 const montageShot = recipe('O', 'montage', {
-  cards: [], per: 0.25, dot: 10, x: 540, y: 540,
+  cards: CARDS, per: 0.25, dot: 10, x: 540, y: 540,
 }, (ctx, o) => {
   const k = Math.min(o.cards.length - 1, Math.floor(ctx.t / o.per + 1e-9));
   return [group('card', norm(o.cards[k]({ ...ctx, t: ctx.t - k * o.per }))), o.dot && seedDot(o.x, o.y, o.dot)];
 }, { anchor: [{ name: 'card' }, { name: 'seedDot' }] });
 // O. Card montage (2 to 8 s): one card per `per` seconds (3 drawn frames at 0.25), hard cuts, the seed dot
 // on top of every card. cards: [(ctx) => list] without paper. dur defaults to cards x per.
-export const montage = Object.assign((opts) => montageShot({ dur: opts.cards.length * (opts.per ?? 0.25), ...opts }), { layer: montageShot.layer, recipe: 'O', defaults: montageShot.defaults });
+export const montage = Object.assign((opts = {}) => montageShot({ dur: (opts.cards ?? CARDS).length * (opts.per ?? 0.25), ...opts }), { layer: montageShot.layer, recipe: 'O', defaults: montageShot.defaults });
 
 // A list with every dots op's screen made coarser (badges draw cards at a tenth of their size).
 const coarse = (list, f) => norm(list).map((op) => (op.op === 'dots' ? { ...op, cell: (op.cell ?? 8) * f } : op.kids ? { ...op, kids: coarse(op.kids, f) } : op));
@@ -384,7 +405,7 @@ const coarse = (list, f) => norm(list).map((op) => (op.op === 'dots' ? { ...op, 
 // P. Badge gallery (1.5 s): every card as a round stamp on concentric dashed rings over a faint dot screen;
 // the badges grow in over `grow` (ease out), hold, then the whole ring shrinks to the seed dot (ease in).
 export const badgeGallery = recipe('P', 'gallery', {
-  dur: 1.5, cards: [], x: 540, y: 540, r0: 40, gap: 118, size: 52, ring: 'ink', grow: 0.5, shrink: [1.0, 1.5], screen: 'inks.2', dot: 10, seed: 51,
+  dur: 1.5, cards: CARDS, x: 540, y: 540, r0: 40, gap: 118, size: 52, ring: 'ink', grow: 0.5, shrink: [1.0, 1.5], screen: 'inks.2', dot: 10, seed: 51,
 }, (ctx, o) => {
   const progress = ramp(0, o.grow, ctx.t, ease.out), sc = 1 - ramp(o.shrink[0], o.shrink[1], ctx.t, ease.in) * 0.98, s = o.size * progress;
   const kids = [];

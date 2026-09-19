@@ -204,8 +204,8 @@ export const night = (o = {}) => mkOp({ op: 'night', ...o });
 // alpha, blend, name, seed.
 export const fill = (path, role = 'fills.0', o = {}) => mkOp({ op: 'fill', path: needPath(path, 'fill'), role, ...o });
 // A hand-drawn line along the path; o: tool (pen brush pencil chalk crayon marker), w, wobble, taper, dash, alpha,
-// order (for reveal), name, seed.
-export const stroke = (path, role = 'ink', o = {}) => mkOp({ op: 'stroke', path: needPath(path, 'stroke'), role, tool: 'pen', w: 2, ...o });
+// order (for reveal), name, seed. Without w (or wobble) the look's tool setting applies.
+export const stroke = (path, role = 'ink', o = {}) => mkOp({ op: 'stroke', path: needPath(path, 'stroke'), role, tool: 'pen', ...o });
 // A dot screen inside the path; o: cell (spacing), density or cov, angle, blend: 'multiply'.
 export const dots = (path, role = 'ink', o = {}) => mkOp({ op: 'dots', path: needPath(path, 'dots'), role, cell: 8, ...o });
 // Hand-lettered text (expanded into strokes, no fonts); o: size, role, tool, align, w. Counted by lint's word rule.
@@ -318,7 +318,7 @@ export function bounds(list, m = I) {
     let b = null;
     switch (op.op) {
       case 'fill': case 'dots': b = boxThrough(op.path.box, m); break;
-      case 'stroke': b = boxThrough(inflate(op.path.box, (op.w ?? 0) / 2), m); break;
+      case 'stroke': b = boxThrough(inflate(op.path.box, (op.w ?? 2) / 2), m); break;
       case 'text': {
         const w = op.str.length * op.size * 0.55, x = op.align === 'center' ? op.x - w / 2 : op.align === 'right' ? op.x - w : op.x;
         b = boxThrough([x, op.y - op.size * 0.8, w, op.size], m); break;

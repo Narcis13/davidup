@@ -76,3 +76,9 @@ test("a film's score reads its cues: mini plucks while the ball rolls and ends o
   const { samples } = filmAudio(mini);
   assert.equal(samples.length, Math.ceil(mini.dur * SR));
 });
+
+test('a gain 0 note is silent and does not poison the mix with NaN', () => {
+  const s = renderScore([{ t: 0, dur: 0.5, hz: 220, type: 'sine', gain: 0 }, { t: 0, dur: 0.5, hz: 330, type: 'sine', gain: 0.3 }], 1);
+  assert.ok(s.every(Number.isFinite));
+  assert.ok(s.some((v) => v !== 0));
+});

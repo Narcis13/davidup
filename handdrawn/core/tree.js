@@ -150,9 +150,11 @@ function seedOp(op, parent, j) {
 
 // One shot at local frame k, before its fit wrap and look: { list (seeded), wrap, seed, look, env }.
 // `look` is the one inherited from lookOn ancestors. Lint reads shots through this.
+// A look's edition (0 by default) reseeds the shot, so another edition is another print of the same film.
 export function evalShot(f, node, k, { i = 0, target = f.format, look } = {}) {
-  const seed = seedOf(f.seed, node.name);
   const eff = node.look ?? look ?? f.look;
+  const edition = eff?.edition ?? 0;   // presets (by name) are edition 0
+  const seed = edition ? seedOf(seedOf(f.seed, node.name), `edition ${edition}`) : seedOf(f.seed, node.name);
   const { env, wrap } = fitFor(node.fit, f.format, target);
   const raw = node.draw({ t: k / FPS, k, i, T: node.dur, seed, ...env, look: eff });
   return { list: seedList(norm(raw), seed), wrap, seed, look: eff, env };

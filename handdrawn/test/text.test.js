@@ -73,3 +73,16 @@ test('signOff carries its progress for lint and grows with pA, pB', () => {
   walk([signOff('a', 'b', { pA: 0.4, pB: 0 })], (op) => { if (op.op === 'meta') m = op; });
   assert.deepEqual(m.data, { a: 'a', b: 'b', pA: 0.4, pB: 0 });
 });
+
+test('reveal reaches text ops: none at 0, a share as p between, the op itself at 1', async () => {
+  const { text } = await import('../core/list.js');
+  const { expandOp } = await import('../core/finish.js');
+  const t = text('hello', 0, 0, { size: 60, seed: 7 });
+  assert.deepEqual(reveal(0, [t]), []);
+  assert.equal(reveal(1, t), t);
+  const half = reveal(0.5, [stroke(line(0, 0, 100, 0), 'ink'), t])[1];
+  assert.ok(half.p > 0 && half.p < 1);
+  const full = expandOp(t, 'paperInk')[0], part = expandOp(half, 'paperInk')[0];
+  assert.ok(total(part) > 0 && total(part) < total(full));
+  assert.equal(strokes(full)[0].seed, strokes(part)[0].seed);   // same wobble as the finished word
+});

@@ -2,7 +2,7 @@
 // base as the film (`hdf dev` bumps that base on every change so core edits reload too); `hdf bundle`
 // walks it statically.
 export { createRenderer, outputSize } from '../core/raster.js';
-export { frame, describe, cues, place, seedList } from '../core/tree.js';
+export { frame, describe, cues, place, seedList, withRootLook } from '../core/tree.js';
 export { format } from '../core/fit.js';
 export { FPS } from '../core/curves.js';
 export { SR, filmAudio } from '../core/synth.js';

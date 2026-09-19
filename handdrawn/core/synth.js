@@ -43,6 +43,7 @@ function addNote(out, ev) {
   const wave = WAVES[ev.type];
   if (!wave) throw new Error(`synth: unknown type '${ev.type}' (sine, triangle, square, saw, noise, hiss)`);
   if (!(ev.hz > 0)) throw new Error(`synth: ${ev.type} at ${ev.t}s needs hz > 0`);
+  if (!(ev.gain > 0)) return;   // a silent note (an exponential release from 0 would be NaN and mute the mix)
   const env = { gain: ev.gain, dur: Math.max(ev.dur, ev.attack + 1e-3), attack: ev.attack, release: ev.release };
   const n0 = Math.round(ev.t * SR), n1 = Math.min(out.length, Math.round((ev.t + env.dur + TAIL) * SR)), dt = ev.hz / SR;
   for (let n = Math.max(0, n0); n < n1; n++) {

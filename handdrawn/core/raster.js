@@ -193,7 +193,10 @@ function clampBox(a, b) {
 // Ops whose pixels depend on what is already under them (multiply, screen, the fx that composite against
 // the canvas). In an isolated layer that backdrop is transparent, so a group holding one draws direct.
 const BACKDROP_FX = new Set(['nightShot', 'bleed', 'glow', 'flash']);
-const blendsWithBackdrop = (o) => (!!o.blend && o.blend !== 'source-over') || (o.op === 'stroke' && o.tool === 'marker') || (o.op === 'fx' && BACKDROP_FX.has(o.kind));
+// And the fx that paint past their kids' bounds (the iris's outside fill, the blot's fringe, the scribble's
+// offset copies, mosaic edge cells): a layer sized from bounds() would crop them, so they draw direct too.
+const OVERFLOW_FX = new Set(['iris', 'blot', 'scribble', 'mosaic']);
+const blendsWithBackdrop = (o) => (!!o.blend && o.blend !== 'source-over') || (o.op === 'stroke' && o.tool === 'marker') || (o.op === 'fx' && (BACKDROP_FX.has(o.kind) || OVERFLOW_FX.has(o.kind)));
 
 // Content key of a group: its kids' hashes (seeds are in the kids), independent of where it is placed.
 // null when the group holds stock, which draws in screen space and so depends on its position.

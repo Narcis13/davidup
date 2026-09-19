@@ -157,3 +157,13 @@ test('four-looks and fly-style lint clean in every preset look', () => {
     assert.deepEqual(lint({ ...f, look: { name: look } }), [], `${f.name} ${look}`);
   }
 });
+
+test('the card recipes render with no arguments, on the sample CARDS', () => {
+  assert.equal(R.CARDS.length, 3);
+  for (const n of ['montage', 'duotoneBeat', 'badgeGallery']) {
+    const s = R[n]();
+    const f = H.film({ name: `r-${n}`, look: 'risoPop', timeline: H.seq(s, R.signOffShot()) });
+    for (const i of [0, s.n - 1]) assert.doesNotThrow(() => frame(f, i), n);
+  }
+  assert.equal(R.montage().dur, 0.75);
+});

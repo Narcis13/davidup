@@ -49,6 +49,9 @@ export function tileSheet(tiles, { cols = 4, gap = 16, label = 0 } = {}) {
   return sheet;
 }
 
+// Output name for a film rendered with --look / --ar, so variants never overwrite each other: gallop-risoPop-16x9.
+export const variant = (film, flags) => `${film.name}${flags.look ? '-' + flags.look : ''}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`;
+
 export const outDir = (flags) => { const d = resolve(flags.out ?? 'out'); mkdirSync(d, { recursive: true }); return d; };
 
 function parseFrames(spec, n) {
@@ -66,7 +69,7 @@ export async function only([path, list], flags, { loadFilm }) {
   const dir = outDir(flags);
   for (const i of parseFrames(list, film.n)) {
     draw(i);
-    const file = join(dir, `${film.name}-${String(i).padStart(3, '0')}.png`);
+    const file = join(dir, `${variant(film, flags)}-${String(i).padStart(3, '0')}.png`);
     await canvas.toFile(file);
     process.stdout.write(`${file}\n`);
   }
@@ -91,7 +94,7 @@ export async function grid([path], flags, { loadFilm }) {
     g.fillStyle = '#f0f0f0';
     g.fillText(`${String(i).padStart(3, '0')}  ${(i / FPS).toFixed(2)}s  ${f.shot}`, x + 5, y + size.outH + bar / 2);
   }
-  const file = join(outDir(flags), `${film.name}-grid.jpg`);
+  const file = join(outDir(flags), `${variant(film, flags)}-grid.jpg`);
   await sheet.toFile(file, { quality: 0.9 });
   process.stdout.write(`${file}\n`);
   return 0;
@@ -109,6 +112,7 @@ export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, co
     outW: size.outW, outH: size.outH,
     add(i, buf) {
       if (i % every) return;
+      fctx.clearRect(0, 0, size.outW, size.outH);   // skia records commands: without a full clear every putImageData is replayed
       fctx.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength), size.outW, size.outH), 0, 0);
       const t = skiaCanvas(tileW, tileH);
       t.getContext('2d').drawImage(full, 0, 0, tileW, tileH);

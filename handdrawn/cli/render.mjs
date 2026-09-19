@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { cues } from '../core/tree.js';
 import { filmAudio, toWav16 } from '../core/synth.js';
 import { ffmpegSink, h264Args } from './ffmpeg.mjs';
-import { contactSheet, outDir } from './sheets.mjs';
+import { contactSheet, outDir, variant } from './sheets.mjs';
 import { defaultWorkers, produceFrames } from './frames.mjs';
 import { tracker } from './changed.mjs';
 
@@ -26,7 +26,7 @@ function ffmpeg(args) {
 export async function run([path], flags, { loadFilm }) {
   const film = await loadFilm(path);
   const workers = flags.workers ?? defaultWorkers();
-  const base = join(outDir(flags), `${film.name}${flags.look ? '-' + flags.look : ''}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`);
+  const base = join(outDir(flags), variant(film, flags));
   const opts = { look: flags.look, ar: flags.ar, width: flags.width, workers, cacheMb: flags.cacheMb ?? 512, diskCache: flags.diskCache };
   const sheet = contactSheet(film, { ar: flags.ar, width: flags.width });
   const hashes = tracker(film, base, { ar: flags.ar, outW: sheet.outW, outH: sheet.outH });

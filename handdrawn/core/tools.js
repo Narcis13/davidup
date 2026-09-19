@@ -2,8 +2,9 @@
 // same way. All jitter comes from the op's seed, so a stroke boils only when its seed or inputs change.
 // Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache.
 import { rng } from './rand.js';
-import { resolveRole } from './looks.js';
+import { resolveLook, resolveRole } from './looks.js';
 import { mkPath, norm, spline, withProps } from './list.js';
+import { handText } from './text.js';
 
 const TAU = Math.PI * 2;
 
@@ -151,6 +152,10 @@ function chalk(ctx, op, t) {
 
 const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache };
 
+// The width a stroke is drawn at: its own w, else the look's setting for its tool, else the tool's default.
+const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10, gouache: 12 };
+export const strokeWidth = (op, look) => op.w ?? resolveLook(look).tools[op.tool ?? 'pen']?.w ?? TOOL_W[op.tool ?? 'pen'] ?? 2;
+
 export function drawStroke(ctx, op, look, S = 1) {
   const draw = TOOLS[op.tool ?? 'pen'];
   if (!draw) throw new Error(`stroke: tool '${op.tool}' is not implemented yet (have ${Object.keys(TOOLS).join(', ')})`);
@@ -194,8 +199,11 @@ const pathLen = (path) => {
   return L;
 };
 
-// reveal(p, node): the node (op or list) with its strokes drawn up to p of their total length, in `order`
-// (ties keep list order). Lengths are measured on screen through each group's scale. Other ops pass through.
+// Total pen length of a text op's lettering.
+const textLen = (op) => handText(op).kids.reduce((a, k) => a + pathLen(k.path), 0);
+
+// reveal(p, node): the node (op or list) with its strokes and text drawn up to p of their total length, in
+// `order` (ties keep list order). Lengths are measured on screen through each group's scale. Other ops pass through.
 // Brush strokes get p instead of a trimmed path, so their taper stays that of the whole line.
 export function reveal(p, node) {
   if (p >= 1) return node;
@@ -205,6 +213,7 @@ export function reveal(p, node) {
   const collect = (ops, s) => {
     for (const op of ops) {
       if (op.op === 'stroke') found.push({ op, len: pathLen(op.path) * s, order: op.order ?? 0, n: found.length });
+      else if (op.op === 'text') found.push({ op, len: textLen(op) * s, order: op.order ?? 0, n: found.length });
       else if (op.kids) collect(op.kids, op.op === 'group' ? s * Math.sqrt(Math.abs(op.xf[0] * op.xf[3] - op.xf[1] * op.xf[2])) : s);
     }
   };
@@ -218,6 +227,11 @@ export function reveal(p, node) {
   }
   let n = 0;
   const rebuild = (ops) => ops.flatMap((op) => {
+    if (op.op === 'text') {
+      // Text becomes strokes only when expanded (after frame() has seeded it), so it carries its share as p.
+      const k = keep[n++];
+      return k === 1 ? [op] : k === 0 ? [] : [withProps(op, { p: k * (op.p ?? 1) })];
+    }
     if (op.op === 'stroke') {
       const k = keep[n++];
       if (k === 1) return [op];

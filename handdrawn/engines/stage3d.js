@@ -14,6 +14,7 @@
 // Axes: x right, y up, z towards the viewer; the table is y = 0.
 import { expand } from '../core/finish.js';
 import { clip, fill, fx, group, lookNode, mkPath, mmul, norm, withProps, I } from '../core/list.js';
+import { strokeWidth } from '../core/tools.js';
 
 // 3-vector helpers: add sub mul dot cross len norm lerp.
 export const V3 = {
@@ -131,12 +132,12 @@ const centre = (b) => [b[0] + b[2] / 2, b[1] + b[3] / 2];
 const mulAlpha = (a, k) => (k === 1 ? a : (a ?? 1) * k);
 
 // Ops in sheet units (expanded) -> ops in screen space.
-function flatten(ops, pr, m, k, d, n, out) {
+function flatten(ops, pr, m, k, d, n, out, look) {
   for (const op of ops) {
     switch (op.op) {
       case 'group': {
         if (op.screen) throw new Error('stage3d: a sheet cannot hold paper()/night() stock; give it fill(rect(0, 0, w, h), \'paper\') instead');
-        flatten(op.kids, pr, mmul(m, op.xf ?? I), k * (op.alpha ?? 1), d, n, out);
+        flatten(op.kids, pr, mmul(m, op.xf ?? I), k * (op.alpha ?? 1), d, n, out, look);
         break;
       }
       case 'fill': {
@@ -156,7 +157,7 @@ function flatten(ops, pr, m, k, d, n, out) {
         const path = pr.path(op.path, m);
         if (!path) break;
         const s = pr.scale(m, ...centre(op.path.box));
-        const props = { path, role: shadeRole(op.role, d), w: (op.w ?? 2) * s, alpha: mulAlpha(op.alpha, k) };
+        const props = { path, role: shadeRole(op.role, d), w: strokeWidth(op, look) * s, alpha: mulAlpha(op.alpha, k) };
         if (op.dash) props.dash = op.dash.map((v) => v * s);
         if (props.alpha === undefined) delete props.alpha;
         out.push(withProps(op, props));
@@ -193,20 +194,20 @@ function flatten(ops, pr, m, k, d, n, out) {
         const path = pr.path(op.path, m);
         if (!path) break;
         const kids = [];
-        flatten(op.kids, pr, m, k, d, n, kids);
+        flatten(op.kids, pr, m, k, d, n, kids, look);
         out.push(clip(path, kids));
         break;
       }
       case 'fx': {
         const kids = [];
-        flatten(op.kids, pr, m, k, d, n, kids);
+        flatten(op.kids, pr, m, k, d, n, kids, look);
         if (op.kind === 'photoMask') { const path = pr.path(op.args.sil, m); if (path) out.push(clip(path, kids)); break; }
         out.push(withProps(op, { kids }));
         break;
       }
       case 'look': {
         const kids = [];
-        flatten(op.kids, pr, m, k, d, n, kids);
+        flatten(op.kids, pr, m, k, d, n, kids, op.look);
         out.push(lookNode(op.look, kids));
         break;
       }
@@ -225,7 +226,8 @@ export function project(cam, card, P, { dark = 0, back = null, alpha = 1, look, 
   const front = facing(cam, P), c = !front && back ? back : card;
   const m0 = !front && back ? [-1, 0, 0, 1, c.w, 0] : I;
   const pr = projector(cam, P, c.w, c.h);
-  const kids = flatten(expand(c.kids, look ?? 'paperInk'), pr, m0, alpha, Math.min(0.85, dark), n, []);
+  look ??= 'paperInk';
+  const kids = flatten(expand(c.kids, look), pr, m0, alpha, Math.min(0.85, dark), n, [], look);
   return group({ name: name ?? c.name ?? 'sheet' }, kids);
 }
 

@@ -10,11 +10,12 @@ import { hashList } from '../core/list.js';
 import { hashLook } from '../core/looks.js';
 import { frame } from '../core/tree.js';
 import { skiaCanvas } from './skia.mjs';
-import { frameCanvas, outDir, tileSheet } from './sheets.mjs';
+import { frameCanvas, outDir, tileSheet, variant } from './sheets.mjs';
 
 const THUMB = 320;
 
-export const stateBase = (flags, film) => join(outDir(flags), `${film.name}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`);
+// Same name as `hdf render`'s outputs (look and aspect included), so changed compares against that render.
+export const stateBase = (flags, film) => join(outDir(flags), variant(film, flags));
 
 // Every frame's hash: list + look, so a look change moves every frame even if no list does.
 export function frameHashes(film, { ar } = {}) {
@@ -36,14 +37,15 @@ function writeState(base, film, ar, hashes) {
 // For `hdf render`: thumbnails from the raw frames it already has, then the state. add(i, buf) per frame.
 export function tracker(film, base, { ar, outW, outH }) {
   const hashes = frameHashes(film, { ar }), dir = `${base}.thumbs`, done = new Set();
-  const full = skiaCanvas(outW, outH), th = Math.round(THUMB * outH / outW);
+  const full = skiaCanvas(outW, outH), fctx = full.getContext('2d'), th = Math.round(THUMB * outH / outW);
   mkdirSync(dir, { recursive: true });
   return {
     add(i, buf) {
       const { h } = hashes[i];
       if (done.has(h)) return;
       done.add(h);
-      full.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength), outW, outH), 0, 0);
+      fctx.clearRect(0, 0, outW, outH);   // skia records commands: without a full clear every putImageData is replayed
+      fctx.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength), outW, outH), 0, 0);
       const t = skiaCanvas(THUMB, th);
       t.getContext('2d').drawImage(full, 0, 0, THUMB, th);
       writeFileSync(join(dir, `${h}.png`), t.toBufferSync('png'));

@@ -1,6 +1,6 @@
 // The player. Loads a film module and draws its frames with the same core/raster.js the Node renderer
 // uses. Three ways in:
-//   player.html?film=../films/mini.js[&frame=N&w=720&ar=16:9]   any static server
+//   player.html?film=../films/mini.js[&frame=N&w=720&ar=16:9&look=risoPop]   any static server
 //   `hdf dev <film>`      window.HDF = { dev, film, hdf }: module URLs under /v<gen>/, a change event
 //                          re-imports the film and core at a new generation and jumps to the first frame
 //                          whose list hash moved
@@ -36,8 +36,10 @@ async function decode(src) {
 async function load(gen) {
   const src = sources(gen);
   const [D, mod] = await Promise.all([import(src.deps), import(src.film)]);
-  const film = mod.default;
+  let film = mod.default;
   if (!film || typeof film !== 'object' || !film.timeline || !Number.isInteger(film.n)) throw new Error(`${src.film}: default export must be film({...})`);
+  const look = q.get('look') || cfg.look;   // ?look=<preset>, or --look from hdf dev / hdf bundle
+  if (look) film = D.withRootLook(film, look);
   const images = new Map();
   for (const [id, a] of Object.entries(film.assets ?? {})) {
     const s = cfg.assets?.[id] ?? a?.src;
