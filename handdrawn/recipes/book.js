@@ -21,6 +21,7 @@ import { V3, card3, project, shadeOf, shadows } from '../engines/stage3d.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
+// A pop-up book (see above): { draw({ turn, cam, look }) => a group of ops }.
 export function book3({ PW = 460, PD = 620, spreads, cover, board = { base: 'accents.1', shade: 0.5 }, edge = { base: 'paper', tint: 0.3 }, leaf = 5 }) {
   const nS = spreads.length, LEAF = leaf;
   const frameOf = (side, ang) => { const s = side === 'L' ? -1 : 1, ca = Math.cos(ang), sa = Math.sin(ang); return { U: [s * ca, sa, 0], N: [-s * sa, ca, 0] }; };

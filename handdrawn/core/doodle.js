@@ -14,6 +14,7 @@ import { reveal } from './tools.js';
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const asPath = (pts, close) => (isPath(pts) ? pts : poly(pts, !!close));
 
+// A self-drawing doodle builder (see above): lines, fills, washes and text revealed in pen order from `start`.
 export function doodle({ start = 0, speed = 1000, gap = 0.03, seed = 1, w = 4, role = 'ink' } = {}) {
   const ops = [];
   let t = start, z = 0, n = 0;

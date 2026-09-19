@@ -30,6 +30,7 @@ const easeOf = (e, dflt) => (typeof e === 'function' ? e : e ? ease[e] : dflt);
 
 // ---------- paths ----------
 
+// A gesture path: points with their cumulative lengths, for pointAt.
 export function pathOf(pts) {
   const P = pts.map((p) => [p[0], p[1]]), L = [0];
   for (let i = 1; i < P.length; i++) L.push(L[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
@@ -61,12 +62,15 @@ export function scanFill(poly, spacing, angle = 0) {
   const cb = Math.cos(angle), sb = Math.sin(angle);
   return out.map(([x, y]) => [x * cb - y * sb, x * sb + y * cb]);
 }
+// Points round a circle (turns may exceed 1), for gesture paths.
 export const circlePts = (cx, cy, r, n = 28, a0 = 0, turns = 1) => Array.from({ length: Math.round(n * turns) + 1 }, (_, k) => { const a = a0 + k / n * TAU; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; });
+// Points on a spiral out to radius r.
 export const spiralPts = (cx, cy, r, turns = 3, n = 24) => Array.from({ length: Math.round(turns * n) + 1 }, (_, k) => { const u = k / (turns * n), a = u * turns * TAU; return [cx + Math.cos(a) * r * u, cy + Math.sin(a) * r * u]; });
 
 // ---------- gestures (times in seconds, points in world units) ----------
 
 const lin = (t) => t;
+// Gesture constructors, all in world units and shot seconds: pour sprinkle finger palm dab comb fill move wind fly.
 export const G = {
   // a stream from the fist: dark lines, trunks, letters
   pour: (t0, t1, pts, o = {}) => ({ tool: 'pour', t0, t1, path: pathOf(pts), r: o.r ?? 10, amount: o.amount ?? 1.6, ease: easeOf(o.ease, lin), hover: true }),
@@ -115,6 +119,7 @@ export const cover = ({ box = null, amount = 3.2, grain = 0.5, feather = 140, se
 
 const SIMS = new Map();
 
+// A sand bed (see above) replaying `gestures` from `init`: returns bed(t, o) with bed.frame(t), bed.hiss(), bed.stateAt(K).
 export function sim(name, { N = 540, world = 1080, dt = 1 / 48, every = 24, gestures = [], init = null, hand = true, air = { light: { base: 'paper', tint: 0.8 }, dark: 'ink' } } = {}) {
   if (typeof name !== 'string' || !/^[\w-]+$/.test(name)) throw new TypeError(`sim: name must be a word, got '${name}'`);
   const all = gestures.flat(Infinity).filter(Boolean).sort((a, b) => a.t0 - b.t0);

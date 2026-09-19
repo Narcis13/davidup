@@ -2,7 +2,7 @@
 // Nothing here touches Date or global state.
 import { at, len } from './list.js';
 
-export const FPS = 12;
+export const FPS = 12;   // drawn frames per second (output is 24: every drawn frame shows twice)
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const lerp = (a, b, u) => (Array.isArray(a) ? a.map((v, j) => v + (b[j] - v) * u) : a + (b - a) * u);
@@ -50,16 +50,16 @@ export function curve(keys, e = ease.linear) {
 export const ramp = (a, b, t, e = ease.io) => easeFn(e)(clamp01((t - a) / (b - a)));
 
 const asCurve = (c) => (typeof c === 'function' ? c : () => c);
-export const add = (...cs) => { const f = cs.map(asCurve); return (t) => f.reduce((s, c) => s + c(t), 0); };
-export const mul = (...cs) => { const f = cs.map(asCurve); return (t) => f.reduce((s, c) => s * c(t), 1); };
-export const delay = (d, c) => (t) => c(t - d);
+export const add = (...cs) => { const f = cs.map(asCurve); return (t) => f.reduce((s, c) => s + c(t), 0); };   // curves or constants summed
+export const mul = (...cs) => { const f = cs.map(asCurve); return (t) => f.reduce((s, c) => s * c(t), 1); };   // multiplied
+export const delay = (d, c) => (t) => c(t - d);   // c starting d seconds later
 const mod = (a, n) => ((a % n) + n) % n;
-export const repeat = (period, c) => (t) => c(mod(t, period));
-export const pingpong = (period, c) => (t) => { const u = mod(t, 2 * period); return c(u < period ? u : 2 * period - u); };
-export const clampC = (c, lo, hi) => (t) => Math.min(hi, Math.max(lo, c(t)));
+export const repeat = (period, c) => (t) => c(mod(t, period));   // c looped every period
+export const pingpong = (period, c) => (t) => { const u = mod(t, 2 * period); return c(u < period ? u : 2 * period - u); };   // c forward then back
+export const clampC = (c, lo, hi) => (t) => Math.min(hi, Math.max(lo, c(t)));   // c held inside lo..hi
 // Sample and hold: the value changes every second (third) drawn frame.
 export const onTwos = (c) => (t) => c(Math.floor(kOf(t) / 2) * 2 / FPS);
-export const onThrees = (c) => (t) => c(Math.floor(kOf(t) / 3) * 3 / FPS);
+export const onThrees = (c) => (t) => c(Math.floor(kOf(t) / 3) * 3 / FPS);   // held for three drawn frames
 
 // Position and heading along a path. `p` maps t to progress 0..1 (identity by default).
 export function follow(path, p = (t) => t) {

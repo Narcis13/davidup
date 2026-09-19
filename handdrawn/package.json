@@ -8,7 +8,8 @@
     "hdf": "cli/hdf.mjs"
   },
   "exports": {
-    ".": "./core/index.js"
+    ".": "./core/index.js",
+    "./*": "./*"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.{js,mjs}\""

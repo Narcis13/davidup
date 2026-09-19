@@ -78,8 +78,8 @@ function hexTrace(ctx, x, y, s) {
   ctx.closePath();
 }
 
-// The palette after nightfall: lines go chalk, bodies go dark, washes stop multiplying (v1 chalkPalette).
 const chalkMemo = new WeakMap();
+// The palette after nightfall: lines go chalk, bodies go dark, washes stop multiplying (v1 chalkPalette).
 export function chalkLook(look) {
   let l = chalkMemo.get(look);
   if (!l) {
@@ -117,6 +117,7 @@ function outlines(kids, only) {
   return out;
 }
 
+// The raster effects by kind, for fx(kind, args, kids) and cut(kind, dur, a, b); each is (ctx, args, ...).
 export const FX = {
   // Kids faded in by p.
   dissolve(ctx, { p = 1 }, renderKids) {

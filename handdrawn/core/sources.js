@@ -4,6 +4,7 @@
 //   registerSource('sim', (src, { w, h, makeCanvas }) => canvas)   w, h: the op's size in device pixels
 const SOURCES = new Map();
 
+// Draw image ops whose src starts with `prefix:` from fn(src, { w, h, makeCanvas }) => canvas.
 export function registerSource(prefix, fn) {
   if (typeof prefix !== 'string' || !/^[\w-]+$/.test(prefix)) throw new TypeError(`registerSource: bad prefix '${prefix}'`);
   SOURCES.set(prefix, fn);

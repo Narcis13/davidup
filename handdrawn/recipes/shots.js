@@ -53,7 +53,7 @@ function recipe(letter, name, defaults, layer, { ground = 'paper', anchor, crop 
 // ---------- a default puppet: the paper boat of the four-looks film ----------
 
 const HULL = [[-78, 0], [78, 0], [52, 44], [-52, 44]], SAIL = [[0, -84], [-46, 0], [46, 0]];
-export const BOAT = { hull: poly(HULL), sail: poly(SAIL) };
+export const BOAT = { hull: poly(HULL), sail: poly(SAIL) };   // the boat's hull and sail paths
 // mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. note: a written hull.
 export const boat = cel('boat', ({ mode = 'ink', note = 0 }) => {
   const ink = mode !== 'blueprint', ln = ink ? 'ink' : 'chalk', w = ink ? 2.6 : 2.4;
@@ -368,15 +368,15 @@ export const seedRipples = recipe('N', 'intro', {
   ];
 }, { anchor: [{ name: 'seedDot' }, { name: 'ripples' }], crop: true });
 
-// O. Card montage (2 to 8 s): one card per `per` seconds (3 drawn frames at 0.25), hard cuts, the seed dot
-// on top of every card. cards: [(ctx) => list] without paper. dur defaults to cards x per.
 const montageShot = recipe('O', 'montage', {
   cards: [], per: 0.25, dot: 10, x: 540, y: 540,
 }, (ctx, o) => {
   const k = Math.min(o.cards.length - 1, Math.floor(ctx.t / o.per + 1e-9));
   return [group('card', norm(o.cards[k]({ ...ctx, t: ctx.t - k * o.per }))), o.dot && seedDot(o.x, o.y, o.dot)];
 }, { anchor: [{ name: 'card' }, { name: 'seedDot' }] });
-export const montage = Object.assign((opts) => montageShot({ dur: opts.cards.length * (opts.per ?? 0.25), ...opts }), { layer: montageShot.layer, recipe: 'O' });
+// O. Card montage (2 to 8 s): one card per `per` seconds (3 drawn frames at 0.25), hard cuts, the seed dot
+// on top of every card. cards: [(ctx) => list] without paper. dur defaults to cards x per.
+export const montage = Object.assign((opts) => montageShot({ dur: opts.cards.length * (opts.per ?? 0.25), ...opts }), { layer: montageShot.layer, recipe: 'O', defaults: montageShot.defaults });
 
 // A list with every dots op's screen made coarser (badges draw cards at a tenth of their size).
 const coarse = (list, f) => norm(list).map((op) => (op.op === 'dots' ? { ...op, cell: (op.cell ?? 8) * f } : op.kids ? { ...op, kids: coarse(op.kids, f) } : op));

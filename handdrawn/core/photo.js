@@ -29,6 +29,7 @@ export function on(pl, u, v) {
   const dx = (u - 0.5) * pl.w * (pl.flip ? -1 : 1), dy = (v - 0.5) * pl.h, ca = Math.cos(pl.rot), sa = Math.sin(pl.rot);
   return [pl.x + dx * ca - dy * sa, pl.y + dx * sa + dy * ca];
 }
+// on() for several [u, v] points.
 export const onAll = (pl, uv) => uv.map(([u, v]) => on(pl, u, v));
 
 // Frame <- cutout pixels.

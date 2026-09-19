@@ -15,6 +15,7 @@
 import { expand } from '../core/finish.js';
 import { clip, fill, fx, group, lookNode, mkPath, mmul, norm, withProps, I } from '../core/list.js';
 
+// 3-vector helpers: add sub mul dot cross len norm lerp.
 export const V3 = {
   add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
   sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
@@ -43,6 +44,7 @@ export function proj3(cam, p) {
 }
 const depth = (cam, p) => dot(sub(p, cam.eye), cam.fw);
 
+// Unit normal of a quad [TL, TR, BR, BL].
 export const quadNormal = (P) => V3.norm(cross(sub(P[1], P[0]), sub(P[3], P[0])));
 // How much to darken a sheet at its angle to the lamp (v1 shadeOf).
 export const shadeOf = (P, light = LIGHT) => 0.46 * (1 - Math.abs(dot(quadNormal(P), light)));

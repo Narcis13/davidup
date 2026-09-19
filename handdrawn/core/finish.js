@@ -89,7 +89,9 @@ export function covAt(cov, x, y) {
     default: throw new Error(`cov: unknown kind '${cov.kind}' (expected a number, radial, linear or plate)`);
   }
 }
+// Coverage falling from c0 at radius r0 to c1 at r1 about (x, y): the only gradient, printed as dot size.
 export const radial = (x, y, r0, r1, c0 = 1, c1 = 0) => ({ kind: 'radial', x, y, r0, r1, c0, c1 });
+// Coverage from c0 at (x0, y0) to c1 at (x1, y1).
 export const linear = (x0, y0, x1, y1, c0 = 1, c1 = 0) => ({ kind: 'linear', x0, y0, x1, y1, c0, c1 });
 
 // ---------- riso plates ----------

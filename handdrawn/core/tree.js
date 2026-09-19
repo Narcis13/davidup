@@ -82,6 +82,7 @@ export function shot(name, dur, draw, { fit = 'anchor', look, recipe, camera } =
   return Object.freeze({ kind: 'shot', name, dur, n: frames(dur, `shot ${name}`), draw, fit, look, recipe, camera });
 }
 
+// Children one after another; lasts the sum of their durations.
 export function seq(...kids) {
   kids = nodes(kids, 'seq');
   const n = kids.reduce((s, c) => s + c.n, 0);
@@ -114,6 +115,8 @@ export function lookOn(look, child) {
   return Object.freeze({ kind: 'look', look, dur: child.dur, n: child.n, child });
 }
 
+// The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read
+// as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ... } }).
 export function film({ name, look, timeline, score, format: ar = '1:1', assets = {} } = {}) {
   if (typeof name !== 'string' || !name) throw new TypeError('film: needs a name');
   if (!look) throw new TypeError(`film ${name}: needs a look`);

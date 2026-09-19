@@ -39,3 +39,6 @@ npm-debug.log*
 .env
 .env.local
 .review-artifacts/
+
+# hand-drawn films in progress (handdrawn/work/<film>/)
+handdrawn/work/

@@ -8,15 +8,17 @@ const TAU = Math.PI * 2;
 // ---------- matrices: [a, b, c, d, e, f] as in canvas setTransform ----------
 
 export const I = Object.freeze([1, 0, 0, 1, 0, 0]);
+// Matrix product m x n: n applied first, then m.
 export const mmul = (m, n) => [
   m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
   m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
   m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5],
 ];
 export const mapply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-export const translate = (x, y) => [1, 0, 0, 1, x, y];
+export const translate = (x, y) => [1, 0, 0, 1, x, y];   // a translation matrix
+// A rotation matrix, a in radians (clockwise on screen, y down).
 export const rotate = (a) => [Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0];
-export const scale = (sx, sy = sx) => [sx, 0, 0, sy, 0, 0];
+export const scale = (sx, sy = sx) => [sx, 0, 0, sy, 0, 0];   // a scale matrix
 
 // ---------- paths (plan 1.1) ----------
 // { sub: [{ pts: number[] (flat x0,y0,x1,y1,...), closed }], box: [x, y, w, h] }
@@ -35,14 +37,17 @@ const flat = (pts) => (pts.length && Array.isArray(pts[0]) ? pts.flat() : [...pt
 const pairs = (pts) => { const f = flat(pts), out = []; for (let i = 0; i < f.length; i += 2) out.push([f[i], f[i + 1]]); return out; };
 export const isPath = (v) => !!v && typeof v === 'object' && Array.isArray(v.sub) && Array.isArray(v.box);
 
+// A closed ellipse of n points (plan 1.1: curves are flattened at construction).
 export function ellipse(cx, cy, rx, ry, n = 48) {
   const pts = [];
   for (let i = 0; i < n; i++) { const a = i / n * TAU; pts.push(cx + rx * Math.cos(a), cy + ry * Math.sin(a)); }
   return mkPath([{ pts, closed: true }]);
 }
-export const circle = (cx, cy, r, n = 48) => ellipse(cx, cy, r, r, n);
+export const circle = (cx, cy, r, n = 48) => ellipse(cx, cy, r, r, n);   // a closed circle of n points
+// An axis-aligned rectangle from its top left corner.
 export const rect = (x, y, w, h) => mkPath([{ pts: [x, y, x + w, y, x + w, y + h, x, y + h], closed: true }]);
 
+// A rectangle with corners of radius r, n points per corner.
 export function roundRect(x, y, w, h, r, n = 6) {
   r = Math.min(r, w / 2, h / 2);
   const pts = [], corners = [[x + w - r, y + r, -1], [x + w - r, y + h - r, 0], [x + r, y + h - r, 1], [x + r, y + r, 2]];
@@ -53,9 +58,12 @@ export function roundRect(x, y, w, h, r, n = 6) {
   return mkPath([{ pts, closed: true }]);
 }
 
+// A polyline through pts ([[x, y], ...] or flat [x0, y0, ...]), closed by default.
 export const poly = (pts, closed = true) => mkPath([{ pts: flat(pts), closed }]);
+// One open segment.
 export const line = (x0, y0, x1, y1) => mkPath([{ pts: [x0, y0, x1, y1], closed: false }]);
 
+// An open cubic Bezier from p0 to p1 with control points c0, c1, as n segments.
 export function cubic(p0, c0, c1, p1, n = 16) {
   const pts = [];
   for (let i = 0; i <= n; i++) {
@@ -84,12 +92,14 @@ export function spline(points, { tension = 0.5, closed = false, n = 8 } = {}) {
   return mkPath([{ pts, closed }]);
 }
 
+// An open arc from angle a0 to a1 (radians), about 48 points per turn.
 export function arc(cx, cy, r, a0, a1, n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / TAU * 48))) {
   const pts = [];
   for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push(cx + r * Math.cos(a), cy + r * Math.sin(a)); }
   return mkPath([{ pts, closed: false }]);
 }
 
+// The path with every point through matrix m ([a, b, c, d, e, f]).
 export function xf(path, m) {
   return mkPath(path.sub.map((s) => {
     const pts = new Array(s.pts.length);
@@ -101,7 +111,7 @@ export function xf(path, m) {
   }));
 }
 
-export const box = (path) => path.box;
+export const box = (path) => path.box;   // [x, y, w, h]
 
 // Segments of one sub as [x0, y0, x1, y1], including the closing edge.
 function segments(s) {
@@ -111,6 +121,7 @@ function segments(s) {
   return out;
 }
 
+// Total length of every sub, closing edges included.
 export const len = (path) => path.sub.reduce((L, s) => L + segments(s).reduce((a, [x0, y0, x1, y1]) => a + Math.hypot(x1 - x0, y1 - y0), 0), 0);
 
 // Point and heading at arc length s along the subs in order (clamped to the ends).
@@ -140,6 +151,7 @@ export function inside(path, x, y) {
   return hit;
 }
 
+// The same path with points every `step` units along it (for even wobble, dashes or particles on a line).
 export function resample(path, step) {
   return mkPath(path.sub.map((s) => {
     const pts = [s.pts[0], s.pts[1]];
@@ -158,6 +170,7 @@ export function resample(path, step) {
   }));
 }
 
+// Several paths as one (their subs together; fills use even-odd).
 export const union = (...paths) => mkPath(paths.flatMap((p) => p.sub));
 
 // ---------- ops (plan 1.2) ----------
@@ -183,16 +196,29 @@ export function norm(list) {
   return out;
 }
 
+// The paper stock of the look (colour, bands, grain): first op of a daylight shot.
 export const paper = (o = {}) => mkOp({ op: 'paper', ...o });
+// The dark stock (palette night): first op of a night or blueprint shot.
 export const night = (o = {}) => mkOp({ op: 'night', ...o });
+// A flat fill in a role; o: finish (true: the look's texture, or a finish name / options), cov (riso coverage),
+// alpha, blend, name, seed.
 export const fill = (path, role = 'fills.0', o = {}) => mkOp({ op: 'fill', path: needPath(path, 'fill'), role, ...o });
+// A hand-drawn line along the path; o: tool (pen brush pencil chalk crayon marker), w, wobble, taper, dash, alpha,
+// order (for reveal), name, seed.
 export const stroke = (path, role = 'ink', o = {}) => mkOp({ op: 'stroke', path: needPath(path, 'stroke'), role, tool: 'pen', w: 2, ...o });
+// A dot screen inside the path; o: cell (spacing), density or cov, angle, blend: 'multiply'.
 export const dots = (path, role = 'ink', o = {}) => mkOp({ op: 'dots', path: needPath(path, 'dots'), role, cell: 8, ...o });
+// Hand-lettered text (expanded into strokes, no fonts); o: size, role, tool, align, w. Counted by lint's word rule.
 export const text = (str, x, y, o = {}) => mkOp({ op: 'text', str: String(str), x, y, size: 48, role: 'ink', tool: 'pen', align: 'left', ...o });
+// An image asset (src: an id in film assets) in the box; o: sil (silhouette path), alpha, blend.
 export const image = (src, x, y, w, h, o = {}) => mkOp({ op: 'image', src, x, y, w, h, ...o });
+// Kids drawn only inside the path.
 export const clip = (path, kids) => mkOp({ op: 'clip', path: needPath(path, 'clip'), kids: norm(kids) });
+// Kids drawn through a raster effect (FX: dissolve, blot, iris, mosaic, nightShot, glow, scribble, ...).
 export const fx = (kind, args = {}, kids = [], o = {}) => mkOp({ op: 'fx', kind, args, kids: norm(kids), ...o });
+// Kids drawn in another look (lint allows it inside a shot only with inset: true).
 export const lookNode = (look, kids) => mkOp({ op: 'look', look, kids: norm(kids) });
+// Data for lint and the board, never drawn: meta('anchor', { cel } | { name }), meta('intent', 'crop').
 export const meta = (tag, data = {}) => mkOp({ op: 'meta', tag, data });
 
 // group(kids) | group(name, kids, opts) | group({ name, xf, box, cache, ... }, kids)
@@ -260,6 +286,7 @@ export function hashOp(op) {
 // Any plain data (a look, cel inputs) in the same canonical form.
 export const hashData = (v) => hash64((f) => feedValue(v, f, 'data'));
 
+// 16 hex digits over a whole list (what frame dedup and `hdf changed` compare).
 export const hashList = (list) => hash64((f) => { f.byte(0x4c); for (const op of norm(list)) f.str(hashOp(op)); });
 
 // ---------- bounds, walk, mapPaths ----------
@@ -343,8 +370,10 @@ export function mapPaths(list, f) {
 
 // ---------- JSON (paths as flat arrays: { $p: [[closed, x0, y0, ...], ...] }) ----------
 
+// A list as JSON, paths as flat arrays.
 export const serialise = (list) => JSON.stringify(norm(list), (k, v) => (isPath(v) ? { $p: v.sub.map((s) => [s.closed ? 1 : 0, ...s.pts]) } : v));
 
+// The inverse of serialise.
 export const parse = (json) => JSON.parse(json, (k, v) => {
   if (v && typeof v === 'object' && Array.isArray(v.$p)) return mkPath(v.$p.map(([c, ...pts]) => ({ pts, closed: !!c })));
   if (v && typeof v === 'object' && !Array.isArray(v) && typeof v.op === 'string') return mkOp(v);

@@ -2,8 +2,10 @@
 // when the film renders at another aspect: anchor (default), reframe or letterbox.
 import { group, clip, paper, rect, translate } from './list.js';
 
+// Aspect ratio -> [W, H] in logical units.
 export const FORMATS = Object.freeze({ '1:1': [1080, 1080], '16:9': [1920, 1080], '9:16': [1080, 1920] });
 
+// { ar, W, H, CX, CY } for an aspect ratio; shots get these in their context.
 export function format(ar = '1:1') {
   const wh = FORMATS[ar];
   if (!wh) throw new Error(`unknown format '${ar}' (expected ${Object.keys(FORMATS).join(', ')})`);

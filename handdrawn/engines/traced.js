@@ -52,6 +52,7 @@ export function registerClip(name, data) {
 // Registers every clip of a clips module ({ name: data }); returns the registered clips by name.
 export const registerClips = (all) => Object.fromEntries(Object.entries(all).map(([k, v]) => [k, registerClip(k, v)]));
 
+// The registered clip, or an error naming the ones there are.
 export function clipOf(name) {
   const c = CLIPS.get(name);
   if (!c) throw new Error(`unknown clip '${name}' (register it with registerClip before drawing; have ${[...CLIPS.keys()].join(', ') || 'none'})`);

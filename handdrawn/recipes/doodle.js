@@ -31,6 +31,7 @@ const sm = (a, b, t, e = ease.io) => ramp(a, b, t, e);
 
 // From a to b over t = 0..1 on an arc h high.
 export const hop = (a, b, t, h) => { t = clamp01(t); return [lerp(a[0], b[0], t), lerp(a[1], b[1], t) - Math.sin(t * Math.PI) * h]; };
+// From a to b over t = 0..1 in a straight line.
 export const lin = (a, b, t) => { t = clamp01(t); return [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]; };
 
 // ---------- geometry helpers ----------
@@ -74,6 +75,7 @@ function attach(pl0, pl) {
 
 // ---------- roles (never hex; chosen to survive nightShot's chalk pass where it matters) ----------
 
+// Roles the doodle cast and props share (quills, tea, star, ...), as role objects.
 export const ROLES = Object.freeze({
   quills: { base: 'fills.4', shade: 0.3 },
   white: { base: 'paper', tint: 0.92 },          // stays white in the chalk pass ('light' goes dark there)
@@ -162,7 +164,7 @@ export function bird(d, x, y, s, o = {}) {
   return d;
 }
 
-export const CAST = Object.freeze({ hog, spark, bird });
+export const CAST = Object.freeze({ hog, spark, bird });   // the doodle characters by name
 
 // ---------- props (v1 held-once / night-shift) ----------
 
@@ -453,13 +455,7 @@ export function nightFalls(o = {}) {
   }, { recipe: 'AE', camera: 'static', look: lookFor(o, 'lilac') });
 }
 
-// ======================================================================================================
-// AF. Prints on a line: the last frame of every scene hung as small prints on a drawn string, then the
-// sign-off and the cast. prints: [list | (ctx) => list | { list | draw, look }]; lastFrame(shot) makes one.
-// A print with its own look is wrapped in a look op marked inset (a thumbnail, so lint's one-look rule
-// passes it), otherwise it is drawn in this shot's look on a lighter sheet. Words inside prints are thumbnails, not this shot's words: their text groups are
-// renamed 'print:' so lint does not count them.
-// ======================================================================================================
+// A shot's last frame as a print for printsOnALine (AF): (ctx) => list.
 export const lastFrame = (node) => {
   if (!node || node.kind !== 'shot') throw new TypeError('lastFrame: expected a shot');
   return (c) => node.draw({ ...c, t: (node.n - 1) / FPS, k: node.n - 1, T: node.dur });
@@ -480,6 +476,13 @@ function printable(list, sheet) {
   return walkList([list]);
 }
 
+// ======================================================================================================
+// AF. Prints on a line: the last frame of every scene hung as small prints on a drawn string, then the
+// sign-off and the cast. prints: [list | (ctx) => list | { list | draw, look }]; lastFrame(shot) makes one.
+// A print with its own look is wrapped in a look op marked inset (a thumbnail, so lint's one-look rule
+// passes it), otherwise it is drawn in this shot's look on a lighter sheet. Words inside prints are thumbnails, not this shot's words: their text groups are
+// renamed 'print:' so lint does not count them.
+// ======================================================================================================
 export function printsOnALine(o = {}) {
   const {
     name = 'printsOnALine', dur = 4.5, prints = [], a = 'the end', b = 'for now', size = 66, who = hog,

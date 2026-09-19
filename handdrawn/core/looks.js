@@ -30,9 +30,11 @@ export function css([r, g, b, a = 1]) {
 }
 const keepAlpha = (c, rgb) => css([...rgb, parse(c)[3]]);
 
+// Colour helpers for derived palettes (hex in, CSS out); films use roles, not these, in ops.
 export function mix(a, b, t) { const A = parse(a), B = parse(b); return css(A.map((v, i) => lerp(v, B[i], t))); }
 export const tint = (c, t) => mix(c, '#ffffff', t);    // towards white
 export const shade = (c, t) => mix(c, '#000000', t);   // towards black
+// c with its alpha multiplied by a.
 export function alpha(c, a) { const [r, g, b, a0] = parse(c); return css([r, g, b, a0 * a]); }
 
 function rgbToHsl([r, g, b]) {
@@ -74,6 +76,7 @@ const mkLook = (name, palette, finish, paper, tools = {}) => deepFreeze({
   tools: Object.fromEntries(Object.keys(TOOLS).map((k) => [k, { ...TOOLS[k], ...tools[k] }])),
 });
 
+// The six presets (plan 1.4): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel.
 export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
@@ -161,6 +164,7 @@ export function duotone(look, a, b) {
 
 // The doodle palette on another sheet of paper. Sheets measured off the reference film.
 export const PASTELS = Object.freeze({ rose: '#efd2d1', mint: '#d3e6d9', butter: '#efe4b3', sky: '#d2dee8', cream: '#ebe5d4', peach: '#eeccb4', lilac: '#ded4e9', sand: '#c9b07e', night: '#383750' });
+// The look on a pastel sheet: n names a PASTELS paper or is any colour.
 export function pastel(look, n) {
   const paper = PASTELS[n] ?? n;
   parse(paper);
