@@ -19,6 +19,7 @@ import { drawStroke, tracePath } from './tools.js';
 import { rng } from './rand.js';
 import { frame } from './tree.js';
 import { format } from './fit.js';
+import { sourceFor } from './sources.js';
 
 const TAU = Math.PI * 2;
 const EPS = 1e-6;
@@ -56,7 +57,7 @@ function drawFill(ctx, op, look) {
   applyBlend(ctx, op.blend, look);
   ctx.beginPath();
   tracePath(ctx, op.path);
-  ctx.fill('evenodd');
+  ctx.fill(op.rule === 'nonzero' ? 'nonzero' : 'evenodd');
   ctx.restore();
 }
 
@@ -87,15 +88,86 @@ function drawDots(ctx, op, look) {
 
 // A registered asset (film.assets[src], decoded by the driver into `images`). The chalk pass of nightShot
 // draws images as erasers, so chalk lines never cross a photo.
+// A src with a registered prefix (core/sources.js) is computed by its engine at the op's device size.
 function drawImage(ctx, op, look, env) {
-  const img = env.images?.get?.(op.src) ?? env.images?.[op.src];
+  let img = env.images?.get?.(op.src) ?? env.images?.[op.src];
+  if (!img) {
+    const source = sourceFor(op.src);
+    if (source) {
+      const D = ctx.getTransform(), k = Math.hypot(D.a, D.b);
+      img = source(op.src, { w: Math.max(1, Math.round(op.w * k)), h: Math.max(1, Math.round(op.h * Math.hypot(D.c, D.d))), makeCanvas: env.makeCanvas });
+    }
+  }
   if (!img) throw new Error(`image '${op.src}' is not loaded (register it in film({ assets }) and let the driver decode it)`);
   ctx.save();
   if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
+  applyBlend(ctx, op.blend, look);
   if (look.chalkPass) ctx.globalCompositeOperation = 'destination-out';
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, op.x, op.y, op.w, op.h);
+  ctx.restore();
+}
+
+// An image on a projected grid (engines/stage3d.js): { op: 'mesh', src, n, grid: [x, y, ...] ((n+1)^2 points,
+// NaN for a point behind the camera), alpha, dark }. Each cell is two triangles, each an affine map of the
+// image, clipped to itself grown by 0.9 units so the seams close (v1 paper3d quad3). dark (0..1) shades the
+// image towards a violet black, the way the lamp shades a sheet turned away from it.
+const MESH_DARK = '24,14,30';
+function meshTri(c, img, u0, v0, u1, v1, u2, v2, x0, y0, x1, y1, x2, y2) {
+  const det = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
+  if (Math.abs(det) < 1e-9) return;
+  const a = ((x1 - x0) * (v2 - v0) - (x2 - x0) * (v1 - v0)) / det, b = ((y1 - y0) * (v2 - v0) - (y2 - y0) * (v1 - v0)) / det;
+  const cc = ((x2 - x0) * (u1 - u0) - (x1 - x0) * (u2 - u0)) / det, d = ((y2 - y0) * (u1 - u0) - (y1 - y0) * (u2 - u0)) / det;
+  const e = x0 - a * u0 - cc * v0, f = y0 - b * u0 - d * v0, mx = (x0 + x1 + x2) / 3, my = (y0 + y1 + y2) / 3;
+  const g = (x, y) => { const dx = x - mx, dy = y - my, l = Math.hypot(dx, dy) || 1, k = (l + 0.9) / l; return [mx + dx * k, my + dy * k]; };
+  const A = g(x0, y0), B = g(x1, y1), C = g(x2, y2);
+  c.save();
+  c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.lineTo(C[0], C[1]); c.closePath(); c.clip();
+  c.transform(a, b, cc, d, e, f);
+  c.drawImage(img, 0, 0);
+  c.restore();
+}
+function drawMesh(ctx, op, look, env) {
+  const q = op.grid, n = op.n, P = (i, j) => 2 * (j * (n + 1) + i);
+  let img = env.images?.get?.(op.src) ?? env.images?.[op.src];
+  if (!img) {
+    const source = sourceFor(op.src);
+    if (source) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let k = 0; k < q.length; k += 2) if (q[k] === q[k]) { x0 = Math.min(x0, q[k]); x1 = Math.max(x1, q[k]); y0 = Math.min(y0, q[k + 1]); y1 = Math.max(y1, q[k + 1]); }
+      const D = ctx.getTransform(), k = Math.hypot(D.a, D.b);
+      img = source(op.src, { w: Math.max(1, Math.round((x1 - x0) * k)), h: Math.max(1, Math.round((y1 - y0) * k)), makeCanvas: env.makeCanvas });
+    }
+  }
+  if (!img) throw new Error(`mesh: image '${op.src}' is not loaded`);
+  const dark = op.dark ?? 0, target = dark > 0.01 && env.temp ? env.temp(`mesh:${env.depth ?? 0}`, ctx.canvas.width, ctx.canvas.height) : null;
+  const g = target ? target.getContext('2d') : ctx;
+  if (target) { const m = ctx.getTransform(); g.setTransform(m.a, m.b, m.c, m.d, m.e, m.f); }
+  g.save();
+  if (!target && op.alpha !== undefined) g.globalAlpha *= op.alpha;
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  const tw = img.width, th = img.height;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const a = P(i, j), b = P(i + 1, j), c = P(i, j + 1), d = P(i + 1, j + 1);
+    if (q[a] !== q[a] || q[b] !== q[b] || q[c] !== q[c] || q[d] !== q[d]) continue;   // a cell behind the camera
+    const u0 = i / n * tw, u1 = (i + 1) / n * tw, v0 = j / n * th, v1 = (j + 1) / n * th;
+    meshTri(g, img, u0, v0, u1, v0, u0, v1, q[a], q[a + 1], q[b], q[b + 1], q[c], q[c + 1]);
+    meshTri(g, img, u1, v0, u1, v1, u0, v1, q[b], q[b + 1], q[d], q[d + 1], q[c], q[c + 1]);
+  }
+  g.restore();
+  if (!target) return;
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = `rgba(${MESH_DARK},${Math.min(0.85, dark)})`;
+  g.fillRect(0, 0, target.width, target.height);
+  g.restore();
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
+  ctx.drawImage(target, 0, 0);
   ctx.restore();
 }
 
@@ -181,13 +253,15 @@ function defaultMakeCanvas() {
 //   dedup             frame(): a frame whose list hash equals the previous one's returns { dup: true }
 //                     without drawing (the canvas still holds it); the driver repeats the last buffer.
 //   images            Map (or object) asset id -> decoded image, for image ops (loadImages in the drivers).
-export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas(), store = null, dedup = true, images = null } = {}) {
+//   bake(canvas, w, h) turns a kept layer into pixels (Node: skia canvases record commands, so blitting an
+//                     unbaked layer replays every stroke in it; a browser canvas is pixels already).
+export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas(), store = null, dedup = true, images = null, bake = null } = {}) {
   const isolate = !!makeCanvas, keep = cacheMb > 0;
   const layers = lru(cacheMb * 1024 * 1024);
   let seen = new Set();
   const stats = { direct: 0, blits: 0, layers: 0, scratch: 0, disk: 0, dups: 0, frames: 0 };
   let last = null;
-  const scratch = [];   // one reusable canvas per nesting depth
+  const scratch = [];   // one canvas per nesting depth, reused while the size holds
 
   // Full-size canvases for fx that composite their kids off screen (mosaic, nightShot, bleed), one per slot
   // and nesting depth, cleared on handout.
@@ -204,15 +278,17 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
     return c;
   }
 
+  // Exactly w x h: a canvas's size reaches the pixels of what is drawn in it (fx size their offscreen canvases
+  // from it), so a scratch canvas that kept the largest size seen would make a frame depend on render history.
   function scratchAt(depth, w, h) {
     let c = scratch[depth];
-    if (!c || c.width < w || c.height < h) {
-      c = makeCanvas(Math.max(w, c?.width ?? 0), Math.max(h, c?.height ?? 0));
+    if (!c || c.width !== w || c.height !== h) {
+      c = makeCanvas(w, h);
       scratch[depth] = c;
     }
     const g = c.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, w, h);
+    g.clearRect(0, 0, c.width, c.height);   // all of it: a recording canvas (skia) only drops its history on a full clear
     return c;
   }
 
@@ -234,7 +310,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
     drawList(g, kids, look, { ...env, depth: env.depth + 1 });
     g.restore();
     stats[temp ? 'scratch' : 'layers']++;
-    return { canvas, lx, ly, w, h, bytes: w * h * 4 };
+    return { canvas: !temp && bake ? bake(canvas, w, h) : canvas, lx, ly, w, h, bytes: w * h * 4 };
   }
 
   // Composites an isolated group; false means "draw it direct" (and the caller does).
@@ -309,6 +385,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
         case 'look': drawList(ctx, op.kids, resolveLook(op.look), env); break;
         case 'meta': break;
         case 'image': drawImage(ctx, op, look, env); break;
+        case 'mesh': drawMesh(ctx, op, look, env); break;
         default: throw new Error(`raster: unknown op '${op.op}'`);
       }
     }
@@ -319,7 +396,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
     const area = (ctx.canvas?.width ?? W * S) * (ctx.canvas?.height ?? H * S);
     ctx.save();
     ctx.setTransform(S, 0, 0, S, 0, 0);
-    drawList(ctx, norm(list), resolveLook(look), { S, W, H, maxArea: MAX_LAYER * area, depth: 0, images, makeCanvas, temp });
+    drawList(ctx, norm(list), resolveLook(look), { S, W, H, maxArea: MAX_LAYER * area, depth: 0, images, makeCanvas, temp, bake });
     ctx.restore();
   }
 

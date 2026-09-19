@@ -297,6 +297,12 @@ export function bounds(list, m = I) {
         b = boxThrough([x, op.y - op.size * 0.8, w, op.size], m); break;
       }
       case 'image': b = boxThrough([op.x, op.y, op.w, op.h], m); break;
+      case 'mesh': {   // a projected image grid (engines/stage3d.js); NaN points are behind the camera
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (let i = 0; i < op.grid.length; i += 2) if (op.grid[i] === op.grid[i]) { x0 = Math.min(x0, op.grid[i]); x1 = Math.max(x1, op.grid[i]); y0 = Math.min(y0, op.grid[i + 1]); y1 = Math.max(y1, op.grid[i + 1]); }
+        if (x0 !== Infinity) b = boxThrough([x0, y0, x1 - x0, y1 - y0], m);
+        break;
+      }
       case 'specks': {   // internal grain op from finish.js: rects [x, y, w, h, ...]
         const q = op.rects;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

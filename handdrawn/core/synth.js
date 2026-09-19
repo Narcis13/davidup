@@ -1,6 +1,7 @@
 // The score as samples. Events are data; renderScore mixes them into a Float32Array at 44.1 kHz with the
 // v1 envelope (note, noiseBurst), so the Node driver and the player play the same samples.
-//   { t, dur, hz, type: 'sine'|'triangle'|'square'|'saw'|'noise', gain = .25, attack = .02, release = 'exp', seed }
+//   { t, dur, hz, type: 'sine'|'triangle'|'square'|'saw'|'noise'|'hiss', gain = .25, attack = .02, release = 'exp', seed }
+// hiss: seeded white noise through a band-pass at hz (q, default .8), held at gain for dur (v1 sand gestures).
 // Nothing here reads Date, Math.random or global state.
 import { rng } from './rand.js';
 import { cues } from './tree.js';
@@ -40,7 +41,7 @@ function envelope(u, { gain: g, dur, attack, release }) {
 
 function addNote(out, ev) {
   const wave = WAVES[ev.type];
-  if (!wave) throw new Error(`synth: unknown type '${ev.type}' (sine, triangle, square, saw, noise)`);
+  if (!wave) throw new Error(`synth: unknown type '${ev.type}' (sine, triangle, square, saw, noise, hiss)`);
   if (!(ev.hz > 0)) throw new Error(`synth: ${ev.type} at ${ev.t}s needs hz > 0`);
   const env = { gain: ev.gain, dur: Math.max(ev.dur, ev.attack + 1e-3), attack: ev.attack, release: ev.release };
   const n0 = Math.round(ev.t * SR), n1 = Math.min(out.length, Math.round((ev.t + env.dur + TAIL) * SR)), dt = ev.hz / SR;
@@ -56,6 +57,22 @@ function addNoise(out, ev) {
   for (let i = 0; i < len; i++) {
     const v = (r() * 2 - 1) * Math.pow(1 - i / len, 2) * ev.gain, n = n0 + i;
     if (n >= 0 && n < out.length) out[n] += v;
+  }
+}
+
+// v1's sand hiss: looped noise through a BiquadFilter 'bandpass' (RBJ, 0 dB peak), opened over
+// min(.08, dur / 2), held, closed .12 s after the end. dur is at least .06.
+function addHiss(out, ev) {
+  const r = rng(ev.seed ?? 5), d = Math.max(ev.dur, 0.06), up = Math.min(0.08, d / 2), n0 = Math.round(ev.t * SR), len = Math.ceil((d + 0.12) * SR);
+  const w0 = 2 * Math.PI * ev.hz / SR, al = Math.sin(w0) / (2 * (ev.q ?? 0.8)), a0 = 1 + al;
+  const b0 = al / a0, b2 = -al / a0, a1 = -2 * Math.cos(w0) / a0, a2 = (1 - al) / a0;
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < len; i++) {
+    const x = r() * 2 - 1, y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = x; y2 = y1; y1 = y;
+    const u = i / SR, g = u < up ? ev.gain * u / up : u < d ? ev.gain : ev.gain * Math.max(0, 1 - (u - d) / 0.12);
+    const n = n0 + i;
+    if (n >= 0 && n < out.length) out[n] += y * g;
   }
 }
 
@@ -75,7 +92,7 @@ export function renderScore(events, dur, { master = 0.5 } = {}) {
   for (const e of events.flat(Infinity)) {
     if (!e) continue;
     const ev = event(e);
-    if (ev.type === 'noise') addNoise(out, ev); else addNote(out, ev);
+    if (ev.type === 'noise') addNoise(out, ev); else if (ev.type === 'hiss') addHiss(out, ev); else addNote(out, ev);
   }
   const m = Math.min(MASTER_MAX, Math.max(0, master));
   for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, out[i] * m));

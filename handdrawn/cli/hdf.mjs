@@ -24,7 +24,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet; --v1 <photos.js> converts
-  clip    <roto.py json> --name     convert a traced clip to the v2 format
+  clip    <clips.js|clip.json> [--name id] [--js clips.js]   roto.py output -> a v2 clips module
   donate  <film.js> <cel...>        copy cels into a pack, regenerate manifest + sheets
 `;
 

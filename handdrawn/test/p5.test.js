@@ -83,7 +83,7 @@ test('every fx renders deterministically; transitions reveal b by p', () => {
   const args = {
     dissolve: { p: 0.5 }, wipe: { p: 0.5 }, blot: { p: 0.2 }, iris: { p: 0.4, ring: 'ink' }, mosaic: { s: 30 }, flash: { k: 0.5 },
     flicker: { i: 0 }, nightShot: { lights: [{ x: 400, y: 400, r: 300 }] }, bleed: { amt: 3 }, glow: { r: 200 }, scribble: { amp: 8 },
-    photoMask: { sil: circle(540, 540, 150) },
+    photoMask: { sil: circle(540, 540, 150) }, soft: { q: 10, alpha: 0.5 },
   };
   assert.deepEqual(Object.keys(args).sort(), Object.keys(H.FX).sort());
   const base = sha(px([paper(), ...kids]));

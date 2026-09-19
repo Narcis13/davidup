@@ -5,7 +5,7 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { format } from '../core/fit.js';
-import { skiaCanvas } from './skia.mjs';
+import { skiaBake, skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
 import { diskStore } from './store.mjs';
 import { imagesOf } from './load.mjs';
@@ -17,7 +17,7 @@ export function frameRenderer(film, { ar, width, cacheMb = 512, diskCache } = {}
   const size = outputSize(ar ? format(ar) : film.format, width);
   const canvas = skiaCanvas(size.outW, size.outH), ctx = canvas.getContext('2d');
   const store = diskCache ? diskStore(typeof diskCache === 'string' ? resolve(diskCache) : resolve('.cache')) : null;
-  const r = createRenderer({ cacheMb, makeCanvas: skiaCanvas, store, images: imagesOf(film) });
+  const r = createRenderer({ cacheMb, makeCanvas: skiaCanvas, store, images: imagesOf(film), bake: skiaBake });
   return {
     size, canvas, stats: r.stats, cache: r.cache,
     render(i) {

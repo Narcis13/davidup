@@ -317,6 +317,25 @@ export const FX = {
   },
 };
 
+// Kids drawn at 1/q of the resolution (q in logical units) and laid down once at alpha: soft edges (the
+// shadows of engines/stage3d.js), and overlapping kids at full strength in the layer do not add up.
+FX.soft = function soft(ctx, { q = 10, alpha = 1 }, renderKids, seed, env) {
+  if (alpha <= 0) return;
+  const D = ctx.getTransform(), qd = Math.max(1, q * Math.hypot(D.a, D.b));
+  const cw = Math.max(1, Math.ceil(ctx.canvas.width / qd)), ch = Math.max(1, Math.ceil(ctx.canvas.height / qd));
+  const c = env.temp(`soft:${env.depth ?? 0}`, cw, ch), g = c.getContext('2d');
+  g.setTransform(D.a / qd, D.b / qd, D.c / qd, D.d / qd, D.e / qd, D.f / qd);
+  renderKids(g);
+  const src = env.bake ? env.bake(c, cw, ch) : c;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, cw * qd, ch * qd);
+  ctx.restore();
+};
+
 export function drawFx(ctx, op, renderKids, look, env) {
   const f = FX[op.kind];
   if (!f) throw new Error(`fx '${op.kind}' is unknown (have ${Object.keys(FX).join(', ')})`);

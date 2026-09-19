@@ -133,14 +133,15 @@ function scan(list, look, report) {
   return got;
 }
 
-// Groups an anchor meta points at ({ cel } or { name }), with their boxes in shot coordinates.
+// Ops an anchor meta points at ({ cel } or { name }: a group, or any named op such as a sand bed's image),
+// with their boxes in shot coordinates.
 function anchorBoxes(list, data) {
   const match = data.cel !== undefined ? (op) => op.cel === data.cel : data.name !== undefined ? (op) => op.name === data.name : null;
   if (!match) return null;
   const boxes = [];
   const visit = (ops, m) => {
     for (const op of ops) {
-      if (op.op === 'group' && match(op)) { const b = bounds([op], m); if (b) boxes.push(b); continue; }
+      if (op.op !== 'meta' && match(op)) { const b = bounds([op], m); if (b) boxes.push(b); continue; }
       if (op.kids) visit(op.kids, op.op === 'group' ? mmul(m, op.xf) : m);
     }
   };
