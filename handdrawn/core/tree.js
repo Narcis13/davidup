@@ -74,11 +74,12 @@ export function place(x, y, o, node) {
 // ---------- timeline nodes ----------
 
 // draw({ t, k, i, T, seed, W, H, CX, CY, look }) => display list
-export function shot(name, dur, draw, { fit = 'anchor', look } = {}) {
+// recipe and camera are labels for `hdf board` (recipes/ set them); they do not change any frame.
+export function shot(name, dur, draw, { fit = 'anchor', look, recipe, camera } = {}) {
   if (typeof name !== 'string' || !name) throw new TypeError('shot: needs a name');
   if (typeof draw !== 'function') throw new TypeError(`shot ${name}: draw must be a function`);
   fitFor(fit, format(), format());   // validates the mode
-  return Object.freeze({ kind: 'shot', name, dur, n: frames(dur, `shot ${name}`), draw, fit, look });
+  return Object.freeze({ kind: 'shot', name, dur, n: frames(dur, `shot ${name}`), draw, fit, look, recipe, camera });
 }
 
 export function seq(...kids) {
@@ -144,17 +145,24 @@ function seedOp(op, parent, j) {
   return out;
 }
 
+// One shot at local frame k, before its fit wrap and look: { list (seeded), wrap, seed, look, env }.
+// `look` is the one inherited from lookOn ancestors. Lint reads shots through this.
+export function evalShot(f, node, k, { i = 0, target = f.format, look } = {}) {
+  const seed = seedOf(f.seed, node.name);
+  const eff = node.look ?? look ?? f.look;
+  const { env, wrap } = fitFor(node.fit, f.format, target);
+  const raw = node.draw({ t: k / FPS, k, i, T: node.dur, seed, ...env, look: eff });
+  return { list: seedList(norm(raw), seed), wrap, seed, look: eff, env };
+}
+
 function evalNode(node, k, ctx, look) {
   switch (node.kind) {
     case 'shot': {
-      const seed = seedOf(ctx.film.seed, node.name);
       const own = node.look ?? look;
-      const eff = own ?? ctx.film.look;
-      const { env, wrap } = fitFor(node.fit, ctx.film.format, ctx.target);
-      const raw = node.draw({ t: k / FPS, k, i: ctx.i, T: node.dur, seed, ...env, look: eff });
-      let list = wrap(seedList(norm(raw), seed), seed);
+      const s = evalShot(ctx.film, node, k, { i: ctx.i, target: ctx.target, look });
+      let list = s.wrap(s.list, s.seed);
       if (own) list = [lookNode(own, list)];
-      ctx.hit ??= { name: node.name, k, look: eff };
+      ctx.hit ??= { name: node.name, k, look: s.look };
       return list;
     }
     case 'seq': {

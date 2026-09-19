@@ -14,10 +14,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
   grid    <film.js> [--n 24] [--width 480]
   only    <film.js> 0,37,74
-  board   <film.js>                 storyboard cards
-  sheet   <film.js> <cel>           cel at 3 scales x input extremes x every look
-  lint    <film.js>
-  changed <film.js>                 frames whose list hash moved since last render
+  board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg)
+  sheet   <film.js> <cel>           cel at 3 scales x input extremes x every look, silhouette, 240 px
+  lint    <film.js>                 review checklist over lists; exits 1 on any finding
+  changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]
   dev     <film.js>                 player with hot reload on :4321
   bundle  <film.js>                 single HTML

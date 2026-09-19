@@ -2,6 +2,7 @@
 // the score rendered to WAV and muxed, and a contact sheet with cuts and note onsets.
 //   out/<film>.mp4        picture only        out/<film>.wav        the score
 //   out/<film>-final.mp4  picture + sound     out/<film>-sheet.jpg  two tiles per second
+// It also records every frame's list hash and a thumbnail per hash, the baseline for `hdf changed`.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -10,6 +11,7 @@ import { filmAudio, toWav16 } from '../core/synth.js';
 import { ffmpegSink, h264Args } from './ffmpeg.mjs';
 import { contactSheet, outDir } from './sheets.mjs';
 import { defaultWorkers, produceFrames } from './frames.mjs';
+import { tracker } from './changed.mjs';
 
 function ffmpeg(args) {
   return new Promise((res, rej) => {
@@ -27,6 +29,7 @@ export async function run([path], flags, { loadFilm }) {
   const base = join(outDir(flags), `${film.name}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`);
   const opts = { ar: flags.ar, width: flags.width, workers, cacheMb: flags.cacheMb ?? 512, diskCache: flags.diskCache };
   const sheet = contactSheet(film, { ar: flags.ar, width: flags.width });
+  const hashes = tracker(film, base, { ar: flags.ar, outW: sheet.outW, outH: sheet.outH });
   const t0 = performance.now();
   let sink = null;
   let result;
@@ -34,6 +37,7 @@ export async function run([path], flags, { loadFilm }) {
     result = await produceFrames(path, film, opts, async (i, buf) => {
       sink ??= ffmpegSink(h264Args(`${base}.mp4`, { w: sheet.outW, h: sheet.outH }));
       sheet.add(i, buf);
+      hashes.add(i, buf);
       await sink.write(buf);
       if (process.stderr.isTTY) process.stderr.write(`\r${i + 1}/${film.n}`);
     });
@@ -42,6 +46,7 @@ export async function run([path], flags, { loadFilm }) {
     throw e;
   }
   await sink.end();
+  hashes.write();
   if (process.stderr.isTTY) process.stderr.write('\r');
   const s = (performance.now() - t0) / 1000, { size, stats } = result;
   const lines = [`${base}.mp4  ${film.n} frames  ${size.outW}x${size.outH}  ${s.toFixed(1)}s (${(film.n / s).toFixed(1)} fps)  workers ${stats.workers}  dups ${stats.dups}`];

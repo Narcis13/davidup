@@ -7,6 +7,8 @@ import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
 import { skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
+import { norm } from '../core/list.js';
+import { seedList } from '../core/tree.js';
 
 // A canvas sized for the film at an output width, and a function drawing frame i on it.
 export function frameCanvas(film, { ar, width } = {}) {
@@ -14,6 +16,34 @@ export function frameCanvas(film, { ar, width } = {}) {
   const canvas = skiaCanvas(size.outW, size.outH), ctx = canvas.getContext('2d');
   const r = createRenderer({ makeCanvas: skiaCanvas, dedup: false });
   return { canvas, size, draw: (i) => r.renderFrame(ctx, film, i, { ar, width }) };
+}
+
+// A display list painted on a fresh canvas: logical W x H at `width` output pixels, seeded from `seed`
+// the way frame() seeds a shot, in `look`. For cards and sheets drawn in the house style.
+const painter = createRenderer({ makeCanvas: skiaCanvas, dedup: false });
+export function paint(list, { look, W, H, width = W, seed = 1, onto }) {
+  const S = width / W, canvas = onto ?? skiaCanvas(Math.round(W * S), Math.round(H * S));
+  painter.draw(canvas.getContext('2d'), seedList(norm(list), seed), { look, S, W, H });
+  return canvas;
+}
+
+// Tiles in rows on a dark ground: tiles [{ canvas, label? }], all drawn at their own size in a cell of
+// the largest tile's size. Returns the sheet canvas.
+export function tileSheet(tiles, { cols = 4, gap = 16, label = 0 } = {}) {
+  const cw = Math.max(...tiles.map((t) => t.canvas.width)), ch = Math.max(...tiles.map((t) => t.canvas.height)) + label;
+  cols = Math.min(cols, tiles.length);
+  const rows = Math.ceil(tiles.length / cols);
+  const sheet = skiaCanvas(cols * (cw + gap) + gap, rows * (ch + gap) + gap), g = sheet.getContext('2d');
+  g.fillStyle = '#141414';
+  g.fillRect(0, 0, sheet.width, sheet.height);
+  g.font = '12px Menlo, monospace';
+  g.textBaseline = 'top';
+  tiles.forEach((t, j) => {
+    const x = gap + (j % cols) * (cw + gap), y = gap + Math.floor(j / cols) * (ch + gap);
+    g.drawImage(t.canvas, x, y);
+    if (t.label) { g.fillStyle = '#b8b8b8'; g.fillText(t.label, x, y + t.canvas.height + 4); }
+  });
+  return sheet;
 }
 
 export const outDir = (flags) => { const d = resolve(flags.out ?? 'out'); mkdirSync(d, { recursive: true }); return d; };

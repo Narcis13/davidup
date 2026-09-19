@@ -72,10 +72,12 @@ test('a starved cache evicts and still draws the same pixels', () => {
   assert.ok(tiny.cache.bytes <= 0.3 * 1024 * 1024);
 });
 
-test('frame dedup: mini repeats 3 of 36 (the ball resting before the cut), each equal to its predecessor', () => {
-  // v1 counted 6 by PNG hash; its sign-off revealed in coarser steps. Here every reveal step moves.
+test('frame dedup: mini repeats the ball resting before the cut and the held sign-off', () => {
+  // v1 counted 6 of 36 by PNG hash; its sign-off revealed in coarser steps. Here every reveal step moves,
+  // so the first 36 frames repeat 3; the 1.5 s hold after the sign-off (lint's rule) repeats 17 more.
   const r = frameRenderer(mini, { width: 240 }), frames = all(r, mini.n);
-  assert.deepEqual(frames.flatMap((f, i) => (f.dup ? [i] : [])), [21, 22, 23]);
+  assert.equal(mini.n, 54);
+  assert.deepEqual(frames.flatMap((f, i) => (f.dup ? [i] : [])), [21, 22, 23, ...Array.from({ length: 17 }, (_, j) => 37 + j)]);
   const plain = frameRenderer(mini, { width: 240, cacheMb: 0 });
   const a = bufs(plain, 21), [x20] = a.slice(20);
   plain.forget();
