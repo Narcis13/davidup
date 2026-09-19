@@ -9,20 +9,23 @@ import { skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
 import { norm } from '../core/list.js';
 import { seedList } from '../core/tree.js';
+import { imagesOf } from './load.mjs';
 
 // A canvas sized for the film at an output width, and a function drawing frame i on it.
 export function frameCanvas(film, { ar, width } = {}) {
   const size = outputSize(ar ? format(ar) : film.format, width);
   const canvas = skiaCanvas(size.outW, size.outH), ctx = canvas.getContext('2d');
-  const r = createRenderer({ makeCanvas: skiaCanvas, dedup: false });
+  const r = createRenderer({ makeCanvas: skiaCanvas, dedup: false, images: imagesOf(film) });
   return { canvas, size, draw: (i) => r.renderFrame(ctx, film, i, { ar, width }) };
 }
 
 // A display list painted on a fresh canvas: logical W x H at `width` output pixels, seeded from `seed`
 // the way frame() seeds a shot, in `look`. For cards and sheets drawn in the house style.
-const painter = createRenderer({ makeCanvas: skiaCanvas, dedup: false });
-export function paint(list, { look, W, H, width = W, seed = 1, onto }) {
+const painters = new Map();
+export function paint(list, { look, W, H, width = W, seed = 1, onto, images = null }) {
   const S = width / W, canvas = onto ?? skiaCanvas(Math.round(W * S), Math.round(H * S));
+  let painter = painters.get(images);
+  if (!painter) painters.set(images, (painter = createRenderer({ makeCanvas: skiaCanvas, dedup: false, images })));
   painter.draw(canvas.getContext('2d'), seedList(norm(list), seed), { look, S, W, H });
   return canvas;
 }

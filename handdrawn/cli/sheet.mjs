@@ -11,6 +11,7 @@ import { LOOKS } from '../core/looks.js';
 import { hash32 } from '../core/rand.js';
 import { frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
+import { imagesOf } from './load.mjs';
 
 const SCALES = [0.6, 1, 1.8], CELL = 200;
 
@@ -49,6 +50,7 @@ export async function run([path, name], flags, { loadFilm }) {
   if (!name) throw new Error('sheet: say which cel, e.g. hdf sheet films/mini.js ball');
   const film = await loadFilm(path);
   const { make, meta } = await findCel(path, film, name);
+  const images = imagesOf(film);
   const base = make({});
   const box = meta.box ?? base.box;
   if (!box) throw new Error(`sheet: cel '${name}' has no box`);
@@ -61,13 +63,13 @@ export async function run([path, name], flags, { loadFilm }) {
   const vs = variants(make, meta.inputs), tiles = [];
   for (const look of Object.values(LOOKS)) {
     for (const [label, inputs] of vs) for (const s of SCALES) {
-      tiles.push({ canvas: paint(cell(make(inputs), s), { look, W: C, H: C, width: CELL, seed }), label: `${look.name} ${s}x ${label}` });
+      tiles.push({ canvas: paint(cell(make(inputs), s), { look, W: C, H: C, width: CELL, seed, images }), label: `${look.name} ${s}x ${label}` });
     }
   }
   const cols = vs.length * SCALES.length;
-  tiles.push({ canvas: paint([paper(), place(C / 2 - bx - bw / 2, C / 2 - by - bh / 2, group('sil', silhouette(base)))], { look: film.look, W: C, H: C, width: CELL, seed }), label: 'silhouette' });
+  tiles.push({ canvas: paint([paper(), place(C / 2 - bx - bw / 2, C / 2 - by - bh / 2, group('sil', silhouette(base)))], { look: film.look, W: C, H: C, width: CELL, seed, images }), label: 'silhouette' });
   const fw = film.format.W, fh = film.format.H;
-  tiles.push({ canvas: paint([paper(), place(fw / 2 - bx - bw / 2, fh / 2 - by - bh / 2, base)], { look: film.look, W: fw, H: fh, width: 240, seed }), label: '240 px' });
+  tiles.push({ canvas: paint([paper(), place(fw / 2 - bx - bw / 2, fh / 2 - by - bh / 2, base)], { look: film.look, W: fw, H: fh, width: 240, seed, images }), label: '240 px' });
   const file = join(outDir(flags), `${film.name}-sheet-${name}.jpg`);
   await tileSheet(tiles, { cols, label: 18 }).toFile(file, { quality: 0.9 });
   process.stdout.write(`${file}  ${Object.keys(LOOKS).length} looks x ${vs.length} variant${vs.length > 1 ? 's' : ''} x ${SCALES.length} scales\n`);

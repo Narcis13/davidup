@@ -18,7 +18,15 @@ async function main() {
   const size = outputSize(ar ? format(ar) : film.format, width);
   cv.width = size.outW;
   cv.height = size.outH;
-  const ctx = cv.getContext('2d'), r = createRenderer();
+  const images = new Map();
+  for (const [id, a] of Object.entries(film.assets ?? {})) {
+    if (typeof a?.src !== 'string' || !/^data:image\/|\.(png|jpe?g|webp|gif)$/i.test(a.src)) continue;
+    const img = new Image();
+    img.src = a.src.startsWith('data:') ? a.src : new URL(a.src, new URL(src, location.href)).href;
+    await img.decode();
+    images.set(id, img);
+  }
+  const ctx = cv.getContext('2d'), r = createRenderer({ images });
   let cur = 0;
   window.__NDRAW = film.n;
   window.__frame = (i) => {

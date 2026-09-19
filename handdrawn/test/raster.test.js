@@ -142,5 +142,5 @@ test('fx ops dispatch to fx.js: a dissolve cut renders, unknown kinds fail loudl
   const mid = r.render(8), end = r.render(f.n - 1);
   assert.notEqual(sha(mid.buf), sha(end.buf));
   const g = film({ name: 'badfx', look: 'paperInk', timeline: seq(a, cut('nope', 0.5, a, b)) });
-  assert.throws(() => frameRenderer(g, { width: 120 }).render(7), /fx 'nope' is not implemented/);
+  assert.throws(() => frameRenderer(g, { width: 120 }).render(7), /fx 'nope' is unknown/);
 });

@@ -11,10 +11,33 @@ const total = (node) => strokes(node).reduce((a, s) => a + s.path.sub.reduce((b,
   return b;
 }, 0), 0);
 
-test('the font covers a-z, 0-9 and the punctuation set; capitals map to lowercase', () => {
+test('the font covers a-z, A-Z, 0-9 and the punctuation set', () => {
   for (const ch of "abcdefghijklmnopqrstuvwxyz0123456789.,:'-!?& ") assert.ok(GLYPHS[ch], ch);
-  assert.equal(glyph('A').k, 1.25);
   assert.equal(glyph('~').s, GLYPHS['?'].s);
+  assert.equal(glyph('É').s, GLYPHS.E.s);          // accents fall back to the base letter
+});
+
+test('capitals are true capitals: own strokes at k = 1, inside the cap box', () => {
+  for (const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    const G = GLYPHS[ch], g = glyph(ch);
+    assert.ok(G, ch);
+    assert.equal(g.k, 1, ch);
+    assert.equal(g.s, G.s, ch);
+    assert.notEqual(G.s, GLYPHS[ch.toLowerCase()].s, ch);
+    assert.ok(G.w >= 18 && G.w <= 72, `${ch} advance ${G.w}`);
+    assert.ok(G.s.length >= 1 && G.s.length <= 3, ch);
+    let top = 0;
+    for (const pts of G.s) {
+      assert.ok(pts.length >= 4 && pts.length % 2 === 0, ch);
+      for (let i = 0; i < pts.length; i += 2) {
+        assert.ok(pts[i] >= -5 && pts[i] <= G.w + 5, `${ch} x ${pts[i]}`);
+        assert.ok(pts[i + 1] >= -80 && pts[i + 1] <= 30, `${ch} y ${pts[i + 1]}`);
+        top = Math.min(top, pts[i + 1]);
+      }
+    }
+    assert.ok(top < -66, `${ch} reaches cap height`);  // taller than the x-height (-48)
+  }
+  assert.ok(measure('HELLO', 100) > measure('hello', 100));
 });
 
 test('handText is data: same words, same hash; alignment moves it', () => {

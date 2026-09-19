@@ -10,6 +10,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const USAGE = `usage: hdf <command> [args] [flags]
 
+  every command that takes a film also takes [--look <preset>] (replaces the root look)
+
   render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
   grid    <film.js> [--n 24] [--width 480]
@@ -21,7 +23,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   golden  <film.js> write|check [--workers N]
   dev     <film.js>                 player with hot reload on :4321
   bundle  <film.js>                 single HTML
-  photo   <img> --name --credit     cutout + silhouette path + check sheet
+  photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet; --v1 <photos.js> converts
   clip    <roto.py json> --name     convert a traced clip to the v2 format
   donate  <film.js> <cel...>        copy cels into a pack, regenerate manifest + sheets
 `;
@@ -75,7 +77,8 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
   const { run } = await import(pathToFileURL(file).href);
-  return (await run(args, flags, { loadFilm })) ?? 0;
+  const load = (path) => loadFilm(path, { look: flags.look });
+  return (await run(args, flags, { loadFilm: load })) ?? 0;
 }
 
 // Run only when executed directly (also through the npm bin symlink), not when imported by tests.

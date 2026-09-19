@@ -164,6 +164,7 @@ export function inspect(film) {
       let ev;
       try { ev = evalShot(film, node, k, { i, look: p.look }); } catch (e) { report('draw', e.message, 'draw'); return; }
       s.look ??= lookName(ev.look);
+      s.lookObj ??= ev.look;
       const { list, env } = ev;
       if (j === 0) {
         const first = list[0];
@@ -176,10 +177,10 @@ export function inspect(film) {
       got.words.forEach((w) => s.words.add(w));
       if (got.scribbles > MAX_SCRIBBLES) report('scribble', `${got.scribbles} scribbled parts in one frame (at most ${MAX_SCRIBBLES})`, 'scribble');
       if (!got.anchors.length) { s.anchor = false; report('anchor', "no meta('anchor', ...) in the shot", 'anchor'); return; }
-      for (const d of got.anchors) {
-        const boxes = anchorBoxes(list, d);
-        if (!boxes) continue;
-        if (!boxes.length) { report('anchor', `anchor names ${anchorLabel(d)} but the shot does not draw it`, 'anchor'); continue; }
+      // Several anchors are alternatives (a seed dot, and the ripples it makes): one of them must be drawn.
+      const drawn = got.anchors.map((d) => [d, anchorBoxes(list, d)]).filter(([, boxes]) => boxes);
+      if (drawn.length && drawn.every(([, boxes]) => !boxes.length)) report('anchor', `anchor names ${drawn.map(([d]) => anchorLabel(d)).join(' / ')} but the shot does not draw it`, 'anchor');
+      for (const [d, boxes] of drawn) {
         for (const b of boxes) {
           const px = Math.max(b[2], b[3]) * 240 / env.W;
           if (!size || px > size.px) size = { px, i, label: anchorLabel(d) };
@@ -190,7 +191,8 @@ export function inspect(film) {
     });
     if (s.finishes.size > 1 && !looked) F.add('one-look', name, p.f0, `two finishes in one shot: ${[...s.finishes].join(', ')}`, 'finish');
     if (size && size.px < FLOOR_PX) F.add('subject-size', name, size.i, `${size.label} is at most ${size.px.toFixed(1)} px at 240 px wide (floor ${FLOOR_PX})`, 'size');
-    const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.look ? wordAllowance(s.look) : 0;
+    const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.lookObj ? wordAllowance(s.lookObj) : 0;
+    delete s.lookObj;
     if (words > allow) F.add('words', name, p.f0, `${words} words (${[...s.words].map((w) => `"${w}"`).join(', ')}); look ${s.look} allows ${allow} outside the sign-off`, 'words');
     shots.push(s);
   }

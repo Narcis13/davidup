@@ -26,8 +26,8 @@ function ffmpeg(args) {
 export async function run([path], flags, { loadFilm }) {
   const film = await loadFilm(path);
   const workers = flags.workers ?? defaultWorkers();
-  const base = join(outDir(flags), `${film.name}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`);
-  const opts = { ar: flags.ar, width: flags.width, workers, cacheMb: flags.cacheMb ?? 512, diskCache: flags.diskCache };
+  const base = join(outDir(flags), `${film.name}${flags.look ? '-' + flags.look : ''}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`);
+  const opts = { look: flags.look, ar: flags.ar, width: flags.width, workers, cacheMb: flags.cacheMb ?? 512, diskCache: flags.diskCache };
   const sheet = contactSheet(film, { ar: flags.ar, width: flags.width });
   const hashes = tracker(film, base, { ar: flags.ar, outW: sheet.outW, outH: sheet.outH });
   const t0 = performance.now();

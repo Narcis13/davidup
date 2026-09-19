@@ -12,8 +12,8 @@
 // draw direct, as do groups containing stock (paper, night draw in screen space; the stock group itself is
 // cached) and groups whose layer would exceed a few viewports.
 import { bounds, hashData, hashList, hashOp, norm, walk } from './list.js';
-import { hashLook, resolveLook, resolveRole } from './looks.js';
-import { expand, expandOp, needsExpand } from './finish.js';
+import { alpha as withAlpha, hashLook, resolveLook, resolveRole } from './looks.js';
+import { covAt, expand, expandOp, needsExpand } from './finish.js';
 import { drawFx } from './fx.js';
 import { drawStroke, tracePath } from './tools.js';
 import { rng } from './rand.js';
@@ -25,34 +25,77 @@ const EPS = 1e-6;
 const LAYER_PAD = 8;       // logical units around a layer's bounds: pen wobble and chalk dashes overshoot boxes
 const MAX_LAYER = 4;       // a layer larger than this many viewports draws direct instead
 
+// blend 'wash' (watercolour) multiplies, except on a chalk pass (nightShot) where it lies on top, dimmer.
+export function applyBlend(ctx, blend, look) {
+  if (!blend) return;
+  if (blend === 'wash') {
+    if (look.chalkPass) ctx.globalAlpha *= 0.6;
+    else ctx.globalCompositeOperation = 'multiply';
+    return;
+  }
+  ctx.globalCompositeOperation = blend;
+}
+
+// A gradient for a cov descriptor: the role's colour at alpha c0 fading to c1 (plan 1.2 cov on a flat fill).
+function covStyle(ctx, cov, colour) {
+  let g;
+  if (cov.kind === 'radial') g = ctx.createRadialGradient(cov.x, cov.y, cov.r0 ?? 0, cov.x, cov.y, cov.r1);
+  else if (cov.kind === 'linear') g = ctx.createLinearGradient(cov.x0, cov.y0, cov.x1, cov.y1);
+  else throw new Error(`fill: cov '${cov.kind}' only works on dots and plates; flat fills take a number, radial or linear`);
+  const stops = cov.stops ?? [[0, cov.c0 ?? 1], [1, cov.c1 ?? 0]];
+  for (const [at, a] of stops) g.addColorStop(at, withAlpha(colour, Math.max(0, Math.min(1, a))));
+  return g;
+}
+
 function drawFill(ctx, op, look) {
+  const colour = resolveRole(op.role, look);
   ctx.save();
-  ctx.fillStyle = resolveRole(op.role, look);
+  if (op.cov !== undefined && typeof op.cov === 'object') ctx.fillStyle = covStyle(ctx, op.cov, colour);
+  else { ctx.fillStyle = colour; if (typeof op.cov === 'number') ctx.globalAlpha *= op.cov; }
   if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
+  applyBlend(ctx, op.blend, look);
   ctx.beginPath();
   tracePath(ctx, op.path);
   ctx.fill('evenodd');
   ctx.restore();
 }
 
-// Halftone dots clipped to the path; density (0..1) sets the dot area per cell (v1 dotScreen).
+// Halftone dots clipped to the path; coverage (cov: number or descriptor, see finish.js covAt) sets the
+// dot area per cell, capped at maxCov (v1 dotScreen and printPlate). Cells under 0.03 are skipped.
 function drawDots(ctx, op, look) {
-  const { cell = 8, angle = 0, jitter = 0 } = op, dens = op.cov ?? op.density ?? 0.5;
-  if (typeof dens !== 'number') throw new Error("dots: coverage descriptors (radial, linear) land in P5; pass a number");
-  if (dens <= 0) return;
+  const { cell = 8, angle = 0, jitter = 0, maxCov = 1 } = op, cov = op.cov ?? op.density ?? 0.5;
+  if (typeof cov === 'number' && cov <= 0) return;
   const r = rng(op.seed ?? 1), [bx, by, bw, bh] = op.path.box, cx = bx + bw / 2, cy = by + bh / 2, R = Math.hypot(bw, bh) / 2;
-  const ca = Math.cos(angle), sa = Math.sin(angle), rad = cell * 0.62 * Math.sqrt(Math.min(1, dens));
+  const ca = Math.cos(angle), sa = Math.sin(angle), flat = typeof cov === 'number', min = cov.kind === 'plate' ? 0.03 : 0;
   ctx.save();
   ctx.beginPath(); tracePath(ctx, op.path); ctx.clip('evenodd');
   ctx.fillStyle = resolveRole(op.role, look);
   if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
-  if (op.blend) ctx.globalCompositeOperation = op.blend;
+  applyBlend(ctx, op.blend, look);
   ctx.beginPath();
   for (let v = -R; v <= R; v += cell) for (let u = -R; u <= R; u += cell) {
     const x = cx + ca * u - sa * v + (r() - 0.5) * jitter * cell, y = cy + sa * u + ca * v + (r() - 0.5) * jitter * cell;
+    if (x < bx - cell || y < by - cell || x > bx + bw + cell || y > by + bh + cell) continue;
+    const d = Math.min(maxCov, flat ? cov : covAt(cov, x, y));
+    if (d <= min) continue;
+    const rad = cell * 0.62 * Math.sqrt(d);
     ctx.moveTo(x + rad, y); ctx.arc(x, y, rad, 0, TAU);
   }
   ctx.fill();
+  ctx.restore();
+}
+
+// A registered asset (film.assets[src], decoded by the driver into `images`). The chalk pass of nightShot
+// draws images as erasers, so chalk lines never cross a photo.
+function drawImage(ctx, op, look, env) {
+  const img = env.images?.get?.(op.src) ?? env.images?.[op.src];
+  if (!img) throw new Error(`image '${op.src}' is not loaded (register it in film({ assets }) and let the driver decode it)`);
+  ctx.save();
+  if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
+  if (look.chalkPass) ctx.globalCompositeOperation = 'destination-out';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, op.x, op.y, op.w, op.h);
   ctx.restore();
 }
 
@@ -75,6 +118,11 @@ function clampBox(a, b) {
   return x1 <= x0 || y1 <= y0 ? null : [x0, y0, x1 - x0, y1 - y0];
 }
 
+// Ops whose pixels depend on what is already under them (multiply, screen, the fx that composite against
+// the canvas). In an isolated layer that backdrop is transparent, so a group holding one draws direct.
+const BACKDROP_FX = new Set(['nightShot', 'bleed', 'glow', 'flash']);
+const blendsWithBackdrop = (o) => (!!o.blend && o.blend !== 'source-over') || (o.op === 'stroke' && o.tool === 'marker') || (o.op === 'fx' && BACKDROP_FX.has(o.kind));
+
 // Content key of a group: its kids' hashes (seeds are in the kids), independent of where it is placed.
 // null when the group holds stock, which draws in screen space and so depends on its position.
 const contentMemo = new WeakMap();
@@ -83,7 +131,7 @@ function contentKey(op) {
   if (k !== undefined) return k;
   let pinned = false;
   walk(op.kids, (o) => {
-    if (o.op === 'paper' || o.op === 'night' || (o.op === 'group' && o.screen)) { pinned = true; return false; }
+    if (o.op === 'paper' || o.op === 'night' || (o.op === 'group' && o.screen) || blendsWithBackdrop(o)) { pinned = true; return false; }
   });
   k = pinned ? null : hashData(op.kids.map(hashOp));
   contentMemo.set(op, k);
@@ -132,13 +180,29 @@ function defaultMakeCanvas() {
 //   store             optional disk tier: { get(key) => { canvas, lx, ly } | null, put(key, layer) }.
 //   dedup             frame(): a frame whose list hash equals the previous one's returns { dup: true }
 //                     without drawing (the canvas still holds it); the driver repeats the last buffer.
-export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas(), store = null, dedup = true } = {}) {
+//   images            Map (or object) asset id -> decoded image, for image ops (loadImages in the drivers).
+export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas(), store = null, dedup = true, images = null } = {}) {
   const isolate = !!makeCanvas, keep = cacheMb > 0;
   const layers = lru(cacheMb * 1024 * 1024);
   let seen = new Set();
   const stats = { direct: 0, blits: 0, layers: 0, scratch: 0, disk: 0, dups: 0, frames: 0 };
   let last = null;
   const scratch = [];   // one reusable canvas per nesting depth
+
+  // Full-size canvases for fx that composite their kids off screen (mosaic, nightShot, bleed), one per slot
+  // and nesting depth, cleared on handout.
+  const temps = new Map();
+  function temp(slot, w, h) {
+    if (!makeCanvas) throw new Error(`fx needs an offscreen canvas; createRenderer({ makeCanvas }) was not given one`);
+    let c = temps.get(slot);
+    if (!c || c.width !== w || c.height !== h) { c = makeCanvas(w, h); temps.set(slot, c); }
+    const g = c.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, w, h);
+    return c;
+  }
 
   function scratchAt(depth, w, h) {
     let c = scratch[depth];
@@ -208,6 +272,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
 
   function drawGroup(ctx, op, look, env) {
     ctx.save();
+    if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;   // applied to the composited layer when isolated
     if (op.screen) ctx.setTransform(env.S, 0, 0, env.S, 0, 0);
     else ctx.transform(...op.xf);
     const D = ctx.getTransform();
@@ -223,6 +288,9 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
 
   function drawList(ctx, ops, look, env) {
     for (const op of ops) {
+      // nightShot's chalk pass redraws only the drawing: no stock, no day-only fills (shadows, backdrop light),
+      // no glows (they are lights, screened once over the finished shot).
+      if (look.chalkPass && (op.op === 'paper' || op.op === 'night' || op.day || (op.op === 'fx' && op.kind === 'glow'))) continue;
       if (needsExpand(op)) { drawList(ctx, expandOp(op, look, env), look, env); continue; }
       switch (op.op) {
         case 'fill': drawFill(ctx, op, look); break;
@@ -237,10 +305,10 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
           ctx.restore();
           break;
         }
-        case 'fx': drawFx(ctx, op, () => drawList(ctx, op.kids, look, env), env.S, env); break;
+        case 'fx': drawFx(ctx, op, (g = ctx, lk = look) => drawList(g, op.kids, lk, env), look, env); break;
         case 'look': drawList(ctx, op.kids, resolveLook(op.look), env); break;
         case 'meta': break;
-        case 'image': throw new Error('raster: image ops are not implemented yet (P5)');
+        case 'image': drawImage(ctx, op, look, env); break;
         default: throw new Error(`raster: unknown op '${op.op}'`);
       }
     }
@@ -251,7 +319,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
     const area = (ctx.canvas?.width ?? W * S) * (ctx.canvas?.height ?? H * S);
     ctx.save();
     ctx.setTransform(S, 0, 0, S, 0, 0);
-    drawList(ctx, norm(list), resolveLook(look), { S, W, H, maxArea: MAX_LAYER * area, depth: 0 });
+    drawList(ctx, norm(list), resolveLook(look), { S, W, H, maxArea: MAX_LAYER * area, depth: 0, images, makeCanvas, temp });
     ctx.restore();
   }
 

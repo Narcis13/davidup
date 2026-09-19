@@ -268,3 +268,9 @@ export function describe(f) {
   out.push(`end   ${c.end.toFixed(2)}`);
   return out.join('\n');
 }
+
+// The same film under another root look (a preset name or a look object). Shots and lookOn()s that name
+// their own look keep it. `hdf ... --look <name>` uses this.
+export function withRootLook(f, look) {
+  return Object.freeze({ ...f, look: typeof look === 'string' ? { name: look } : look });
+}

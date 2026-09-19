@@ -1,6 +1,6 @@
 // A single-stroke hand font, drawn as polylines in a 100-unit em. Baseline at y = 0, y down:
 // x-height -48, ascender and figures -72, descender +24. Each glyph is { w: advance, s: [flat pts, ...] }.
-// Uppercase maps to the lowercase forms at 1.25x until true capitals land (P5).
+// Capitals stand at cap height -72 (same as the figures).
 import { spline } from './list.js';
 
 const D = Math.PI / 180;
@@ -43,6 +43,33 @@ export const GLYPHS = Object.freeze({
   y: { w: 42, s: [L(4, -48, 21, -6), S(39, -48, 26, -10, 16, 14, 4, 22)] },
   z: { w: 42, s: [L(4, -48, 38, -48, 4, 0, 38, 0)] },
 
+  A: { w: 54, s: [L(3, 0, 27, -72, 51, 0), L(12, -26, 42, -26)] },
+  B: { w: 48, s: [L(5, -72, 5, 0), J(L(5, -72, 21, -72), A(21, -55, 16, 17, -90, 90), L(23, -38), A(23, -19, 20, 19, -90, 90), L(5, 0))] },
+  C: { w: 56, s: [A(31, -36, 26, 36, -42, -318)] },
+  D: { w: 54, s: [L(5, -72, 5, 0), J(L(5, -72, 18, -72), A(18, -36, 31, 36, -90, 90), L(5, 0))] },
+  E: { w: 44, s: [L(40, -72, 5, -72, 5, 0, 40, 0), L(5, -37, 32, -37)] },
+  F: { w: 42, s: [L(40, -72, 5, -72, 5, 0), L(5, -37, 32, -37)] },
+  G: { w: 60, s: [J(A(31, -36, 26, 36, -42, -360), L(57, -36, 57, 0)), L(36, -32, 57, -32)] },
+  H: { w: 52, s: [L(5, -72, 5, 0), L(47, -72, 47, 0), L(5, -37, 47, -37)] },
+  I: { w: 20, s: [L(10, -72, 10, 0)] },
+  J: { w: 42, s: [J(L(36, -72, 36, -20), A(19, -20, 17, 20, 0, 165))] },
+  K: { w: 48, s: [L(5, -72, 5, 0), L(44, -72, 6, -30, 46, 0)] },
+  L: { w: 42, s: [L(5, -72, 5, 0, 40, 0)] },
+  M: { w: 64, s: [L(4, 0, 8, -72, 32, -22, 56, -72, 60, 0)] },
+  N: { w: 54, s: [L(5, 0, 5, -72, 49, 0, 49, -72)] },
+  O: { w: 62, s: [A(31, -36, 27, 36, -90, -450)] },
+  P: { w: 46, s: [L(5, -72, 5, 0), J(L(5, -72, 22, -72), A(22, -53, 18, 19, -90, 90), L(5, -34))] },
+  Q: { w: 62, s: [A(31, -36, 27, 36, -90, -450), L(36, -16, 60, 4)] },
+  R: { w: 50, s: [L(5, -72, 5, 0), J(L(5, -72, 22, -72), A(22, -53, 18, 19, -90, 90), L(5, -34)), L(20, -34, 46, 0)] },
+  S: { w: 48, s: [S(41, -62, 27, -72, 11, -65, 9, -50, 22, -39, 38, -29, 42, -14, 32, -2, 18, 0, 4, -8)] },
+  T: { w: 52, s: [L(3, -72, 49, -72), L(26, -72, 26, 0)] },
+  U: { w: 54, s: [J(L(5, -72, 5, -24), A(27, -24, 22, 24, 180, 0), L(49, -72))] },
+  V: { w: 52, s: [L(2, -72, 26, 0, 50, -72)] },
+  W: { w: 70, s: [L(2, -72, 17, 0, 35, -56, 53, 0, 68, -72)] },
+  X: { w: 50, s: [L(4, -72, 46, 0), L(46, -72, 4, 0)] },
+  Y: { w: 50, s: [L(3, -72, 25, -36, 47, -72), L(25, -36, 25, 0)] },
+  Z: { w: 50, s: [L(5, -72, 45, -72, 5, 0, 46, 0)] },
+
   0: { w: 48, s: [A(24, -36, 19, 36, -90, -450)] },
   1: { w: 34, s: [L(8, -56, 22, -72, 22, 0)] },
   2: { w: 46, s: [J(A(22, -52, 18, 18, 195, 385), L(4, 0, 42, 0))] },
@@ -66,12 +93,10 @@ export const GLYPHS = Object.freeze({
 });
 
 export const TRACK = 7;         // gap between glyphs, in em units
-export const UPPER = 1.25;      // capitals are lowercase forms at this scale
 
-// { w, s, k } for a character, where k is the scale it is drawn at; unknown characters draw as '?'.
+// { w, s, k } for a character, where k is the scale it is drawn at (always 1 today). Accented letters
+// draw as their base letter (É -> E); unknown characters draw as '?'.
 export function glyph(ch) {
-  if (GLYPHS[ch]) return { ...GLYPHS[ch], k: 1 };
-  const lo = ch.toLowerCase();
-  if (lo !== ch && GLYPHS[lo]) return { ...GLYPHS[lo], k: UPPER };
-  return { ...GLYPHS['?'], k: 1 };
+  const base = GLYPHS[ch] ? ch : ch.normalize('NFD')[0];
+  return { ...(GLYPHS[base] ?? GLYPHS['?']), k: 1 };
 }

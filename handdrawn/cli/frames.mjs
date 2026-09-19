@@ -8,6 +8,7 @@ import { format } from '../core/fit.js';
 import { skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
 import { diskStore } from './store.mjs';
+import { imagesOf } from './load.mjs';
 
 export const defaultWorkers = () => Math.max(1, Math.min(4, availableParallelism()));
 
@@ -16,7 +17,7 @@ export function frameRenderer(film, { ar, width, cacheMb = 512, diskCache } = {}
   const size = outputSize(ar ? format(ar) : film.format, width);
   const canvas = skiaCanvas(size.outW, size.outH), ctx = canvas.getContext('2d');
   const store = diskCache ? diskStore(typeof diskCache === 'string' ? resolve(diskCache) : resolve('.cache')) : null;
-  const r = createRenderer({ cacheMb, makeCanvas: skiaCanvas, store });
+  const r = createRenderer({ cacheMb, makeCanvas: skiaCanvas, store, images: imagesOf(film) });
   return {
     size, canvas, stats: r.stats, cache: r.cache,
     render(i) {
@@ -53,7 +54,7 @@ async function pool(path, film, opts, onFrame) {
   const chunk = opts.chunk ?? Math.max(1, Math.min(12, Math.ceil(film.n / workers)));
   const ranges = [];
   for (let a = 0; a < film.n; a += chunk) ranges.push([a, Math.min(film.n, a + chunk)]);
-  const workerOpts = { ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers) };
+  const workerOpts = { look: opts.look, ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers) };
   const url = new URL('./worker.mjs', import.meta.url);
   const pending = new Map();
   const stats = { dups: 0, workers };

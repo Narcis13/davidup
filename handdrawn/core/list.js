@@ -169,11 +169,12 @@ function needPath(p, who) {
   return p;
 }
 
-// Kids and shot lists may nest arrays and contain null/false (a guide drawn one frame in six); flatten them.
+// Kids and shot lists may nest arrays and contain falsy values (`cond && op`: a guide drawn one frame in
+// six); flatten them.
 export function norm(list) {
   const out = [];
   const add = (v) => {
-    if (v == null || v === false) return;
+    if (!v) return;
     if (Array.isArray(v)) { v.forEach(add); return; }
     if (typeof v !== 'object' || typeof v.op !== 'string') throw new TypeError(`display list: not an op: ${String(v)}`);
     out.push(v);

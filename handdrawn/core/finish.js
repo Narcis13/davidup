@@ -3,9 +3,11 @@
 //   paper / night     -> the stock: a frame fill, light bands, grain, drawn in screen space
 //   text              -> hand-lettered strokes (text.js)
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
-// This phase: hatch, graphite and grain. halftone, dots and wash land in P5 (they draw flat until then).
-import { clip, group, fill, hashOp, rect, stroke, withProps, xf as xfPath, mkPath } from './list.js';
-import { hashLook, resolveLook } from './looks.js';
+// Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour).
+// Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
+// coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
+import { clip, dots, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
+import { hashLook, parse as parseColour, resolveLook } from './looks.js';
 import { rng } from './rand.js';
 import { handText } from './text.js';
 import { seedList } from './tree.js';
@@ -13,8 +15,8 @@ import { seedList } from './tree.js';
 // { op: 'specks', rects: [x, y, w, h, ...], role, alpha }: grain as explicit rectangles.
 const specks = (rects, role, alpha) => Object.freeze({ op: 'specks', rects, role, alpha });
 
-// n speckles scattered over box (v1 grain).
-function grain(box, n, role, alpha, seed, size) {
+// n speckles scattered over box (v1 grain). A list helper too: clip it to a path for a textured area.
+export function grain(box, n, role, alpha, seed, size) {
   const r = rng(seed), [bx, by, bw, bh] = box, rects = new Array(n * 4);
   for (let i = 0; i < n; i++) {
     rects[4 * i] = bx + r() * bw; rects[4 * i + 1] = by + r() * bh;
@@ -24,7 +26,7 @@ function grain(box, n, role, alpha, seed, size) {
 }
 
 // Short parallel strokes across the box at an angle (v1 hatch), as one stroke op with many subs.
-function hatch(box, { angle, gap, len, jitter, role, alpha, w, seed }) {
+export function hatch(box, { angle, gap, len, jitter, role, alpha, w, seed }) {
   const r = rng(seed), [bx, by, bw, bh] = box, cx = bx + bw / 2, cy = by + bh / 2, R = Math.hypot(bw, bh) / 2;
   const ca = Math.cos(angle), sa = Math.sin(angle), sub = [];
   for (let v = -R; v <= R; v += gap) for (let u = -R; u <= R; u += len * 1.7) {
@@ -35,7 +37,102 @@ function hatch(box, { angle, gap, len, jitter, role, alpha, w, seed }) {
   return stroke(mkPath(sub), role, { w, wobble: 0, alpha, seed, name: 'hatch' });
 }
 
+// Hatching clipped to a path (v1 hatch(c, path, box, o)): a light or shadow patch laid over a fill.
+export const hatchIn = (path, { angle = 0.9, gap = 7, len = 14, jitter = 6, role = 'ink', alpha = 0.35, w = 1.2, seed = 1 } = {}) =>
+  clip(path, [hatch(path.box, { angle, gap, len, jitter, role, alpha, w, seed })]);
+
+// ---------- coverage (riso density, gradients as data) ----------
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+// Distance from (x, y) to the nearest segment of a path.
+function distTo(path, x, y) {
+  let best = Infinity;
+  for (const s of path.sub) {
+    const p = s.pts, n = p.length / 2, segs = s.closed ? n : n - 1;
+    if (n === 1) best = Math.min(best, Math.hypot(x - p[0], y - p[1]));
+    for (let i = 0; i < segs; i++) {
+      const j = (i + 1) % n, ax = p[2 * i], ay = p[2 * i + 1], dx = p[2 * j] - ax, dy = p[2 * j + 1] - ay, L = dx * dx + dy * dy;
+      const u = L ? clamp01(((x - ax) * dx + (y - ay) * dy) / L) : 0;
+      best = Math.min(best, Math.hypot(x - ax - u * dx, y - ay - u * dy));
+    }
+  }
+  return best;
+}
+
+const inBox = (b, x, y, pad = 0) => x >= b[0] - pad && y >= b[1] - pad && x <= b[0] + b[2] + pad && y <= b[1] + b[3] + pad;
+
+// cov at a point: a number, { kind: 'radial', x, y, r0 = 0, r1, c0 = 1, c1 = 0 },
+// { kind: 'linear', x0, y0, x1, y1, c0 = 1, c1 = 0 } or { kind: 'plate', shapes: [{ path, cov, w? }], base = 0 }
+// (painter's order: the last shape containing the point wins; a shape with w is a stroke of that width).
+export function covAt(cov, x, y) {
+  if (cov === undefined || cov === null) return 1;
+  if (typeof cov === 'number') return cov;
+  switch (cov.kind) {
+    case 'radial': {
+      const r0 = cov.r0 ?? 0, u = clamp01((Math.hypot(x - cov.x, y - cov.y) - r0) / Math.max(1e-9, cov.r1 - r0));
+      return (cov.c0 ?? 1) + ((cov.c1 ?? 0) - (cov.c0 ?? 1)) * u;
+    }
+    case 'linear': {
+      const dx = cov.x1 - cov.x0, dy = cov.y1 - cov.y0, u = clamp01(((x - cov.x0) * dx + (y - cov.y0) * dy) / Math.max(1e-9, dx * dx + dy * dy));
+      return (cov.c0 ?? 1) + ((cov.c1 ?? 0) - (cov.c0 ?? 1)) * u;
+    }
+    case 'plate': {
+      const sh = cov.shapes;
+      for (let j = sh.length - 1; j >= 0; j--) {
+        const { path, w } = sh[j];
+        if (!inBox(path.box, x, y, w ? w / 2 : 0)) continue;
+        if (w ? distTo(path, x, y) <= w / 2 : inside(path, x, y)) return covAt(sh[j].cov, x, y);
+      }
+      return cov.base ?? 0;
+    }
+    default: throw new Error(`cov: unknown kind '${cov.kind}' (expected a number, radial, linear or plate)`);
+  }
+}
+export const radial = (x, y, r0, r1, c0 = 1, c1 = 0) => ({ kind: 'radial', x, y, r0, r1, c0, c1 });
+export const linear = (x0, y0, x1, y1, c0 = 1, c1 = 0) => ({ kind: 'linear', x0, y0, x1, y1, c0, c1 });
+
+// ---------- riso plates ----------
+
+// A plate: one ink's coverage over box, printed as a rotated halftone screen and multiplied onto what is
+// under it (v1 plate + printPlate). kids are fill ops (their cov, default 1, is the ink's coverage there)
+// and stroke ops (a band of the stroke's width); later kids cover earlier ones, so knockout(path) clears.
+export function plate(role, kids, { box = [0, 0, 1080, 1080], cell = 7, angle = 0.26, jitter = 0.2, maxCov = 0.78, alpha = 0.95, seed, name } = {}) {
+  const shapes = norm(kids).map((op) => {
+    if (op.op === 'fill') return { path: op.path, cov: op.cov ?? 1 };
+    if (op.op === 'stroke') return { path: op.path, cov: op.cov ?? 1, w: op.w ?? 2 };
+    throw new TypeError(`plate: kids are fill or stroke ops, got '${op.op}'`);
+  });
+  const o = { cell, angle, jitter, maxCov, alpha, blend: 'multiply', cov: { kind: 'plate', shapes }, name: name ?? `plate:${typeof role === 'string' ? role : 'ink'}` };
+  if (seed !== undefined) o.seed = seed;
+  return dots(rect(...box), role, o);
+}
+// White on this plate: nothing printed inside the path.
+export const knockout = (path) => fill(path, 'paper', { cov: 0 });
+
+// Ink indices ordered for printing: lightest first, darkest last (the darkest plate sits on top).
+export function plateOrder(look, idx) {
+  const inks = resolveLook(look).palette.inks, lum = (c) => { const [r, g, b] = parseColour(c); return 0.299 * r + 0.587 * g + 0.114 * b; };
+  return [...(idx ?? inks.map((_, i) => i))].sort((a, b) => lum(inks[b % inks.length]) - lum(inks[a % inks.length]) || a - b);
+}
+
+// ---------- watercolour and body colour ----------
+
+// wash: watercolour off register from the line, soft edge, darker rim; multiplied onto the paper (v1 wash).
+// blend 'wash' multiplies, except in nightShot's chalk pass where it goes source-over at 0.6.
+export function wash(path, role, { al = 0.5, off = 5, seed = 1, rim = true, blend = 'wash', name = 'wash' } = {}) {
+  if (al <= 0) return null;
+  const r = rng(seed), dx = (r() - 0.5) * 2 * off, dy = (r() - 0.5) * 2 * off, kids = [fill(path, role, { alpha: al * 0.55, blend })];
+  for (let k = 0; k < 4; k++) kids.push(fill(xfPath(path, translate((r() - 0.5) * 7, (r() - 0.5) * 7)), role, { alpha: al * 0.17, blend }));
+  if (rim) kids.push(stroke(path, role, { w: 2.2, wobble: 0, alpha: al * 0.3, blend }));
+  return group({ name, xf: translate(dx, dy) }, kids);
+}
+// gouache: opaque body colour, so a drawing reads on top of a photo.
+export const gouache = (path, role = 'light', al = 0.97) => fill(path, role, { alpha: al, name: 'gouache' });
+
 // Texture per finish, as ops in the fill's own coordinates. Parameters are v1 surface()'s.
+const INK_ANGLES = [0.26, 1.31, 0, 0.79];
+const angleFor = (role, o, dflt) => o.angle ?? (typeof role === 'string' && role.startsWith('inks.') ? INK_ANGLES[+role.slice(5) % 4] : dflt);
 const FINISH = {
   hatch: (box, role, seed, o) => [
     hatch(box, { angle: o.angle ?? 1.2, gap: o.gap ?? 4.5, len: o.len ?? 9, jitter: 3, role, alpha: o.alpha ?? 0.35, w: o.width ?? 1, seed }),
@@ -45,17 +142,28 @@ const FINISH = {
     hatch(box, { angle: o.angle ?? 1.1, gap: o.gap ?? 9, len: o.len ?? 30, jitter: 4, role, alpha: o.alpha ?? 0.22, w: 0.7, seed }),
     grain(box, o.grain ?? 40, role, 0.3, seed + 1, 1.2),
   ],
+  // riso: a rotated halftone screen with a little jitter (per-ink angle for inks.N roles; plate() multiplies)
+  halftone: (box, role, seed, o, cov) => [
+    dots(rect(...box), role, { cell: o.cell ?? 7, angle: angleFor(role, o, 0.26), jitter: 0.35, cov: cov ?? o.density ?? 0.5, alpha: o.alpha ?? 0.9, seed, name: 'halftone' }),
+  ],
+  // screen print: a regular straight dot grid
+  dots: (box, role, seed, o, cov) => [
+    dots(rect(...box), role, { cell: o.cell ?? 6, angle: o.angle ?? 0, jitter: 0.06, cov: cov ?? o.density ?? 0.5, alpha: o.alpha ?? 0.9, seed, name: 'screen' }),
+  ],
 };
 
 // A finished fill: flat colour, then the texture clipped to the same path. `finish` on the op may name
 // a finish or carry options ({ angle, gap, len, grain, role }); `true` takes the look's.
+// A finished fill's cov is the texture's density, not the flat colour's alpha. wash replaces the flat fill.
 function finished(op, look) {
-  const { finish, ...rest } = op;
+  const { finish, cov, ...rest } = op;
   const flat = Object.freeze(rest), o = typeof finish === 'object' ? finish : {};
-  const kind = o.kind ?? (typeof finish === 'string' ? finish : look.finish);
+  const kind = o.kind ?? (typeof finish === 'string' ? finish : look.finish), seed = op.seed ?? 1;
+  if (kind === 'wash') return [wash(op.path, op.role, { al: o.alpha ?? cov ?? 0.5, off: o.off ?? 5, seed, rim: o.rim ?? true })];
+  if (kind === 'flat') return [flat];
   const make = FINISH[kind];
-  if (!make) return [flat];   // halftone, dots, wash: P5
-  return [flat, clip(op.path, make(op.path.box, o.role ?? 'shade', op.seed ?? 1, o))];
+  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash or flat)`);
+  return [flat, clip(op.path, make(op.path.box, o.role ?? 'shade', seed, o, cov))];
 }
 
 // The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area.

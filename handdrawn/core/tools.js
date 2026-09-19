@@ -1,9 +1,11 @@
 // Drawing tools: how a stroke op becomes marks on a canvas. Browser and skia contexts are driven the
 // same way. All jitter comes from the op's seed, so a stroke boils only when its seed or inputs change.
-// This phase: pen (v1 wob) and chalk. brush, pencil, crayon and marker land in P5.
+// Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache.
 import { rng } from './rand.js';
 import { resolveRole } from './looks.js';
-import { mkPath, norm, withProps } from './list.js';
+import { mkPath, norm, spline, withProps } from './list.js';
+
+const TAU = Math.PI * 2;
 
 // Adds every sub of a path to the context's current path.
 export function tracePath(ctx, path) {
@@ -25,12 +27,90 @@ function jittered(path, amp, r) {
   });
 }
 
+// dash: [on, off] in logical units, offset from the seed (v1 dashedRing).
 function pen(ctx, op, t) {
   const r = rng(op.seed ?? 1);
   ctx.lineWidth = op.w ?? t.w;
+  if (op.dash) { ctx.setLineDash(op.dash); ctx.lineDashOffset = r() * 40; }
   ctx.beginPath();
   tracePath(ctx, { sub: jittered(op.path, op.wobble ?? t.wobble, r) });
   ctx.stroke();
+}
+
+// Crayon: three wobbly passes with a grainy edge (the flipbook's ripple line).
+function crayon(ctx, op, t) {
+  const w = op.w ?? t.w ?? 4, base = op.seed ?? 1, a0 = ctx.globalAlpha;
+  for (let k = 0; k < 3; k++) {
+    ctx.globalAlpha = a0 * (k ? 0.35 : 0.85);
+    ctx.lineWidth = w * (k ? 0.7 : 1);
+    ctx.beginPath();
+    tracePath(ctx, { sub: jittered(op.path, (op.wobble ?? 2.5) + k * 1.5, rng(base + k * 7)) });
+    ctx.stroke();
+  }
+  ctx.globalAlpha = a0;
+}
+
+// Pencil: a thin graphite line and a lighter, looser second pass.
+function pencil(ctx, op, t) {
+  const w = op.w ?? t.w ?? 0.9, amp = op.wobble ?? t.wobble ?? 1.2, r = rng(op.seed ?? 1), a0 = ctx.globalAlpha;
+  ctx.globalAlpha = a0 * 0.85; ctx.lineWidth = w;
+  ctx.beginPath(); tracePath(ctx, { sub: jittered(op.path, amp, r) }); ctx.stroke();
+  ctx.globalAlpha = a0 * 0.35; ctx.lineWidth = w * 0.6;
+  ctx.beginPath(); tracePath(ctx, { sub: jittered(op.path, amp * 1.8, r) }); ctx.stroke();
+  ctx.globalAlpha = a0;
+}
+
+// Marker: broad, flat, a little translucent and multiplied where strokes cross.
+function marker(ctx, op, t) {
+  ctx.lineWidth = op.w ?? t.w ?? 10;
+  ctx.lineCap = 'butt';
+  ctx.globalAlpha *= 0.82;
+  if (!op.blend) ctx.globalCompositeOperation = 'multiply';
+  ctx.beginPath();
+  tracePath(ctx, { sub: jittered(op.path, op.wobble ?? 0.8, rng(op.seed ?? 1)) });
+  ctx.stroke();
+}
+
+// Gouache: opaque body colour laid with a brush, dry and broken at the edge.
+function gouache(ctx, op, t) {
+  const w = op.w ?? t.w ?? 12, a0 = ctx.globalAlpha;
+  ctx.globalAlpha = a0 * 0.97; ctx.lineWidth = w * 0.82;
+  ctx.beginPath(); tracePath(ctx, { sub: jittered(op.path, 0.8, rng(op.seed ?? 1)) }); ctx.stroke();
+  ctx.globalAlpha = a0 * 0.7;
+  chalk(ctx, { ...op, w, wobble: 1.6, dash: w * 1.4, gap: w * 0.35 }, { w, wobble: 1.6, dash: w, gap: w * 0.3 });
+  ctx.globalAlpha = a0;
+}
+
+// Brush pen (v1 brush): pressure swells and tapers towards both ends, the hand wanders slowly along the
+// line (not per point), and op.p (0..1) draws it on with the taper of the whole line. Each sub is a line.
+function brushSub(ctx, pts, closed, op, t, r) {
+  const w = op.w ?? t.w ?? 4, amp = op.amp ?? t.amp ?? 1.6, taper = op.taper ?? t.taper ?? 1, p = Math.min(1, Math.max(0, op.p ?? 1));
+  const q = op.smooth === false ? pts : spline(pts, { closed, tension: 0, n: 6 }).sub[0].pts;
+  const n = q.length / 2, s = [0];
+  for (let i = 1; i < n; i++) s.push(s[i - 1] + Math.hypot(q[2 * i] - q[2 * i - 2], q[2 * i + 1] - q[2 * i - 1]));
+  const L = s[n - 1], end = L * p, tl = Math.max(1, Math.min(L * 0.42, w * 10)) * taper;
+  const ph = [r() * TAU, r() * TAU, r() * TAU], f1 = 0.011 + r() * 0.008, f2 = 0.037 + r() * 0.02;
+  const pt = (i) => [
+    q[2 * i] + amp * (Math.sin(s[i] * f1 + ph[0]) + 0.5 * Math.sin(s[i] * f2 + ph[1])),
+    q[2 * i + 1] + amp * (Math.cos(s[i] * f1 * 1.3 + ph[1]) + 0.5 * Math.sin(s[i] * f2 * 0.8 + ph[2])),
+  ];
+  if (p <= 0 || n < 2) return;
+  let a = pt(0);
+  for (let i = 1; i < n && s[i - 1] < end; i++) {
+    let b = pt(i);
+    if (s[i] > end) { const u = (end - s[i - 1]) / (s[i] - s[i - 1]); b = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]; }
+    const m = (s[i - 1] + Math.min(s[i], end)) / 2, e = taper ? Math.min(1, m / tl, (L - m) / tl) : 1;
+    ctx.lineWidth = Math.max(0.6, w * (0.3 + 0.7 * Math.sin(e * Math.PI / 2)) * (1 + 0.2 * Math.sin(m * f2 * 1.7 + ph[2])));
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    a = b;
+  }
+}
+function brush(ctx, op, t) {
+  const r = rng(op.seed ?? 1);
+  for (const sub of op.path.sub) {
+    const pts = sub.closed ? [...sub.pts, sub.pts[0], sub.pts[1]] : sub.pts;
+    if (pts.length >= 4) brushSub(ctx, pts, false, op, t, r);
+  }
 }
 
 // Chalk: a wobbly line broken into dashes of uneven length and alpha, stroked in three alpha buckets.
@@ -69,7 +149,7 @@ function chalk(ctx, op, t) {
   ctx.globalAlpha = a0;
 }
 
-const TOOLS = { pen, chalk };
+const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache };
 
 export function drawStroke(ctx, op, look, S = 1) {
   const draw = TOOLS[op.tool ?? 'pen'];
@@ -77,9 +157,11 @@ export function drawStroke(ctx, op, look, S = 1) {
   ctx.save();
   ctx.strokeStyle = resolveRole(op.role, look);
   if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
+  if (op.blend === 'wash') { if (look.chalkPass) ctx.globalAlpha *= 0.6; else ctx.globalCompositeOperation = 'multiply'; }
+  else if (op.blend) ctx.globalCompositeOperation = op.blend;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  draw(ctx, op, look.tools[op.tool ?? 'pen'] ?? look.tools.pen, S);
+  draw(ctx, op, look.tools[op.tool ?? 'pen'] ?? {}, S);
   ctx.restore();
 }
 
@@ -114,6 +196,7 @@ const pathLen = (path) => {
 
 // reveal(p, node): the node (op or list) with its strokes drawn up to p of their total length, in `order`
 // (ties keep list order). Lengths are measured on screen through each group's scale. Other ops pass through.
+// Brush strokes get p instead of a trimmed path, so their taper stays that of the whole line.
 export function reveal(p, node) {
   if (p >= 1) return node;
   const isOp = !Array.isArray(node);
@@ -139,6 +222,7 @@ export function reveal(p, node) {
       const k = keep[n++];
       if (k === 1) return [op];
       if (k === 0) return [];
+      if (op.tool === 'brush') return [withProps(op, { p: k * (op.p ?? 1) })];
       return [withProps(op, { path: trim(op.path, pathLen(op.path) * k) })];
     }
     return op.kids ? [withProps(op, { kids: rebuild(op.kids) })] : [op];
