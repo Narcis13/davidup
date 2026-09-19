@@ -1,21 +1,24 @@
 #!/usr/bin/env node
 // hdf: command-line entry for handdrawn films.
 import { existsSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isMainThread } from 'node:worker_threads';
+import { loadFilm, UsageError } from './load.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const USAGE = `usage: hdf <command> [args] [flags]
 
-  render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir] [--disk-cache]
+  render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir]
+                                    [--cache-mb 512] [--disk-cache] [--no-sound]
   grid    <film.js> [--n 24] [--width 480]
   only    <film.js> 0,37,74
   board   <film.js>                 storyboard cards
   sheet   <film.js> <cel>           cel at 3 scales x input extremes x every look
   lint    <film.js>
   changed <film.js>                 frames whose list hash moved since last render
-  golden  <film.js> write|check
+  golden  <film.js> write|check [--workers N]
   dev     <film.js>                 player with hot reload on :4321
   bundle  <film.js>                 single HTML
   photo   <img> --name --credit     cutout + silhouette path + check sheet
@@ -26,7 +29,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
   'dev', 'bundle', 'photo', 'clip', 'donate'];
 
-export class UsageError extends Error {}
+export { loadFilm, UsageError };
 
 // --key value, --key=value, --flag (boolean), -- ends flags. Numeric strings become numbers.
 export function parseArgs(argv) {
@@ -54,20 +57,6 @@ export function parseArgs(argv) {
 
 const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
-// Imports a film module and checks its default export has the shape film() produces.
-export async function loadFilm(path) {
-  if (!path) throw new UsageError('missing <film.js>');
-  const abs = resolve(path);
-  if (!existsSync(abs)) throw new UsageError(`film not found: ${path}`);
-  const mod = await import(pathToFileURL(abs).href);
-  const f = mod.default;
-  if (!f || typeof f !== 'object') throw new Error(`${path}: default export must be film({...})`);
-  if (typeof f.name !== 'string' || !f.name) throw new Error(`${path}: film has no name`);
-  if (!f.look || typeof f.look !== 'object') throw new Error(`${path}: film has no look`);
-  if (f.timeline == null) throw new Error(`${path}: film has no timeline`);
-  return f;
-}
-
 export async function main(argv = process.argv.slice(2)) {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
@@ -91,7 +80,7 @@ export async function main(argv = process.argv.slice(2)) {
 
 // Run only when executed directly (also through the npm bin symlink), not when imported by tests.
 const entry = process.argv[1] && existsSync(process.argv[1]) ? realpathSync(process.argv[1]) : '';
-if (entry === fileURLToPath(import.meta.url)) {
+if (isMainThread && entry === fileURLToPath(import.meta.url)) {
   main().then((code) => { process.exitCode = code; }, (e) => {
     process.stderr.write(`hdf: ${e instanceof UsageError ? e.message + '\n\n' + USAGE : (e.stack ?? e)}\n`);
     process.exitCode = e instanceof UsageError ? 2 : 1;

@@ -296,6 +296,15 @@ export function bounds(list, m = I) {
         b = boxThrough([x, op.y - op.size * 0.8, w, op.size], m); break;
       }
       case 'image': b = boxThrough([op.x, op.y, op.w, op.h], m); break;
+      case 'specks': {   // internal grain op from finish.js: rects [x, y, w, h, ...]
+        const q = op.rects;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (let i = 0; i < q.length; i += 4) {
+          x0 = Math.min(x0, q[i]); y0 = Math.min(y0, q[i + 1]); x1 = Math.max(x1, q[i] + q[i + 2]); y1 = Math.max(y1, q[i + 1] + q[i + 3]);
+        }
+        if (q.length) b = boxThrough([x0, y0, x1 - x0, y1 - y0], m);
+        break;
+      }
       case 'group': { const mm = mmul(m, op.xf); b = op.box ? boxThrough(op.box, mm) : bounds(op.kids, mm); break; }
       case 'clip': b = intersect(boxThrough(op.path.box, m), bounds(op.kids, m)); break;
       case 'fx': case 'look': b = bounds(op.kids, m); break;

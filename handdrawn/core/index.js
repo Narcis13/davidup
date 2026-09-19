@@ -13,3 +13,5 @@ export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook } from './looks.js';
 export { handText, signOff, squiggleText, measure } from './text.js';
 export { reveal } from './tools.js';
+export { pentHz, renderScore, toWav16 } from './synth.js';
+export { note, burst, plucks, swell, cueNotes, travel, sparse, impact, dyad } from '../recipes/score.js';

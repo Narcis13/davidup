@@ -1,16 +1,19 @@
-// Stills through skia: `hdf only` writes PNGs of chosen frames, `hdf grid` a JPEG contact sheet.
+// Stills through skia: `hdf only` writes PNGs of chosen frames, `hdf grid` a JPEG grid of evenly spaced
+// frames, and contactSheet() the sheet `hdf render` writes alongside the video.
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { Canvas } from 'skia-canvas';
+import { ImageData } from 'skia-canvas';
 import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
-import { outputSize, renderFrame } from '../core/raster.js';
+import { skiaCanvas } from './skia.mjs';
+import { createRenderer, outputSize } from '../core/raster.js';
 
 // A canvas sized for the film at an output width, and a function drawing frame i on it.
 export function frameCanvas(film, { ar, width } = {}) {
   const size = outputSize(ar ? format(ar) : film.format, width);
-  const canvas = new Canvas(size.outW, size.outH), ctx = canvas.getContext('2d');
-  return { canvas, size, draw: (i) => renderFrame(ctx, film, i, { ar, width }) };
+  const canvas = skiaCanvas(size.outW, size.outH), ctx = canvas.getContext('2d');
+  const r = createRenderer({ makeCanvas: skiaCanvas, dedup: false });
+  return { canvas, size, draw: (i) => r.renderFrame(ctx, film, i, { ar, width }) };
 }
 
 export const outDir = (flags) => { const d = resolve(flags.out ?? 'out'); mkdirSync(d, { recursive: true }); return d; };
@@ -43,7 +46,7 @@ export async function grid([path], flags, { loadFilm }) {
   const n = Math.min(flags.n ?? 24, film.n), tileW = flags.width ?? 480, bar = Math.round(tileW * 0.075);
   const { canvas: tile, size, draw } = frameCanvas(film, { ar: flags.ar, width: tileW });
   const cols = Math.min(6, n), rows = Math.ceil(n / cols), th = size.outH + bar;
-  const sheet = new Canvas(cols * size.outW, rows * th), g = sheet.getContext('2d');
+  const sheet = skiaCanvas(cols * size.outW, rows * th), g = sheet.getContext('2d');
   g.fillStyle = '#141414';
   g.fillRect(0, 0, sheet.width, sheet.height);
   g.font = `${Math.round(bar * 0.62)}px Menlo, monospace`;
@@ -59,4 +62,56 @@ export async function grid([path], flags, { loadFilm }) {
   await sheet.toFile(file, { quality: 0.9 });
   process.stdout.write(`${file}\n`);
   return 0;
+}
+
+// The render's contact sheet: two tiles per second (every sixth drawn frame), twelve to a row, with a strip
+// under each row showing cuts (red lines through tile and strip) and score onsets (dots, higher = higher
+// pitch; noise as a cross). add(i, rawRGBA) as frames go by, then write(file, { cues, events }).
+export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, cols = 12 } = {}) {
+  const size = outputSize(ar ? format(ar) : film.format, width);
+  const tileH = Math.round(tileW * size.outH / size.outW), strip = 30;
+  const full = skiaCanvas(size.outW, size.outH), fctx = full.getContext('2d');
+  const tiles = [];
+  return {
+    outW: size.outW, outH: size.outH,
+    add(i, buf) {
+      if (i % every) return;
+      fctx.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength), size.outW, size.outH), 0, 0);
+      const t = skiaCanvas(tileW, tileH);
+      t.getContext('2d').drawImage(full, 0, 0, tileW, tileH);
+      tiles[i / every] = t;
+    },
+    async write(file, { cues = { cuts: [] }, events = [] } = {}) {
+      const n = Math.ceil(film.n / every), rows = Math.ceil(n / cols), rowH = tileH + strip;
+      const sheet = skiaCanvas(cols * tileW, rows * rowH), g = sheet.getContext('2d');
+      const perTile = every / FPS;   // seconds per tile
+      const xAt = (t) => ({ row: Math.floor(t / perTile / cols), x: (t / perTile % cols) * tileW });
+      g.fillStyle = '#141414';
+      g.fillRect(0, 0, sheet.width, sheet.height);
+      g.font = '10px Menlo, monospace';
+      g.textBaseline = 'top';
+      for (let j = 0; j < n; j++) {
+        const x = (j % cols) * tileW, y = Math.floor(j / cols) * rowH;
+        if (tiles[j]) g.drawImage(tiles[j], x, y);
+        g.fillStyle = '#8a8a8a';
+        g.fillText(`${(j * perTile).toFixed(1)}s`, x + 3, y + tileH + 2);
+      }
+      const lo = Math.log2(40), hi = Math.log2(2000);
+      for (const e of events) {
+        const { row, x } = xAt(e.t);
+        if (row >= rows) continue;
+        const y0 = row * rowH + tileH + 14, y = y0 + 13 - 12 * Math.min(1, Math.max(0, (Math.log2(e.hz ?? 440) - lo) / (hi - lo)));
+        g.fillStyle = g.strokeStyle = e.type === 'noise' ? '#f0f0f0' : { sine: '#7fe7ff', triangle: '#ffe22b', square: '#ff6fd8', saw: '#5fe08a', sawtooth: '#5fe08a' }[e.type] ?? '#ccc';
+        if (e.type === 'noise') { g.lineWidth = 1.2; g.beginPath(); g.moveTo(x - 3, y0 + 4); g.lineTo(x + 3, y0 + 10); g.moveTo(x + 3, y0 + 4); g.lineTo(x - 3, y0 + 10); g.stroke(); }
+        else { g.beginPath(); g.arc(x, y, 2, 0, Math.PI * 2); g.fill(); }
+      }
+      g.strokeStyle = '#ff3b30';
+      g.lineWidth = 2;
+      for (const t of cues.cuts) {
+        const { row, x } = xAt(t);
+        g.beginPath(); g.moveTo(x, row * rowH); g.lineTo(x, row * rowH + rowH); g.stroke();
+      }
+      await sheet.toFile(file, { quality: 0.9 });
+    },
+  };
 }

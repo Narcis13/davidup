@@ -1,7 +1,7 @@
 // The smallest film: a ball rolls in, then a sign-off. 3 s = 36 drawn frames.
 // Port of docs/hand-drawn-canvas-mini/mini.html.
 import {
-  cel, shot, seq, film, place, paper, fill, stroke, meta, circle, line, curve, ease, ramp, pulse, signOff,
+  cel, shot, seq, film, place, paper, fill, stroke, meta, circle, line, curve, ease, ramp, pulse, signOff, plucks, dyad,
 } from '../core/index.js';
 
 const ball = cel('ball', ({ twitch = 0 }) => [
@@ -32,4 +32,10 @@ const sign = shot('sign', 1, ({ t, CX, CY }) => [
   signOff('mini', 'film', { x: CX, y: CY, pA: ramp(0, 0.5, t), pB: ramp(0.5, 1, t) }),
 ]);
 
-export default film({ name: 'mini', look: 'paperInk', timeline: seq(roll, sign) });
+// v1: a rising triangle pluck every 0.5 s while the ball rolls, a low sine under the sign-off.
+const score = ({ shots: [r, s] }) => ({
+  master: 0.5,
+  events: [plucks(r.t0, r.dur, { steps: 'rise', len: 0.4 }), dyad(s.t0, s.dur, { gain: 0.3 })],
+});
+
+export default film({ name: 'mini', look: 'paperInk', timeline: seq(roll, sign), score });

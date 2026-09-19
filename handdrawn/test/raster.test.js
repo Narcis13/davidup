@@ -5,8 +5,15 @@ import { Canvas } from 'skia-canvas';
 import mini from '../films/mini.js';
 import { frame } from '../core/tree.js';
 import { expand } from '../core/finish.js';
-import { draw, outputSize, renderFrame } from '../core/raster.js';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRenderer, draw, outputSize, renderFrame } from '../core/raster.js';
 import { fill, circle, text, paper, walk, group } from '../core/list.js';
+import { cut, film, place, seq, shot } from '../core/tree.js';
+import { frameRenderer, produceFrames } from '../cli/frames.mjs';
+import { goldenOf } from '../cli/golden.mjs';
+import { skiaCanvas } from '../cli/skia.mjs';
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
@@ -23,10 +30,10 @@ test('expand turns finishes, stock and text into drawable ops, memoised', () => 
   assert.ok(t[0].kids.every((s) => s.op === 'stroke' && Number.isInteger(s.seed)));
 });
 
-test('draw refuses unexpanded and unknown ops', () => {
-  const ctx = new Canvas(10, 10).getContext('2d');
-  assert.throws(() => draw(ctx, [paper()], { look: 'paperInk' }), /expand/);
-  assert.throws(() => draw(ctx, [fill(circle(0, 0, 1), 'ink', { finish: true })], { look: 'paperInk' }), /expand/);
+test('draw expands paper, text and finishes as it goes, and refuses unknown ops', () => {
+  const c = new Canvas(20, 20), ctx = c.getContext('2d');
+  draw(ctx, [paper(), fill(circle(10, 10, 6), 'fills.0', { finish: true }), text('a', 2, 18, { size: 10 })], { look: 'paperInk' });
+  assert.equal(c.toBufferSync('raw')[3], 255);
   assert.throws(() => draw(ctx, [group([{ op: 'bogus' }])], { look: 'paperInk' }), /unknown op/);
 });
 
@@ -40,4 +47,98 @@ test('mini renders deterministically at an even output size, opaque', () => {
   assert.equal(outW, 240);
   const px = (buf, x, y) => [...buf.subarray((y * outW + x) * 4, (y * outW + x) * 4 + 4)];
   assert.equal(px(a, 0, 0)[3], 255);
+});
+
+// ---------- P3: layer cache, snapping, dedup ----------
+
+const all = (r, n) => Array.from({ length: n }, (_, i) => r.render(i));
+const bufs = (r, n) => { let last; return all(r, n).map((f) => (last = f.dup ? last : Buffer.from(f.buf))); };
+
+test('cached and uncached renders of mini are the same pixels, frame by frame', () => {
+  const cached = frameRenderer(mini, { width: 240 }), plain = frameRenderer(mini, { width: 240, cacheMb: 0 });
+  const a = bufs(cached, mini.n), b = bufs(plain, mini.n);
+  for (let i = 0; i < mini.n; i++) assert.equal(sha(a[i]), sha(b[i]), `frame ${i}`);
+  assert.ok(cached.stats.blits > 20, `blits ${cached.stats.blits}`);   // stock and guides come from layers
+  assert.ok(cached.stats.layers >= 2 && cached.cache.bytes > 0);
+  assert.equal(plain.stats.blits, 0);
+  assert.equal(plain.cache.size, 0);
+});
+
+test('a starved cache evicts and still draws the same pixels', () => {
+  const tiny = frameRenderer(mini, { width: 240, cacheMb: 0.3 }), plain = frameRenderer(mini, { width: 240, cacheMb: 0 });
+  const a = bufs(tiny, mini.n), b = bufs(plain, mini.n);
+  for (let i = 0; i < mini.n; i++) assert.equal(sha(a[i]), sha(b[i]), `frame ${i}`);
+  assert.ok(tiny.cache.evictions > 0);
+  assert.ok(tiny.cache.bytes <= 0.3 * 1024 * 1024);
+});
+
+test('frame dedup: mini repeats 3 of 36 (the ball resting before the cut), each equal to its predecessor', () => {
+  // v1 counted 6 by PNG hash; its sign-off revealed in coarser steps. Here every reveal step moves.
+  const r = frameRenderer(mini, { width: 240 }), frames = all(r, mini.n);
+  assert.deepEqual(frames.flatMap((f, i) => (f.dup ? [i] : [])), [21, 22, 23]);
+  const plain = frameRenderer(mini, { width: 240, cacheMb: 0 });
+  const a = bufs(plain, 21), [x20] = a.slice(20);
+  plain.forget();
+  const again = plain.render(21);
+  assert.equal(again.dup, false);
+  assert.equal(sha(again.buf), sha(x20));
+});
+
+test('cacheable groups snap to whole output pixels; rotated ones do not', () => {
+  const r = createRenderer({ makeCanvas: skiaCanvas });
+  const one = (x, o) => {
+    const c = skiaCanvas(64, 64), ctx = c.getContext('2d');
+    r.draw(ctx, [place(x, 20, o, group('dot', [fill(circle(0, 0, 6), 'ink')]))], { look: 'paperInk' });
+    return sha(c.toBufferSync('raw'));
+  };
+  assert.equal(one(20.3, {}), one(20, {}));
+  assert.equal(one(19.6, {}), one(20, {}));
+  assert.notEqual(one(20.3, { rot: 0.5 }), one(20, { rot: 0.5 }));
+});
+
+test('workers split the film and deliver the same frames in order', async () => {
+  const run = async (workers) => {
+    const out = [];
+    await produceFrames('films/mini.js', mini, { width: 240, workers, chunk: 5 }, (i, buf, dup) => { out.push([i, sha(buf), dup]); });
+    return out;
+  };
+  const one = await run(1), three = await run(3);
+  assert.deepEqual(three.map(([i]) => i), [...Array(mini.n).keys()]);
+  assert.deepEqual(three.map(([, h]) => h), one.map(([, h]) => h));
+});
+
+test('mini matches its golden', { skip: process.platform !== 'darwin' && 'goldens are written on darwin-arm64' }, async () => {
+  const want = JSON.parse(readFileSync(new URL('../films/goldens/mini.json', import.meta.url), 'utf8'));
+  assert.deepEqual(await goldenOf('films/mini.js', mini, { workers: 2 }), want);
+});
+
+test('a disk-cached second run reads layers back and draws the same frames', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-cache-'));
+  try {
+    const hashes = async (diskCache) => {
+      const out = [];
+      await produceFrames('films/mini.js', mini, { width: 240, workers: 1, diskCache }, (i, buf) => { out.push(sha(buf)); });
+      return out;
+    };
+    const plain = await hashes(undefined), first = await hashes(dir);
+    assert.ok(readdirSync(dir).length >= 2);
+    const r = frameRenderer(mini, { width: 240, diskCache: dir });
+    for (let i = 0; i < mini.n; i++) r.render(i);
+    assert.ok(r.stats.disk > 0);
+    assert.deepEqual(first, plain);
+    assert.deepEqual(await hashes(dir), plain);   // stock is opaque, so PNG round trips are exact here
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('fx ops dispatch to fx.js: a dissolve cut renders, unknown kinds fail loudly', () => {
+  const a = shot('a', 0.5, () => [paper(), fill(circle(540, 540, 200), 'fills.0')]);
+  const b = shot('b', 0.5, () => [paper(), fill(circle(540, 540, 200), 'fills.1')]);
+  const f = film({ name: 'cutfx', look: 'paperInk', timeline: seq(a, cut('dissolve', 0.5, a, b), b) });
+  const r = frameRenderer(f, { width: 120 });
+  const mid = r.render(8), end = r.render(f.n - 1);
+  assert.notEqual(sha(mid.buf), sha(end.buf));
+  const g = film({ name: 'badfx', look: 'paperInk', timeline: seq(a, cut('nope', 0.5, a, b)) });
+  assert.throws(() => frameRenderer(g, { width: 120 }).render(7), /fx 'nope' is not implemented/);
 });

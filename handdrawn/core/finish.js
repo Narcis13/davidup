@@ -4,7 +4,7 @@
 //   text              -> hand-lettered strokes (text.js)
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
 // This phase: hatch, graphite and grain. halftone, dots and wash land in P5 (they draw flat until then).
-import { clip, group, fill, rect, stroke, withProps, xf as xfPath, mkPath } from './list.js';
+import { clip, group, fill, hashOp, rect, stroke, withProps, xf as xfPath, mkPath } from './list.js';
 import { hashLook, resolveLook } from './looks.js';
 import { rng } from './rand.js';
 import { handText } from './text.js';
@@ -77,6 +77,8 @@ function stock(op, look, { W, H }, dark) {
 }
 
 // Expansions are memoised per (op, look, frame size) so an unchanged op expands to the same object.
+// Groups by identity; leaves (paper, fills, text) by content hash, because a shot's draw rebuilds them
+// every frame and the rasteriser keys its layer cache on the expanded object's (memoised) hash.
 const memo = new WeakMap();
 function remember(op, key, make) {
   let per = memo.get(op);
@@ -85,10 +87,41 @@ function remember(op, key, make) {
   if (!out) { out = make(); if (per.size > 16) per.clear(); per.set(key, out); }
   return out;
 }
+const byHash = new Map();
+function rememberLeaf(op, key, make) {
+  const k = `${hashOp(op)}:${key}`;
+  let out = byHash.get(k);
+  if (out) { byHash.delete(k); byHash.set(k, out); return out; }   // refresh LRU position
+  out = make();
+  byHash.set(k, out);
+  if (byHash.size > 4096) byHash.delete(byHash.keys().next().value);
+  return out;
+}
 
+const envKey = (lk, W, H) => `${hashLook(lk)}:${W}x${H}`;
+
+// One op, one level: leaves that need expanding become drawable ops, everything else passes through
+// unchanged (the rasteriser recurses into kids itself). Returns a list.
+export function expandOp(op, look, { W = 1080, H = 1080 } = {}) {
+  const lk = resolveLook(look), key = envKey(lk, W, H);
+  switch (op.op) {
+    case 'paper': return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, lk.paper === 'night'))];
+    case 'night': return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, true))];
+    case 'fill': return op.finish ? rememberLeaf(op, key, () => finished(op, lk)) : [op];
+    case 'text': return rememberLeaf(op, key, () => {
+      const g = handText(op);
+      return [withProps(g, { kids: seedList(g.kids, op.seed ?? 1) })];
+    });
+    default: return [op];
+  }
+}
+
+export const needsExpand = (op) => op.op === 'paper' || op.op === 'night' || op.op === 'text' || (op.op === 'fill' && !!op.finish);
+
+// The whole list, recursively (lint, projection and tests use this; the rasteriser expands lazily).
 export function expand(list, look, { W = 1080, H = 1080 } = {}) {
   const run = (ops, lk) => {
-    const key = `${hashLook(lk)}:${W}x${H}`;
+    const key = envKey(lk, W, H);
     let changed = false;
     const out = ops.flatMap((op) => {
       const next = one(op, lk, key);
@@ -98,25 +131,14 @@ export function expand(list, look, { W = 1080, H = 1080 } = {}) {
     return changed ? out : ops;
   };
   const one = (op, lk, key) => {
-    switch (op.op) {
-      case 'paper': return [remember(op, key, () => stock(op, lk, { W, H }, lk.paper === 'night'))];
-      case 'night': return [remember(op, key, () => stock(op, lk, { W, H }, true))];
-      case 'fill': return op.finish ? remember(op, key, () => finished(op, lk)) : [op];
-      case 'text': return remember(op, key, () => {
-        const g = handText(op);
-        return [withProps(g, { kids: seedList(g.kids, op.seed ?? 1) })];
-      });
-      case 'look': {
-        const inner = resolveLook(op.look), kids = run(op.kids, inner);
-        return [kids === op.kids ? op : withProps(op, { kids })];
-      }
-      default: {
-        if (!op.kids) return [op];
-        const kids = remember(op, key, () => run(op.kids, lk));
-        return [kids === op.kids ? op : remember(op, key + ':op', () => withProps(op, { kids }))];
-      }
+    if (needsExpand(op)) return expandOp(op, lk, { W, H });
+    if (op.op === 'look') {
+      const inner = resolveLook(op.look), kids = run(op.kids, inner);
+      return [kids === op.kids ? op : withProps(op, { kids })];
     }
+    if (!op.kids) return [op];
+    const kids = remember(op, key, () => run(op.kids, lk));
+    return [kids === op.kids ? op : remember(op, key + ':op', () => withProps(op, { kids }))];
   };
   return run(Array.isArray(list) ? list : [list], resolveLook(look));
 }
-
