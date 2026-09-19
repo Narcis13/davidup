@@ -10,3 +10,6 @@ export {
 export { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues } from './tree.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
+export { LOOKS, PASTELS, derive, duotone, pastel, withLook } from './looks.js';
+export { handText, signOff, squiggleText, measure } from './text.js';
+export { reveal } from './tools.js';

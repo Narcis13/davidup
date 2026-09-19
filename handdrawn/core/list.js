@@ -30,7 +30,7 @@ function boxOfSubs(sub) {
   return x0 === Infinity ? [0, 0, 0, 0] : [x0, y0, x1 - x0, y1 - y0];
 }
 
-const mkPath = (sub) => Object.freeze({ sub, box: boxOfSubs(sub) });
+export const mkPath = (sub) => Object.freeze({ sub, box: boxOfSubs(sub) });
 const flat = (pts) => (pts.length && Array.isArray(pts[0]) ? pts.flat() : [...pts]);
 const pairs = (pts) => { const f = flat(pts), out = []; for (let i = 0; i < f.length; i += 2) out.push([f[i], f[i + 1]]); return out; };
 export const isPath = (v) => !!v && typeof v === 'object' && Array.isArray(v.sub) && Array.isArray(v.box);
@@ -255,6 +255,9 @@ export function hashOp(op) {
   if (Object.isFrozen(op)) opMemo.set(op, h);
   return h;
 }
+
+// Any plain data (a look, cel inputs) in the same canonical form.
+export const hashData = (v) => hash64((f) => feedValue(v, f, 'data'));
 
 export const hashList = (list) => hash64((f) => { f.byte(0x4c); for (const op of norm(list)) f.str(hashOp(op)); });
 

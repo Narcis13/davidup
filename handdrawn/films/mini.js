@@ -1,7 +1,7 @@
 // The smallest film: a ball rolls in, then a sign-off. 3 s = 36 drawn frames.
-// P1 port of docs/hand-drawn-canvas-mini/mini.html; the sign-off becomes signOff() once text.js lands.
+// Port of docs/hand-drawn-canvas-mini/mini.html.
 import {
-  cel, shot, seq, film, place, paper, fill, stroke, text, meta, circle, line, curve, ease, ramp, pulse,
+  cel, shot, seq, film, place, paper, fill, stroke, meta, circle, line, curve, ease, ramp, pulse, signOff,
 } from '../core/index.js';
 
 const ball = cel('ball', ({ twitch = 0 }) => [
@@ -10,9 +10,9 @@ const ball = cel('ball', ({ twitch = 0 }) => [
 ], { box: [-92, -92, 184, 184], inputs: { twitch: [0, 1, 1] }, desc: 'a hatched ball' });
 
 const guides = cel('guides', () => [
-  stroke(line(-240, 0, 240, 0), 'ink', { w: 0.9, alpha: 0.5 }),
-  stroke(line(0, -240, 0, 240), 'ink', { w: 0.9, alpha: 0.5 }),
-  stroke(circle(0, 0, 123), 'ink', { w: 0.9, alpha: 0.5 }),
+  stroke(line(-240, 0, 240, 0), 'guide', { w: 0.9 }),
+  stroke(line(0, -240, 0, 240), 'guide', { w: 0.9 }),
+  stroke(circle(0, 0, 123), 'guide', { w: 0.9 }),
 ], { box: [-240, -240, 480, 480], desc: 'construction lines' });
 
 const roll = shot('roll', 2, ({ t, i, W, CX, CY }) => {
@@ -29,8 +29,7 @@ const roll = shot('roll', 2, ({ t, i, W, CX, CY }) => {
 const sign = shot('sign', 1, ({ t, CX, CY }) => [
   paper(),
   meta('anchor', { text: 'sign' }),
-  text('mini', CX - 20, CY, { size: 96, align: 'right', reveal: ramp(0, 0.5, t) }),
-  text('film', CX + 20, CY, { size: 96, reveal: ramp(0.5, 1, t) }),
+  signOff('mini', 'film', { x: CX, y: CY, pA: ramp(0, 0.5, t), pB: ramp(0.5, 1, t) }),
 ]);
 
 export default film({ name: 'mini', look: 'paperInk', timeline: seq(roll, sign) });

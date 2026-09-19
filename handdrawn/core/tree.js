@@ -129,7 +129,7 @@ export function film({ name, look, timeline, score, format: ar = '1:1', assets =
 // Every op gets a seed from its parent's seed and its name (its index if unnamed); an explicit seed wins.
 // Memoised per (op, seed) so a cel's seeded copy is the same object frame after frame (hash memo holds).
 const seedMemo = new WeakMap();
-function seedList(list, parent) { return list.map((op, j) => seedOp(op, parent, j)); }
+export function seedList(list, parent) { return list.map((op, j) => seedOp(op, parent, j)); }
 function seedOp(op, parent, j) {
   const own = op.seed ?? seedOf(parent, op.name ?? `#${j}`);
   let per = seedMemo.get(op);
