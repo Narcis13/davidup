@@ -1,0 +1,29 @@
+:root { --bg: #141414; --panel: #1c1c1c; --line: #2c2c2c; --fg: #d8d8d8; --dim: #8a8a8a; --accent: #f0a23a; --hot: #e2574c; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 12px/1.5 Menlo, ui-monospace, monospace; }
+main { display: flex; height: 100%; }
+#view { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 12px; gap: 8px; }
+#stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; width: 100%; }
+#stage canvas { display: block; max-width: 100%; max-height: 100%; }
+#onion { position: absolute; pointer-events: none; }
+#strip { width: 100%; height: 34px; cursor: ew-resize; touch-action: none; }
+#bar { display: flex; gap: 10px; align-items: center; width: 100%; flex-wrap: wrap; }
+#info { margin-left: auto; color: var(--dim); white-space: pre; }
+#status { width: 100%; min-height: 18px; color: var(--dim); white-space: pre-wrap; }
+#status.err { color: var(--hot); }
+button, select { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; font: inherit; padding: 3px 9px; cursor: pointer; }
+button:hover, select:hover { border-color: var(--dim); }
+label { color: var(--dim); cursor: pointer; }
+aside { width: 380px; flex: none; background: var(--panel); border-left: 1px solid var(--line); padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+h2 { margin: 6px 0 0; font-size: 11px; font-weight: normal; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+#shots div { white-space: pre; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+#shots div.jump { color: var(--fg); cursor: pointer; }
+#shots div.jump:hover { background: #262626; }
+#shots div.here { color: var(--accent); }
+#shots div.moved::after { content: ' \0394'; color: var(--hot); }
+#inputs label { display: grid; grid-template-columns: 90px 1fr 48px; gap: 6px; align-items: center; color: var(--fg); }
+#inputs output { text-align: right; color: var(--dim); }
+#inputs .unset output { font-style: italic; }
+#preview { width: 240px; height: 240px; align-self: center; border: 1px solid var(--line); }
+#copy { align-self: center; }
+@media (max-width: 760px) { main { flex-direction: column; } aside { width: 100%; border-left: 0; border-top: 1px solid var(--line); } }

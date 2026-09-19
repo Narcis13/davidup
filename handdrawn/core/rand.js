@@ -25,8 +25,13 @@ export function hash64(walker) {
     t3 += t2 >>> 16; h2 = t2 & 0xffff;
     h3 = t3 & 0xffff;
   };
-  const str = (s) => { const b = enc.encode(s); for (let i = 0; i < b.length; i++) byte(b[i]); byte(0); };
-  const num = (n) => str(String(Math.round(n * 1024) || 0));   // || 0 folds -0 and NaN
+  // ASCII is its own UTF-8, so most strings (and every number's digits) skip the encoder: same bytes, far faster.
+  const ascii = (s) => { for (let i = 0; i < s.length; i++) byte(s.charCodeAt(i)); byte(0); };
+  const str = (s) => {
+    if (/^[\x00-\x7f]*$/.test(s)) return ascii(s);
+    const b = enc.encode(s); for (let i = 0; i < b.length; i++) byte(b[i]); byte(0);
+  };
+  const num = (n) => ascii(String(Math.round(n * 1024) || 0));   // || 0 folds -0 and NaN
   walker({ byte, str, num });
   const hex = (x) => x.toString(16).padStart(4, '0');
   return hex(h3) + hex(h2) + hex(h1) + hex(h0);

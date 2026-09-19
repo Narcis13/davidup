@@ -21,8 +21,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]
-  dev     <film.js>                 player with hot reload on :4321
-  bundle  <film.js>                 single HTML
+  dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)
+  bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet; --v1 <photos.js> converts
   clip    <roto.py json> --name     convert a traced clip to the v2 format
   donate  <film.js> <cel...>        copy cels into a pack, regenerate manifest + sheets

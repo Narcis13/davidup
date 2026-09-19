@@ -1,11 +1,30 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>handdrawn player</title>
-<style>
-  html, body { margin: 0; background: #141414; color: #ddd; font: 13px Menlo, monospace; }
-  canvas { display: block; max-width: 100vw; max-height: calc(100vh - 24px); margin: 0 auto; }
-  #info { height: 24px; line-height: 24px; text-align: center; }
-</style>
-<canvas id="c"></canvas>
-<div id="info">loading</div>
+<link rel="stylesheet" href="shell.css">
+<main>
+  <section id="view">
+    <div id="stage"><canvas id="c"></canvas><canvas id="onion"></canvas></div>
+    <canvas id="strip" title="scrub: drag; shot boundaries, changed frames (accent)"></canvas>
+    <div id="bar">
+      <button id="play" title="play / pause (space)">play</button>
+      <button id="prev" title="previous frame (left; shift: previous shot)">&lsaquo;</button>
+      <button id="next" title="next frame (right; shift: next shot)">&rsaquo;</button>
+      <label title="loop (L)"><input type="checkbox" id="loop"> loop</label>
+      <label title="onion skin: frames i-1 and i+1 in chalk (O)"><input type="checkbox" id="onionOn"> onion</label>
+      <span id="info">loading</span>
+    </div>
+    <div id="status"></div>
+  </section>
+  <aside>
+    <h2>shots</h2>
+    <div id="shots"></div>
+    <h2>cel</h2>
+    <select id="cel"></select>
+    <div id="inputs"></div>
+    <canvas id="preview" width="240" height="240"></canvas>
+    <button id="copy">copy values</button>
+  </aside>
+</main>
 <script type="module" src="./player.js"></script>
