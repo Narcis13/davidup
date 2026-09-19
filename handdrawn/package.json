@@ -1,0 +1,22 @@
+{
+  "name": "handdrawn",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Hand-drawn film 2.0: display-list films drawn on Canvas 2D, rendered with skia-canvas + ffmpeg",
+  "type": "module",
+  "bin": {
+    "hdf": "cli/hdf.mjs"
+  },
+  "exports": {
+    ".": "./core/index.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.{js,mjs}\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "skia-canvas": "^3"
+  }
+}
