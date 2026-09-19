@@ -202,14 +202,11 @@ test('a frame does not depend on what the renderer drew before it (scratch canva
   assert.equal(sha(warm.render(156).buf), sha(fresh));
 });
 
-test('gallop, one-year and moon-book lint clean and match their goldens (written with 1 worker) with 4', async () => {
+// Their goldens (written with 1 worker) are checked with 4 workers in films.test.js.
+test('gallop, one-year and moon-book lint clean', async () => {
   for (const name of ['gallop', 'one-year', 'moon-book']) {
     const f = (await import(`../films/${name}.js`)).default;
     for (const i of [0, Math.floor(f.n / 2), f.n - 1]) assert.doesNotThrow(() => frame(f, i), name);
     assert.deepEqual(lint(f).map((x) => `${x.shot}: ${x.rule}: ${x.detail}`), [], name);
-  }
-  for (const name of ['gallop', 'one-year', 'moon-book']) {
-    const r = spawnSync(process.execPath, ['cli/hdf.mjs', 'golden', `films/${name}.js`, 'check', '--workers', '4'], { cwd: ROOT, encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stdout + r.stderr);
   }
 });

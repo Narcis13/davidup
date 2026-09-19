@@ -2,9 +2,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import * as H from '../core/index.js';
 import { createRenderer } from '../core/raster.js';
 import { expand } from '../core/finish.js';
@@ -15,7 +12,6 @@ import * as R from '../recipes/shots.js';
 import fourLooks from '../films/four-looks.js';
 import flyStyle from '../films/fly-style.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 const { paper, fill, stroke, fx, circle, rect, ellipse, group, walk } = H;
 
@@ -155,12 +151,9 @@ test('every A-Z recipe builds a shot that lints clean next to a sign-off', () =>
   assert.equal(R.duotoneBeat({ cards: [card] }).look.finish, 'halftone');
 });
 
-test('four-looks and fly-style lint clean in every preset look and match their goldens', () => {
+// Their goldens are checked with every other film's in films.test.js.
+test('four-looks and fly-style lint clean in every preset look', () => {
   for (const f of [fourLooks, flyStyle]) for (const look of Object.keys(H.LOOKS)) {
     assert.deepEqual(lint({ ...f, look: { name: look } }), [], `${f.name} ${look}`);
-  }
-  for (const film of ['four-looks', 'fly-style']) {
-    const r = spawnSync(process.execPath, ['cli/hdf.mjs', 'golden', `films/${film}.js`, 'check'], { cwd: ROOT, encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stdout + r.stderr);
   }
 });

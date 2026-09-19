@@ -13,13 +13,18 @@
 // 23.5   7.0  parade    everything began to move: elephant, kangaroo, pigeons
 // 30.5   4.0  end       sign-off
 import {
-  film, seq, shot, fill, stroke, group, meta, circle, rect, poly, line, arc, cubic, rng, ramp, ease, boil,
+  film, seq, shot, cel, fill, stroke, group, meta, circle, rect, poly, line, arc, cubic, rng, ramp, ease, boil,
   withLook, mix, pen, backdrop, speedLines, cam, glow, signOff, translate, rotate, scale, mmul,
   registerClips, traced, gap, airborne, clipOf, note, burst, pentHz,
 } from '../core/index.js';
 import CLIPS from './gallop-clips.js';
 
 registerClips(CLIPS);
+
+// One traced pose as a cel, ground point at the origin, 300 units tall (for sheets and packs).
+export const horse = cel('horse', ({ pose = 0, flip = 0 }) => [
+  traced('horse', pose, { x: 0, y: 0, h: 300, flip: !!flip, wash: 'fills.0', seed: 5 }),
+], { box: [-240, -310, 480, 320], inputs: { pose: [0, 11, 1], flip: [0, 1, 1] }, desc: 'a galloping horse: one of 12 Muybridge poses traced from film (found motion); feet at the origin' });
 
 const TAU = Math.PI * 2, W = 1080, CX = 540, CY = 540;
 const lerp = (a, b, u) => a + (b - a) * u;

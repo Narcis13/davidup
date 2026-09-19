@@ -25,7 +25,9 @@ const USAGE = `usage: hdf <command> [args] [flags]
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet; --v1 <photos.js> converts
   clip    <clips.js|clip.json> [--name id] [--js clips.js]   roto.py output -> a v2 clips module
-  donate  <film.js> <cel...>        copy cels into a pack, regenerate manifest + sheets
+  donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
+                                    hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg
+  donate  --manifest [--all-sheets] regenerate the manifest and missing (or all) sheets from packs/*.js
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',

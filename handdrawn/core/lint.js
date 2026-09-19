@@ -83,7 +83,7 @@ function finder() {
 
 // Cel groups checked against their box once per (frozen, memoised) group object.
 const celMemo = new WeakMap();
-function celOverflow(op) {
+export function celOverflow(op) {
   if (celMemo.has(op)) return celMemo.get(op);
   const b = bounds(op.kids), [x, y, w, h] = op.box;
   const out = b && (b[0] < x - TOL || b[1] < y - TOL || b[0] + b[2] > x + w + TOL || b[1] + b[3] > y + h + TOL) ? b : null;
@@ -108,7 +108,7 @@ function scan(list, look, report) {
           if (typeof op.ink2 === 'string') role(op.ink2, lk, 'text ink2');
           if (!inSignOff) got.words.add(op.str);
           break;
-        case 'look': got.looks++; visit(op.kids, resolveLook(op.look), inSignOff); continue;
+        case 'look': if (!op.inset) got.looks++; visit(op.kids, resolveLook(op.look), inSignOff); continue;   // inset: a thumbnail of another shot
         case 'fx': if (op.kind === 'scribble') got.scribbles++; break;
         case 'meta':
           if (op.tag === 'anchor') got.anchors.push(op.data ?? {});

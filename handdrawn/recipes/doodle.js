@@ -456,8 +456,8 @@ export function nightFalls(o = {}) {
 // ======================================================================================================
 // AF. Prints on a line: the last frame of every scene hung as small prints on a drawn string, then the
 // sign-off and the cast. prints: [list | (ctx) => list | { list | draw, look }]; lastFrame(shot) makes one.
-// A print with its own look is wrapped in a look op (lint: one-look), otherwise it is drawn in this shot's
-// look on a lighter sheet. Words inside prints are thumbnails, not this shot's words: their text groups are
+// A print with its own look is wrapped in a look op marked inset (a thumbnail, so lint's one-look rule
+// passes it), otherwise it is drawn in this shot's look on a lighter sheet. Words inside prints are thumbnails, not this shot's words: their text groups are
 // renamed 'print:' so lint does not count them.
 // ======================================================================================================
 export const lastFrame = (node) => {
@@ -497,7 +497,7 @@ export function printsOnALine(o = {}) {
       const px = 540 + (k - (n - 1) / 2) * gapX, py = yAt(px) + 110, r = (rng(k + 3)() - 0.5) * 0.16 + Math.sin(tau * 2 + k) * 0.012;
       const make = typeof e === 'function' ? e : e && !Array.isArray(e) && !e.op ? (e.draw ?? (() => e.list)) : () => e;
       let body = printable(make({ ...c, ...STAGE }), sheet);
-      if (e && e.look) body = [lookNode(e.look, body)];
+      if (e && e.look) body = [withProps(lookNode(e.look, body), { inset: true })];
       const m = mmul(mmul(translate(px, py - 100), rotate(r)), translate(0, 100 - (1 - q) * 40));
       hung.push(group({ name: `print${k}`, xf: m, cache: 'never' }, [
         fill(rect(-ps / 2 - 6, -ps / 2 - 4, ps + 20, ps + 44), { base: 'ink', alpha: 0.18 }, { name: 'shade' }),

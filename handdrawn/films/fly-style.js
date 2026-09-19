@@ -79,7 +79,7 @@ export const fly = cel('fly', ({ mode = 'ink', wing: ang = 0.55, flap = 0, legs 
   for (const s of [-1, 1]) out.push(stroke(poly([s * 6, -56, s * 12, -70, s * 20, -74], false), ln, { w: 1.4, wobble: 1, name: `ant${s}` }), stroke(circle(s * 20, -74, 2.2, 10), ln, { w: 1.4, wobble: 0, name: `knob${s}` }));
   if (!ink) return out;
   return [fx('scribble', { amp: 5, alpha: 0.5, only: ['thorax', 'abd'] }, out, { seed: 91 })];
-}, { box: [-132, -112, 264, 218], inputs: { wing: [0, 2, 0.01], flap: [0, 1, 1], legs: [0, 1, 0.5], walk: [0, 1, 0.05] }, desc: 'a fruit fly; mode ink | blueprint' });
+}, { box: [-132, -112, 264, 224], inputs: { wing: [0, 2, 0.01], flap: [0, 1, 1], legs: [0, 1, 0.5], walk: [0, 1, 0.05] }, desc: 'a fruit fly; mode ink | blueprint' });
 
 // ---------- peach (A + B) ----------
 const twitch = (k) => (k % 9 === 0 ? 0.18 : 0);

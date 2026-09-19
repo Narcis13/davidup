@@ -13,7 +13,7 @@ import { frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
 import { imagesOf } from './load.mjs';
 
-const SCALES = [0.6, 1, 1.8], CELL = 200;
+const SCALES = [0.6, 1, 1.8];
 
 async function findCel(path, film, name) {
   const mod = await import(pathToFileURL(resolve(path)).href);
@@ -50,7 +50,16 @@ export async function run([path, name], flags, { loadFilm }) {
   if (!name) throw new Error('sheet: say which cel, e.g. hdf sheet films/mini.js ball');
   const film = await loadFilm(path);
   const { make, meta } = await findCel(path, film, name);
-  const images = imagesOf(film);
+  const file = join(outDir(flags), `${film.name}-sheet-${name}.jpg`);
+  const { looks, variants: nv } = await celSheet(make, meta, { look: film.look, format: film.format, images: imagesOf(film), file });
+  process.stdout.write(`${file}  ${looks} looks x ${nv} variant${nv > 1 ? 's' : ''} x ${SCALES.length} scales\n`);
+  return 0;
+}
+
+// The sheet of one cel (make: the cel function, meta: make.cel) written to `file` as a JPEG. look and
+// format are the film's (the silhouette and the 240 px cell use them); cell is the tile size in pixels.
+export async function celSheet(make, meta, { look: filmLook, format: fmt, images = new Map(), file, cell: CELL = 200, quality = 0.9 }) {
+  const { name } = meta;
   const base = make({});
   const box = meta.box ?? base.box;
   if (!box) throw new Error(`sheet: cel '${name}' has no box`);
@@ -67,11 +76,9 @@ export async function run([path, name], flags, { loadFilm }) {
     }
   }
   const cols = vs.length * SCALES.length;
-  tiles.push({ canvas: paint([paper(), place(C / 2 - bx - bw / 2, C / 2 - by - bh / 2, group('sil', silhouette(base)))], { look: film.look, W: C, H: C, width: CELL, seed, images }), label: 'silhouette' });
-  const fw = film.format.W, fh = film.format.H;
-  tiles.push({ canvas: paint([paper(), place(fw / 2 - bx - bw / 2, fh / 2 - by - bh / 2, base)], { look: film.look, W: fw, H: fh, width: 240, seed, images }), label: '240 px' });
-  const file = join(outDir(flags), `${film.name}-sheet-${name}.jpg`);
-  await tileSheet(tiles, { cols, label: 18 }).toFile(file, { quality: 0.9 });
-  process.stdout.write(`${file}  ${Object.keys(LOOKS).length} looks x ${vs.length} variant${vs.length > 1 ? 's' : ''} x ${SCALES.length} scales\n`);
-  return 0;
+  tiles.push({ canvas: paint([paper(), place(C / 2 - bx - bw / 2, C / 2 - by - bh / 2, group('sil', silhouette(base)))], { look: filmLook, W: C, H: C, width: CELL, seed, images }), label: 'silhouette' });
+  const fw = fmt.W, fh = fmt.H;
+  tiles.push({ canvas: paint([paper(), place(fw / 2 - bx - bw / 2, fh / 2 - by - bh / 2, base)], { look: filmLook, W: fw, H: fh, width: 240, seed, images }), label: '240 px' });
+  await tileSheet(tiles, { cols, label: 18 }).toFile(file, { quality });
+  return { looks: Object.keys(LOOKS).length, variants: vs.length };
 }

@@ -1,0 +1,269 @@
+{
+ "cels": [
+  {
+   "name": "fly",
+   "pack": "creatures",
+   "export": "fly",
+   "box": [
+    -132,
+    -112,
+    264,
+    224
+   ],
+   "inputs": {
+    "wing": [
+     0,
+     2,
+     0.01
+    ],
+    "flap": [
+     0,
+     1,
+     1
+    ],
+    "legs": [
+     0,
+     1,
+     0.5
+    ],
+    "walk": [
+     0,
+     1,
+     0.05
+    ]
+   },
+   "desc": "a fruit fly; mode ink | blueprint",
+   "sheet": "sheets/fly.jpg"
+  },
+  {
+   "name": "hedgehog",
+   "pack": "creatures",
+   "export": "hedgehog",
+   "box": [
+    -110,
+    -100,
+    220,
+    156
+   ],
+   "inputs": {
+    "dir": [
+     -1,
+     1,
+     2
+    ],
+    "fright": [
+     0,
+     1,
+     0.25
+    ]
+   },
+   "desc": "the doodle hedgehog with a scarf; eye dot | happy | sleep | wide",
+   "sheet": "sheets/hedgehog.jpg"
+  },
+  {
+   "name": "horse",
+   "pack": "creatures",
+   "export": "horse",
+   "box": [
+    -240,
+    -310,
+    480,
+    320
+   ],
+   "inputs": {
+    "pose": [
+     0,
+     11,
+     1
+    ],
+    "flip": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a galloping horse: one of 12 Muybridge poses traced from film (found motion); feet at the origin",
+   "sheet": "sheets/horse.jpg"
+  },
+  {
+   "name": "boat",
+   "pack": "objects",
+   "export": "boat",
+   "box": [
+    -82,
+    -90,
+    164,
+    138
+   ],
+   "inputs": {
+    "note": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a paper boat; mode ink | blueprint",
+   "sheet": "sheets/boat.jpg"
+  },
+  {
+   "name": "book",
+   "pack": "objects",
+   "export": "book",
+   "box": [
+    -166,
+    -126,
+    332,
+    252
+   ],
+   "inputs": {
+    "open": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a hardback book lying flat: shut, or open to a spread of scribbled text",
+   "sheet": "sheets/book.jpg"
+  },
+  {
+   "name": "lamp",
+   "pack": "objects",
+   "export": "lamp",
+   "box": [
+    -80,
+    -224,
+    336,
+    290
+   ],
+   "inputs": {
+    "on": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a desk lamp standing on y = 0, shade opening down and right; on lights a pool",
+   "sheet": "sheets/lamp.jpg"
+  },
+  {
+   "name": "teapot",
+   "pack": "objects",
+   "export": "teapot",
+   "box": [
+    -128,
+    -214,
+    244,
+    218
+   ],
+   "inputs": {
+    "lid": [
+     0,
+     1,
+     0.25
+    ],
+    "steam": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a round teapot on y = 0, spout left; lid lifts, steam on",
+   "sheet": "sheets/teapot.jpg"
+  },
+  {
+   "name": "chip",
+   "pack": "tech",
+   "export": "chip",
+   "box": [
+    -92,
+    -92,
+    184,
+    184
+   ],
+   "inputs": {
+    "pulse": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a chip from above: package, pins on four sides, die; pulse lights its traces",
+   "sheet": "sheets/chip.jpg"
+  },
+  {
+   "name": "gpu",
+   "pack": "tech",
+   "export": "gpu",
+   "box": [
+    -176,
+    -140,
+    352,
+    220
+   ],
+   "inputs": {
+    "spin": [
+     0,
+     1,
+     0.125
+    ],
+    "hot": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a graphics card: board, two fans, gold edge pins; spin turns the fans, hot adds heat lines",
+   "sheet": "sheets/gpu.jpg"
+  },
+  {
+   "name": "server",
+   "pack": "tech",
+   "export": "server",
+   "box": [
+    -134,
+    -282,
+    268,
+    286
+   ],
+   "inputs": {
+    "units": [
+     1,
+     6,
+     1
+    ],
+    "load": [
+     0,
+     6,
+     1
+    ]
+   },
+   "desc": "a rack server of 1 to 6 units on y = 0, each with drive bays and a status light; load lights them",
+   "sheet": "sheets/server.jpg"
+  },
+  {
+   "name": "token",
+   "pack": "tech",
+   "export": "token",
+   "box": [
+    -66,
+    -50,
+    132,
+    100
+   ],
+   "inputs": {
+    "hue": [
+     0,
+     3,
+     1
+    ],
+    "glow": [
+     0,
+     1,
+     1
+    ]
+   },
+   "desc": "a token tile with a scribbled glyph; hue picks accents.0-3, glow marks it",
+   "sheet": "sheets/token.jpg"
+  }
+ ]
+}
