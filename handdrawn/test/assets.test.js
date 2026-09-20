@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { KINDS, LICENCES, readCatalogue, recordOf, sha, validate, validatePayload } from '../core/assets.js';
+import { KINDS, LICENCES, fromStore, readCatalogue, recordOf, sha, validate, validatePayload } from '../core/assets.js';
+import { record, stored } from '../core/store.js';
 
 // The CLI in a child process, as test/cli.test.js runs it.
 const hdf = (...argv) => { const r = spawnSync(process.execPath, ['cli/hdf.mjs', ...argv], { encoding: 'utf8' }); return { code: r.status, out: r.stdout + r.stderr }; };
@@ -115,6 +116,41 @@ test('import refuses an unknown kind, an unknown licence and a payload that fail
     assert.match(hdf('import', png, '--kind', 'puppet', '--name', 'fox', '--root', root).out, /is not JSON/);
     assert.match(hdf('import', bad, '--kind', 'cutout', '--name', 'x', '--root', root).out, /must be a webp, png or jpeg/);
     assert.equal(existsSync(join(root, 'blobs')), false, 'nothing is written when validation fails');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('import --v2: a 2.0 data module becomes entries, and the records come back unchanged', async () => {
+  const dir = tmp();
+  try {
+    const root = join(dir, 'store'), mod = join(dir, 'photos.js');
+    const rec = { name: 'dot', credit: 'a test', source: 'https://example.org', src: `data:image/png;base64,${PNG.toString('base64')}`, w: 2, h: 2, sil: SIL, colours: [{ hex: '#c8473f', area: 0.6 }] };
+    const clip = { n: 2, fps: 12, h: 100, credit: 'Muybridge', source: '', frames: CLIP.frames };
+    writeFileSync(mod, `export default ${JSON.stringify({ dot: rec, trot: clip })};\n`);
+
+    const r = hdf('import', '--v2', mod, '--root', root, '--licence', 'CC0', '--tags', 'test');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^dot +cutout +[0-9a-f]{40}\.png +CC0 +\d+ KB +\(new\)$/m);
+    assert.match(r.out, /^ {2}assets: \['dot', 'trot'\],$/m);
+
+    const st = readCatalogue(root);
+    assert.deepEqual(readFileSync(st.payloadPath(st.entry('dot'))), PNG, 'the cutout keeps the bytes the module carried');
+    assert.deepEqual(validate('dot', st.entry('dot')), []);
+    // What a film sees is what the module gave it: the silhouette, the colours and the provenance, plus the licence.
+    const got = recordOf(st, 'dot');
+    assert.deepEqual([got.w, got.h, got.credit, got.source, got.licence], [2, 2, 'a test', 'https://example.org', 'CC0']);
+    assert.deepEqual(got.colours, rec.colours);
+    assert.deepEqual(got.sil.sub, SIL.sub);
+    // A clip's payload is its poses; its credit moved to the entry, where `hdf find` can read it.
+    assert.deepEqual(st.json('trot'), { n: 2, fps: 12, h: 100, frames: CLIP.frames });
+    assert.deepEqual([st.entry('trot').credit, st.entry('trot').n, st.entry('trot').ext], ['Muybridge', 2, 'json']);
+
+    // fromStore reads them by id and leaves them in the registry, which is what clipFromStore reads.
+    const all = fromStore(['dot', 'trot'], { from: root });
+    assert.deepEqual(Object.keys(all), ['dot', 'trot']);
+    assert.equal(record('trot').frames.length, 2);
+    assert.ok(stored().includes('dot'));
+
+    assert.match(hdf('import', '--v2', mod, '--root', root).out, /unchanged/, 'the same module twice writes one blob');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

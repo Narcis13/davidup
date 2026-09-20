@@ -1,7 +1,8 @@
 // ALL FOUR HOOVES. Found motion: the horse, the elephant, the kangaroo and the pigeons move the way real
 // animals moved in front of Eadweard Muybridge's cameras. The poses come from the drawings he had made for his
 // zoopraxiscope discs (Descriptive Zoopraxography, 1893, public domain); cli/roto.py traced every pen stroke
-// into vectors (films/gallop-clips.js) and engines/traced.js redraws them with the brush, one pose per frame.
+// into vectors (now clips in the asset store, `hdf find muybridge`) and engines/traced.js redraws them with
+// the brush, one pose per frame.
 // Port of v1 examples/gallop.html; v1's author card is left out, every colour is a role of the film's look.
 // Beat sheet
 // t      dur  shot      what happens
@@ -15,11 +16,14 @@
 import {
   film, seq, shot, cel, fill, stroke, group, meta, circle, rect, poly, line, arc, cubic, rng, ramp, ease, boil,
   withLook, mix, pen, backdrop, speedLines, cam, glow, signOff, translate, rotate, scale, mmul,
-  registerClips, traced, gap, airborne, clipOf, note, burst, pentHz,
+  clipFromStore, traced, gap, airborne, clipOf, note, burst, pentHz,
 } from '../core/index.js';
-import CLIPS from './gallop-clips.js';
+import { fromStore } from '../core/assets.js';
 
-registerClips(CLIPS);
+// The four traced clips, by id, out of the store next to the package; each one handed to the engine.
+const IDS = ['horse', 'kangaroo', 'elephant', 'pigeons'];
+fromStore(IDS);
+IDS.forEach((id) => clipFromStore(id));
 
 // One traced pose as a cel, ground point at the origin, 300 units tall (for sheets and packs).
 export const horse = cel('horse', ({ pose = 0, flip = 0 }) => [
@@ -283,5 +287,5 @@ const score = () => {
 export default film({
   name: 'gallop', look: BASE, score,
   timeline: seq(question, guess, cameras, answer, disc, parade, end),
-  assets: CLIPS,
+  assets: IDS,
 });

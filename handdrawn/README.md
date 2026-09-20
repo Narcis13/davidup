@@ -195,7 +195,7 @@ export default film({
   format: '1:1',              // '16:9' | '9:16'; any film can be re-fitted with --ar
   timeline: seq(roll, sign),
   score: ({ shots, end }) => [...plucks(shots[0].t0, 2), ...dyad(end - 2.5, 2.5)],
-  assets: PHOTOS,             // cutouts and images, if any
+  assets: IDS,                // ids in the asset store, if any (or a 2.0 { id: record } object)
 });
 ```
 
@@ -348,8 +348,12 @@ python3 cli/roto.py work/cat --name cat --kind dark --js work/clips.js --credit 
 hdf clip work/clips.js --js work/<film>/clips.js
 ```
 
+Then `hdf import work/<film>/clips.js --v2 --licence PD` puts every clip in the
+asset store, and the film names the ids:
+
 ```js
-registerClips(CLIPS);
+fromStore(['cat']);                                                               // core/assets.js
+clipFromStore('cat');                                                             // hand it to the engine
 traced('cat', i, { x: CX, y: 900, h: 470, wash: 'fills.0', p: ramp(0, 1, t) })   // pose i, feet at (x, y), drawn on by p
 gap('cat', k); airborne('cat');                                                   // height off the ground; the highest pose
 ```
@@ -424,16 +428,34 @@ same file are one blob. `hdf import` validates the payload against its kind's
 schema (`core/assets.js`) before anything is written, and `--licence` is
 closed: `CC0 | CC-BY | CC-BY-SA | PD | own | unknown`.
 
-A film names store assets instead of inlining them:
+A film names store assets instead of inlining them. `fromStore` reads the
+records at the top of the module, `assets` declares the ids for the loader:
 
 ```js
-export default film({ name, look, timeline, score, assets: ['teapot', 'watch'] });
+import { fromStore } from '../core/assets.js';       // the one import a film takes from outside core/index.js
+
+const IDS = ['teapot', 'watch'];
+const PHOTOS = fromStore(IDS);                       // { teapot: record, watch: record }, also in the registry
+...
+export default film({ name, look, timeline, score, assets: IDS });
 ```
 
 `cli/load.mjs` resolves those ids through the store next to the package (or
 `{ id, from: '../other-store' }`), rebuilds the record `pin()` and
 `derive({ from })` expect, and decodes each blob once per process. The 2.0
-shape -- `assets` as an object of records -- still loads unchanged.
+shape -- `assets` as an object of records -- still loads unchanged, and
+`hdf lint` warns about any of them carried as a data URL.
+
+`hdf import --v2 <photos.js|clips.js>` migrates a 2.0 data module: one entry
+per record, the pixels (or the poses) as the blob, the silhouette, the colours
+table and the provenance in the entry. The bytes are kept exactly as they came,
+so nothing on screen moves.
+
+The store is read with `node:fs`, which the browser has not got:
+`hdf dev` and `hdf bundle` serve `core/assets.web.js` in place of
+`core/assets.js` (`cli/modules.mjs` TWINS), and hand the page the records it
+needs as `window.HDF.catalogue` and `window.HDF.assets`. A plain static server
+(`player.html?film=...`) can only play a film that carries its assets inline.
 
 ---
 
@@ -488,6 +510,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf photo --refresh <photos.js>` | add the colours table to a module written before it existed |
 | `hdf clip <roto.py output> [--js clips.js]` | a traced clip in the v2 format |
 | `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
+| `hdf import --v2 <photos.js\|clips.js> [--licence] [--tags]` | a 2.0 data module into the store: one entry per record |
 | `hdf find <words...> [--kind]` | search the store: id, kind, licence, what it takes, its check sheet and credit |
 | `hdf donate <module> <cel...> [--pack name]`, `hdf donate --manifest` | move cels into packs; rebuild the manifest and sheets |
 
@@ -559,9 +582,10 @@ before the first full render.
 `hdf dev <film>` serves it on `:4321`. On every edit, to the film or to the
 package, it re-imports the module graph without reloading the page and jumps
 to the first frame whose list hash moved. `hdf bundle` inlines the player,
-every module the film imports (through a data-URL import map) and its image
-assets into one HTML file that plays from disk. For a static server, use
-`player.html?film=../films/mini.js&look=risoPop&ar=16:9`.
+every module the film imports (through a data-URL import map) and the records
+of every asset it named into one HTML file that plays from disk. For a static
+server, use `player.html?film=../films/mini.js&look=risoPop&ar=16:9` (a film
+that reads the asset store needs `hdf dev` or `hdf bundle`).
 
 ---
 
@@ -583,6 +607,10 @@ assets into one HTML file that plays from disk. For a static server, use
 - no sign-off, or one still writing 1.5 s before the end;
 - cues off the 1/12 s grid;
 - `Math.random`, `Date`, `filter`, `shadowBlur` or gradients in the source.
+
+It warns, without failing, on an asset the film carries as a data URL instead
+of naming in the store (`hdf import --v2`). A film built in memory -- a test, a
+sketch -- is welcome to keep its pixels.
 
 Each finding names the shot, frame, rule and fix. Taste (one idea per shot,
 composition, timing, cuts, riso density) is the review list in `SKILL.md`.
@@ -650,7 +678,9 @@ handdrawn/
     photo.js       pin, on, rim, shadow, mask, photoFront, nightfall, glow
     doodle.js      the self-drawing doodle builder
     sources.js     procedural image sources (the sand bed)
-    assets.js      the asset store: kind schemas, validators, the catalogue (Node only)
+    assets.js      the asset store: kind schemas, validators, the catalogue, fromStore (Node only)
+    assets.web.js  its browser twin: the records hdf dev / hdf bundle put on the page
+    store.js       the registry fromStore fills, read back by id (browser-safe)
     index.js       the author-facing surface
   assets/        catalogue.json, blobs/<sha>.{webp,json}, sheets/ (gitignored) -- `hdf import`, `hdf find`
   engines/       traced.js  sim.js  stage3d.js

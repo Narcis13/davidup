@@ -2,7 +2,8 @@
 // Every sheet is an ordinary display list (brush, wash, gouache, museum cutouts), projected into a room: the
 // cover opens, leaves turn about the spine, pieces fold flat and rise, the camera travels, a lamp shades the
 // sheets and drops their shadows on the pages. Port of v1 examples/moon-book.html; v1's author card is a
-// sign-off card here. Photos: The Metropolitan Museum of Art, Open Access (CC0), credits in moon-book-photos.js.
+// sign-off card here. Photos: The Metropolitan Museum of Art, Open Access (CC0), credits in the asset store
+// (`hdf find met --kind cutout`).
 // t      what happens
 // 0.0    the shut book on the table, the camera pushes in on the cover
 // 2.2    the cover opens, spread 1 rises: night sky, the moon on its stick, pines, the hedgehog looking up
@@ -15,7 +16,11 @@ import {
   book3, note, burst, pentHz,
 } from '../core/index.js';
 import { hog } from '../recipes/doodle.js';
-import PHOTOS from './moon-book-photos.js';
+import { fromStore } from '../core/assets.js';
+
+// The five cutouts, by id, out of the store next to the package (assets/catalogue.json).
+const IDS = ['lantern', 'violin', 'watch', 'helmet', 'hourglass'];
+const PHOTOS = fromStore(IDS);
 
 const W = 1080, H = 1080, CX = 540, CY = 540, PW = 460, PD = 620;
 const lerp = (a, b, u) => a + (b - a) * u;
@@ -213,4 +218,4 @@ const score = () => {
   return { master: 0.5, events: ev };
 };
 
-export default film({ name: 'moon-book', look: LOOK, timeline: [main], score, assets: PHOTOS });
+export default film({ name: 'moon-book', look: LOOK, timeline: [main], score, assets: IDS });

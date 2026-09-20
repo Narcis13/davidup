@@ -25,6 +25,11 @@ export const RULES = Object.freeze({
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
 });
 
+// Warnings: worth saying, not worth failing a film for. `hdf lint` prints them and still exits 0.
+export const WARNINGS = Object.freeze({
+  'inline-asset': 'an asset carried in the film as a data URL instead of named in the store',
+});
+
 // Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins.
 export const WORDS = Object.freeze({ doodlePastel: 3 });
 export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
@@ -270,13 +275,25 @@ export function lintSource(src) {
   return out;
 }
 
+// Warnings about the film's assets: every one it carries inline as a data URL. The store holds a payload
+// once, addressed by content (`hdf import --v2 <module>` moves a 2.0 photos.js or clips.js into it), and the
+// film names ids instead -- which is also what lets `hdf find` and a shared licence reach them. A film built
+// in memory (a test, a sketch) is welcome to carry its pixels, so this warns and never fails.
+export function warnAssets(film) {
+  const all = film?.assets;
+  if (!all || Array.isArray(all)) return [];
+  return Object.entries(all)
+    .filter(([, a]) => typeof a?.src === 'string' && a.src.startsWith('data:'))
+    .map(([id, a]) => ({ rule: 'inline-asset', warn: true, shot: null, frame: null, detail: `'${id}': ${Math.round(a.src.length / 1024)} KB of data URL; hdf import --v2 it and name the id in assets` }));
+}
+
 // lint(film, { source }) => findings [{ rule, shot, frame, line?, detail }], source rules first.
 export function lint(film, { source } = {}) {
   return [...(source ? lintSource(source) : []), ...inspect(film).findings];
 }
 
-// `file:shot:frame  rule  detail` (source findings put the line in the frame slot as L<n>).
+// `file:shot:frame  rule  detail` (source findings put the line in the frame slot as L<n>; a warning says so).
 export function formatFinding(f, file = '') {
   const where = `${file}:${f.shot ?? '-'}:${f.line ? `L${f.line}` : f.frame ?? '-'}`;
-  return `${where}  ${f.rule}  ${f.detail}`;
+  return `${where}  ${f.warn ? 'warn ' : ''}${f.rule}  ${f.detail}`;
 }

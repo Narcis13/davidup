@@ -5,7 +5,7 @@ import { cel, place, shot, seq, par, hold, cut, lookOn, film } from '../core/tre
 import { paper, night, fill, stroke, text, fx, lookNode, meta, circle, rect } from '../core/list.js';
 import { ramp } from '../core/curves.js';
 import { signOff } from '../core/text.js';
-import { lint, lintSource, inspect, formatFinding, RULES } from '../core/lint.js';
+import { lint, lintSource, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
 import mini from '../films/mini.js';
 
 // A clean scratch film: every shot has paper, an anchor cel in frame, one finish; it ends on a sign-off
@@ -118,6 +118,19 @@ test('source: banned calls outside comments, with line numbers', () => {
   const src = "// Math.random is fine in a comment\nconst r = Math.random();\n/* new Date() */\nctx.filter = 'blur(2px)';\nconst x = a.filter((v) => v);\nctx.shadowBlur = 4;\nctx.createLinearGradient(0, 0, 1, 1);\nDate.now();\n";
   assert.deepEqual(lintSource(src).map((f) => f.line), [2, 4, 6, 7, 8]);
   assert.equal(formatFinding(lintSource(src)[0], 'x.js'), 'x.js:-:L2  source  Math.random: use rng(seed) so frames are pure');
+});
+
+test('inline-asset: a data URL in the film warns, and never fails it', () => {
+  const inline = { src: 'data:image/png;base64,' + 'A'.repeat(2048), w: 8, h: 8 };
+  const f = film({ name: 'scratch', look: 'paperInk', timeline: seq(scene('a'), end()), assets: { thing: inline, path: { src: 'thing.png' } } });
+  assert.deepEqual(lint(f), [], 'a warning is not a finding: hdf lint still exits 0');
+  const w = warnAssets(f);
+  assert.deepEqual(w.map((x) => x.rule), ['inline-asset'], 'only the data URL, not the asset named by path');
+  assert.match(w[0].detail, /^'thing': 2 KB of data URL/);
+  assert.equal(formatFinding(w[0], 'x.js').split('  ')[1], 'warn inline-asset');
+  assert.deepEqual(warnAssets(film({ name: 'ids', look: 'paperInk', timeline: seq(scene('a'), end()), assets: ['teapot'] })), [],
+    'a film that names store ids has nothing to warn about');
+  assert.ok(Object.keys(WARNINGS).includes('inline-asset'));
 });
 
 test('inspect summarises shots for the board; hold and par plays are covered', () => {

@@ -198,6 +198,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `registerClip(name, data)` Registers (and returns) a clip. Lines are kept longest first, the order `p` draws them on in.
 - `registerClips(all)` Registers every clip of a clips module ({ name: data }); returns the registered clips by name.
+- `clipFromStore(id)` Registers the clip an id names in the asset store: `fromStore(['horse'])` put the record in the registry (core/store.js), this hands it to the engine.
 - `clipOf(name)` The registered clip, or an error naming the ones there are.
 - `pose(name, k)` Pose k of the clip, looping both ways.
 - `traced(name, k, o = {})` Pose k as a group whose origin is the ground point (x, y). h: the height of the tallest pose in frame units.

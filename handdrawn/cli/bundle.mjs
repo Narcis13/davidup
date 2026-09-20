@@ -5,7 +5,7 @@
 // inlined as data URLs through window.HDF.assets. No bundler.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
-import { UsageError } from './load.mjs';
+import { assetsOf, UsageError } from './load.mjs';
 import { outDir } from './sheets.mjs';
 import { ROOT, commonDir, graph, posix, resolveSpec, rewrite } from './modules.mjs';
 
@@ -23,15 +23,20 @@ export async function bundle(path, { loadFilm, out, look }) {
   const imports = {};
   for (const [f, src] of mods) imports[key(f)] = dataUrl('text/javascript', rewrite(src, (s) => key(resolveSpec(s, f))));
 
-  const assets = {};
-  for (const [id, a] of Object.entries(film.assets ?? {})) {
-    if (typeof a?.src !== 'string' || a.src.startsWith('data:')) continue;
-    const type = MIME[extname(a.src).toLowerCase()];
-    if (type) assets[id] = dataUrl(type, readFileSync(resolve(dirname(file), a.src)));
+  // Only the ids the film named: a record each, with the pixels of the rasters lifted out as data URLs.
+  const assets = {}, catalogue = {};
+  for (const [id, a] of Object.entries(assetsOf(film))) {
+    const { src, ...rest } = a ?? {};
+    catalogue[id] = rest;
+    if (typeof src !== 'string') continue;
+    const type = MIME[extname(src).toLowerCase()];
+    if (src.startsWith('data:')) assets[id] = src;
+    else if (type) assets[id] = dataUrl(type, readFileSync(resolve(dirname(file), src)));
+    else catalogue[id] = a;
   }
 
   const pkg = posix(relative(base, ROOT));
-  const config = { film: key(file), hdf: `hdf/${pkg ? pkg + '/' : ''}`, assets, ...(look ? { look } : {}) };
+  const config = { film: key(file), hdf: `hdf/${pkg ? pkg + '/' : ''}`, assets, catalogue, ...(look ? { look } : {}) };
   const html = readFileSync(join(ROOT, 'player/player.html'), 'utf8')
     .replace('<link rel="stylesheet" href="shell.css">', () => `<style>\n${readFileSync(join(ROOT, 'player/shell.css'), 'utf8')}</style>`)
     .replace('<script type="module" src="./player.js"></script>', () => [

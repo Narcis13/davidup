@@ -13,13 +13,17 @@
 //   st.entry('teapot');                         // the catalogue entry, or an error naming the ones there are
 //   st.payloadPath(st.entry('teapot'));         // assets/blobs/<sha>.webp
 //   st.put({ kind: 'cutout', name: 'teapot', ... }, bytes);   // hash, write the blob, replace the entry
+//   fromStore(['teapot', 'cup'])              // { id: record }, as a film reads its assets at the top
 //
-// Node only (fs, crypto): films never import this module, `cli/load.mjs` resolves their ids for them.
+// Node only (fs, crypto). A film that names its assets by id imports `fromStore` from here and nothing else
+// out of this module; `hdf bundle` and `hdf dev` serve core/assets.web.js in its place, so the same film
+// plays in the browser. `cli/load.mjs` resolves the film's `assets` list the same way, for the renderer.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkPath } from './list.js';
+import { register } from './store.js';
 
 // The store next to the package (handdrawn/assets) unless a command names another root.
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
@@ -221,4 +225,12 @@ export function recordOf(st, id) {
   }
   if (s.payload === 'audio') return { ...prov, src: st.payloadPath(e), ...(e.sec ? { sec: e.sec } : {}) };
   return { ...prov, ...st.json(e) };
+}
+
+// The records for the ids a film names, read from the store next to the package (or `from`, a directory
+// relative to the working directory). They go into the registry too (core/store.js), so an engine can read
+// one back by id -- `clipFromStore('horse')` is how films/gallop.js hands a traced clip to the engine.
+export function fromStore(ids, { from } = {}) {
+  const st = readCatalogue(from ? resolve(from) : ASSET_ROOT);
+  return register(Object.fromEntries((Array.isArray(ids) ? ids : [ids]).map((id) => [id, recordOf(st, id)])));
 }

@@ -4,7 +4,9 @@
 //   `hdf dev <film>`      window.HDF = { dev, film, hdf }: module URLs under /v<gen>/, a change event
 //                          re-imports the film and core at a new generation and jumps to the first frame
 //                          whose list hash moved
-//   `hdf bundle <film>`   window.HDF = { film, hdf, assets }: bare specifiers resolved by the import map
+//   `hdf bundle <film>`   window.HDF = { film, hdf, assets, catalogue }: bare specifiers resolved by the
+//                          import map; a film that names its assets by id reads them off the catalogue
+//                          (core/assets.web.js stands in for core/assets.js in both dev and bundle)
 // Transport: space play/pause, left/right frame step (shift: shot), home/end, L loop, O onion skin; the
 // strip scrubs. Sound is the samples synth.js renders for the Node driver, through Web Audio, started at
 // the scrub position. window.__frame(i) and window.__NDRAW stay for drivers.
@@ -40,8 +42,12 @@ async function load(gen) {
   if (!film || typeof film !== 'object' || !film.timeline || !Number.isInteger(film.n)) throw new Error(`${src.film}: default export must be film({...})`);
   const look = q.get('look') || cfg.look;   // ?look=<preset>, or --look from hdf dev / hdf bundle
   if (look) film = D.withRootLook(film, look);
+  // film.assets is either the 2.0 object ({ id: record }) or the list of store ids the page's catalogue holds.
+  const named = Array.isArray(film.assets)
+    ? film.assets.map((r) => { const id = typeof r === 'string' ? r : r?.id; return [id, cfg.catalogue?.[id]]; })
+    : Object.entries(film.assets ?? {});
   const images = new Map();
-  for (const [id, a] of Object.entries(film.assets ?? {})) {
+  for (const [id, a] of named) {
     const s = cfg.assets?.[id] ?? a?.src;
     if (typeof s !== 'string' || !/^data:image\/|\.(png|jpe?g|webp|gif)$/i.test(s)) continue;
     images.set(id, await decode(s.startsWith('data:') ? s : new URL(s, src.film).href));

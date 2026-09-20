@@ -6,12 +6,14 @@
 //   hdf import work/fox.puppet.json --kind puppet --name fox --licence own --tags fox,cast
 //   hdf import work/horse.json --kind clip --name horse --licence PD
 //   hdf import ... --root ../other-store          import into a store that is not handdrawn/assets
+//   hdf import --v2 films/held-once-photos.js --licence CC0   a 2.0 data module: every record into the store
 //
 // A cutout is expected to be cut out already (alpha, as `hdf photo` writes it): its silhouette and colours
 // table are traced here so `pin()` and `derive({ from })` see the shape they see today. The entry is validated
 // before anything is written; `--licence` defaults to `unknown`, which `hdf lint` refuses to render.
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, KINDS, LICENCES, SCHEMAS, imageType, readCatalogue, validatePayload } from '../core/assets.js';
 import { bounds, parse } from '../core/list.js';
@@ -20,6 +22,7 @@ import { colours, silhouette } from './photo.mjs';
 import { skiaCanvas } from './skia.mjs';
 
 export async function run(args, flags) {
+  if (flags.v2) return importV2(String(flags.v2 === true ? args[0] : flags.v2), flags);
   const file = args[0], kind = str(flags.kind), name = str(flags.name);
   if (!file) throw usage('import: need <file>');
   if (!KINDS.includes(kind)) throw usage(`import: --kind ${kind || '<kind>'} (expected ${KINDS.join(' | ')})`);
@@ -119,4 +122,64 @@ function boxOfSubs(outer) {
     if (pts[i + 1] < y0) y0 = pts[i + 1]; if (pts[i + 1] > y1) y1 = pts[i + 1];
   }
   return Number.isFinite(x0) ? [x0, y0, x1 - x0, y1 - y0] : null;
+}
+
+// ---------- --v2: a 2.0 data module into the store ----------
+
+// The kind a 2.0 record is: a clip carries its poses, a cutout its pixels.
+const kindOfRecord = (r) => (Array.isArray(r?.frames) ? 'clip' : typeof r?.src === 'string' ? 'cutout' : null);
+
+// The bytes of a data URL, and the image type they are. The bytes are kept exactly as the module carried
+// them, so a migrated cutout decodes to the pixels it decoded to inline and no golden moves.
+function dataBytes(src, id) {
+  const m = /^data:([^;,]+);base64,(.*)$/s.exec(src ?? '');
+  if (!m) throw usage(`import --v2: '${id}' has no inline data URL (src: ${String(src).slice(0, 40)}...)`);
+  const bytes = Buffer.from(m[2], 'base64'), ext = imageType(bytes);
+  if (!ext) throw usage(`import --v2: '${id}' is ${m[1]}, which is not a webp, png or jpeg image`);
+  return { bytes, ext };
+}
+
+// Reads a 2.0 photos.js or clips.js ({ id: record }) and puts every record in the store: the cutout's pixels
+// or the clip's poses as the blob, everything else (its silhouette, its colours, its provenance) as the
+// entry. Prints the `assets:` line the film is rewritten to.
+async function importV2(file, flags) {
+  const abs = resolve(file);
+  if (!existsSync(abs)) throw usage(`import --v2: no such file '${file}'`);
+  const licence = str(flags.licence) || 'unknown';
+  if (!LICENCES.includes(licence)) throw usage(`import --v2: --licence ${licence} (expected ${LICENCES.join(' | ')})`);
+  const mod = await import(pathToFileURL(abs).href);
+  const all = Object.entries(mod.default ?? {});
+  if (!all.length) throw usage(`import --v2: ${basename(abs)} has no records in its default export`);
+
+  const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
+  const tags = str(flags.tags).split(',').map((t) => t.trim()).filter(Boolean);
+  const ids = [];
+  for (const [id, rec] of all) {
+    const kind = kindOfRecord(rec);
+    if (!kind) throw usage(`import --v2: '${id}' is neither a cutout (src) nor a clip (frames)`);
+    const meta = {
+      kind, name: id, file: basename(abs), licence: rec.licence ?? licence,
+      credit: rec.credit ?? '', source: rec.source ?? '', tags,
+      ...(rec.desc ? { desc: rec.desc } : {}),
+    };
+    let entry, bytes;
+    if (kind === 'cutout') {
+      const { bytes: b, ext } = dataBytes(rec.src, id);
+      bytes = b;
+      entry = { ...meta, ext, w: rec.w, h: rec.h, sil: rec.sil, box: [0, 0, rec.w, rec.h], ...(rec.colours ? { colours: rec.colours } : {}) };
+    } else {
+      const data = { n: rec.n ?? rec.frames.length, fps: rec.fps ?? 12, h: rec.h, frames: rec.frames };
+      const bad = validatePayload('clip', data);
+      if (bad.length) throw usage(`import --v2: '${id}' is not a valid clip:\n  ${bad.join('\n  ')}`);
+      bytes = Buffer.from(JSON.stringify(data), 'utf8');
+      entry = { ...meta, ext: 'json', n: data.n, fps: data.fps, h: data.h, box: clipBox(data) };
+    }
+    const had = st.has(id) ? st.entry(id) : null;
+    const put = st.put(entry, bytes);
+    ids.push(id);
+    process.stdout.write(`${id.padEnd(12)} ${kind.padEnd(7)} ${put.sha}.${put.ext}  ${put.licence.padEnd(7)} `
+      + `${(bytes.length / 1024).toFixed(0)} KB  (${had && had.sha === put.sha ? 'unchanged' : had ? `replaces ${had.sha.slice(0, 8)}` : 'new'})\n`);
+  }
+  process.stdout.write(`${ids.length} records -> ${st.file}\n  assets: [${ids.map((i) => `'${i}'`).join(', ')}],\n`);
+  return 0;
 }

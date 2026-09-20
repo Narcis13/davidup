@@ -4,11 +4,15 @@
 // every change, so the browser's module map gives it a new graph (film, its own modules and core alike)
 // with no page reload. Reads are limited to the package, the film's directory and the working directory.
 // GET /__hdf/events is an SSE stream with one `change` event per burst of edits.
+// The page also carries the asset store: window.HDF.catalogue is a record per id (a data payload inline, a
+// raster's pixels left out) and window.HDF.assets points every raster at its blob under /v0/, which is what
+// core/assets.web.js reads in place of the file system. The store is read fresh on every page load.
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { ASSET_ROOT, SCHEMAS, readCatalogue, recordOf } from '../core/assets.js';
 import { UsageError } from './load.mjs';
-import { ROOT, commonDir, posix, resolveSpec, rewrite, within } from './modules.mjs';
+import { ROOT, commonDir, posix, resolveSpec, rewrite, webSource, within } from './modules.mjs';
 
 const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.html': 'text/html', '.css': 'text/css',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.wav': 'audio/wav' };
@@ -21,6 +25,18 @@ export function playerPage(config, { hdfUrl }) {
     .replace('href="shell.css"', `href="${hdfUrl}player/shell.css"`)
     .replace('<script type="module" src="./player.js"></script>',
       `<script>window.HDF = ${JSON.stringify(config)};</script>\n<script type="module" src="${hdfUrl}player/player.js"></script>`);
+}
+
+// The whole store as the page reads it: { catalogue, assets }. A film names a handful of ids and the server
+// cannot know which before the film is imported, so every entry goes; `hdf bundle` keeps only what was used.
+export function storeState(rel) {
+  const st = readCatalogue(ASSET_ROOT), catalogue = {}, assets = {};
+  for (const id of st.ids) {
+    const { src, ...rest } = recordOf(st, id);
+    catalogue[id] = rest;
+    if (SCHEMAS[st.entry(id).kind].payload === 'raster' && src) assets[id] = `/v0/${rel(src)}`;
+  }
+  return { catalogue, assets };
 }
 
 export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, log = () => {} } = {}) {
@@ -39,7 +55,7 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, log
       res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
       res.end(body);
     };
-    if (url.pathname === '/') return send(200, playerPage(config, { hdfUrl: `/v0/${hdf}` }), 'text/html; charset=utf-8');
+    if (url.pathname === '/') return send(200, playerPage({ ...config, ...storeState(rel) }, { hdfUrl: `/v0/${hdf}` }), 'text/html; charset=utf-8');
     if (url.pathname === '/__hdf/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(': hdf dev\n\n');
@@ -57,7 +73,7 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, log
     if (ext !== '.js' && ext !== '.mjs') return send(200, readFileSync(file), TYPES[ext] ?? 'application/octet-stream');
     // Modules: the package's own name becomes a path under the same generation, so a film outside the
     // package that imports 'handdrawn' reloads with the rest.
-    let src = readFileSync(file, 'utf8');
+    let src = webSource(file);
     try {
       src = rewrite(src, (s) => (s === 'handdrawn' || s.startsWith('handdrawn/') ? `/v${m[1]}/${rel(resolveSpec(s, file))}` : undefined));
     } catch (e) { return send(500, e.message); }

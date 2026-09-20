@@ -3,14 +3,15 @@
 // with their box, inputs and description; packs/sheets/<cel>.jpg shows each in every look.
 
 import {
-  cel, stroke, poly, cubic, fill, ellipse, clip, hexCells, hex, circle, fx, traced, registerClips, pen,
+  cel, stroke, poly, cubic, fill, ellipse, clip, hexCells, hex, circle, fx, traced, clipFromStore, pen,
 } from '../core/index.js';
 import { ellipseRot } from '../recipes/shots.js';
-import CLIPS from '../films/gallop-clips.js';
+import { fromStore } from '../core/assets.js';
 import { hog } from '../recipes/doodle.js';
 
 // ---- donated: horse from films/gallop.js ----
-registerClips(CLIPS);
+fromStore(['horse']);
+clipFromStore('horse');
 // One traced pose as a cel, ground point at the origin, 300 units tall (for sheets and packs).
 export const horse = cel('horse', ({ pose = 0, flip = 0 }) => [
   traced('horse', pose, { x: 0, y: 0, h: 300, flip: !!flip, wash: 'fills.0', seed: 5 }),

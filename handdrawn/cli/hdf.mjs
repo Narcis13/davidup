@@ -29,6 +29,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   clip    <clips.js|clip.json> [--name id] [--js clips.js]   roto.py output -> a v2 clips module
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
+                                    --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg

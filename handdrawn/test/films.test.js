@@ -8,6 +8,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadFilm } from '../cli/load.mjs';
+import { readCatalogue, recordOf } from '../core/assets.js';
 import { frame } from '../core/tree.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,7 +50,7 @@ test("--look 'doodlePastel~from:teapot' repaints held-once in the teapot's colou
   const path = join(FILMS, 'held-once.js');
   const plain = await loadFilm(path);
   const from = await loadFilm(path, { look: 'doodlePastel~from:teapot' });
-  const teapot = (await import(pathToFileURL(join(FILMS, 'held-once-photos.js')).href)).default.teapot;
+  const teapot = recordOf(readCatalogue(), 'teapot');
 
   assert.equal(from.look.name, 'doodlePastel~from:teapot');
   assert.deepEqual(from.look.palette.fills, teapot.colours.map((c) => c.hex));

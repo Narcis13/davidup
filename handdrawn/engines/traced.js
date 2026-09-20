@@ -1,7 +1,8 @@
 // Found motion (v1 roto.js): real movement, traced into vector strokes by cli/roto.py and redrawn with the
 // brush, one pose per drawn frame. The motion is real; every line on screen is still drawn by code.
 //
-//   registerClips(CLIPS);        // CLIPS: the default export of a clips module written by `hdf clip`
+//   clipFromStore('horse');      // the clip fromStore() read out of assets/catalogue.json
+//   registerClips(CLIPS);        // or a clips module written by `hdf clip`, carried inline
 //   registerClip('horse', CLIPS.horse)                  // or one at a time
 //   traced('horse', i, { x: 540, y: 800, h: 470, wash: 'fills.0' })   // pose i, feet at (x, y)
 //   gap('horse', k)      how far pose k's lowest point is above the ground, in clip units
@@ -13,6 +14,7 @@
 // by import. Clips live in a module-level registry: the film module registers them at import, which
 // happens in every render worker and in the player alike.
 import { group, fill, mkPath, stroke, translate, isPath } from '../core/list.js';
+import { record } from '../core/store.js';
 import { wash as washOp } from '../core/finish.js';
 
 const CLIPS = new Map();
@@ -51,6 +53,10 @@ export function registerClip(name, data) {
 
 // Registers every clip of a clips module ({ name: data }); returns the registered clips by name.
 export const registerClips = (all) => Object.fromEntries(Object.entries(all).map(([k, v]) => [k, registerClip(k, v)]));
+
+// Registers the clip an id names in the asset store: `fromStore(['horse'])` put the record in the registry
+// (core/store.js), this hands it to the engine. Films that carry their clips inline still use registerClips.
+export const clipFromStore = (id) => registerClip(id, record(id));
 
 // The registered clip, or an error naming the ones there are.
 export function clipOf(name) {

@@ -435,7 +435,7 @@ doodle recipe in the user's hand without reading the source.
 |---|---|---|---|---|
 | S1 | Palette from an asset | — | palette from an asset | [x] |
 | S2 | Store part 1 | — | (prereq) | [x] |
-| S3 | Store part 2, migration | S2 | (prereq) | [ ] |
+| S3 | Store part 2, migration | S2 | (prereq) | [x] |
 | S4 | Puppets | S2 | (prereq) | [ ] |
 | S5 | Actor contract | S4 | (prereq) | [ ] |
 | S6 | SVG import | S4 | (prereq) | [ ] |

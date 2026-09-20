@@ -7,6 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');   // the handdrawn package
 
+// Modules with a browser twin: the key is served (and walked) as the value's source, under the key's own
+// path, so its relative imports still resolve. core/assets.js reads the file system; its twin reads the
+// records the page was handed, which is what lets a store-backed film play in `hdf dev` and `hdf bundle`.
+export const TWINS = new Map([[resolve(ROOT, 'core/assets.js'), resolve(ROOT, 'core/assets.web.js')]]);
+
+// The source `file` is served to the browser as: its twin's, if it has one.
+export const webSource = (file) => readFileSync(TWINS.get(file) ?? file, 'utf8');
+
 const SPEC = /(\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?|\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\s*|\bimport\s*\(\s*)(['"])([^'"\n]+)\2/g;
 
 // Calls f(spec) for every specifier and puts back what it returns (undefined keeps the original).
@@ -35,7 +43,7 @@ export function graph(entries) {
     const file = todo.shift();
     if (out.has(file)) continue;
     let src;
-    try { src = readFileSync(file, 'utf8'); } catch (e) { throw new Error(`cannot read module ${file} (${e.code ?? e.message})`); }
+    try { src = webSource(file); } catch (e) { throw new Error(`cannot read module ${file} (${e.code ?? e.message})`); }
     out.set(file, src);
     for (const s of specifiers(src)) todo.push(resolveSpec(s, file));
   }
