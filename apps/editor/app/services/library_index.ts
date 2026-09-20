@@ -17,6 +17,12 @@
 // the *winning* definition for each id — i.e. project beats global, and a
 // `detachProject()` re-registers the global definition that was previously
 // shadowed.
+//
+// This service only ever *reads*: it never seeds, diffs or rewrites a root,
+// so a library keeps whatever the seed script last wrote until the user runs
+// `bun run seed:library` again (see scripts/seed-global-library.ts). A
+// definition's authored `version` is carried through to `LibraryItem.version`
+// so the panel can tell which pack a template came from.
 
 import { promises as fs } from 'node:fs'
 import { watch, type FSWatcher } from 'node:fs'
@@ -56,6 +62,12 @@ export interface LibraryItem {
    * today, since project wins). The winning copy omits this flag.
    */
   overridden?: boolean
+  /**
+   * Definition version as authored (`template`/`behavior`/`scene` files).
+   * The seed pack bumps it when a template's output moves, so the panel can
+   * tell a library seeded before a change from one re-seeded after it.
+   */
+  version?: string
   /** Summary fields used by the Library panel; kind-specific. */
   params?: unknown[]
   emits?: string[]
@@ -154,6 +166,8 @@ function readDefinitionItem(
   if (name) item.name = name
   const description = asString(obj.description)
   if (description) item.description = description
+  const version = asString(obj.version)
+  if (version) item.version = version
   const params = asArray(obj.params)
   if (params.length > 0) item.params = params
   const emits = emitsOf(obj)

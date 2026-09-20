@@ -679,9 +679,11 @@ fadeIn("pitch", 26.95, 0.35);
 
 // Follow button: the global library's `ctaButton` template, named straight
 // from the library by id (L-1), plus the 𝕏 mark drawn as two polygons.
-// The library copy still positions its label in text point mode, so the word
-// sits a little above the pill's centre and the 𝕏 mark is placed to clear
-// it; that goes away when the library is re-seeded in box mode (B-8).
+// Since B-8 the library's label is centred on its measured box, so the word
+// sits on the pill's centre line and the mark only needs its own room to the
+// left of it (before G4 the showcase patched the template's label to the
+// right, which this can't do from a `params` block). Needs a library seeded
+// at pack v2 — `bun run seed:library`.
 const BTN_Y = 1450;
 items.follow = {
   $template: "global:ctaButton", start: 27.2,
@@ -690,7 +692,7 @@ items.follow = {
     fillColor: "#ffffff", textColor: "#0a0a0a", font: BOLD, fontSize: 56,
   },
 };
-items.xMark = group(["xThick", "xThin"], C(CX - 145, BTN_Y - 18, { o: 0 }), { enter: 27.2 });
+items.xMark = group(["xThick", "xThin"], C(CX - 137, BTN_Y + 2, { o: 0 }), { enter: 27.2 });
 // the 𝕏 glyph, drawn in a 60×60 box centred on the origin
 items.xThick = poly([[-27, -28], [-9, -28], [27, 28], [9, 28]], "#0a0a0a", T(0, 0));
 items.xThin = poly([[20, -28], [27, -28], [-20, 28], [-27, 28]], "#0a0a0a", T(0, 0));

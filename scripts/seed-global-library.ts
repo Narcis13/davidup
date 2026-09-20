@@ -10,6 +10,12 @@
 // files under the library root are left alone unless they collide with an
 // id this script ships (templates/behaviors are keyed by file basename).
 //
+// Re-running is also the *upgrade* path: an already-seeded library is never
+// rewritten behind the user's back, so a pack change only reaches disk when
+// this script runs again. `<root>/.davidup-seed.json` records the pack
+// version that wrote the files, and a run against an older library prints
+// what the upgrade brings.
+//
 // USAGE
 //   bun run scripts/seed-global-library.ts
 //   bun run seed:library
@@ -35,6 +41,45 @@ const SKIP_EXISTING = argv.has("--skip-existing");
 const DRY_RUN = argv.has("--dry-run");
 const QUIET = argv.has("--quiet");
 
+// ──────────────── Paths ────────────────
+
+const LIBRARY_ROOT =
+  process.env.DAVIDUP_LIBRARY && process.env.DAVIDUP_LIBRARY.length > 0
+    ? process.env.DAVIDUP_LIBRARY
+    : join(homedir(), ".davidup", "library");
+
+const SUBDIRS = ["templates", "behaviors", "scenes", "assets", "fonts"] as const;
+
+// ──────────────── Seed version ────────────────
+//
+// A library on disk is just files: nothing re-seeds it, and neither the CLI
+// nor the editor rewrites a template a user already has (the editor's
+// `library_index` only reads and watches). So an existing `~/.davidup/library`
+// keeps whatever pack version it was seeded with until the user re-runs this
+// script — which is the upgrade path.
+//
+// `<root>/.davidup-seed.json` records which pack version wrote the files, so
+// a later run can say what a re-seed would bring and `--skip-existing` can
+// warn that it left stale copies behind. Nothing reads it at runtime; the
+// dot prefix and the name keep it out of the library watcher's file kinds.
+
+const SEED_VERSION = 2;
+const SEED_MARKER = ".davidup-seed.json";
+
+/** What each bump changed, newest last. Printed when upgrading a library. */
+const SEED_CHANGELOG: Array<{ version: number; note: string }> = [
+  {
+    version: 2,
+    note:
+      "B-8: every centred label in the pack moved to text box mode " +
+      "(anchorX/Y 0.5), so a label is centred on its measured block instead " +
+      "of sitting with its baseline on the centre line. Nine templates moved; " +
+      "`ctaButton` and `tagPill` labels now sit in the middle of their pill.",
+  },
+];
+
+// Help is printed here rather than in the CLI section above so it can name
+// the pack version and the marker file.
 if (argv.has("--help") || argv.has("-h")) {
   process.stdout.write(`\
 Seed the global davidup library at $DAVIDUP_LIBRARY (default ~/.davidup/library).
@@ -52,18 +97,14 @@ FLAGS
 The library root location can be overridden via the DAVIDUP_LIBRARY env var,
 which matches the editor's resolution rules (apps/editor/app/services/
 global_library_root.ts).
+
+An existing library is only upgraded by re-running this script — nothing
+rewrites it automatically. ${SEED_MARKER} at the library root records the
+pack version on disk (currently v${SEED_VERSION}); a run against an older one
+lists what changed.
 `);
   process.exit(0);
 }
-
-// ──────────────── Paths ────────────────
-
-const LIBRARY_ROOT =
-  process.env.DAVIDUP_LIBRARY && process.env.DAVIDUP_LIBRARY.length > 0
-    ? process.env.DAVIDUP_LIBRARY
-    : join(homedir(), ".davidup", "library");
-
-const SUBDIRS = ["templates", "behaviors", "scenes", "assets", "fonts"] as const;
 
 // ──────────────── Templates ────────────────
 //
@@ -72,9 +113,33 @@ const SUBDIRS = ["templates", "behaviors", "scenes", "assets", "fonts"] as const
 // not collide with the engine built-ins (titleCard, lowerThird, captionBurst,
 // bulletList, kenburnsImage) — the project library wins on collision today
 // but shadowing built-ins from the global pool would surprise users.
+//
+// TEXT PLACEMENT (B-8). Every centred label here is authored in text **box**
+// mode — `anchorX/Y: 0.5` with the item's `x`/`y` naming the centre of the
+// measured block. The original pack predates text v2 (v1.1 S13), when anchors
+// did nothing to text: it used `anchorX/Y: 0` with centre coordinates, which
+// put the *baseline* on the centre line, so every label floated high inside
+// its card (`ctaButton`'s most visibly). Point mode is still the right choice
+// for text that should sit on a baseline you computed — none of these do.
+//
+// The block is (widest line) x (lineCount x lineHeight x fontSize), so its
+// centre is a *typographic* centre: the glyphs of a line with no descenders
+// land a few pixels above it (~0.1 x fontSize). That is the engine's box
+// model, not something to correct per template with a magic offset.
+//
+// VERSIONS. Each doc carries a `version` string, bumped whenever a change
+// moves the pixels a template already on disk produces. The re-anchoring
+// above took the nine templates that carry text from "1" to "2"; the two
+// without text (`progressBar`, `logoBadge`) are unchanged and stay at "1".
+// `SEED_VERSION` above is the pack-wide counter written to the marker file.
 
 interface TemplateDoc {
   id: string;
+  /**
+   * Bumped when this template's output moves. Passed through to the written
+   * file and surfaced by the editor's library catalog.
+   */
+  version: string;
   description: string;
   params: Array<{
     name: string;
@@ -91,18 +156,19 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── endCard ─────
   {
     id: "endCard",
+    version: "2",
     description:
       "Outro card with title and subtitle that fade in, hold, then fade out. Pair with an audio bed for a tidy clip ending.",
     params: [
       { name: "title", type: "string", required: true, description: "Outro headline." },
       { name: "subtitle", type: "string", default: "", description: "Tagline under the title." },
       { name: "x", type: "number", default: 640, description: "Center x." },
-      { name: "y", type: "number", default: 340, description: "Title baseline y." },
+      { name: "y", type: "number", default: 340, description: "Title center y." },
       {
         name: "subtitleY",
         type: "number",
         default: 420,
-        description: "Subtitle baseline y. Compute manually (no arithmetic in placeholders).",
+        description: "Subtitle center y. Compute manually (no arithmetic in placeholders).",
       },
       { name: "fontDisplay", type: "string", required: true, description: "Title font asset id." },
       { name: "fontMono", type: "string", required: true, description: "Subtitle font asset id." },
@@ -131,8 +197,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -149,8 +215,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -184,18 +250,19 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── quoteCard ─────
   {
     id: "quoteCard",
+    version: "2",
     description:
       "Large pull-quote with attribution line. Quote pops in; attribution fades in shortly after.",
     params: [
       { name: "quote", type: "string", required: true, description: "Quote text (single line)." },
       { name: "attribution", type: "string", required: true, description: "Person + role." },
       { name: "x", type: "number", default: 640 },
-      { name: "y", type: "number", default: 340, description: "Quote baseline y." },
+      { name: "y", type: "number", default: 340, description: "Quote center y." },
       {
         name: "attributionY",
         type: "number",
         default: 460,
-        description: "Attribution baseline y.",
+        description: "Attribution center y.",
       },
       { name: "fontSerif", type: "string", required: true, description: "Display/serif font id." },
       { name: "fontSans", type: "string", required: true, description: "Attribution font id." },
@@ -218,8 +285,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -236,8 +303,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -264,18 +331,19 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── statBig ─────
   {
     id: "statBig",
+    version: "2",
     description:
       "Hero stat: oversized number / metric on top, a small label underneath. Number pops in with scale-up, label fades in.",
     params: [
       { name: "value", type: "string", required: true, description: 'The number — pass a string like "99%" or "12K".' },
       { name: "label", type: "string", required: true, description: "Caption under the stat." },
       { name: "x", type: "number", default: 640 },
-      { name: "y", type: "number", default: 360, description: "Number baseline y." },
+      { name: "y", type: "number", default: 360, description: "Number center y." },
       {
         name: "labelY",
         type: "number",
         default: 470,
-        description: "Label baseline y.",
+        description: "Label center y.",
       },
       { name: "fontNumber", type: "string", required: true, description: "Display font id for the number." },
       { name: "fontLabel", type: "string", required: true, description: "Label font id." },
@@ -298,8 +366,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -316,8 +384,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -344,6 +412,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── ctaButton ─────
   {
     id: "ctaButton",
+    version: "2",
     description:
       "Animated call-to-action: rounded pill rectangle with centered text inside, both pop in together.",
     params: [
@@ -390,8 +459,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -426,18 +495,19 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── sectionDivider ─────
   {
     id: "sectionDivider",
+    version: "2",
     description:
       "Horizontal accent line that sweeps in from the left with an optional centered label that fades in above.",
     params: [
       { name: "label", type: "string", default: "", description: 'Centered text above the rule. Pass "" to hide.' },
       { name: "x", type: "number", default: 200, description: "Left edge x of the rule." },
       { name: "y", type: "number", default: 540, description: "Rule y position." },
-      { name: "labelY", type: "number", default: 490, description: "Label baseline y." },
+      { name: "labelY", type: "number", default: 490, description: "Label center y." },
       { name: "width", type: "number", default: 880, description: "Final width of the rule." },
       { name: "height", type: "number", default: 4 },
       { name: "color", type: "color", default: "#ffd166" },
       { name: "labelColor", type: "color", default: "#ffffff" },
-      { name: "labelX", type: "number", default: 640, description: "Label anchor x (center recommended)." },
+      { name: "labelX", type: "number", default: 640, description: "Label center x." },
       { name: "font", type: "string", required: true, description: "Font asset id for the label." },
       { name: "fontSize", type: "number", default: 28 },
     ],
@@ -472,8 +542,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -501,6 +571,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── progressBar ─────
   {
     id: "progressBar",
+    version: "1",
     description:
       "Track + fill horizontal bar. The fill animates from 0 to `fillWidth`. Drop in below a label or stat.",
     params: [
@@ -573,6 +644,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── tagPill ─────
   {
     id: "tagPill",
+    version: "2",
     description:
       "Small rounded label — a colored pill with text. Useful for category badges or status chips.",
     params: [
@@ -619,8 +691,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -647,6 +719,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── countdown321 ─────
   {
     id: "countdown321",
+    version: "2",
     description:
       'Sequenced "3", "2", "1" burst captions — each pops in then out 0.4s later. Drop at clip start as an opener.',
     params: [
@@ -688,8 +761,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -706,8 +779,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -724,8 +797,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -782,6 +855,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── logoBadge ─────
   {
     id: "logoBadge",
+    version: "1",
     description:
       "Image sprite framed by a rounded square that pops in. Use for logo stings or speaker headshots.",
     params: [
@@ -857,6 +931,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── subtitleBar ─────
   {
     id: "subtitleBar",
+    version: "2",
     description:
       "Letterbox-style subtitle bar across the bottom: dark backing rectangle slides in from below, caption text fades in over it.",
     params: [
@@ -872,7 +947,12 @@ const TEMPLATES: TemplateDoc[] = [
         description: "Off-screen start y for the slide. Should be > barY.",
       },
       { name: "textX", type: "number", default: 640 },
-      { name: "textY", type: "number", default: 700, description: "Caption baseline y." },
+      {
+        name: "textY",
+        type: "number",
+        default: 688,
+        description: "Caption center y. Defaults to the bar's centre (barY + barHeight / 2).",
+      },
       { name: "textColor", type: "color", default: "#ffffff" },
       { name: "font", type: "string", required: true },
       { name: "fontSize", type: "number", default: 36 },
@@ -908,8 +988,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -936,6 +1016,7 @@ const TEMPLATES: TemplateDoc[] = [
   // ───── compareSplit ─────
   {
     id: "compareSplit",
+    version: "2",
     description:
       'Two-column "vs" cards. Left card slides in from the left, right card from the right. Drop two short labels on top.',
     params: [
@@ -1015,8 +1096,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -1033,8 +1114,8 @@ const TEMPLATES: TemplateDoc[] = [
           scaleX: 1,
           scaleY: 1,
           rotation: 0,
-          anchorX: 0,
-          anchorY: 0,
+          anchorX: 0.5,
+          anchorY: 0.5,
           opacity: 0,
         },
       },
@@ -1373,6 +1454,42 @@ async function writeJson(absPath: string, value: unknown): Promise<WriteResult> 
   return { kind: "wrote" };
 }
 
+// The pack version that wrote the files currently on disk, plus the per-id
+// versions, so a re-run can report exactly what it is about to change.
+interface SeedMarker {
+  seedVersion: number;
+  templates: Record<string, string>;
+}
+
+async function readMarker(): Promise<SeedMarker | null> {
+  try {
+    const raw = await fs.readFile(join(LIBRARY_ROOT, SEED_MARKER), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const obj = parsed as Partial<SeedMarker>;
+    if (typeof obj.seedVersion !== "number") return null;
+    return { seedVersion: obj.seedVersion, templates: obj.templates ?? {} };
+  } catch {
+    // Missing, unreadable or not JSON — treat as "seeded before markers", which
+    // is what a library from an earlier pack actually is.
+    return null;
+  }
+}
+
+async function writeMarker(): Promise<WriteResult> {
+  const value = {
+    $generatedBy: "scripts/seed-global-library.ts",
+    $note:
+      "Records which seed pack wrote this library. Re-run `bun run seed:library` to upgrade; nothing reads this file at runtime.",
+    seedVersion: SEED_VERSION,
+    templates: Object.fromEntries(TEMPLATES.map((t) => [t.id, t.version])),
+  };
+  const path = join(LIBRARY_ROOT, SEED_MARKER);
+  if (DRY_RUN) return { kind: "would-write" };
+  await fs.writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  return { kind: "wrote" };
+}
+
 async function downloadFont(spec: FontSpec): Promise<WriteResult> {
   const dest = join(LIBRARY_ROOT, "fonts", spec.file);
   if (SKIP_EXISTING && existsSync(dest)) {
@@ -1398,8 +1515,16 @@ async function downloadFont(spec: FontSpec): Promise<WriteResult> {
 // ──────────────── Main ────────────────
 
 async function main(): Promise<void> {
-  log(`davidup library seed → ${LIBRARY_ROOT}`);
+  log(`davidup library seed → ${LIBRARY_ROOT} (pack v${SEED_VERSION})`);
   if (DRY_RUN) log("(dry-run: no files will change)");
+
+  const previous = await readMarker();
+  if (previous !== null && previous.seedVersion < SEED_VERSION) {
+    log(`  upgrading a library seeded at pack v${previous.seedVersion}:`);
+    for (const entry of SEED_CHANGELOG) {
+      if (entry.version > previous.seedVersion) log(`    v${entry.version}  ${entry.note}`);
+    }
+  }
 
   await ensureDirs();
 
@@ -1460,6 +1585,27 @@ async function main(): Promise<void> {
     log(`  index     ${"index.json".padEnd(20)}  ${describe(res)}`);
   } else {
     log("  index     index.json            skipped (no fonts to register)");
+  }
+
+  // Seed marker ────────
+  //
+  // Only claim the new pack version when this run actually owned every file.
+  // `--skip-existing` deliberately leaves earlier copies in place, so the
+  // marker keeps naming the version that wrote them and the user is told how
+  // to pick the new ones up.
+  const keptStale =
+    SKIP_EXISTING &&
+    summary.templates.skipped + summary.behaviors.skipped > 0 &&
+    (previous === null || previous.seedVersion < SEED_VERSION);
+  if (keptStale) {
+    warn(
+      `--skip-existing left ${summary.templates.skipped} template(s) and ` +
+        `${summary.behaviors.skipped} behavior(s) from an earlier pack in place. ` +
+        `Re-run without --skip-existing to upgrade them to pack v${SEED_VERSION}.`,
+    );
+  } else {
+    const res = await writeMarker();
+    log(`  marker    ${SEED_MARKER.padEnd(20)}  ${describe(res)}`);
   }
 
   // Summary ────────

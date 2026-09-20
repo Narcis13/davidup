@@ -697,7 +697,9 @@ Parameterised authoring patterns. Engine built-ins (auto-registered):
 
 Library extras (installed by `bun run seed:library`): `endCard`, `quoteCard`,
 `statBig`, `ctaButton`, `sectionDivider`, `progressBar`, `tagPill`,
-`countdown321`, `logoBadge`, `subtitleBar`, `compareSplit`.
+`countdown321`, `logoBadge`, `subtitleBar`, `compareSplit`. Every centred
+label in them is authored in text **box** mode, so a `y` param names the
+*centre* of the text block, not its baseline.
 
 Use via `apply_template` (MCP) / `expandTemplate` (JS) / drag-from-Library
 (editor), or name one from the global library by id:
@@ -1129,11 +1131,21 @@ bun run seed:library -- --skip-existing
 bun run seed:library -- --dry-run
 ```
 
-Idempotent. Provisions:
+Idempotent. Re-running is also the **upgrade** path: nothing rewrites an
+existing library behind your back (the editor's Library panel only reads and
+watches), so a pack change reaches disk when you run the script again.
+`.davidup-seed.json` at the library root records the pack version that wrote
+the files — currently **v2** — and a run against an older library prints what
+the upgrade brings. `--skip-existing` leaves your copies alone and says so
+instead of claiming the new version.
+
+Provisions:
 
 - **11 templates**: `endCard`, `quoteCard`, `statBig`, `ctaButton`,
   `sectionDivider`, `progressBar`, `tagPill`, `countdown321`, `logoBadge`,
-  `subtitleBar`, `compareSplit`.
+  `subtitleBar`, `compareSplit`. Each carries a `version`; pack v2 moved the
+  nine that carry text into box mode (a label is centred on its measured
+  block instead of sitting with its baseline on the centre line).
 - **11 behavior cards** — descriptor metadata for the engine built-ins so
   they appear as drag targets in the Library panel (they still resolve to
   the built-in expansion at compile time).
@@ -1284,6 +1296,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 | `skia-canvas` install fails | Native build prerequisites missing | macOS: `xcode-select --install`. Linux: install `build-essential` + `libcairo2-dev` |
 | `davidup` / `davidup-mcp` command not found or stale | `dist/` missing or out of date | `bun run build` (and `bun link --force` if bin paths moved) |
 | Editor's Library panel is empty | Global library not seeded | `bun run seed:library` |
+| Seed-library labels sit high inside their pill / card | Library seeded before pack v2 (check `seedVersion` in `~/.davidup/library/.davidup-seed.json`) | `bun run seed:library` — re-running upgrades the templates in place |
 | Agent gets `E_FEATURE_UNAVAILABLE` from `list_library` / `current_project` / `get_render` | Tool requires the editor host | Use the tool from inside `davidup edit`, or inject `LibraryControls` / `ProjectControls` / `RenderControls` when calling `createServer()` |
 | Agent's new composition already has items from a previous chat | Standalone server state persisted (R-29) | Call `reset` first, or start the server with `--session-ttl <s>` |
 | Tests time out on `registerAsset*` under full load | First ffprobe spawn on a saturated CPU exceeds the 5 s test timeout | Re-run; they pass in isolation in < 300 ms |

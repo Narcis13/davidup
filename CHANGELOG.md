@@ -9,6 +9,36 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Seed-library text is centred on its measured box (B-8) — **⚠ pixel-changing for library content**
+
+- Fix: the nine starter-pack templates that carry text (`endCard`,
+  `quoteCard`, `statBig`, `ctaButton`, `sectionDivider`, `tagPill`,
+  `countdown321`, `subtitleBar`, `compareSplit`) placed every centred label in
+  text **point** mode — `anchorX/Y: 0` with the intended centre as `x`/`y`,
+  which since text v2 (`TEXT_LAYOUT_VERSION` 2) puts the *baseline* on the
+  centre line. Labels floated high inside their card, `ctaButton`'s most
+  visibly. They now use `anchorX/Y: 0.5`, so the block is centred on
+  (`x`, `y`). A `y` param on these templates names the centre of the text,
+  not its baseline, and the param descriptions say so. `subtitleBar`'s
+  `textY` default moved 700 → 688, the bar's own centre.
+- No engine change: text v2 already did this for any item with a non-zero
+  anchor. Only the shipped library content moved, and only after it is
+  re-seeded.
+- Templates now carry a `version` (the nine above are `"2"`; the two without
+  text stay `"1"`), and the pack writes `.davidup-seed.json` at the library
+  root recording which seed version produced the files. Nothing reads it at
+  runtime.
+- **Upgrading:** an existing `~/.davidup/library` is never rewritten
+  automatically — the editor's library index only reads and watches. Run
+  `bun run seed:library` again to pick the new templates up; it prints what
+  the upgrade changes, and `--skip-existing` now warns that it left an older
+  pack in place instead of silently claiming the new version. Library
+  thumbnails regenerate from the new files on the next catalog reload.
+- `LibraryItem.version` carries a definition's authored `version` through the
+  editor's catalog.
+- `examples/showcase-vertical` drops the clearance offset it needed while the
+  `Follow` label sat high; the 𝕏 mark is back on the pill's centre line.
+
 ### Composition-scoped behaviors; `global:` templates and behaviors (L-1)
 
 - New top-level `behaviors: { name: descriptor }` block. Definitions in it are
