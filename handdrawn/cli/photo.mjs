@@ -171,7 +171,7 @@ function cutout(img, opt) {
 }
 
 // The cutout's alpha traced at alpha > 96 (v1 _profile's threshold), in the cutout's own pixels.
-function silhouette(canvas) {
+export function silhouette(canvas) {
   const { width: w, height: h } = canvas;
   return traceAlpha(canvas.getContext('2d').getImageData(0, 0, w, h).data, w, h, { threshold: 96, size: 256, eps: 0.6 });
 }
@@ -180,7 +180,7 @@ function silhouette(canvas) {
 // kept colour folded into it, the biggest 8 by area. `area` is the share of the cutout's opaque pixels, so a
 // few large flat colours come first -- which is the order derive({ from }) hands to `fills`.
 const MERGE = 40, KEEP = 8, MAX_BINS = 64;
-function colours(canvas, sil) {
+export function colours(canvas, sil) {
   const { width: w, height: h } = canvas, cv = skiaCanvas(w, h), g = cv.getContext('2d');
   if (sil?.sub?.length) {     // only what the traced silhouette encloses counts, holes included
     g.beginPath();

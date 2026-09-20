@@ -43,3 +43,19 @@ test('board, sheet and changed write their images', async () => {
     assert.ok(existsSync(join(dir, 'mini-changed.jpg')));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('import and find are commands: usage lists them, a bad kind is a usage error', async () => {
+  const usage = (await hdf('help')).out;
+  assert.match(usage, /^ {2}import {2}<file> --kind cutout\|clip/m);
+  assert.match(usage, /^ {2}find {4}<words\.\.\.> \[--kind\]/m);
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-store-'));
+  try {
+    // The store the film assets of a 2.0 film do not need: an unknown verb is still an unknown verb.
+    assert.equal((await hdf('improt', 'x')).code, 2);
+    const bad = await hdf('import', 'films/mini.js', '--kind', 'film', '--name', 'mini', '--root', dir);
+    assert.equal(bad.code, 2);
+    assert.match(bad.out, /--kind film \(expected cutout \| clip \| puppet \| hand \| stock \| motif \| sample\)/);
+    assert.equal((await hdf('find', '--root', dir)).code, 2);          // no words and no --kind
+    assert.equal((await hdf('find', 'teapot', '--root', dir)).code, 1); // nothing in an empty store
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

@@ -32,7 +32,7 @@ and `ffmpeg` on `PATH`. The design is explained in
 4. [Looks](#4-looks)
 5. [Recipes](#5-recipes)
 6. [Packs](#6-packs)
-7. [Engines: found motion, sand, paper in space, photos](#7-engines)
+7. [Engines: found motion, sand, paper in space, photos, the asset store](#7-engines)
 8. [Score](#8-score)
 9. [The CLI](#9-the-cli)
 10. [The working loop and the agent skill](#10-the-working-loop-and-the-agent-skill)
@@ -405,6 +405,36 @@ they move with the object, `rim` walks its real edge, `mask` draws on its
 surface, `photoFront` lays part of it back over a drawing, and
 `fx('nightShot')` turns the lights off.
 
+### The asset store
+
+Anything a film did not draw in code -- a cutout, a traced clip, a puppet, a
+hand, a paper stock, a motif, a sample -- lives in `assets/`, once, addressed
+by the sha of its own bytes:
+
+```bash
+hdf import work/teapot.png --kind cutout --name teapot --licence CC0 --credit "The Met" --source <url>
+hdf find teapot                     # id, kind, licence, what it takes, its check sheet and credit
+hdf find --kind puppet              # the whole kind
+```
+
+`assets/catalogue.json` holds one entry per id (`kind`, `sha`, `licence`,
+`box`, and for a cutout its `w`, `h`, `sil` and `colours`);
+`assets/blobs/<sha>.{webp,png,json}` holds the payload, so two imports of the
+same file are one blob. `hdf import` validates the payload against its kind's
+schema (`core/assets.js`) before anything is written, and `--licence` is
+closed: `CC0 | CC-BY | CC-BY-SA | PD | own | unknown`.
+
+A film names store assets instead of inlining them:
+
+```js
+export default film({ name, look, timeline, score, assets: ['teapot', 'watch'] });
+```
+
+`cli/load.mjs` resolves those ids through the store next to the package (or
+`{ id, from: '../other-store' }`), rebuilds the record `pin()` and
+`derive({ from })` expect, and decodes each blob once per process. The 2.0
+shape -- `assets` as an object of records -- still loads unchanged.
+
 ---
 
 ## 8. Score
@@ -457,6 +487,8 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf photo <img> --name <id> [--credit] [--source] [--js photos.js] [--flood\|--keep] [--punch u,v]` | a cutout with its silhouette, colours table and check sheet |
 | `hdf photo --refresh <photos.js>` | add the colours table to a module written before it existed |
 | `hdf clip <roto.py output> [--js clips.js]` | a traced clip in the v2 format |
+| `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
+| `hdf find <words...> [--kind]` | search the store: id, kind, licence, what it takes, its check sheet and credit |
 | `hdf donate <module> <cel...> [--pack name]`, `hdf donate --manifest` | move cels into packs; rebuild the manifest and sheets |
 
 ---
@@ -618,7 +650,9 @@ handdrawn/
     photo.js       pin, on, rim, shadow, mask, photoFront, nightfall, glow
     doodle.js      the self-drawing doodle builder
     sources.js     procedural image sources (the sand bed)
+    assets.js      the asset store: kind schemas, validators, the catalogue (Node only)
     index.js       the author-facing surface
+  assets/        catalogue.json, blobs/<sha>.{webp,json}, sheets/ (gitignored) -- `hdf import`, `hdf find`
   engines/       traced.js  sim.js  stage3d.js
   recipes/       shots.js (A–Z)  doodle.js (AA–AM)  score.js (motifs)  book.js (book3)
   packs/         creatures.js  objects.js  tech.js  manifest.json  sheets/

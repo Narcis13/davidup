@@ -27,13 +27,16 @@ const USAGE = `usage: hdf <command> [args] [flags]
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet
                                     --v1 <photos.js> converts a v1 module; --refresh <photos.js> adds a colours table to an existing one
   clip    <clips.js|clip.json> [--name id] [--js clips.js]   roto.py output -> a v2 clips module
+  import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
+                                    any payload into the asset store (assets/catalogue.json + assets/blobs)
+  find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg
   donate  --manifest [--all-sheets] regenerate the manifest and missing (or all) sheets from packs/*.js
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'import', 'find', 'donate'];
 
 export { loadFilm, UsageError };
 
