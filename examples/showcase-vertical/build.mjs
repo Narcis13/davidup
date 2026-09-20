@@ -783,9 +783,7 @@ const composition = {
   version: "0.1",
   composition: {
     width: W, height: H, fps: 30, duration: 30, background: BG,
-    // limiter only: `targetLufs` + a ranged render (the Droste passes) trips
-    // an ffmpeg layout-negotiation failure in the mux — v1.3 findings B-9
-    audioMaster: { limiter: true },
+    audioMaster: { targetLufs: -14, limiter: true },
   },
   assets: [
     { id: DISPLAY, type: "font", src: "global:fonts/anton-400.woff2", family: "Anton" },

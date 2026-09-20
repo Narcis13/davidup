@@ -208,6 +208,12 @@ export function buildAudioFilterComplex(
     bus.push(loudnormFilter(master.targetLufs, measurement));
     // loudnorm upsamples to 192kHz internally; bring the mix back to 48kHz.
     bus.push(`aresample=${MUX_SAMPLE_RATE}`);
+    // B-9: loudnorm's output carries no pinned channel layout. When ffmpeg
+    // re-initialises the graph mid-stream (a ranged render whose first track
+    // starts on the cut), the link into `apad` can't negotiate one and the
+    // mux dies with "Cannot select channel layout for the link between
+    // filters … apad". Pin the layout the per-track chains already use.
+    bus.push("aformat=channel_layouts=stereo");
   }
   if (master.limiter !== false) {
     // level=0 disables alimiter's auto make-up gain (it would otherwise push

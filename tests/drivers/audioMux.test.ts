@@ -302,13 +302,16 @@ describe("buildAudioFilterComplex — master bus (v1.1 S10)", () => {
       "amix=inputs=2:normalize=0," +
         "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-27.5:measured_TP=-9.1:" +
         "measured_LRA=3.2:measured_thresh=-37.9:offset=0.4:linear=true," +
-        "aresample=48000," + LIMITER + ",apad,atrim=0:2[aout]",
+        "aresample=48000,aformat=channel_layouts=stereo," + LIMITER + ",apad,atrim=0:2[aout]",
     );
   });
 
   it("with a target but no measurement: single-pass loudnorm", () => {
     const filter = buildAudioFilterComplex(tracks, 2, { targetLufs: -23, limiter: false });
-    expect(filter).toContain("normalize=0,loudnorm=I=-23:TP=-1.5:LRA=11,aresample=48000,apad");
+    expect(filter).toContain(
+      "normalize=0,loudnorm=I=-23:TP=-1.5:LRA=11," +
+        "aresample=48000,aformat=channel_layouts=stereo,apad",
+    );
     expect(filter).not.toContain("measured_I");
   });
 

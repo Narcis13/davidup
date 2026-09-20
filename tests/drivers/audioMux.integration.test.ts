@@ -472,3 +472,62 @@ describe("renderToFile — `loop` audio track and loudness target (v1.1 S10, int
     expect(Math.abs(integratedLufs(loudOut) - -16)).toBeLessThan(1.5);
   });
 });
+
+// ──────────────── B-9: loudness target on a ranged render ────────────────
+
+// A track that starts exactly at the range's first frame, with a loudness
+// target. The pass-2 bus is `loudnorm → aresample → [alimiter] → apad`; when
+// ffmpeg re-initialises the graph mid-stream (the mix goes from silence to the
+// track's first samples right at the cut), loudnorm's output carries no pinned
+// channel layout and the link into `apad` fails to negotiate one:
+// "Cannot select channel layout for the link between filters … apad".
+// `aformat=channel_layouts=stereo` after the resample pins it.
+describe("renderToFile — targetLufs on a ranged render (B-9, integration)", () => {
+  let workDir: string;
+  let outPath: string;
+  let haveBins = false;
+
+  beforeAll(async () => {
+    haveBins = ffmpegPath !== undefined && ffprobePath !== undefined;
+    if (!haveBins) return;
+    workDir = mkdtempSync(join(tmpdir(), "davidup-b9-range-lufs-"));
+    outPath = join(workDir, "out.mp4");
+    const tone = join(workDir, "tone.wav");
+    const gen = spawnSync(ffmpegPath!, [
+      "-v", "error", "-y", "-f", "lavfi",
+      "-i", "aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=1",
+      tone,
+    ]);
+    if (gen.status !== 0) throw new Error(`tone generation failed: ${gen.stderr}`);
+
+    await renderToFile(
+      audioOnlyComposition(
+        3,
+        [{ id: "boom", type: "audio", src: tone, duration: 1, sampleRate: 48000, channels: 1 }],
+        [{ id: "hit", asset: "boom", start: 2 }],
+        { targetLufs: -14, limiter: false },
+      ),
+      outPath,
+      { ffmpegPath, preset: "ultrafast", crf: 28, range: { from: 2, to: 3 } },
+    );
+  }, 60_000);
+
+  afterAll(() => {
+    if (workDir) rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("muxes an audio stream instead of failing to negotiate a layout", () => {
+    if (!haveBins) return;
+    const probe = ffprobe(outPath);
+    const audio = probe.streams.find((s) => s.codec_type === "audio");
+    expect(audio, "expected an audio stream in the ranged output").toBeDefined();
+    expect(audio!.codec_name).toBe("aac");
+    expect(audio!.channels).toBe(2);
+  });
+
+  it("the track is audible from the range's first frame", () => {
+    if (!haveBins) return;
+    // The track starts at composition t=2, which is t=0 of the rendered window.
+    expect(meanVolumeDb(outPath, 0.1, 0.5)).toBeGreaterThan(-50);
+  });
+});

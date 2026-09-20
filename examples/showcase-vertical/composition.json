@@ -8,6 +8,7 @@
   "duration": 30,
   "background": "#05060c",
   "audioMaster": {
+   "targetLufs": -14,
    "limiter": true
   }
  },
@@ -86,7 +87,7 @@
   {
    "id": "self",
    "type": "video",
-   "src": "output/droste/self-3.mp4"
+   "src": "../showcase-v1.1/assets/mandelbrot.mp4"
   }
  ],
  "templates": {
@@ -2895,7 +2896,7 @@
   },
   "rvC": {
    "type": "text",
-   "text": "108 KB authored → compiled to\n2,073 items · 1,349 tweens\n900 frames · deterministic · written by an AI agent",
+   "text": "__STATS__",
    "font": "f-mono",
    "fontSize": 30,
    "color": "#8a93b8",
