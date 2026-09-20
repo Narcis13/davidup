@@ -32,7 +32,7 @@ and `ffmpeg` on `PATH`. The design is explained in
 4. [Looks](#4-looks)
 5. [Recipes](#5-recipes)
 6. [Packs](#6-packs)
-7. [Engines: found motion, sand, paper in space, photos, the asset store](#7-engines)
+7. [Engines: found motion, sand, paper in space, photos, the asset store, puppets](#7-engines)
 8. [Score](#8-score)
 9. [The CLI](#9-the-cli)
 10. [The working loop and the agent skill](#10-the-working-loop-and-the-agent-skill)
@@ -136,6 +136,7 @@ and its `inputs` as `[min, max, step]`. It draws only **roles**, never hex
 colours. Inputs are quantised to their step, so frames that repeat a pose
 hash the same, dedup and hit the cache. `hdf sheet` draws a cel at three
 scales, at every input extreme, in every look, as a silhouette, and at 240 px.
+A cel can also arrive as data instead of code -- see [puppets](#puppets).
 
 ### Shot: a drawing over time
 
@@ -451,6 +452,35 @@ per record, the pixels (or the poses) as the blob, the silhouette, the colours
 table and the provenance in the entry. The bytes are kept exactly as they came,
 so nothing on screen moves.
 
+### Puppets
+
+A puppet is a cel whose drawing is data: a payload in the store, so a cast
+member can be imported rather than written. `puppet(id)` turns one into a cel
+-- frozen, boxed, memoised, quantised, hashable -- like any other:
+
+```js
+const FOX = puppet('fox');                  // after fromStore(['fox'])
+FOX({ eye: 'happy', 'arm-l': 112 })         // a group tagged `cel`, in the look of the shot
+FOX.pose('wave', k)                         // rest -> wave by k: joints lerp, variants switch at k >= 0.5
+FOX.cycle('walk', t)                        // the cycle's frame on the 1/12 s grid, wrapping
+```
+
+The payload (`assets/src/fox.puppet.json` is the worked example) is
+`{ units, box, ground, parts, inputs, poses, cycles }`. Parts are drawn in key
+order -- painter's -- each as a group whose `xf` turns it about its `pivot`; a
+part naming a `parent` nests inside it and keeps its place in that order, so a
+tail listed before the body is drawn behind it and still swings with it. A
+part's ops are ordinary role-drawn ops (`fill`, `stroke`, paths as `$p`) in its
+own coordinates with its pivot at the origin; a part with no pivot rides its
+parent's. Joints are degrees on a 2 degree step, so two frames of a cycle that
+land on the same angles are one group object, hash the same and dedup. A part
+with `variants` takes a key instead of an angle (`eye: 'sleep'`, `mouth: 2`).
+
+```bash
+hdf import assets/src/fox.puppet.json --kind puppet --name fox --licence own
+hdf sheet store fox --cycle walk    # every look x every pose and variant x 3 scales, the walk as a strip
+```
+
 The store is read with `node:fs`, which the browser has not got:
 `hdf dev` and `hdf bundle` serve `core/assets.web.js` in place of
 `core/assets.js` (`cli/modules.mjs` TWINS), and hand the page the records it
@@ -501,6 +531,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf only <film> 0,37,74` | single frames as full-size PNGs |
 | `hdf board <film> [--cols 4]` | the time tree as text plus one storyboard card per shot |
 | `hdf sheet <film> <cel>` | the cel at 3 scales × input extremes × every look, silhouette, 240 px |
+| `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip → `assets/sheets/<id>.jpg` |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
 | `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |
@@ -608,6 +639,12 @@ that reads the asset store needs `hdf dev` or `hdf bundle`).
 - cues off the 1/12 s grid;
 - `Math.random`, `Date`, `filter`, `shadowBlur` or gradients in the source.
 
+`hdf import --kind puppet` runs three of them over a payload before it reaches
+the store: `puppet-joint` (a pose or a cycle frame that names nothing, or sets
+a joint off the 2 degree grid or outside -180..180), `roles-raw` (a hex that
+came in from a drawing program where a role belongs) and `cel-box` over the
+rest pose, every named pose, every variant and every cycle frame.
+
 It warns, without failing, on an asset the film carries as a data URL instead
 of naming in the store (`hdf import --v2`). A film built in memory -- a test, a
 sketch -- is welcome to keep its pixels.
@@ -678,11 +715,12 @@ handdrawn/
     photo.js       pin, on, rim, shadow, mask, photoFront, nightfall, glow
     doodle.js      the self-drawing doodle builder
     sources.js     procedural image sources (the sand bed)
+    puppet.js      puppets: the data form of a cel (parts, pivots, variants, poses, cycles)
     assets.js      the asset store: kind schemas, validators, the catalogue, fromStore (Node only)
     assets.web.js  its browser twin: the records hdf dev / hdf bundle put on the page
     store.js       the registry fromStore fills, read back by id (browser-safe)
     index.js       the author-facing surface
-  assets/        catalogue.json, blobs/<sha>.{webp,json}, sheets/ (gitignored) -- `hdf import`, `hdf find`
+  assets/        catalogue.json, blobs/<sha>.{webp,json}, src/ (authored payloads), sheets/ (gitignored)
   engines/       traced.js  sim.js  stage3d.js
   recipes/       shots.js (A–Z)  doodle.js (AA–AM)  score.js (motifs)  book.js (book3)
   packs/         creatures.js  objects.js  tech.js  manifest.json  sheets/

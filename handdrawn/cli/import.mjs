@@ -17,6 +17,7 @@ import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, KINDS, LICENCES, SCHEMAS, imageType, readCatalogue, validatePayload } from '../core/assets.js';
 import { bounds, parse } from '../core/list.js';
+import { lintPuppet } from '../core/lint.js';
 import { UsageError } from './load.mjs';
 import { colours, silhouette } from './photo.mjs';
 import { skiaCanvas } from './skia.mjs';
@@ -39,7 +40,7 @@ export async function run(args, flags) {
     tags: str(flags.tags).split(',').map((t) => t.trim()).filter(Boolean),
     ...(str(flags.desc) ? { desc: str(flags.desc) } : {}),
   };
-  const entry = { ...meta, ...await fields(kind, bytes, abs) };
+  const entry = { ...meta, ...await fields(kind, bytes, abs, name) };
 
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   const had = st.has(name) ? st.entry(name) : null;
@@ -55,7 +56,7 @@ const str = (v) => (v === undefined || v === true ? '' : String(v));
 const usage = (msg) => new UsageError(msg);
 
 // The entry fields a kind adds, read off the payload itself (never off flags: the payload is the truth).
-async function fields(kind, bytes, abs) {
+async function fields(kind, bytes, abs, name) {
   const how = SCHEMAS[kind].payload;
   if (how === 'raster') {
     if (!imageType(bytes)) throw usage(`import: a ${kind} must be a webp, png or jpeg image`);
@@ -79,7 +80,13 @@ async function fields(kind, bytes, abs) {
   const bad = validatePayload(kind, data);
   if (bad.length) throw usage(`import: this is not a valid ${kind}:\n  ${bad.join('\n  ')}`);
   if (kind === 'clip') return { n: data.n, fps: data.fps ?? 12, h: data.h, box: clipBox(data) };
-  if (kind === 'puppet') return { units: data.units, box: box4(data.box) ?? puppetBox(data) };
+  if (kind === 'puppet') {
+    // The rules a puppet has to pass before it is in the store: joints on the grid, roles instead of hex, and
+    // a box that holds every pose, every variant and every cycle frame (`hdf sheet store <id>` draws them).
+    const found = lintPuppet(data, name);
+    if (found.length) throw usage(`import: this puppet does not pass lint:\n  ${found.map((f) => `${f.rule}  ${f.detail}`).join('\n  ')}`);
+    return { units: data.units, box: box4(data.box) ?? puppetBox(data) };
+  }
   if (kind === 'motif') return { box: bounds(parse(JSON.stringify(data))) ?? [0, 0, 0, 0] };
   return { glyphs: Object.keys(data.glyphs).length };
 }

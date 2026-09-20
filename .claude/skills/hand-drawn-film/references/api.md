@@ -80,6 +80,11 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `describe(f)` Indented text: the tree with durations and spans, cels per shot, then the cues.
 - `cues(f)` { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], end }. Times come from frame counts, so they sit on the grid.
 
+### core/puppet.js
+
+- `JOINT` A joint input: degrees on a 2 degree step, so a pose blend and a cycle land on the same quantised values.
+- `puppet(idOrData)` puppet(id) => the cel of the puppet that id names in the registry; puppet(data) builds one from a payload in hand (a test, or `hdf sheet store <id>` reading the blob itself).
+
 ### core/fit.js
 
 - `FORMATS` Aspect ratio -> [W, H] in logical units.

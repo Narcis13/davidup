@@ -5,6 +5,7 @@
 import { FPS } from './curves.js';
 import { bounds, mmul, norm } from './list.js';
 import { resolveLook, resolveRole } from './looks.js';
+import { JOINT, puppet } from './puppet.js';
 import { cues, evalShot, frame } from './tree.js';
 
 export const RULES = Object.freeze({
@@ -22,6 +23,8 @@ export const RULES = Object.freeze({
   'subject-size': 'the anchor subject is under the readability floor at 240 px',
   'subject-crop': "the anchor subject is cut by the frame edge without meta('intent', 'crop')",
   grid: 'a cue off the 1/12 s grid',
+  'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint off the 2 degree grid or out of range',
+  'roles-raw': 'a raw colour in a puppet part, where a palette role belongs',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
 });
 
@@ -254,6 +257,65 @@ function gridRule(film, F) {
   const c = cues(film);
   for (const s of c.shots) if (off(s.t0) || off(s.dur)) F.add('grid', s.name, Math.round(s.t0 * FPS), `cue ${s.t0} s / ${s.dur} s is off the 1/${FPS} s grid`, 'grid');
   for (const t of c.cuts) if (off(t)) F.add('grid', null, Math.round(t * FPS), `cut at ${t} s is off the 1/${FPS} s grid`, `cut${t}`);
+}
+
+// ---------- puppets ----------
+
+// Every op field that holds a role, so a hex that came in from a drawing program is found wherever it sits.
+const RAW = /^#|^rgba?\(/i;
+function rawRoles(list) {
+  const out = new Set();
+  const role = (r) => {
+    if (typeof r === 'string') { if (RAW.test(r)) out.add(r); return; }
+    if (r && typeof r === 'object') { role(r.base); if (Array.isArray(r.mix)) role(r.mix[0]); }
+  };
+  const visit = (ops) => { for (const op of ops ?? []) { role(op.role); role(op.ink2); if (Array.isArray(op.kids)) visit(op.kids); } };
+  visit(Array.isArray(list) ? list : []);
+  return [...out];
+}
+
+// lintPuppet(payload) => findings over a puppet before it is written to the store (`hdf import --kind puppet`
+// runs it): `puppet-joint` over every pose and cycle frame, `roles-raw` over every part's ops and variants,
+// and `cel-box` over the drawing of the rest pose, every named pose, every variant and every cycle frame --
+// the box in the payload is what `cel()` hands lint and the sheet, so it has to hold all of them.
+export function lintPuppet(data, name = data?.name ?? 'puppet') {
+  const F = finder();
+  const add = (rule, detail, key = detail) => F.add(rule, name, null, detail, key);
+  const parts = data?.parts && typeof data.parts === 'object' ? data.parts : {};
+  const declared = data?.inputs && typeof data.inputs === 'object' ? data.inputs : {};
+  const joints = new Set(Object.keys(parts).filter((n) => !parts[n]?.variants));
+
+  const joint = (where, key, v) => {
+    if (!parts[key] && declared[key] === undefined) { add('puppet-joint', `${where} names '${key}', which is not a part or a declared input`, `${where}|${key}`); return; }
+    if (!joints.has(key) || typeof v !== 'number') return;   // a variant pick reads as its key, not an angle
+    if (!Number.isFinite(v) || v < JOINT[0] || v > JOINT[1]) add('puppet-joint', `${where} sets '${key}' to ${v} degrees, outside ${JOINT[0]}..${JOINT[1]}`, `${where}|${key}`);
+    else if (Math.abs(v % JOINT[2]) > 1e-9) add('puppet-joint', `${where} sets '${key}' to ${v} degrees, off the ${JOINT[2]} degree grid`, `${where}|${key}`);
+  };
+  for (const [pn, pose] of Object.entries(data?.poses ?? {})) for (const [k, v] of Object.entries(pose ?? {})) joint(`pose '${pn}'`, k, v);
+  for (const [cn, c] of Object.entries(data?.cycles ?? {})) {
+    const frames = Array.isArray(c?.frames) ? c.frames : [];
+    if (c?.n !== undefined && c.n !== frames.length) add('puppet-joint', `cycle '${cn}' says n ${c.n} and carries ${frames.length} frames`, `cycle|${cn}`);
+    frames.forEach((fr, j) => { for (const [k, v] of Object.entries(fr ?? {})) joint(`cycle '${cn}' frame ${j}`, k, v); });
+  }
+  for (const [pn, p] of Object.entries(parts)) {
+    for (const [label, list] of [['ops', p?.ops], ...Object.entries(p?.variants ?? {}).map(([k, v]) => [`variant '${k}'`, v])]) {
+      for (const r of rawRoles(list)) add('roles-raw', `part '${pn}' ${label} paints ${r}; name a palette role (ink, fills.0, light, ...)`, `${pn}|${r}`);
+    }
+  }
+
+  let make;
+  try { make = puppet({ ...data, name }); } catch (e) { add('draw', `the puppet does not build: ${e.message}`, 'build'); return F.list; }
+  const cases = [['rest', make.rest]];
+  try {
+    for (const pn of make.poses) cases.push([`pose '${pn}'`, make.poseOf(pn, 1)]);
+    for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
+    for (const [cn, c] of Object.entries(data?.cycles ?? {})) (c?.frames ?? []).forEach((_, j) => cases.push([`cycle '${cn}' frame ${j}`, make.frameOf(cn, j / (c.fps ?? FPS))]));
+    for (const [label, inputs] of cases) {
+      const g = make(inputs), b = celOverflow(g);
+      if (b) add('cel-box', `${label} draws ${fmtBox(b)} outside the declared box ${fmtBox(g.box)}`, 'box');
+    }
+  } catch (e) { add('draw', `the puppet does not draw: ${e.message}`, 'draw'); }
+  return F.list;
 }
 
 // Comments blanked (newlines kept, so line numbers hold), then banned calls matched line by line.

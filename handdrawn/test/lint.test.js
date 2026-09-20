@@ -5,7 +5,7 @@ import { cel, place, shot, seq, par, hold, cut, lookOn, film } from '../core/tre
 import { paper, night, fill, stroke, text, fx, lookNode, meta, circle, rect } from '../core/list.js';
 import { ramp } from '../core/curves.js';
 import { signOff } from '../core/text.js';
-import { lint, lintSource, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
+import { lint, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
 import mini from '../films/mini.js';
 
 // A clean scratch film: every shot has paper, an anchor cel in frame, one finish; it ends on a sign-off
@@ -133,6 +133,27 @@ test('inline-asset: a data URL in the film warns, and never fails it', () => {
   assert.ok(Object.keys(WARNINGS).includes('inline-asset'));
 });
 
+test('puppet-joint, roles-raw and cel-box: what `hdf import --kind puppet` runs over a payload', () => {
+  const ops = [{ op: 'fill', path: { $p: [[1, 0, 0, 10, 0, 10, 10]] }, role: 'fills.0', finish: true }];
+  const good = {
+    name: 'p', units: 10, box: [-20, -20, 40, 40], parts: { body: { pivot: [0, 0], ops } },
+    poses: { rest: {}, tip: { body: 30 } }, cycles: { bob: { n: 2, frames: [{ body: 0 }, { body: 10 }] } },
+  };
+  assert.deepEqual(lintPuppet(good), []);
+  const said = (d) => lintPuppet(d).map((f) => `${f.rule}  ${f.detail}`);
+  assert.match(said({ ...good, poses: { rest: {}, tip: { body: 31 } } })[0], /^puppet-joint .* off the 2 degree grid/);
+  assert.match(said({ ...good, poses: { rest: {}, tip: { body: 200 } } })[0], /^puppet-joint .* outside -180\.\.180/);
+  assert.match(said({ ...good, poses: { rest: {}, tip: { nose: 4 } } })[0], /^puppet-joint .* not a part or a declared input/);
+  assert.match(said({ ...good, cycles: { bob: { n: 3, frames: [{ body: 0 }, { body: 10 }] } } })[0], /^puppet-joint .* n 3 and carries 2 frames/);
+  assert.match(said({ ...good, cycles: { bob: { n: 2, frames: [{ body: 0 }, { body: 5 }] } } })[0], /^puppet-joint  cycle 'bob' frame 1/);
+  assert.match(said({ ...good, parts: { body: { pivot: [0, 0], ops: [{ ...ops[0], role: '#ff0000' }] } } })[0], /^roles-raw .* paints #ff0000/);
+  assert.match(said({ ...good, parts: { body: { variants: { on: [{ ...ops[0], role: { base: 'rgb(1,2,3)' } }] } } } })[0], /^roles-raw  part 'body' variant 'on'/);
+  // The declared box has to hold every pose, every variant and every frame of every cycle.
+  assert.match(said({ ...good, box: [-2, -2, 4, 4] })[0], /^cel-box .* outside the declared box \[-2, -2, 4, 4\]/);
+  assert.match(said({ ...good, parts: { body: { pivot: [0, 0], ops: 'nope' } } })[0], /^draw /);
+  assert.ok(['puppet-joint', 'roles-raw'].every((r) => r in RULES));
+});
+
 test('inspect summarises shots for the board; hold and par plays are covered', () => {
   const a = scene('a'), b = scene('b');
   const f = film({ name: 'scratch', look: 'paperInk', timeline: seq(par(a, lookOn('risoPop', b)), hold(0.5, a), end()) });
@@ -141,5 +162,5 @@ test('inspect summarises shots for the board; hold and par plays are covered', (
   assert.deepEqual(shots.map((s) => [s.name, s.f0, s.n, s.look, s.anchor]), [
     ['a', 0, 12, 'paperInk', true], ['b', 0, 12, 'risoPop', true], ['a', 12, 1, 'paperInk', true], ['end', 18, 24, 'paperInk', true],
   ]);
-  assert.ok(Object.keys(RULES).length >= 14);
+  assert.ok(Object.keys(RULES).length >= 16);
 });

@@ -44,10 +44,36 @@ test('board, sheet and changed write their images', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('sheet store: a puppet in the store gets the check sheet hdf find points at', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-puppet-'));
+  try {
+    const root = join(dir, 'store'), file = join(dir, 'blob.puppet.json');
+    writeFileSync(file, JSON.stringify({
+      units: 100, box: [-60, -60, 120, 120],
+      parts: { body: { pivot: [0, 0], ops: [{ op: 'fill', path: { $p: [[1, -40, -40, 40, -40, 40, 40, -40, 40]] }, role: 'fills.0', finish: true }] } },
+      cycles: { bob: { n: 2, frames: [{ body: 0 }, { body: 20 }] } },
+    }));
+    assert.equal((await hdf('import', file, '--kind', 'puppet', '--name', 'blob', '--root', root, '--licence', 'own')).code, 0);
+    const { code, out } = await hdf('sheet', 'store', 'blob', '--cycle', 'bob', '--root', root);
+    assert.equal(code, 0, out);
+    assert.match(out, /blob\.jpg {2}6 looks x 1 state x 3 scales \+ 2 frames of bob$/m);
+    assert.ok(existsSync(join(root, 'sheets', 'blob.jpg')));
+    assert.match((await hdf('find', 'blob', '--root', root)).out, /sheets.blob\.jpg/, 'hdf find sends you to the sheet it just wrote');
+    assert.equal((await hdf('sheet', 'store', 'nope', '--root', root)).code, 1);
+    assert.equal((await hdf('sheet', 'store', 'blob', '--cycle', 'trot', '--root', root)).code, 2);
+    // A payload that breaks a rule never reaches the store.
+    writeFileSync(file, JSON.stringify({ units: 100, parts: { body: { pivot: [0, 0], ops: [] } }, poses: { rest: {}, tip: { body: 33 } } }));
+    const bad = await hdf('import', file, '--kind', 'puppet', '--name', 'odd', '--root', root, '--licence', 'own');
+    assert.equal(bad.code, 2);
+    assert.match(bad.out, /does not pass lint[\s\S]*puppet-joint {2}pose 'tip' sets 'body' to 33 degrees, off the 2 degree grid/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('import and find are commands: usage lists them, a bad kind is a usage error', async () => {
   const usage = (await hdf('help')).out;
   assert.match(usage, /^ {2}import {2}<file> --kind cutout\|clip/m);
   assert.match(usage, /^ {2}find {4}<words\.\.\.> \[--kind\]/m);
+  assert.match(usage, /^ {2}sheet {3}store <id>/m);
   const dir = mkdtempSync(join(tmpdir(), 'hdf-store-'));
   try {
     // The store the film assets of a 2.0 film do not need: an unknown verb is still an unknown verb.

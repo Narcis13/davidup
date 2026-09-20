@@ -19,6 +19,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   only    <film.js> 0,37,74
   board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg)
   sheet   <film.js> <cel>           cel at 3 scales x input extremes x every look, silhouette, 240 px
+  sheet   store <id> [--pose p] [--cycle c]   a puppet in the store: every pose, every variant, the cycle as a strip
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]
