@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   NodeAssetLoader,
   __resetFontClaimsForTests,
+  resolveAssetSrcAgainst,
   type SkiaCanvasModule,
 } from "../../src/assets/index.js";
 
@@ -215,5 +216,58 @@ describe("NodeAssetLoader", () => {
 
     expect(skia.loadImage).toHaveBeenCalledWith("./logo.png");
     expect(skia.loadImage).toHaveBeenCalledWith("/absolute/path.png");
+  });
+});
+
+// B-5: the CLI and the editor render worker both rewrite relative asset srcs
+// against the composition's directory before handing it to the Node driver.
+// `global:` / `bundled:` are symbolic prefixes the *loader* resolves, so
+// joining them onto a directory first produced a path that can't exist.
+describe("resolveAssetSrcAgainst", () => {
+  it("resolves a relative src against the composition directory", () => {
+    expect(resolveAssetSrcAgainst("fonts/anton.woff2", "/project")).toBe(
+      "/project/fonts/anton.woff2",
+    );
+  });
+
+  it("strips a leading ./", () => {
+    expect(resolveAssetSrcAgainst("./logo.png", "/project")).toBe("/project/logo.png");
+  });
+
+  it("leaves an absolute src untouched", () => {
+    expect(resolveAssetSrcAgainst("/abs/path.png", "/project")).toBe("/abs/path.png");
+  });
+
+  it("leaves an empty src untouched", () => {
+    expect(resolveAssetSrcAgainst("", "/project")).toBe("");
+  });
+
+  it("leaves global: srcs symbolic for the loader (B-5)", () => {
+    expect(resolveAssetSrcAgainst("global:fonts/anton-400.woff2", "/project")).toBe(
+      "global:fonts/anton-400.woff2",
+    );
+  });
+
+  it("leaves bundled: srcs symbolic for the loader (B-5)", () => {
+    expect(resolveAssetSrcAgainst("bundled:Inter-Regular.ttf", "/project")).toBe(
+      "bundled:Inter-Regular.ttf",
+    );
+  });
+
+  it("leaves any other scheme untouched", () => {
+    for (const src of ["https://cdn.example/logo.png", "data:image/png;base64,AAAA"]) {
+      expect(resolveAssetSrcAgainst(src, "/project")).toBe(src);
+    }
+  });
+
+  it("treats a Windows drive letter as a path, not a scheme", () => {
+    // A one-character prefix is never a scheme, so `C:` must not be skipped as
+    // one — it is already absolute and stays exactly as authored.
+    expect(resolveAssetSrcAgainst("C:\\assets\\logo.png", "/project")).toBe(
+      "C:\\assets\\logo.png",
+    );
+    expect(resolveAssetSrcAgainst("c:/assets/logo.png", "/project")).toBe(
+      "c:/assets/logo.png",
+    );
   });
 });

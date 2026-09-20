@@ -22,8 +22,9 @@
 
 import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
-import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
+import { dirname } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
+import { resolveAssetSrcAgainst } from 'davidup/assets'
 import { renderToFile, resolveRenderRange } from 'davidup/node'
 import type { Composition } from 'davidup/schema'
 
@@ -70,18 +71,20 @@ async function resolveFfmpegPath(): Promise<string> {
  * any relative `assets[].src` to an absolute path resolved against the
  * composition file's directory. This is identical to the resolution the
  * browser driver does via `/project-files/*`, just on the server side.
+ *
+ * The per-src rule is `davidup/assets#resolveAssetSrcAgainst`, shared with
+ * `src/cli/render.ts` so the two copies can't drift: `global:` / `bundled:`
+ * srcs stay symbolic for the loader to resolve, instead of being joined onto
+ * the project directory into a path that can't exist (B-5).
  */
-function resolveAssetSources(composition: Composition, sourcePath: string): Composition {
+export function resolveAssetSources(composition: Composition, sourcePath: string): Composition {
   const clone = JSON.parse(JSON.stringify(composition)) as Composition & {
     assets: Array<{ src?: string }>
   }
   const baseDir = dirname(sourcePath)
   for (const asset of clone.assets ?? []) {
-    if (typeof asset.src === 'string' && asset.src.length > 0 && !isAbsolute(asset.src)) {
-      // Strip a leading "./" — `path.resolve` handles either form, but the
-      // explicit form is friendlier in logs.
-      const src = asset.src.startsWith('./') ? asset.src.slice(2) : asset.src
-      asset.src = resolvePath(baseDir, src)
+    if (typeof asset.src === 'string') {
+      asset.src = resolveAssetSrcAgainst(asset.src, baseDir)
     }
   }
   return clone

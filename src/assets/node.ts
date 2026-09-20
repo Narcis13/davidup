@@ -167,6 +167,43 @@ export class NodeAssetLoader extends BaseAssetLoader {
 }
 
 /**
+ * A `scheme:` prefix — `global:`, `bundled:`, `http:`, `data:` … Requires at
+ * least two characters before the colon so a Windows drive letter (`C:\…`)
+ * is read as a path, not as a scheme.
+ */
+const SRC_SCHEME_RE = /^[a-z][a-z0-9+.-]+:/i;
+
+/** `C:\path` / `c:/path` — absolute on Windows, never a relative path. */
+const WINDOWS_DRIVE_RE = /^[a-z]:[\\/]/i;
+
+/**
+ * Rewrite one authored `asset.src` to an absolute filesystem path resolved
+ * against `baseDir` (the directory of the composition file it was authored
+ * in), leaving anything that isn't a relative path alone.
+ *
+ * Callers that hand a composition to the Node driver from a cwd that isn't
+ * the composition's directory need this: the Node loader passes `src` straight
+ * to skia's `loadImage` / `FontLibrary.use`, which resolve relative paths
+ * against `process.cwd()`. But `global:` / `bundled:` srcs are *symbolic* —
+ * {@link resolveGlobalSrc} resolves those later, and joining them onto a
+ * directory first turns them into a path that can't exist (B-5). Absolute
+ * paths, Windows drive letters and any other `scheme:` src are returned
+ * unchanged for the same reason.
+ *
+ * Shared by `src/cli/render.ts` and the editor's render worker so the two
+ * copies can't drift apart again.
+ */
+export function resolveAssetSrcAgainst(src: string, baseDir: string): string {
+  if (src.length === 0) return src;
+  if (nodePath.isAbsolute(src) || WINDOWS_DRIVE_RE.test(src)) return src;
+  if (SRC_SCHEME_RE.test(src)) return src;
+  // Strip a leading "./" — `path.resolve` handles either form, but the
+  // explicit form is friendlier in logs.
+  const rel = src.startsWith("./") ? src.slice(2) : src;
+  return nodePath.resolve(baseDir, rel);
+}
+
+/**
  * Resolve an asset `src` to a filesystem path the way the Node loader does.
  *
  * `global:<rest>` → an absolute path under the global library root

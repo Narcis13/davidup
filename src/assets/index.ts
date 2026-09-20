@@ -7,6 +7,7 @@ export { BrowserAssetLoader, type BrowserAssetLoaderOptions } from "./browser.js
 export {
   NodeAssetLoader,
   resolveGlobalSrc,
+  resolveAssetSrcAgainst,
   defaultGlobalLibraryRoot,
   bundledFontsDir,
   __resetFontClaimsForTests,

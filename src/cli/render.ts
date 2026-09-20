@@ -12,7 +12,8 @@
 // schema-level error instead of partway through an expensive render.
 
 import { promises as fs } from "node:fs";
-import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { dirname, join } from "node:path";
+import { resolveAssetSrcAgainst } from "../assets/index.js";
 import { precompile } from "../compose/index.js";
 import {
   checkContainerCodec,
@@ -90,10 +91,14 @@ function resolveSourcePath(input: string, stat: { isDirectory(): boolean }): str
 /**
  * The Node asset loader hands `asset.src` straight to skia's `loadImage` /
  * `FontLibrary.use`, which resolve relative paths against `process.cwd()` —
- * not the composition file. Mirrors
- * `apps/editor/app/workers/render_worker.ts#resolveAssetSources`: rewrite any
- * relative `assets[].src` to an absolute path resolved against the source
- * file's directory so rendering works regardless of the caller's cwd.
+ * not the composition file. Rewrite any relative `assets[].src` to an absolute
+ * path resolved against the source file's directory so rendering works
+ * regardless of the caller's cwd.
+ *
+ * The per-src rule lives in `davidup/assets#resolveAssetSrcAgainst` so this
+ * and `apps/editor/app/workers/render_worker.ts#resolveAssetSources` stay in
+ * step — in particular on leaving `global:` / `bundled:` srcs symbolic for the
+ * loader to resolve (B-5).
  */
 export function resolveAssetSources(
   composition: Composition,
@@ -104,9 +109,8 @@ export function resolveAssetSources(
   };
   const baseDir = dirname(sourcePath);
   for (const asset of clone.assets ?? []) {
-    if (typeof asset.src === "string" && asset.src.length > 0 && !isAbsolute(asset.src)) {
-      const src = asset.src.startsWith("./") ? asset.src.slice(2) : asset.src;
-      asset.src = resolvePath(baseDir, src);
+    if (typeof asset.src === "string") {
+      asset.src = resolveAssetSrcAgainst(asset.src, baseDir);
     }
   }
   return clone;

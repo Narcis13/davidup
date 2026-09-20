@@ -9,6 +9,22 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### `global:` / `bundled:` asset srcs survive the CLI and editor render paths (B-5)
+
+- Fix: `davidup render` no longer breaks every library asset. Both render
+  paths rewrite relative `assets[].src` to an absolute path against the
+  composition's directory (the Node loader resolves relative paths against
+  `process.cwd()`), and they used to do that to `global:fonts/anton-400.woff2`
+  too — producing `<comp dir>/global:fonts/anton-400.woff2`, which cannot
+  exist. `global:` and `bundled:` are symbolic prefixes the asset loader
+  resolves itself, so they are now left alone, as is any other `scheme:` src
+  (`https:`, `data:`). A Windows drive letter (`C:\…`) is still read as a
+  path, not as a scheme.
+- The rule lives in one place — `resolveAssetSrcAgainst` in
+  `davidup/assets` — used by `src/cli/render.ts` and the editor's render
+  worker, which had a second copy of it. The editor export path had the same
+  bug and is fixed with it.
+
 ### `W_ITEM_MULTI_PARENT`; `apply_template` honours group ownership (B-3 follow-up)
 
 - New `validate` warning `W_ITEM_MULTI_PARENT`: an item id listed more than

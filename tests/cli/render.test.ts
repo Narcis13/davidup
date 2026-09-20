@@ -282,6 +282,29 @@ describe("cli · render · resolveAssetSources", () => {
     const out = resolveAssetSources(comp, "/project/composition.json");
     expect((out.assets[0] as { src: string }).src).toBe("/abs/path.png");
   });
+
+  it("resolves a relative src against the composition directory", () => {
+    const comp = {
+      assets: [{ id: "a", type: "image", src: "./logo.png" }],
+    } as unknown as Composition;
+    const out = resolveAssetSources(comp, "/project/composition.json");
+    expect((out.assets[0] as { src: string }).src).toBe("/project/logo.png");
+  });
+
+  // B-5: `global:` / `bundled:` are resolved by the asset loader against the
+  // library root / the package's fonts dir. Joining them onto the project
+  // directory here produced `/project/global:fonts/…`, which cannot exist.
+  it("leaves global: and bundled: srcs symbolic", () => {
+    const comp = {
+      assets: [
+        { id: "f", type: "font", src: "global:fonts/anton-400.woff2" },
+        { id: "d", type: "font", src: "bundled:Inter-Regular.ttf" },
+      ],
+    } as unknown as Composition;
+    const out = resolveAssetSources(comp, "/project/composition.json");
+    expect((out.assets[0] as { src: string }).src).toBe("global:fonts/anton-400.woff2");
+    expect((out.assets[1] as { src: string }).src).toBe("bundled:Inter-Regular.ttf");
+  });
 });
 
 describe("cli · render · RenderError", () => {
