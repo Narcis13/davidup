@@ -54,6 +54,7 @@ import {
 export {
   probeAudio,
   probeVideo,
+  probeVideoSync,
   pixelFormatHasAlpha,
   resolveFfprobePath,
   FfprobeUnavailableError,
@@ -61,7 +62,10 @@ export {
   type VideoMetadata,
   type ProbeAudioOptions,
   type ProbeVideoOptions,
+  type ProbeVideoSyncOptions,
   type ProbeSpawn,
+  type ProbeSpawnSync,
+  type ProbeSpawnSyncResult,
 } from "./ffprobe.js";
 
 export {
@@ -86,6 +90,7 @@ export {
 } from "./audioMux.js";
 
 export {
+  alphaDecoderFor,
   buildExtractArgs,
   collectVideoExtractSpecs,
   compositionHasVideo,
@@ -106,6 +111,7 @@ export {
   type PreExtractOptions,
   type PreExtractResult,
   type VideoExtractSpec,
+  type VideoProbeHint,
 } from "./videoExtract.js";
 
 export {

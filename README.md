@@ -1004,7 +1004,8 @@ the mux stage copies the video stream into the same container (AAC in `.mov`,
 Opus in `.webm`); `-movflags +faststart` is skipped for WebM. Rendering a
 transparent background with H.264/H.265 flattens it to black. Helpers:
 `VIDEO_CODECS`, `ALPHA_CODECS`, `checkContainerCodec`,
-`defaultContainerExtension`, `defaultPixFmt`.
+`defaultContainerExtension`, `defaultPixFmt`. Either export can be placed back
+into a composition as a `video` item with its transparency intact.
 
 Frame timing is `t = i / fps` for `ceil(duration × fps)` frames.
 `fps` is passed to ffmpeg as a decimal, so `29.97` means exactly 29.97, not
@@ -1012,7 +1013,14 @@ Frame timing is `t = i / fps` for `ceil(duration × fps)` frames.
 
 The frame cache lives at `$DAVIDUP_CACHE/frames` (default
 `~/.davidup/cache/frames`), keyed by source path + mtime + trim window + fps
-+ box size, LRU-pruned to 5 GB.
++ box size + alpha handling, LRU-pruned to 5 GB.
+
+A clip that carries transparency keeps it: frames extract as RGBA, and a
+VP8/VP9 source with alpha is decoded with `libvpx` — ffmpeg's native `vp9`
+decoder silently drops WebM's alpha side channel, which used to turn davidup's
+own alpha `.webm` export opaque black when it was placed back as a video item.
+The asset's `codec`/`hasAlpha` (filled by `register_asset`) decide this; a
+hand-written `.webm` asset missing them is probed once.
 
 ### Browser — `attach`
 

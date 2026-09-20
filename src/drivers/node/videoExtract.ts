@@ -10,7 +10,9 @@
 //          -vf "fps=<compFps>,scale=<W>:-2" cache/<hash>/%05d.png
 //
 // (Frames keep the source aspect ratio — see resolveExtractDimensions; the
-// item's `fit` is applied at draw time.)
+// item's `fit` is applied at draw time. A source that carries transparency is
+// written `-pix_fmt rgba` so it keeps it — see resolveAlphaExtract for the
+// VP8/VP9 side-channel case, which additionally needs a non-default decoder.)
 //
 // (The plan writes `-to <trimOut>`; we use `-t <duration>` instead — after an
 // input `-ss` it is the version-stable way to express the same [trimIn,trimOut)
@@ -55,6 +57,7 @@ import { resolveGlobalSrc } from "../../assets/node.js";
 import { fpsRational, fpsValue, type Fps } from "../../schema/fps.js";
 import type { Composition, VideoAsset, VideoItem } from "../../schema/types.js";
 import { resolveFfmpeg, sweepOrphanExtractDirs } from "./ffmpeg.js";
+import { probeVideoSync } from "./ffprobe.js";
 import type { FfmpegSpawn } from "./index.js";
 
 /**
@@ -62,8 +65,12 @@ import type { FfmpegSpawn } from "./index.js";
  * Bump when extracted pixels change for identical inputs.
  *   1 — frames stretched to the item box (`scale=W:H`); `fit` was a no-op.
  *   2 — frames keep the source aspect, capped by the box (B-1). ⚠ pixel-changing
+ *   3 — sources with alpha extract to RGBA PNGs, and VP8/VP9 alpha is decoded
+ *       with libvpx instead of ffmpeg's native decoder (B-7). ⚠ pixel-changing
+ *       for alpha sources only; opaque sources are untouched (forcing RGBA on
+ *       them shifts swscale's rounding by up to 3/255 for nothing).
  */
-export const VIDEO_EXTRACTION_VERSION = 2;
+export const VIDEO_EXTRACTION_VERSION = 3;
 
 /** Default LRU byte budget for the frame cache: 5 GB. Overridable per call. */
 export const DEFAULT_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
@@ -103,6 +110,17 @@ export interface VideoExtractSpec {
   height: number;
   /** Aspect-preserving ffmpeg scale filter, or `""` for native size. */
   scale: string;
+  /**
+   * True when the source carries transparency the extraction must preserve
+   * (B-7): frames are written as RGBA instead of ffmpeg's default RGB.
+   */
+  alpha: boolean;
+  /**
+   * Decoder to force with `-c:v` before `-i`, or undefined to let ffmpeg
+   * choose. Set only for VP8/VP9 sources carrying alpha (B-7); see
+   * {@link alphaDecoderFor}.
+   */
+  decoder: string | undefined;
 }
 
 /** Minimal `fs.stat` shape the hash needs; injectable so tests skip real files. */
@@ -119,6 +137,20 @@ export interface CollectSpecsOptions {
    * spec collection (and its hashing) runs without touching the disk.
    */
   statFile?: (path: string) => FileStat;
+  /**
+   * Probe a WebM/Matroska source whose asset entry records no `codec` /
+   * `hasAlpha` (B-7). Default: a memoised, best-effort `ffprobe` run. Injected
+   * by tests; returning undefined just means "unknown", never an error.
+   */
+  probeVideoFile?: (path: string) => VideoProbeHint | undefined;
+}
+
+/** The two probe fields {@link resolveDecoder} needs from a source file. */
+export interface VideoProbeHint {
+  /** ffprobe `codec_name`, e.g. "vp9". */
+  codec?: string | undefined;
+  /** True when the stream carries alpha (pixel format or `alpha_mode` tag). */
+  hasAlpha?: boolean | undefined;
 }
 
 /** True when the composition places at least one video item. */
@@ -183,6 +215,12 @@ export function collectVideoExtractSpecs(
       trimOut !== undefined ? Math.max(0, trimOut - trimIn) : undefined;
 
     const { width, height, scale } = resolveExtractDimensions(video, videoAsset, id);
+    const { alpha, decoder } = resolveAlphaExtract(
+      videoAsset,
+      srcPath,
+      fileStat,
+      opts.probeVideoFile,
+    );
 
     const hash = computeSpecHash({
       src: srcPath,
@@ -194,6 +232,8 @@ export function collectVideoExtractSpecs(
       width,
       height,
       scale,
+      alpha,
+      decoder: decoder ?? null,
     });
 
     const existing = byHash.get(hash);
@@ -214,6 +254,8 @@ export function collectVideoExtractSpecs(
       width,
       height,
       scale,
+      alpha,
+      decoder,
     });
   }
 
@@ -303,6 +345,95 @@ function evenRescale(fixed: number, other: number, fixedIn: number): number {
   return Math.max(2, Math.round((fixed * other) / (fixedIn * 2)) * 2);
 }
 
+// ───────────────────────────── decoder choice ──────────────────────────────
+
+/**
+ * The decoder that can actually see a source's alpha, or undefined to let
+ * ffmpeg pick (B-7).
+ *
+ * WebM/Matroska carry VP8/VP9 alpha in an out-of-band side channel (the
+ * `alpha_mode` stream tag, pixel format still yuv420p). ffmpeg's *native* vp9
+ * decoder ignores that channel, so extracting davidup's own alpha .webm export
+ * produced opaque black where it should have been transparent; only the libvpx
+ * decoders read it. Nothing else needs an override — every other container
+ * states its alpha in the pixel format, which any decoder honours.
+ *
+ * Pure and exported for unit testing.
+ */
+export function alphaDecoderFor(
+  codec: string | undefined,
+  hasAlpha: boolean | undefined,
+): string | undefined {
+  if (hasAlpha !== true) return undefined;
+  switch (codec?.toLowerCase()) {
+    case "vp9":
+      return "libvpx-vp9";
+    case "vp8":
+      return "libvpx";
+    default:
+      return undefined;
+  }
+}
+
+/** Containers that can hide alpha outside the pixel format (see above). */
+const SIDE_CHANNEL_ALPHA_EXTENSIONS = [".webm", ".mkv"];
+
+/**
+ * Resolve a spec's alpha handling from the asset's recorded metadata, probing
+ * the file only when that metadata is missing *and* the container is one that
+ * can hide alpha (`register_asset` fills both fields, so this is the
+ * hand-written-composition path). The probe is memoised on path + mtime + size
+ * so the three callers that recompute a spec hash agree without re-spawning
+ * ffprobe.
+ *
+ * An asset that never says whether it has alpha (and isn't worth probing)
+ * extracts exactly as it did before B-7: ffmpeg negotiates the PNG pixel
+ * format from the decoded frames, which already keeps in-pixel-format alpha.
+ */
+function resolveAlphaExtract(
+  asset: VideoAsset,
+  srcPath: string,
+  fileStat: FileStat,
+  probeFile: ((path: string) => VideoProbeHint | undefined) | undefined,
+): { alpha: boolean; decoder: string | undefined } {
+  let codec = asset.codec;
+  let hasAlpha = asset.hasAlpha;
+  if (
+    (codec === undefined || hasAlpha === undefined) &&
+    SIDE_CHANNEL_ALPHA_EXTENSIONS.some((ext) => srcPath.toLowerCase().endsWith(ext))
+  ) {
+    const probe = memoisedProbe(srcPath, fileStat, probeFile ?? defaultProbeVideoFile);
+    codec ??= probe?.codec;
+    hasAlpha ??= probe?.hasAlpha;
+  }
+  return { alpha: hasAlpha === true, decoder: alphaDecoderFor(codec, hasAlpha) };
+}
+
+const probeMemo = new Map<string, VideoProbeHint | undefined>();
+
+function memoisedProbe(
+  srcPath: string,
+  fileStat: FileStat,
+  probeFile: (path: string) => VideoProbeHint | undefined,
+): VideoProbeHint | undefined {
+  const key = `${srcPath}\0${fileStat.mtimeMs}\0${fileStat.size}`;
+  if (probeMemo.has(key)) return probeMemo.get(key);
+  let hint: VideoProbeHint | undefined;
+  try {
+    hint = probeFile(srcPath);
+  } catch {
+    hint = undefined; // Best effort: unknown metadata just means no override.
+  }
+  probeMemo.set(key, hint);
+  return hint;
+}
+
+function defaultProbeVideoFile(path: string): VideoProbeHint | undefined {
+  const meta = probeVideoSync(path);
+  if (!meta) return undefined;
+  return { codec: meta.codec, hasAlpha: meta.hasAlpha };
+}
+
 interface SpecHashInput {
   src: string;
   mtimeMs: number;
@@ -314,6 +445,10 @@ interface SpecHashInput {
   height: number;
   /** ffmpeg scale filter; see {@link ExtractDimensions.scale}. */
   scale: string;
+  /** Whether frames are extracted with an alpha channel. */
+  alpha: boolean;
+  /** Forced `-c:v` decoder, or null for ffmpeg's default. */
+  decoder: string | null;
 }
 
 /**
@@ -333,6 +468,8 @@ export function computeSpecHash(input: SpecHashInput): string {
     width: input.width,
     height: input.height,
     scale: input.scale,
+    alpha: input.alpha,
+    decoder: input.decoder,
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -346,6 +483,13 @@ export function computeSpecHash(input: SpecHashInput): string {
  * Input seek (`-ss` before `-i`) is fast and keyframe-accurate enough for a
  * texture; `-t duration` then caps the window. `-progress pipe:1 -nostats`
  * emits machine-readable `frame=N` lines on stdout for progress reporting.
+ *
+ * `spec.decoder` (B-7) is an *input* option, so it goes before `-i` — that is
+ * the half that actually recovers VP8/VP9 alpha. An alpha spec then pins the
+ * output to `-pix_fmt rgba`: ffmpeg negotiates the same format from decoded
+ * yuva frames today, so this states the requirement rather than relying on
+ * that. Opaque specs leave the PNG format alone — pinning RGBA there changes
+ * nothing but swscale's rounding (±3/255, and every cached frame).
  */
 export function buildExtractArgs(
   spec: VideoExtractSpec,
@@ -361,15 +505,19 @@ export function buildExtractArgs(
     "-nostats",
     "-ss",
     fmtSeconds(spec.trimIn),
-    "-i",
-    spec.srcPath,
   ];
+  if (spec.decoder !== undefined) {
+    args.push("-c:v", spec.decoder);
+  }
+  args.push("-i", spec.srcPath);
   if (spec.duration !== undefined) {
     args.push("-t", fmtSeconds(spec.duration));
   }
   const filters = [`fps=${fmtFps(spec.fps)}`];
   if (spec.scale) filters.push(spec.scale);
-  args.push("-vf", filters.join(","), outputPattern);
+  args.push("-vf", filters.join(","));
+  if (spec.alpha) args.push("-pix_fmt", "rgba");
+  args.push(outputPattern);
   return args;
 }
 

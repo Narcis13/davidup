@@ -17,6 +17,7 @@ import { writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  alphaDecoderFor,
   buildExtractArgs,
   collectVideoExtractSpecs,
   compositionHasVideo,
@@ -57,7 +58,13 @@ function videoComp(
       trimOut?: number;
     }
   >,
-  opts: { fps?: number; assetDuration?: number; assetType?: "video" | "image" } = {},
+  opts: {
+    fps?: number;
+    assetDuration?: number;
+    assetType?: "video" | "image";
+    /** Merged into the video asset — `src`, `codec`, `hasAlpha` (B-7). */
+    asset?: { src?: string; codec?: string; hasAlpha?: boolean };
+  } = {},
 ): Composition {
   const assets =
     opts.assetType === "image"
@@ -70,6 +77,7 @@ function videoComp(
             duration: opts.assetDuration ?? 4,
             width: 640,
             height: 360,
+            ...(opts.asset ?? {}),
           },
         ];
   return {
@@ -384,6 +392,8 @@ describe("buildExtractArgs", () => {
     width: 320,
     height: 180,
     scale: "scale=320:-2",
+    alpha: false,
+    decoder: undefined,
   };
 
   it("seeks, trims, and scales (aspect-preserving) with the fps filter", () => {
@@ -394,6 +404,32 @@ describe("buildExtractArgs", () => {
     expect(joined).toContain("-t 2");
     expect(joined).toContain("-vf fps=30,scale=320:-2");
     expect(args[args.length - 1]).toBe("/cache/out/%05d.png");
+  });
+
+  it("writes RGBA PNGs for an alpha source so transparency survives (B-7)", () => {
+    const args = buildExtractArgs({ ...spec, alpha: true }, "/cache/out/%05d.png");
+    expect(args.slice(-3)).toEqual(["-pix_fmt", "rgba", "/cache/out/%05d.png"]);
+  });
+
+  it("leaves the PNG pixel format to ffmpeg for an opaque source", () => {
+    const args = buildExtractArgs(spec, "/cache/out/%05d.png");
+    expect(args).not.toContain("-pix_fmt");
+    expect(args[args.length - 1]).toBe("/cache/out/%05d.png");
+  });
+
+  it("forces the alpha-capable decoder before -i when the spec names one (B-7)", () => {
+    const args = buildExtractArgs(
+      { ...spec, alpha: true, decoder: "libvpx-vp9" },
+      "/c/%05d.png",
+    );
+    expect(args.indexOf("-c:v")).toBeGreaterThan(-1);
+    expect(args[args.indexOf("-c:v") + 1]).toBe("libvpx-vp9");
+    // Input option: it has to precede the input it applies to.
+    expect(args.indexOf("-c:v")).toBeLessThan(args.indexOf("-i"));
+  });
+
+  it("leaves the decoder to ffmpeg when the spec names none", () => {
+    expect(buildExtractArgs(spec, "/c/%05d.png")).not.toContain("-c:v");
   });
 
   it("emits only the fps filter when extracting at native size", () => {
@@ -409,6 +445,103 @@ describe("buildExtractArgs", () => {
   it("omits -t when the duration is unknown (extract to EOF)", () => {
     const args = buildExtractArgs({ ...spec, trimOut: undefined, duration: undefined }, "/c/%05d.png");
     expect(args).not.toContain("-t");
+  });
+});
+
+// ── B-7: VP8/VP9 alpha lives in a side channel only libvpx decodes. ──
+
+describe("alphaDecoderFor", () => {
+  it("picks libvpx for VP8/VP9 sources that carry alpha", () => {
+    expect(alphaDecoderFor("vp9", true)).toBe("libvpx-vp9");
+    expect(alphaDecoderFor("vp8", true)).toBe("libvpx");
+    expect(alphaDecoderFor("VP9", true)).toBe("libvpx-vp9");
+  });
+
+  it("leaves opaque VP9 on ffmpeg's faster native decoder", () => {
+    expect(alphaDecoderFor("vp9", false)).toBeUndefined();
+    expect(alphaDecoderFor("vp9", undefined)).toBeUndefined();
+  });
+
+  it("does not override for codecs whose alpha is in the pixel format", () => {
+    // ProRes 4444 / QT RLE / AV1 all report yuva*/rgba and decode correctly.
+    expect(alphaDecoderFor("prores", true)).toBeUndefined();
+    expect(alphaDecoderFor("av1", true)).toBeUndefined();
+    expect(alphaDecoderFor(undefined, true)).toBeUndefined();
+  });
+});
+
+describe("collectVideoExtractSpecs — decoder (B-7)", () => {
+  it("forces libvpx-vp9 for an alpha VP9 asset", () => {
+    const comp = videoComp(
+      { a: {} },
+      { asset: { src: "/abs/overlay.webm", codec: "vp9", hasAlpha: true } },
+    );
+    const [spec] = collectVideoExtractSpecs(comp, { statFile: fixedStat });
+    expect(spec!.decoder).toBe("libvpx-vp9");
+    expect(spec!.alpha).toBe(true);
+  });
+
+  it("gives the alpha and non-alpha variants different cache hashes", () => {
+    const withAlpha = collectVideoExtractSpecs(
+      videoComp({ a: {} }, { asset: { src: "/abs/o.webm", codec: "vp9", hasAlpha: true } }),
+      { statFile: fixedStat },
+    )[0]!;
+    const without = collectVideoExtractSpecs(
+      videoComp({ a: {} }, { asset: { src: "/abs/o.webm", codec: "vp9", hasAlpha: false } }),
+      { statFile: fixedStat },
+    )[0]!;
+    expect(without.decoder).toBeUndefined();
+    expect(without.alpha).toBe(false);
+    expect(withAlpha.hash).not.toBe(without.hash);
+  });
+
+  it("probes a .webm asset registered without codec/hasAlpha", () => {
+    const seen: string[] = [];
+    const comp = videoComp({ a: {} }, { asset: { src: "/abs/unprobed.webm" } });
+    const [spec] = collectVideoExtractSpecs(comp, {
+      statFile: fixedStat,
+      probeVideoFile: (path) => {
+        seen.push(path);
+        return { codec: "vp9", hasAlpha: true };
+      },
+    });
+    expect(seen).toEqual(["/abs/unprobed.webm"]);
+    expect(spec!.decoder).toBe("libvpx-vp9");
+    expect(spec!.alpha).toBe(true);
+  });
+
+  it("does not probe containers that cannot hide alpha, nor probed assets", () => {
+    const seen: string[] = [];
+    const probeVideoFile = (path: string) => {
+      seen.push(path);
+      return { codec: "vp9", hasAlpha: true };
+    };
+    // .mp4 states its alpha in the pixel format — nothing to ask ffprobe.
+    collectVideoExtractSpecs(videoComp({ a: {} }, { asset: { src: "/abs/plain.mp4" } }), {
+      statFile: fixedStat,
+      probeVideoFile,
+    });
+    // Already-probed .webm: register_asset filled both fields.
+    collectVideoExtractSpecs(
+      videoComp(
+        { a: {} },
+        { asset: { src: "/abs/known.webm", codec: "vp9", hasAlpha: false } },
+      ),
+      { statFile: fixedStat, probeVideoFile },
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("survives a probe that fails, falling back to no override", () => {
+    const comp = videoComp({ a: {} }, { asset: { src: "/abs/broken.webm" } });
+    const [spec] = collectVideoExtractSpecs(comp, {
+      statFile: fixedStat,
+      probeVideoFile: () => {
+        throw new Error("ffprobe missing");
+      },
+    });
+    expect(spec!.decoder).toBeUndefined();
+    expect(spec!.alpha).toBe(false);
   });
 });
 

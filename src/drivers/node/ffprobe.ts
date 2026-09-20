@@ -10,8 +10,9 @@
 // on PATH. The spawn function is injectable so tests can exercise the parsing
 // and the "ffprobe unavailable" path without a real subprocess.
 
-import { spawn as nodeSpawn } from "node:child_process";
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
 
 export interface AudioMetadata {
   /** Seconds. */
@@ -52,6 +53,25 @@ export type ProbeSpawn = (
   cmd: string,
   args: ReadonlyArray<string>,
 ) => ChildProcess;
+
+/** Minimal `child_process.spawnSync` result shape {@link probeVideoSync} reads. */
+export interface ProbeSpawnSyncResult {
+  status: number | null;
+  stdout: string;
+  error?: Error | undefined;
+}
+
+export type ProbeSpawnSync = (
+  cmd: string,
+  args: ReadonlyArray<string>,
+) => ProbeSpawnSyncResult;
+
+export interface ProbeVideoSyncOptions {
+  /** Override the ffprobe binary path. Default: as {@link resolveFfprobePath}. */
+  ffprobePath?: string;
+  /** Override the sync spawn (tests). Default: `child_process.spawnSync`. */
+  spawnSync?: ProbeSpawnSync;
+}
 
 export interface ProbeAudioOptions {
   /** Override the ffprobe binary path. Default: resolved via `ffprobe-static`, else "ffprobe". */
@@ -134,6 +154,29 @@ export async function resolveFfprobePath(): Promise<string> {
 }
 
 /**
+ * Synchronous twin of {@link resolveFfprobePath}, sharing its memo. Needed by
+ * {@link probeVideoSync}; `createRequire` is used with an indirect specifier so
+ * bundlers leave this node-only dep alone.
+ */
+function resolveFfprobePathSync(): string {
+  if (cachedPath !== undefined) return cachedPath;
+  try {
+    const specifier = "ffprobe-static";
+    const req = createRequire(import.meta.url);
+    const mod = req(specifier) as { path?: string } | string | null;
+    if (typeof mod === "string" && mod.length > 0) {
+      cachedPath = mod;
+    } else if (mod && typeof mod === "object" && typeof mod.path === "string") {
+      cachedPath = mod.path;
+    }
+  } catch {
+    // ffprobe-static not installed — fall through to PATH.
+  }
+  if (cachedPath === undefined) cachedPath = "ffprobe";
+  return cachedPath;
+}
+
+/**
  * Probe an audio file's metadata via ffprobe.
  *
  * @throws {FfprobeUnavailableError} when the ffprobe binary cannot be spawned.
@@ -165,6 +208,41 @@ export async function probeVideo(
   const spawnFn = opts.spawn ?? defaultSpawn;
   const output = await runFfprobe(spawnFn, ffprobePath, src);
   return parseVideoMetadata(output, src);
+}
+
+/**
+ * Best-effort synchronous probe (v1.3 B-7). The frame extractor's spec
+ * collection is synchronous — and its result feeds a cache hash that three
+ * separate callers recompute — so the one question it still has to ask ffprobe
+ * ("is there an alpha side channel, and in which codec?") has to be answerable
+ * without awaiting.
+ *
+ * Never throws: a missing binary, an unreadable file or a stream-less
+ * container all return undefined, and the caller falls back to whatever the
+ * composition already recorded. Callers that can await should use
+ * {@link probeVideo}, which reports *why* a probe failed.
+ */
+export function probeVideoSync(
+  src: string,
+  opts: ProbeVideoSyncOptions = {},
+): VideoMetadata | undefined {
+  const ffprobePath = opts.ffprobePath ?? resolveFfprobePathSync();
+  const run = opts.spawnSync ?? defaultSpawnSync;
+  try {
+    const result = run(ffprobePath, [
+      "-v",
+      "error",
+      "-print_format",
+      "json",
+      "-show_streams",
+      "-show_format",
+      src,
+    ]);
+    if (result.error || result.status !== 0 || !result.stdout) return undefined;
+    return parseVideoMetadata(JSON.parse(result.stdout) as FfprobeOutput, src);
+  } catch {
+    return undefined;
+  }
 }
 
 function runFfprobe(
@@ -361,4 +439,15 @@ function defaultSpawn(cmd: string, args: ReadonlyArray<string>): ChildProcess {
   return nodeSpawn(cmd, args as string[], {
     stdio: ["ignore", "pipe", "pipe"],
   });
+}
+
+function defaultSpawnSync(
+  cmd: string,
+  args: ReadonlyArray<string>,
+): ProbeSpawnSyncResult {
+  const r = nodeSpawnSync(cmd, args as string[], {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return { status: r.status, stdout: r.stdout ?? "", error: r.error };
 }

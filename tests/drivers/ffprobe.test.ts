@@ -1,4 +1,5 @@
-// Unit tests for `probeAudio` parsing + failure modes (v0.2 §S2).
+// Unit tests for `probeAudio` parsing + failure modes (v0.2 §S2), plus
+// `probeVideoSync` (v1.3 B-7).
 //
 // These drive a fake spawn so no real ffprobe runs — the real-binary path is
 // covered by ffprobe.integration.test.ts against committed audio fixtures.
@@ -11,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   FfprobeUnavailableError,
   probeAudio,
+  probeVideoSync,
   type ProbeSpawn,
 } from "../../src/drivers/node/ffprobe.js";
 
@@ -171,5 +173,70 @@ describe("probeAudio — failure modes", () => {
     await expect(
       probeAudio("silent.mp4", { ffprobePath: "ffprobe", spawn }),
     ).rejects.toThrow(/No audio stream/);
+  });
+});
+
+// ── probeVideoSync (v1.3 B-7): the extractor's synchronous, never-throwing
+// probe. Only the fields the decoder choice needs are asserted here; the full
+// parse is shared with `probeVideo` above. ──
+
+const WEBM_ALPHA_JSON = JSON.stringify({
+  streams: [
+    {
+      codec_type: "video",
+      codec_name: "vp9",
+      width: 160,
+      height: 120,
+      pix_fmt: "yuv420p",
+      avg_frame_rate: "24/1",
+      tags: { alpha_mode: "1" },
+    },
+  ],
+  format: { duration: "1.000000" },
+});
+
+describe("probeVideoSync", () => {
+  it("reads the WebM alpha side channel that the pixel format hides", () => {
+    const meta = probeVideoSync("/abs/overlay.webm", {
+      ffprobePath: "/bin/ffprobe",
+      spawnSync: () => ({ status: 0, stdout: WEBM_ALPHA_JSON }),
+    });
+    expect(meta?.codec).toBe("vp9");
+    expect(meta?.pixelFormat).toBe("yuv420p");
+    expect(meta?.hasAlpha).toBe(true);
+  });
+
+  it("returns undefined rather than throwing when ffprobe is missing", () => {
+    expect(
+      probeVideoSync("/abs/x.webm", {
+        spawnSync: () => ({
+          status: null,
+          stdout: "",
+          error: Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }),
+        }),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a non-zero exit, unparseable output, or no video", () => {
+    const sync = (r: { status: number; stdout: string }) =>
+      probeVideoSync("/abs/x.webm", { spawnSync: () => r });
+    expect(sync({ status: 1, stdout: "" })).toBeUndefined();
+    expect(sync({ status: 0, stdout: "not json" })).toBeUndefined();
+    expect(sync({ status: 0, stdout: '{"streams":[]}' })).toBeUndefined();
+  });
+
+  it("passes the source path to ffprobe last, after the JSON flags", () => {
+    const calls: ReadonlyArray<string>[] = [];
+    probeVideoSync("/abs/overlay.webm", {
+      ffprobePath: "/bin/ffprobe",
+      spawnSync: (_cmd, args) => {
+        calls.push(args);
+        return { status: 0, stdout: WEBM_ALPHA_JSON };
+      },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.at(-1)).toBe("/abs/overlay.webm");
+    expect(calls[0]).toContain("-show_streams");
   });
 });
