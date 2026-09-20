@@ -85,6 +85,58 @@ function comp(item: Item, tweens: Composition["tweens"] = []): Composition {
   };
 }
 
+/**
+ * The same item, but with an empty text item beside it inside a wrapping
+ * group — which paints nothing and yet forces the whole-canvas surface, since
+ * `bounds.ts` refuses to guess a text extent (v1.3 G8). Rendering `comp(item)`
+ * and this must give the same pixels: that is the claim the sub-rect scratch
+ * surface has to meet.
+ */
+function compForcingFullSurface(item: Item, effects: Effect[]): Composition {
+  const base = comp(item);
+  const inner: Item = { ...item };
+  delete (inner as { effects?: Effect[] }).effects;
+  return {
+    ...base,
+    layers: [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["g"] }],
+    items: {
+      g: {
+        type: "group",
+        items: ["s", "blank"],
+        effects,
+        transform: {
+          x: 0,
+          y: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: item.transform.opacity,
+        },
+      },
+      s: { ...inner, transform: { ...inner.transform, opacity: 1 } },
+      blank: {
+        type: "text",
+        text: "",
+        font: "font:default",
+        fontSize: 10,
+        color: "#ffffff",
+        transform: {
+          x: 0,
+          y: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          anchorX: 0,
+          anchorY: 0,
+          opacity: 1,
+        },
+      },
+    },
+  };
+}
+
 function px(data: Uint8Array, x: number, y: number): [number, number, number, number] {
   const i = (y * WIDTH + x) * 4;
   return [data[i]!, data[i + 1]!, data[i + 2]!, data[i + 3]!];
@@ -183,5 +235,102 @@ describe("per-item effects — pixels (v1.1 S21)", () => {
     expect(Buffer.from(atStart)).toEqual(Buffer.from(plain));
     // radius 3 at t=0.5 blurs the edge.
     expect(alpha(midway, 36, 40)).toBeGreaterThan(0);
+  });
+});
+
+describe("scratch-surface sizing (v1.3 G8)", () => {
+  // The surface a blurred item flattens onto is cut to the box it can paint
+  // in. If that box were ever too small the blur would be clipped — so each
+  // case is rendered twice, once on the sub-rect surface and once on a
+  // whole-canvas surface, and the two buffers have to match byte for byte.
+  //
+  // Only blur appears here because only blur takes the sub-rect path: a
+  // shadow or a glow rasterizes differently depending on the surface it lands
+  // on, so `mustUseWholeCanvas` keeps those on the canvas-sized one (the
+  // measurement is in tests/engine/bounds.test.ts and the module header).
+  const stacks: Array<[string, Effect[]]> = [
+    ["blur", [{ type: "blur", radius: 4 }]],
+    ["wide blur", [{ type: "blur", radius: 22 }]],
+    [
+      "blur twice",
+      [
+        { type: "blur", radius: 3 },
+        { type: "blur", radius: 5 },
+      ],
+    ],
+  ];
+
+  for (const [name, effects] of stacks) {
+    it(`matches a whole-canvas surface, pixel for pixel — ${name}`, async () => {
+      const cut = await renderRaw(comp(square(effects)));
+      const full = await renderRaw(compForcingFullSurface(square(effects), effects));
+      expect(Array.from(cut)).toEqual(Array.from(full));
+      // Guard against both paths having quietly drawn nothing.
+      expect(cut.some((v) => v !== 0)).toBe(true);
+    });
+  }
+
+  it("matches a whole-canvas surface for an item hanging off the canvas edge", async () => {
+    const effects: Effect[] = [{ type: "blur", radius: 8 }];
+    const offEdge = (): Item => ({
+      ...square(effects),
+      transform: { ...square().transform, x: -18, y: -12 },
+    });
+    const cut = await renderRaw(comp(offEdge()));
+    const full = await renderRaw(compForcingFullSurface(offEdge(), effects));
+    expect(Array.from(cut)).toEqual(Array.from(full));
+    expect(cut.some((v) => v !== 0)).toBe(true);
+  });
+
+  it("matches a whole-canvas surface for an isolated group with no effects at all", async () => {
+    const isolated = (): Item => ({
+      type: "group",
+      items: ["a", "b"],
+      isolate: true,
+      transform: {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        opacity: 0.5,
+      },
+    });
+    const children = {
+      a: square(),
+      b: { ...square(), transform: { ...square().transform, x: 60, y: 35 } },
+    };
+    const base = comp(isolated());
+    const cut = { ...base, items: { s: isolated(), ...children } };
+    const full = {
+      ...base,
+      items: {
+        s: { ...isolated(), items: ["a", "b", "blank"] },
+        ...children,
+        blank: {
+          type: "text" as const,
+          text: "",
+          font: "font:default",
+          fontSize: 10,
+          color: "#ffffff",
+          transform: {
+            x: 0,
+            y: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotation: 0,
+            anchorX: 0,
+            anchorY: 0,
+            opacity: 1,
+          },
+        },
+      },
+    };
+    const a = await renderRaw(cut);
+    const b = await renderRaw(full);
+    expect(Array.from(a)).toEqual(Array.from(b));
+    expect(a.some((v) => v !== 0)).toBe(true);
   });
 });

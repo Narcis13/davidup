@@ -571,7 +571,7 @@ function scaleInterval(
 // any tween on those properties the same way position/scale do elsewhere in
 // this check. Polygon points are already absolute local coordinates (the
 // renderer never applies the anchor shift to them — see `anchorWidth`/
-// `anchorHeight` in render.ts, which return 0 for polygons that don't also
+// `anchorHeight` in engine/anchor.ts, which return 0 for polygons that do not
 // set `width`), so they skip the anchor step entirely.
 function localBoxRange(
   comp: Composition,

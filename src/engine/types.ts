@@ -183,6 +183,40 @@ export interface RenderOptions {
   // Resolves pre-extracted frames for video items (v0.2 §S8). When absent,
   // video items draw nothing — every other item type renders unchanged.
   video?: VideoFrameProvider;
+  // Mutable counters the engine adds to while painting (v1.3 G8). Absent for
+  // every production paint; supplying one is what `davidup render --profile`
+  // does. See {@link RenderProfile}.
+  profile?: RenderProfile;
+}
+
+/**
+ * Where a frame's paint time went (v1.3 G8, P-1).
+ *
+ * The caller owns the object and the engine only ever *adds* to it, so one
+ * accumulator can span a frame, an act, or a whole render depending on when
+ * the caller zeroes it. Every field is a plain count, an area in pixels, or
+ * wall-clock milliseconds; nothing here is read back by the renderer, so a
+ * profiled render paints exactly the pixels an unprofiled one does.
+ */
+export interface RenderProfile {
+  /** Scratch surfaces requested from `createOffscreen`. */
+  offscreens: number;
+  /** Their total area — the allocation the host actually had to zero. */
+  offscreenPixels: number;
+  /** Surfaces served from the caller's pool instead of freshly allocated. */
+  offscreensPooled: number;
+  /** In-engine `blurPixels` passes (the `blur` effect only). */
+  blurs: number;
+  /** Total surface area handed to those passes. */
+  blurPixels: number;
+  /** Wall clock inside them, including the getImageData/putImageData pair. */
+  blurMs: number;
+  /** Shadow/glow re-draws — one full surface copy each, on the Canvas2D shadow state. */
+  shadowPasses: number;
+  /** Items flattened through the `effects` stack. */
+  effectItems: number;
+  /** Groups flattened because of `isolate: true`. */
+  isolatedGroups: number;
 }
 
 // ──────────────── Source-map authoring trail (editor v1.0) ────────────────

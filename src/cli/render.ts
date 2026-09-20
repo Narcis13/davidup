@@ -66,6 +66,8 @@ export interface RenderOptions {
   fps?: number | string;
   /** Output colour tagging (v1.1 S8). Default `"bt709"`. */
   colorProfile?: ColorProfile;
+  /** Record per-frame paint cost in `result.profile` (v1.3 G8). */
+  profile?: boolean;
 }
 
 export interface RenderDeps {
@@ -213,6 +215,7 @@ export async function renderComposition(
       ...(opts.colorProfile !== undefined ? { colorProfile: opts.colorProfile } : {}),
       ...(opts.format !== undefined ? { format: opts.format } : {}),
       ...(opts.range !== undefined ? { range: opts.range } : {}),
+      ...(opts.profile === true ? { profile: true } : {}),
       ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
     });
   } catch (err) {

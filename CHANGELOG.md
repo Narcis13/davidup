@@ -9,6 +9,59 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Faster blur and scratch surfaces, and `davidup render --profile` (P-1) — **⚠ pixel-changing for blurs of radius ≥ 20**
+
+- `davidup render --profile[=<seconds>]` prints, after the render, a table of
+  where the paint time went: one row per `<seconds>` of the timeline (default
+  2), with mean paint ms, fps, blur ms and scratch-surface megapixels per
+  frame. `renderToFile({ profile: true })` returns the same per-frame records
+  as `result.profile`. Profiling adds a clock pair per frame and a counter bag
+  the engine adds to; it never changes what is painted.
+- That measurement is what this entry is built on. `examples/showcase-vertical`
+  rendered at **1.58 fps, of which 99.1% was the in-engine blur** — P-1 had
+  guessed at the always-on 140 px aurora and the guess was right.
+- **A blur of σ ≥ 20 now runs on a downscaled copy** (`BLUR_DOWNSAMPLE_SIGMA`
+  in `src/engine/blur.ts`): the region is box-averaged down by σ/10, capped at
+  4×, blurred with the correspondingly narrower kernel, and bilinearly scaled
+  back — all on premultiplied values, in the engine's own code, so node and
+  the browser still agree exactly. A blur of standard deviation σ has no
+  detail finer than σ, so sampling it every ≤ σ/10 pixels is a tenfold
+  oversample; measured against a full-resolution reference the result is
+  within 3 units of 8-bit alpha. On a 1080 × 1920 surface σ = 140 falls from
+  345 ms to 76 ms.
+- **A scratch surface is cut to the box its item can paint in**
+  (`src/engine/bounds.ts`), instead of always being composition-sized, and is
+  composited back at that box's corner. The box is a superset — stroke widths,
+  polygon miter spikes and every effect's reach are added on, then it is
+  clamped to the canvas, which is where the surface clipped anyway — so the
+  pixels are identical; `tests/engine/effects.pixels.test.ts` renders each
+  case both ways and compares the buffers byte for byte. Worth 2.3× on a
+  120 px blurred square on a 1080 × 1920 canvas; worth nothing on the showcase,
+  whose one expensive blur already covers the frame.
+- **Decision (G8):** the sub-rect surface is used only for stacks with **no
+  shadow and no glow**, and only when nothing in the flattened subtree casts
+  one. Blur is the engine's own code on raw pixels and reads only its own
+  buffer; shadow and glow are the host's Canvas2D shadow state, and skia
+  rasterizes the same 6 px glow one unit of alpha differently into a 90 × 80
+  surface than into a 120 × 80 one. A scratch surface's size must not reach
+  the output, so those keep the surface they have always had — and blur is
+  where the time was anyway. Text is likewise refused: its extent comes from
+  measuring glyphs against a font that is only on the context at draw time.
+- **Decision (G8):** no static-subtree cache. It was the third idea under P-1,
+  and the workload it was aimed at does not exist: the showcase's aurora — the
+  one always-on blurred group — tweens all three of its blobs every frame, so
+  a cache keyed on "no descendant changed" would never hit while costing a
+  deep compare on every frame that it misses.
+- Net on the showcase: **1.58 → 5.59 fps** (589 s → 177 s for 900 frames), with
+  no golden hash moved. Every blur radius in the repo's examples, fixtures and
+  goldens is ≤ 10, which is why the σ ≥ 20 threshold is byte-identical here —
+  but a composition of your own with a wider blur will render slightly
+  differently than it did before.
+- `anchorWidth` / `anchorHeight` moved from `engine/render.ts` to
+  `engine/anchor.ts` so the bounds pass can pivot an item the way the renderer
+  does without importing the renderer back. Both are still re-exported from
+  `engine/render.ts` and from the engine index, so no importer changes.
+
 ### Math functions in `${…}` expressions (L-4)
 
 - Template, scene, behavior and `$repeat` expressions gain `abs`, `floor`,

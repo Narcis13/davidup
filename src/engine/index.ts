@@ -4,12 +4,19 @@ export type {
   OffscreenSurface,
   OriginKind,
   RenderOptions,
+  RenderProfile,
   SourceLocation,
   SourceMap,
   VideoClip,
   VideoFrameProvider,
   VideoFrameRequest,
 } from "./types.js";
+export {
+  addRenderProfile,
+  emptyRenderProfile,
+  profileNow,
+  resetRenderProfile,
+} from "./profile.js";
 export {
   computeStateAt,
   indexTweens,

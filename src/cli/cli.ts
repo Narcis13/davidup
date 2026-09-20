@@ -27,6 +27,10 @@ import {
   type RenderOptions,
 } from "./render.js";
 import {
+  DEFAULT_PROFILE_BAND_SECONDS,
+  formatProfileReport,
+} from "./profileReport.js";
+import {
   checkContainerCodec,
   COLOR_PROFILES,
   VIDEO_CODECS,
@@ -112,8 +116,8 @@ davidup ${VERSION}
 USAGE
   davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
   davidup new  <dir> [--template=<name>] [--force]
-  davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>] [--from=<s>] [--to=<s>]
-  davidup render <project|comp.json> --frames <dir> [--fps=<n>] [--from=<s>] [--to=<s>]
+  davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>] [--from=<s>] [--to=<s>] [--profile[=<s>]]
+  davidup render <project|comp.json> --frames <dir> [--fps=<n>] [--from=<s>] [--to=<s>] [--profile[=<s>]]
   davidup list
   davidup recent
   davidup --help
@@ -154,6 +158,10 @@ FLAGS
                       cut to the same window.
   --frames=<dir>      Write a PNG per frame (<dir>/00001.png, ...) instead of a
                       video; no audio. Replaces -o.
+  --profile[=<s>]     After rendering, print where the paint time went: one row
+                      per <s> seconds of the timeline (default 2), with per-frame
+                      paint ms, fps, blur ms and scratch-surface area. Does not
+                      change what is rendered.
 
 EXAMPLES
   davidup new ./my-clip
@@ -164,6 +172,7 @@ EXAMPLES
   davidup render ./lower-third -o lower-third.mov --codec=prores_ks
   davidup render ./my-clip -o beat.mp4 --from=12 --to=16
   davidup render ./my-clip --frames ./frames --from=2 --to=3
+  davidup render ./my-clip --frames /tmp/f --profile=3
   davidup list
 `;
 
@@ -600,6 +609,21 @@ async function runRenderCommand(
     return 2;
   }
 
+  // `--profile` alone, or `--profile=<band seconds>` to widen/narrow the rows.
+  const profileRaw = parsed.flags?.profile;
+  const profiling = profileRaw !== undefined && profileRaw !== false;
+  let bandSeconds = DEFAULT_PROFILE_BAND_SECONDS;
+  if (typeof profileRaw === "string") {
+    const n = Number(profileRaw);
+    if (!Number.isFinite(n) || n <= 0) {
+      deps.io.error(
+        `davidup: invalid --profile "${profileRaw}" (expected band seconds > 0)`,
+      );
+      return 2;
+    }
+    bandSeconds = n;
+  }
+
   const from = numberFlag(parsed.flags, "from", deps.io, 0, Infinity);
   if (from === INVALID_FLAG) return 2;
   const to = numberFlag(parsed.flags, "to", deps.io, 0, Infinity);
@@ -637,6 +661,7 @@ async function runRenderCommand(
         ...(preset !== undefined ? { preset } : {}),
         ...(colorRaw !== undefined ? { colorProfile: colorRaw as ColorProfile } : {}),
         ...(framesRaw !== undefined ? { format: "png-sequence" as const } : {}),
+        ...(profiling ? { profile: true } : {}),
         ...(from !== undefined || to !== undefined
           ? {
               range: {
@@ -651,6 +676,12 @@ async function runRenderCommand(
     deps.io.log(
       `davidup render · wrote ${result.outputPath} (${result.frameCount} frames, ${(result.durationMs / 1000).toFixed(1)}s)`,
     );
+    // Profile goes to stderr next to the progress lines it explains, so
+    // `-o /dev/stdout` piping and the success line on stdout stay clean.
+    if (result.profile !== undefined) {
+      deps.io.error(`davidup render · profile (bands of ${bandSeconds}s)`);
+      deps.io.error(formatProfileReport(result.profile, bandSeconds));
+    }
     return 0;
   } catch (err) {
     if (err instanceof RenderError) {

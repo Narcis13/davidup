@@ -20,11 +20,11 @@
 // layer and then applying opacity once.
 //
 // v1.1 S18 makes the flattened reading available as an opt-in: `isolate: true`
-// on a group paints its children into a canvas-sized scratch surface (seeded
-// with the CTM they would have inherited) and composites that surface once,
-// with the group's opacity and its optional `blendMode`. Overlap seams vanish
-// and a child's own blend mode sees only its siblings. The default is
-// unchanged, so no existing frame moves. Isolation needs both an
+// on a group paints its children into a scratch surface (seeded with the CTM
+// they would have inherited) and composites that surface once, with the
+// group's opacity and its optional `blendMode`. Overlap seams vanish and a
+// child's own blend mode sees only its siblings. The default is unchanged,
+// so no existing frame moves. Isolation needs both an
 // `OffscreenSurface` factory and the optional `getTransform`/`setTransform`
 // pair on `Canvas2DContext`; a host missing either silently keeps the
 // multiplicative path (see `drawItem`).
@@ -36,6 +36,13 @@
 // which both hosts rasterize alike. Blur is in-engine (engine/blur.ts):
 // skia-canvas's `ctx.filter` blur on `drawImage` runs at half Chromium's σ,
 // so the editor and the export would disagree.
+//
+// v1.3 G8 cuts what those scratch surfaces cost. Each one is sized to the box
+// its item can actually paint in (engine/bounds.ts) instead of to the whole
+// canvas, and the surface is composited back at that box's corner; a wide
+// blur runs on a downscaled copy (engine/blur.ts). The bounds are a superset
+// and fall back to the canvas whenever the extent is unknown — text, above
+// all — so no frame that rendered before moves.
 
 import type {
   BlendMode,
@@ -59,13 +66,18 @@ import {
 import type {
   AssetRegistry,
   Canvas2DContext,
+  CanvasMatrix,
   OffscreenSurface,
   RenderOptions,
+  RenderProfile,
   VideoClip,
   VideoFrameProvider,
   VideoFrameRequest,
 } from "./types.js";
+import { anchorHeight, anchorWidth } from "./anchor.js";
 import { blurPixels } from "./blur.js";
+import { scratchSurfaceRect } from "./bounds.js";
+import { profileNow } from "./profile.js";
 import {
   DEFAULT_LINE_HEIGHT,
   isBoxText,
@@ -87,7 +99,20 @@ interface DrawContext {
   // Resolves pre-extracted frames for video items; undefined ⇒ video draws
   // nothing. See {@link VideoFrameProvider}.
   video: VideoFrameProvider | undefined;
+  // Counter bag `davidup render --profile` hands in (v1.3 G8); undefined for
+  // every production paint. Written to, never read back.
+  profile?: RenderProfile | undefined;
+  // Extent of the surface the current `ctx` paints on. The composition box
+  // for the main canvas; a scratch surface's own box once a flattened item
+  // recurses into one, so a nested scratch surface is clamped to what its
+  // parent can keep rather than to the canvas (v1.3 G8). Absent ⇒ the
+  // composition box.
+  surface?: { width: number; height: number } | undefined;
 }
+
+// Re-exported here because this is where `anchorWidth`/`anchorHeight` lived
+// through v1.3 G6, and the browser driver imports them from the engine index.
+export { anchorHeight, anchorWidth };
 
 const COMPOSITE_NORMAL = "source-over";
 
@@ -107,6 +132,7 @@ export function renderFrame(
   drawScene(scene, ctx, options.assets, options.createOffscreen, {
     time: t,
     ...(options.video !== undefined ? { video: options.video } : {}),
+    ...(options.profile !== undefined ? { profile: options.profile } : {}),
   });
 }
 
@@ -157,6 +183,8 @@ export async function prepareVideoFrames(
 export interface VideoRenderContext {
   time: number;
   video?: VideoFrameProvider;
+  /** Paint-time counters (v1.3 G8) — see {@link RenderProfile}. */
+  profile?: RenderProfile;
 }
 
 export function drawScene(
@@ -178,6 +206,7 @@ export function drawScene(
     createOffscreen,
     time: video?.time ?? 0,
     video: video?.video,
+    profile: video?.profile,
   };
 
   const sorted = sortLayersByZ(scene.layers);
@@ -315,46 +344,6 @@ function applyBlendMode(ctx: Canvas2DContext, mode: BlendMode): void {
   ctx.globalCompositeOperation = mode === "normal" ? COMPOSITE_NORMAL : mode;
 }
 
-/**
- * The box `transform.anchorX/anchorY` are fractions of. Zero on both axes
- * means the item has no box and the anchor is inert.
- *
- * A group's box is declarative and optional (v1.3, L-3): it is whatever the
- * author (or scene expansion, from the scene's `size`) put on `width`/`height`
- * — *not* the children's measured extent, which the renderer never computes.
- * Absent ⇒ 0 ⇒ the pre-v1.3 behaviour, so no existing frame moves. Text is
- * absent here on purpose: it measures its own block and applies the anchor
- * itself in `drawText`, because the measurement needs the font on the context.
- *
- * Exported so the browser driver's hit-testing and selection-ring math pivot
- * on exactly the same box the renderer draws on.
- */
-export function anchorWidth(item: Item): number {
-  if (item.type === "sprite") return item.width;
-  // Video is spatially a sprite: its anchor pivots on the [width, height] box.
-  if (item.type === "video") return item.width;
-  if (item.type === "shape") return item.width ?? 0;
-  if (item.type === "group") return item.width ?? 0;
-  return 0;
-}
-
-/** Vertical half of {@link anchorWidth}. */
-export function anchorHeight(item: Item): number {
-  if (item.type === "sprite") return item.height;
-  if (item.type === "video") return item.height;
-  if (item.type === "shape") {
-    // §3.2: a circle's `width` is its diameter on both axes, and `height` is
-    // intentionally not authored. Fall back to width so anchorY actually
-    // shifts the circle vertically.
-    if (item.kind === "circle") return item.height ?? item.width ?? 0;
-    return item.height ?? 0;
-  }
-  // A group declares each axis on its own — there is no circle-style fallback
-  // to guess a missing one from.
-  if (item.type === "group") return item.height ?? 0;
-  return 0;
-}
-
 function drawSprite(
   ctx: Canvas2DContext,
   item: SpriteItem,
@@ -378,7 +367,7 @@ function drawSprite(
   // transparent pixels, and the destination-in mask re-applies image alpha on
   // top of the outer `globalAlpha × tr.opacity`. Trade-off: flat tint over the
   // silhouette rather than a luminance-preserving multiply.
-  const off = dc.createOffscreen(item.width, item.height);
+  const off = takeOffscreen(dc, item.width, item.height);
   const oc = off.context;
   oc.drawImage(image, 0, 0, item.width, item.height);
   oc.globalCompositeOperation = "source-atop";
@@ -705,16 +694,29 @@ function canIsolate(ctx: Canvas2DContext, dc: DrawContext): boolean {
   );
 }
 
+// Single door onto the driver's surface factory, so the profiler (v1.3 G8)
+// sees every scratch surface the renderer asks for. Callers have already
+// established `createOffscreen` is wired (`canIsolate`, or an explicit check).
+function takeOffscreen(dc: DrawContext, w: number, h: number): OffscreenSurface {
+  if (dc.profile !== undefined) {
+    dc.profile.offscreens += 1;
+    dc.profile.offscreenPixels += w * h;
+  }
+  return dc.createOffscreen!(w, h);
+}
+
 /**
  * Paint a group's children onto a scratch surface, then composite that
  * surface once (v1.1 S18).
  *
- * The scratch surface is composition-sized and holds canvas-space pixels: it
- * is seeded with the CTM the group inherited, then given the group's own
- * transform, so every child lands on exactly the pixel it would have without
- * isolation. Children draw at `globalAlpha = 1` against transparent black —
- * that is what makes the group read as one layer, and what keeps a child's
- * own blend mode from seeing the canvas backdrop.
+ * The scratch surface holds canvas-space pixels: it is seeded with the CTM the
+ * group inherited, then given the group's own transform, so every child lands
+ * on exactly the pixel it would have without isolation. Since v1.3 (G8) the
+ * surface covers only the box the subtree can paint in and is offset to its
+ * corner — {@link surfaceRect} — which is why the seed carries `−rect.x/y` and
+ * the composite draws at `rect.x/y`. Children draw at `globalAlpha = 1`
+ * against transparent black — that is what makes the group read as one layer,
+ * and what keeps a child's own blend mode from seeing the canvas backdrop.
  *
  * The composite then runs at the canvas's identity frame (1:1, the same frame
  * `drawBackground` fills), carrying the group's `transform.opacity` on top of
@@ -732,13 +734,14 @@ function drawIsolatedGroup(
   scene: ResolvedScene,
   dc: DrawContext,
 ): boolean {
-  const { width, height } = scene.composition;
-  const off = dc.createOffscreen!(width, height);
+  if (dc.profile !== undefined) dc.profile.isolatedGroups += 1;
+  const m = ctx.getTransform!();
+  const rect = surfaceRect(item, scene, m, dc);
+  const off = takeOffscreen(dc, rect.width, rect.height);
   const oc = off.context;
   if (typeof oc.setTransform !== "function") return false;
 
-  const m = ctx.getTransform!();
-  oc.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+  oc.setTransform(m.a, m.b, m.c, m.d, m.e - rect.x, m.f - rect.y);
   oc.save();
   const tr = item.transform;
   oc.translate(tr.x, tr.y);
@@ -752,16 +755,35 @@ function drawIsolatedGroup(
   if (aw !== 0 || ah !== 0) oc.translate(-tr.anchorX * aw, -tr.anchorY * ah);
   oc.globalAlpha = 1;
   oc.globalCompositeOperation = COMPOSITE_NORMAL;
-  drawGroupChildren(oc, item, scene, dc);
+  drawGroupChildren(oc, item, scene, { ...dc, surface: rect });
   oc.restore();
 
   ctx.save();
   ctx.setTransform!(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = ctx.globalAlpha * tr.opacity;
   if (item.blendMode !== undefined) applyBlendMode(ctx, item.blendMode);
-  ctx.drawImage(off.source, 0, 0, width, height);
+  ctx.drawImage(off.source, rect.x, rect.y, rect.width, rect.height);
   ctx.restore();
   return true;
+}
+
+/**
+ * The scratch surface to flatten `item` onto: the box it can actually paint
+ * inside (v1.3 G8), or the whole canvas when that box is unknown or nearly
+ * the canvas anyway. `x`/`y` are whole canvas pixels, so seeding the surface
+ * with the inherited matrix shifted by `−x, −y` and compositing it back at
+ * `x, y` moves no pixel off its column.
+ */
+function surfaceRect(
+  item: Item,
+  scene: ResolvedScene,
+  m: CanvasMatrix,
+  dc: DrawContext,
+): { x: number; y: number; width: number; height: number } {
+  const { width, height } = dc.surface ?? scene.composition;
+  return (
+    scratchSurfaceRect(item, scene, m, width, height) ?? { x: 0, y: 0, width, height }
+  );
 }
 
 function hasEffects(item: Item): boolean {
@@ -771,12 +793,13 @@ function hasEffects(item: Item): boolean {
 /**
  * Draw `item` through its `effects` stack (v1.1 S21).
  *
- * 1. Flatten: paint the item onto a composition-sized scratch surface seeded
- *    with the inherited CTM — exactly as `drawIsolatedGroup` does — at
- *    `globalAlpha = 1` and source-over, via the ordinary `drawItem` path on a
- *    copy with opacity 1 and no effects. A group copy also drops `isolate`
- *    and `blendMode`: flattening already isolates its children, and the
- *    group's blend mode belongs to the final composite.
+ * 1. Flatten: paint the item onto a scratch surface seeded with the inherited
+ *    CTM — exactly as `drawIsolatedGroup` does, and sized the same way, to the
+ *    box the item plus its effects' reach can touch — at `globalAlpha = 1` and
+ *    source-over, via the ordinary `drawItem` path on a copy with opacity 1
+ *    and no effects. A group copy also drops `isolate` and `blendMode`:
+ *    flattening already isolates its children, and the group's blend mode
+ *    belongs to the final composite.
  * 2. Post-process, in order. A blur rewrites the current surface's pixels
  *    in place (engine/blur.ts). A shadow or glow redraws the current surface
  *    onto a cleared spare at the identity frame with the shadow state set —
@@ -799,33 +822,35 @@ function drawWithEffects(
   dc: DrawContext,
   itemId: string | undefined,
 ): boolean {
-  const { width, height } = scene.composition;
-  let src = dc.createOffscreen!(width, height);
+  if (dc.profile !== undefined) dc.profile.effectItems += 1;
+  const m = ctx.getTransform!();
+  const rect = surfaceRect(item, scene, m, dc);
+  let src = takeOffscreen(dc, rect.width, rect.height);
   const oc = src.context;
   if (typeof oc.setTransform !== "function") return false;
 
-  const m = ctx.getTransform!();
-  oc.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+  oc.setTransform(m.a, m.b, m.c, m.d, m.e - rect.x, m.f - rect.y);
   oc.globalAlpha = 1;
   oc.globalCompositeOperation = COMPOSITE_NORMAL;
-  drawItem(oc, flattenCopy(item), scene, dc.assets, dc, itemId);
+  drawItem(oc, flattenCopy(item), scene, dc.assets, { ...dc, surface: rect }, itemId);
 
   let spare: OffscreenSurface | undefined;
   for (const effect of item.effects!) {
     if (isNoOpEffect(effect)) continue;
     if (effect.type === "blur") {
-      blurSurface(src.context, width, height, effect.radius);
+      blurSurface(src.context, rect.width, rect.height, effect.radius, dc);
       continue;
     }
-    spare ??= dc.createOffscreen!(width, height);
+    if (dc.profile !== undefined) dc.profile.shadowPasses += 1;
+    spare ??= takeOffscreen(dc, rect.width, rect.height);
     const sc = spare.context;
     sc.setTransform!(1, 0, 0, 1, 0, 0);
-    sc.clearRect(0, 0, width, height);
+    sc.clearRect(0, 0, rect.width, rect.height);
     sc.save();
     sc.globalAlpha = 1;
     sc.globalCompositeOperation = COMPOSITE_NORMAL;
     applyShadowState(sc, effect);
-    sc.drawImage(src.source, 0, 0, width, height);
+    sc.drawImage(src.source, 0, 0, rect.width, rect.height);
     sc.restore();
     const done = spare;
     spare = src;
@@ -838,7 +863,7 @@ function drawWithEffects(
   if (item.type === "group" && item.blendMode !== undefined) {
     applyBlendMode(ctx, item.blendMode);
   }
-  ctx.drawImage(src.source, 0, 0, width, height);
+  ctx.drawImage(src.source, rect.x, rect.y, rect.width, rect.height);
   ctx.restore();
   return true;
 }
@@ -870,20 +895,27 @@ function isNoOpEffect(effect: Effect): boolean {
   }
 }
 
-// Blur a composition-sized scratch surface in place. A host without pixel
-// access leaves the surface unblurred — the item still shows, just sharp.
+// Blur a scratch surface in place. A host without pixel access leaves the
+// surface unblurred — the item still shows, just sharp.
 function blurSurface(
   ctx: Canvas2DContext,
   width: number,
   height: number,
   sigma: number,
+  dc: DrawContext,
 ): void {
   if (typeof ctx.getImageData !== "function" || typeof ctx.putImageData !== "function") {
     return;
   }
+  const started = dc.profile !== undefined ? profileNow() : 0;
   const img = ctx.getImageData(0, 0, width, height);
   blurPixels(img, sigma);
   ctx.putImageData(img, 0, 0);
+  if (dc.profile !== undefined) {
+    dc.profile.blurs += 1;
+    dc.profile.blurPixels += width * height;
+    dc.profile.blurMs += profileNow() - started;
+  }
 }
 
 function applyShadowState(

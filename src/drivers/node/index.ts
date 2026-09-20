@@ -31,15 +31,24 @@ import {
 } from "../../assets/index.js";
 import { precompile, synthesizeVideoAudio } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
-import { indexTweens, prepareVideoFrames, renderFrame } from "../../engine/index.js";
+import {
+  addRenderProfile,
+  emptyRenderProfile,
+  indexTweens,
+  prepareVideoFrames,
+  profileNow,
+  renderFrame,
+  resetRenderProfile,
+} from "../../engine/index.js";
 import type {
   Canvas2DContext,
   OffscreenSurface,
+  RenderProfile,
   VideoClip,
   VideoFrameProvider,
   VideoFrameRequest,
 } from "../../engine/types.js";
-import { fpsArg, fpsRational, frameTime, framesForDuration } from "../../schema/fps.js";
+import { fpsArg, fpsRational, fpsValue, frameTime, framesForDuration } from "../../schema/fps.js";
 import type { Composition } from "../../schema/types.js";
 import { compositionHasAudio, muxAudioTracks } from "./audioMux.js";
 import { resolveFfmpeg, sweepOrphanTempVideos } from "./ffmpeg.js";
@@ -209,6 +218,14 @@ export interface RenderToFileOptions {
    * `%0Nd.png` selects the sequence even without this option.
    */
   format?: RenderFormat;
+
+  /**
+   * Record per-frame paint cost and return it as `result.profile` (v1.3 G8,
+   * finding P-1). Adds a `performance.now()` pair per frame and a counter bag
+   * the engine adds to; it never changes what is painted. `davidup render
+   * --profile` sets it.
+   */
+  profile?: boolean;
 }
 
 export interface RenderRange {
@@ -342,6 +359,31 @@ export interface RenderToFileResult {
   outputPath: string;
   durationMs: number;
   frameCount: number;
+  /** Present only when `profile: true` was asked for. See {@link RenderProfileReport}. */
+  profile?: RenderProfileReport;
+}
+
+/** One rendered frame's paint cost (v1.3 G8). */
+export interface FrameProfileRecord {
+  /** 0-based index into the rendered window (not the full timeline). */
+  frame: number;
+  /** Composition time of the frame, in seconds. */
+  t: number;
+  /** Wall clock inside `renderFrame` — paint only, no encode, no decode. */
+  paintMs: number;
+  /** Wall clock inside `prepareVideoFrames` (decoding the frame's clips). */
+  videoMs: number;
+  /** Engine counters for this frame alone. */
+  engine: RenderProfile;
+}
+
+/** Per-frame paint cost for a whole render (v1.3 G8, finding P-1). */
+export interface RenderProfileReport {
+  /** Composition frame rate, so a reader can turn paint ms into a real-time factor. */
+  fps: number;
+  /** Wall clock from the first paint to the last, excluding compile and pre-extraction. */
+  paintMsTotal: number;
+  frames: FrameProfileRecord[];
 }
 
 const STDERR_TAIL_BYTES = 4096;
@@ -406,17 +448,47 @@ export async function renderToFile(
     return { context: off.getContext("2d"), source: off };
   };
 
+  // Paint-time accounting (v1.3 G8). `frameProfile` is reused across frames —
+  // zeroed before each paint, snapshotted after — so profiling allocates one
+  // counter bag for the whole render rather than one per frame.
+  const profiling = opts.profile === true;
+  const frameProfile = profiling ? emptyRenderProfile() : undefined;
+  const profileFrames: FrameProfileRecord[] = [];
+  let paintMsTotal = 0;
+
   const paintFrame = async (i: number): Promise<void> => {
     const t = frameTime(startFrame + i, meta.fps);
+    const videoStarted = profiling ? profileNow() : 0;
     await prepareVideoFrames(compiled, t, videoProvider);
+    const paintStarted = profiling ? profileNow() : 0;
+    if (frameProfile !== undefined) resetRenderProfile(frameProfile);
     ctx.clearRect(0, 0, meta.width, meta.height);
     renderFrame(compiled, t, ctx, {
       assets: loader,
       index: tweenIndex,
       createOffscreen,
       ...(videoProvider !== undefined ? { video: videoProvider } : {}),
+      ...(frameProfile !== undefined ? { profile: frameProfile } : {}),
     });
+    if (frameProfile !== undefined) {
+      const paintMs = profileNow() - paintStarted;
+      paintMsTotal += paintMs;
+      const engine = emptyRenderProfile();
+      addRenderProfile(engine, frameProfile);
+      profileFrames.push({
+        frame: i,
+        t,
+        paintMs,
+        videoMs: paintStarted - videoStarted,
+        engine,
+      });
+    }
   };
+
+  const profileReport = (): RenderProfileReport | undefined =>
+    profiling
+      ? { fps: fpsValue(meta.fps), paintMsTotal, frames: profileFrames }
+      : undefined;
   const reportProgress = async (frame: number): Promise<void> => {
     if (!opts.onProgress) return;
     try {
@@ -443,10 +515,12 @@ export async function renderToFile(
       await writeFile(pngSequenceFramePath(pattern, i + 1), toNodeBuffer(png));
       await reportProgress(i + 1);
     }
+    const report = profileReport();
     return {
       outputPath: pattern,
       durationMs: nowMs() - startedAt,
       frameCount: totalFrames,
+      ...(report !== undefined ? { profile: report } : {}),
     };
   }
 
@@ -551,10 +625,12 @@ export async function renderToFile(
     }
   }
 
+  const report = profileReport();
   return {
     outputPath: outPath,
     durationMs: nowMs() - startedAt,
     frameCount: totalFrames,
+    ...(report !== undefined ? { profile: report } : {}),
   };
 }
 

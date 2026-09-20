@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli, parseArgs } from "../../src/cli/cli.js";
+import { emptyRenderProfile } from "../../src/engine/index.js";
 import { VERSION } from "../../src/index.js";
 import type { EditHandle } from "../../src/cli/edit.js";
 
@@ -246,6 +247,68 @@ describe("cli · runCli", () => {
     expect(received!.outputPath).toBe(join(cwd, "frames"));
     expect(received!.format).toBe("png-sequence");
     expect(received!.range).toEqual({ from: 1.5, to: 3 });
+  });
+
+  it("`render --profile` asks for the report and prints it on stderr (v1.3 G8)", async () => {
+    const cap = captureIo();
+    let received: Parameters<NonNullable<Parameters<typeof runCli>[1]["renderFn"]>>[0] | null =
+      null;
+    const code = await runCli(["render", "./x", "--frames", "frames", "--profile=3"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async (opts) => {
+        received = opts;
+        return {
+          outputPath: opts.outputPath,
+          durationMs: 1,
+          frameCount: 2,
+          profile: {
+            fps: 30,
+            paintMsTotal: 300,
+            frames: [
+              { frame: 0, t: 0, paintMs: 100, videoMs: 0, engine: emptyRenderProfile() },
+              { frame: 120, t: 4, paintMs: 200, videoMs: 0, engine: emptyRenderProfile() },
+            ],
+          },
+        };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(received!.profile).toBe(true);
+    const err = cap.err.join("\n");
+    expect(err).toMatch(/profile \(bands of 3s\)/);
+    // Two frames 4 s apart land in different 3 s bands.
+    expect(err).toMatch(/0\.0–3\.0/);
+    expect(err).toMatch(/3\.0–6\.0/);
+    expect(err).toMatch(/total 2 frames/);
+    // The report never leaks onto stdout, which stays the one success line.
+    expect(cap.out.join("\n")).not.toMatch(/total 2 frames/);
+  });
+
+  it("`render` exits 2 on a --profile band that is not a positive number", async () => {
+    const cap = captureIo();
+    const code = await runCli(["render", "./x", "-o", "out.mp4", "--profile=0"], {
+      io: cap.io,
+      cwd: process.cwd(),
+    });
+    expect(code).toBe(2);
+    expect(cap.err.join("\n")).toMatch(/invalid --profile/);
+  });
+
+  it("`render` without --profile asks for no report", async () => {
+    const cap = captureIo();
+    let received: Parameters<NonNullable<Parameters<typeof runCli>[1]["renderFn"]>>[0] | null =
+      null;
+    await runCli(["render", "./x", "--frames", "frames"], {
+      io: cap.io,
+      cwd: process.cwd(),
+      renderFn: async (opts) => {
+        received = opts;
+        return { outputPath: opts.outputPath, durationMs: 1, frameCount: 1 };
+      },
+    });
+    expect(received!.profile).toBeUndefined();
   });
 
   it("`render` exits 2 when --to is not after --from", async () => {

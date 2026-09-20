@@ -253,6 +253,7 @@ davidup render ./my-clip -o out.mp4                   # project dir
 davidup render composition.json -o out.mp4 --crf=23   # raw composition file
 davidup render ./my-clip -o beat.mp4 --from=12 --to=16 # just one beat
 davidup render ./my-clip --frames ./frames             # PNG sequence
+davidup render ./my-clip -o out.mp4 --profile          # + a paint-time table
 ```
 
 Progress streams to stderr (`davidup render · frame N/T (x.x fps)`); the
@@ -1104,8 +1105,8 @@ played in the browser.
 ```
 davidup new <dir> [--template=<name>] [--force]
 davidup edit <dir> [--port=<n>] [--host=<h>] [--no-open]
-davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>] [--from=<s>] [--to=<s>]
-davidup render <project|comp.json> --frames <dir> [--fps=<n>] [--from=<s>] [--to=<s>]
+davidup render <project|comp.json> -o <out.mp4|.mov|.webm> [--codec=<c>] [--crf=<n>] [--fps=<n>] [--preset=<p>] [--color=<c>] [--from=<s>] [--to=<s>] [--profile[=<s>]]
+davidup render <project|comp.json> --frames <dir> [--fps=<n>] [--from=<s>] [--to=<s>] [--profile[=<s>]]
 davidup list                          # or: davidup recent
 davidup --version | --help
 ```
@@ -1126,6 +1127,10 @@ davidup --version | --help
   `--from`, `ceil((to − from) × fps)` frames are written, and the audio is cut
   to the same window. `--frames <dir>` replaces `-o` and writes
   `<dir>/00001.png, 00002.png, …` (numbered from 1, no audio).
+  `--profile` prints, after the render, a table of where the paint time went:
+  one row per `<s>` seconds of the timeline (default 2), with mean paint ms,
+  fps, blur ms and scratch-surface megapixels per frame, so a slow act names
+  itself. It changes nothing about what is rendered.
   Progress goes to stderr; exit code 2 for bad arguments, 1 for invalid input
   or a failed render.
 - `list` / `recent` prints the recents registry as a table (NAME / PATH /

@@ -967,7 +967,7 @@ function isolatedGroup(overrides: Partial<GroupItem> = {}): GroupItem {
 }
 
 describe("drawItem — isolated groups (v1.1 S18)", () => {
-  it("draws the children at full alpha on a composition-sized scratch surface, then composites once at the group's opacity", () => {
+  it("draws the children at full alpha on a scratch surface cut to their box, then composites once at the group's opacity", () => {
     const ctx = new FakeContext();
     const { createOffscreen, surfaces } = offscreenFactory();
     const group = isolatedGroup();
@@ -980,10 +980,10 @@ describe("drawItem — isolated groups (v1.1 S18)", () => {
       video: undefined,
     });
 
-    // One scratch surface, sized to the composition.
+    // One scratch surface, cut to the two 10 × 10 children at the origin plus
+    // a pixel of anti-aliasing slack (v1.3 G8) — not the 200 × 100 canvas.
     expect(surfaces.length).toBe(1);
-    expect(surfaces[0]!.w).toBe(200);
-    expect(surfaces[0]!.h).toBe(100);
+    expect([surfaces[0]!.w, surfaces[0]!.h]).toEqual([11, 11]);
 
     // Both children painted on the scratch surface, neither dimmed: the
     // group's 0.5 is applied to the composite, not to each child.
@@ -1001,7 +1001,8 @@ describe("drawItem — isolated groups (v1.1 S18)", () => {
     if (composite.op === "drawImage") {
       expect(composite.image).toBe(surfaces[0]!.source);
       expect(composite.alpha).toBeCloseTo(0.5, 10);
-      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 200, 100]);
+      // Composited back at the box's own corner, 1:1.
+      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 11, 11]);
     }
   });
 
@@ -1023,11 +1024,18 @@ describe("drawItem — isolated groups (v1.1 S18)", () => {
       video: undefined,
     });
 
+    // The children land at canvas (30, 40)–(50, 60); the surface covers that
+    // box with a pixel of slack, so the seed is the inherited matrix shifted
+    // by the box's corner and the composite puts it back there.
     const seed = surfaces[0]!.ctx.calls.find((c) => c.op === "setTransform");
     expect(seed).toBeDefined();
     if (seed?.op === "setTransform") {
-      expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 30, 40]);
+      expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 1, 1]);
     }
+    const back = ctx.calls.find((c) => c.op === "drawImage");
+    if (back?.op !== "drawImage") throw new Error("no composite");
+    expect([back.dx, back.dy]).toEqual([29, 39]);
+    expect([back.dw, back.dh]).toEqual([surfaces[0]!.w, surfaces[0]!.h]);
 
     // The main context is reset to identity for the 1:1 composite, then
     // restored — the inherited matrix survives for whatever draws next.
@@ -1364,8 +1372,10 @@ describe("drawItem — effects (v1.1 S21)", () => {
 
     drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
 
-    // One composition-sized surface: blur works on its pixels in place.
-    expect(surfaces.map((s) => [s.w, s.h])).toEqual([[200, 100]]);
+    // One surface, cut to the 10 × 10 item at (10, 20) grown by the blur's
+    // 9 px reach plus a pixel of slack, and clamped to the canvas at the left
+    // edge (v1.3 G8). Blur works on its pixels in place.
+    expect(surfaces.map((s) => [s.w, s.h])).toEqual([[33, 36]]);
     const off = surfaces[0]!.ctx.calls;
     // The item itself lands undimmed, then the whole surface is read back
     // and rewritten.
@@ -1377,7 +1387,7 @@ describe("drawItem — effects (v1.1 S21)", () => {
     expect(fillAt).toBeLessThan(readAt);
     expect(readAt).toBeLessThan(writeAt);
     const read = off[readAt];
-    if (read?.op === "getImageData") expect([read.x, read.y, read.w, read.h]).toEqual([0, 0, 200, 100]);
+    if (read?.op === "getImageData") expect([read.x, read.y, read.w, read.h]).toEqual([0, 0, 33, 36]);
     // Nothing but the composite touches the canvas, and it carries opacity.
     expect(ctx.calls.some((c) => c.op === "fill")).toBe(false);
     const composites = ctx.calls.filter((c) => c.op === "drawImage");
@@ -1386,7 +1396,7 @@ describe("drawItem — effects (v1.1 S21)", () => {
     if (composite.op === "drawImage") {
       expect(composite.image).toBe(surfaces[0]!.source);
       expect(composite.alpha).toBeCloseTo(0.6, 10);
-      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 0, 200, 100]);
+      expect([composite.dx, composite.dy, composite.dw, composite.dh]).toEqual([0, 7, 33, 36]);
     }
   });
 
@@ -1521,9 +1531,12 @@ describe("drawItem — effects (v1.1 S21)", () => {
 
     drawItem(ctx, item, fxScene({ s: item }), undefined, fxDc(createOffscreen), "s");
 
+    // Item at canvas (30, 40)–(50, 60) under a 9 px blur reach: the surface
+    // starts at (20, 30), so the seed carries the inherited matrix less that
+    // corner (v1.3 G8).
     const seed = surfaces[0]!.ctx.calls.find((c) => c.op === "setTransform");
     if (seed?.op !== "setTransform") throw new Error("flatten surface was not seeded");
-    expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 30, 40]);
+    expect([seed.a, seed.b, seed.c, seed.d, seed.e, seed.f]).toEqual([2, 0, 0, 2, 10, 10]);
     const reset = ctx.calls.find((c) => c.op === "setTransform");
     if (reset?.op !== "setTransform") throw new Error("composite not at identity");
     expect([reset.a, reset.b, reset.c, reset.d, reset.e, reset.f]).toEqual([1, 0, 0, 1, 0, 0]);
