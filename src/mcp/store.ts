@@ -255,6 +255,11 @@ export interface AddGroupInput {
   // composite blends against what is already painted.
   isolate?: boolean;
   blendMode?: BlendMode;
+  // v1.3 L-3 — the group's anchor box. Declaring it is what makes
+  // `anchorX`/`anchorY` do anything; a group still draws no pixels of its own
+  // and never clips its children.
+  width?: number;
+  height?: number;
   anchorX?: number;
   anchorY?: number;
   rotation?: number;
@@ -1057,12 +1062,16 @@ export class CompositionStore {
       opacity: input.opacity ?? DEFAULT_TRANSFORM.opacity,
     };
     ensureUnitInterval("opacity", transform.opacity);
+    if (input.width !== undefined) ensureNonNegative("width", input.width);
+    if (input.height !== undefined) ensureNonNegative("height", input.height);
     const group: GroupItem = {
       type: "group",
       items: [...childIds],
       transform,
       ...(input.isolate !== undefined ? { isolate: input.isolate } : {}),
       ...(input.blendMode !== undefined ? { blendMode: input.blendMode } : {}),
+      ...(input.width !== undefined ? { width: input.width } : {}),
+      ...(input.height !== undefined ? { height: input.height } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, group);
@@ -2542,9 +2551,13 @@ function cloneItem(item: Item): Item {
         items: [...item.items],
         transform: { ...item.transform },
         // v1.1 S18 compositing opt-ins. Absent ⇒ the default multiplicative
-        // path, so they only survive the clone when actually set.
+        // path, so they only survive the clone when actually set. Same for the
+        // v1.3 anchor box: absent ⇒ no box, and the canonical JSON for a group
+        // that never declared one stays byte-identical.
         ...(item.isolate !== undefined ? { isolate: item.isolate } : {}),
         ...(item.blendMode !== undefined ? { blendMode: item.blendMode } : {}),
+        ...(item.width !== undefined ? { width: item.width } : {}),
+        ...(item.height !== undefined ? { height: item.height } : {}),
         ...flags,
       };
     case "video":
@@ -2831,6 +2844,10 @@ function applyTypedItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...item,
         transform,
         ...(props.items !== undefined ? { items: [...props.items] } : {}),
+        // v1.3 L-3: the anchor box. Set-only — there is no "clear the box"
+        // patch, because 0 already means "no box" everywhere that reads it.
+        ...(props.width !== undefined ? { width: props.width } : {}),
+        ...(props.height !== undefined ? { height: props.height } : {}),
         ...flagPatch,
       };
       // v1.1 S18. Both fields are droppable: `isolate: false` and
@@ -2848,6 +2865,8 @@ function applyTypedItemUpdate(item: Item, props: UpdateItemProps): Item {
         "items",
         "isolate",
         "blendMode",
+        "width",
+        "height",
         "x",
         "y",
         "scaleX",

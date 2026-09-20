@@ -1202,6 +1202,130 @@ describe("drawItem — group blendMode (v1.1 S18)", () => {
   });
 });
 
+// ──────────── v1.3 L-3 — the group anchor box ────────────
+//
+// A group has no measured extent, so its `anchorX`/`anchorY` used to be inert.
+// It now pivots on the optional `width`/`height` it declares — the same anchor
+// translate every other item type gets, in the same place in the stack, on
+// both the plain and the isolated path.
+
+// Childless on purpose: every child emits its own translates, and these
+// tests read the group's own two (position, then anchor) off the call log.
+function boxedGroup(overrides: Partial<GroupItem> = {}): GroupItem {
+  return {
+    type: "group",
+    items: [],
+    width: 300,
+    height: 340,
+    transform: {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      opacity: 1,
+    },
+    ...overrides,
+  };
+}
+
+describe("drawItem — group anchor box (v1.3, L-3)", () => {
+  it("pivots a group on its declared box", () => {
+    const ctx = new FakeContext();
+    const group = boxedGroup({
+      transform: {
+        x: 500,
+        y: 900,
+        scaleX: 2,
+        scaleY: 2,
+        rotation: 0,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        opacity: 1,
+      },
+    });
+    drawItem(ctx, group, isolateScene(group, {}), undefined);
+
+    const translates = ctx.calls.filter((c) => c.op === "translate");
+    expect(translates).toHaveLength(2);
+    if (translates[0]?.op === "translate") {
+      expect([translates[0].x, translates[0].y]).toEqual([500, 900]);
+    }
+    // −anchor × box, applied after the scale so the group grows about its
+    // own centre rather than about its origin.
+    if (translates[1]?.op === "translate") {
+      expect([translates[1].x, translates[1].y]).toEqual([-150, -170]);
+    }
+    expect(ctx.calls.map((c) => c.op).filter((o) => o === "translate" || o === "scale")).toEqual([
+      "translate",
+      "scale",
+      "translate",
+    ]);
+  });
+
+  it("leaves a group without a box exactly where it was — the anchor stays inert", () => {
+    const ctx = new FakeContext();
+    const group = boxedGroup();
+    delete group.width;
+    delete group.height;
+    drawItem(ctx, group, isolateScene(group, {}), undefined);
+
+    // Only the position translate: no box ⇒ no anchor offset, which is what
+    // every pre-v1.3 group did with a non-zero anchor.
+    const translates = ctx.calls.filter((c) => c.op === "translate");
+    expect(translates).toHaveLength(1);
+  });
+
+  it("anchors each axis independently", () => {
+    const ctx = new FakeContext();
+    const group = boxedGroup({ width: 300, transform: {
+      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
+      anchorX: 1, anchorY: 1, opacity: 1,
+    } });
+    delete group.height;
+    drawItem(ctx, group, isolateScene(group, {}), undefined);
+
+    const translates = ctx.calls.filter((c) => c.op === "translate");
+    // x shifts by the declared width; y has no box to be a fraction of.
+    expect(translates).toHaveLength(2);
+    if (translates[1]?.op === "translate") {
+      expect([translates[1].x, translates[1].y]).toEqual([-300, -0]);
+    }
+  });
+
+  it("applies the same anchor offset on the isolated path", () => {
+    const ctx = new FakeContext();
+    const { createOffscreen, surfaces } = offscreenFactory();
+    const group = boxedGroup({
+      isolate: true,
+      transform: {
+        x: 500,
+        y: 900,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        opacity: 1,
+      },
+    });
+    drawItem(ctx, group, isolateScene(group, {}), undefined, {
+      assets: undefined,
+      createOffscreen,
+      time: 0,
+      video: undefined,
+    });
+
+    const translates = surfaces[0]!.ctx.calls.filter((c) => c.op === "translate");
+    expect(translates).toHaveLength(2);
+    if (translates[1]?.op === "translate") {
+      expect([translates[1].x, translates[1].y]).toEqual([-150, -170]);
+    }
+  });
+});
+
 // ──────────── v1.1 S21 — per-item effects ────────────
 //
 // An item with `effects` is flattened onto a scratch surface, each effect is

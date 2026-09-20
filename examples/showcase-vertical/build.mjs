@@ -458,26 +458,26 @@ items.timeTitle = text("ONE SCENE.\nFIVE CLOCKS.", DISPLAY, 120, INK, C(CX, 365,
 fadeIn("timeTitle", 15, 0.3);
 scaleTw("timeTitle", 1.2, 1, 15, 0.5, "easeOutExpo");
 MODES.forEach(([label, sub, time, cx, top], k) => {
-  // A scene instance has no box to anchor on and must sit directly in a layer
-  // (a root group can't own one), so the pop-in pivots on the sun by moving
-  // x/y with the same easing as the scale: x(t) = cx − 150·s(t).
+  // v1.3 (L-2/L-3): the instance lives inside the `time` group and pivots on
+  // the scene's own `size` box, so the pop-in is one plain scale — `x`/`y`
+  // name where the box *centre* goes (local (150, 170)) and stay put while
+  // the scale runs.
   const s0 = 0.001, at = 15.3 + k * 0.06;
   items[`orr${k}`] = {
     type: "scene", scene: "orrery", start: 15.4, time, exit: 18.5,
-    transform: T(cx - 150 * s0, top - 150 * s0 + 150, { s: s0 }),
+    transform: T(cx, top + 170, { s: s0, a: 0.5 }),
   };
   scaleTw(`orr${k}`, s0, 1, at, 0.45, "easeOutBack");
-  tw(`orr${k}`, "transform.x", cx - 150 * s0, cx - 150, at, 0.45, "easeOutBack");
-  tw(`orr${k}`, "transform.y", top + 150 - 150 * s0, top, at, 0.45, "easeOutBack");
   items[`orrLbl${k}`] = text(label, MONO, 32, k === 0 ? INK : CYAN, C(cx, top + 345, { o: 0 }), { align: "center" });
   items[`orrSub${k}`] = text(sub, SANS, 28, DIM, C(cx, top + 390, { o: 0 }), { align: "center" });
-  timeChildren.push(`orrLbl${k}`, `orrSub${k}`);
+  timeChildren.push(`orr${k}`, `orrLbl${k}`, `orrSub${k}`);
   fadeIn(`orrLbl${k}`, 15.35 + k * 0.06, 0.3);
   fadeIn(`orrSub${k}`, 15.45 + k * 0.06, 0.3);
 });
+// The five instances are children of this group, so its fade-out takes them
+// with it — no per-instance copy of the same tween.
 items.time = group(timeChildren, T(0, 0), { enter: 15, exit: 18.5 });
 fadeOut("time", 18.15, 0.35);
-for (let k = 0; k < MODES.length; k++) fadeOut(`orr${k}`, 18.15, 0.35);
 
 // ════════════════════════════════════════════════════════════════════════════
 // ACT 6 — FOOTAGE (18.5 → 22.5): Game-of-Life b-roll `cover`-cropped to
@@ -828,7 +828,7 @@ const composition = {
         "iris", "hook1", "hook2", "hookSub",
         "logo", "tagline", "pill", "type", "light",
         "motion", "raceThere", "raceBack", "reverseTag",
-        "time", ...MODES.map((_, k) => `orr${k}`),
+        "time", // the five orrery instances are inside it (L-2)
         "footage", "no0", "no1", "no2", "screen", "reveal",
         "pulse", "avatar", "avatarRing", "who", "handle", "pitch", "follow", "xMark", "tap", "tapHint", "signoff",
       ],

@@ -18,6 +18,8 @@ export {
   type TweenIndex,
 } from "./resolver.js";
 export {
+  anchorHeight,
+  anchorWidth,
   applyTextStyle,
   computeFitRects,
   drawItem,

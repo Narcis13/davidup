@@ -412,7 +412,9 @@ const addShape = z.object({
 // DUAL of engine `add_group` (src/mcp/tools.ts). `isolate` / `blendMode`
 // (v1.1 S18) control group compositing: isolated, the children flatten onto a
 // scratch surface and composite once, so a faded group stops showing its
-// overlap seams.
+// overlap seams. `width` / `height` (v1.3, L-3) are the group's anchor box —
+// what `anchorX` / `anchorY` are fractions of; without them the anchor is
+// inert. They also ride `update_item`, where ITEM_PROPS already carries them.
 const addGroup = z.object({
   kind: z.literal('add_group'),
   payload: z.object({
@@ -422,6 +424,8 @@ const addGroup = z.object({
     childItemIds: z.array(ID).optional(),
     isolate: z.boolean().optional(),
     blendMode: BlendModeSchema.optional(),
+    width: NON_NEG.optional(),
+    height: NON_NEG.optional(),
     id: ID.optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,

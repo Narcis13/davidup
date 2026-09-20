@@ -551,12 +551,16 @@ const VIDEO_FIELDS: ReadonlyArray<FieldDef> = [
   { key: 'height', label: 'height', kind: 'number', path: 'height', min: 0, step: 1 },
 ]
 
-// Group compositing (v1.1 S18). A group has no box of its own, so these are
-// the only non-transform fields it carries: `isolate` flattens the children
-// onto a scratch surface and composites once — the fix for a faded group
-// showing its children's overlap seams — and `blendMode` sets how that
-// composite (or, un-isolated, each child) blends with the backdrop.
+// Group compositing (v1.1 S18) plus the anchor box (v1.3, L-3). `isolate`
+// flattens the children onto a scratch surface and composites once — the fix
+// for a faded group showing its children's overlap seams — and `blendMode`
+// sets how that composite (or, un-isolated, each child) blends with the
+// backdrop. `width`/`height` are the box the Transform section's anchorX /
+// anchorY are fractions of: a group has none until you give it one, and the
+// anchor does nothing until then. It never clips the children.
 const GROUP_FIELDS: ReadonlyArray<FieldDef> = [
+  { key: 'width', label: 'anchor box w', kind: 'number', path: 'width', min: 0, step: 1 },
+  { key: 'height', label: 'anchor box h', kind: 'number', path: 'height', min: 0, step: 1 },
   { key: 'isolate', label: 'isolate', kind: 'boolean', path: 'isolate' },
   {
     key: 'blendMode',

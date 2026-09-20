@@ -1083,7 +1083,8 @@ const addGroup = defineTool({
   name: "add_group",
   title: "Add group item",
   description:
-    "Add a group item with optional initial child items list. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; children are drawn relative to this group origin. The group's `anchorX`/`anchorY` (set via `update_item`) are fractional in 0..1 of the group's box (0=left/top, 0.5=center, 1=right/bottom) and pivot the group's rotation/scale. `rotation` (set via `update_item`) is in radians, clockwise — multiply degrees by Math.PI/180. " +
+    "Add a group item with optional initial child items list. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down; children are drawn relative to this group origin. `rotation` (set via `update_item`) is in radians, clockwise — multiply degrees by Math.PI/180. " +
+    "A group has no box of its own unless you give it one: pass `width`/`height` (also settable via `update_item`, and tweenable) and the group's `anchorX`/`anchorY` become fractions of that box (0=left/top, 0.5=center, 1=right/bottom), so it scales and rotates about its centre instead of its origin. The box is a pivot only — a group never clips its children and children may draw outside it. Without `width`/`height` the anchor is inert. " +
     "By default a group's opacity multiplies into each child separately, so fading a group with overlapping children shows their seams; set `isolate: true` to flatten the children first and fade the result once, as one layer. `blendMode` composites the group against what is already painted (once, if isolated; per child otherwise).",
   inputSchema: {
     layerId: z.string().min(1),
@@ -1092,6 +1093,8 @@ const addGroup = defineTool({
     childItemIds: z.array(z.string().min(1)).optional(),
     isolate: z.boolean().optional(),
     blendMode: BlendModeSchema.optional(),
+    width: z.number().nonnegative().optional(),
+    height: z.number().nonnegative().optional(),
     ...TRANSFORM_INPUT,
     id: z.string().min(1).optional(),
     name: z.string().max(80).optional(),
@@ -1106,6 +1109,8 @@ const addGroup = defineTool({
         ...(args.childItemIds !== undefined ? { childItemIds: args.childItemIds } : {}),
         ...(args.isolate !== undefined ? { isolate: args.isolate } : {}),
         ...(args.blendMode !== undefined ? { blendMode: args.blendMode } : {}),
+        ...(args.width !== undefined ? { width: args.width } : {}),
+        ...(args.height !== undefined ? { height: args.height } : {}),
         ...(args.anchorX !== undefined ? { anchorX: args.anchorX } : {}),
         ...(args.anchorY !== undefined ? { anchorY: args.anchorY } : {}),
         ...(args.rotation !== undefined ? { rotation: args.rotation } : {}),
@@ -1184,7 +1189,7 @@ const updateItem = defineTool({
     "doesn't take, is E_INVALID_PROPERTY (with a \"did you mean\" for typos). " +
     "Text items accept the text v2 fields (maxWidth, lineHeight, letterSpacing, fontWeight, fontStyle, strokeColor, " +
     "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow. " +
-    "Group items accept `isolate` and `blendMode` (see add_group). " +
+    "Group items accept `isolate`, `blendMode`, and `width`/`height` — the anchor box their `anchorX`/`anchorY` are fractions of (see add_group). " +
     "Every item type accepts `effects`, an ordered stack of `{type:\"blur\",radius}`, " +
     "`{type:\"shadow\",color,blur?,offsetX?,offsetY?}` and `{type:\"glow\",color,radius}` — it replaces the " +
     "whole stack, and `null` or `[]` removes it. Tween an effect with property `effects.<index>.<field>`.",

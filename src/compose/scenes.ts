@@ -134,8 +134,16 @@ import {
  *   wrapper child as well, so it painted twice — once through its group and
  *   once frozen at its local coordinates. Only scenes that nest groups render
  *   differently, and each of them goes from wrong to right.
+ *
+ *   v5 → v6 (L-3): the synthetic group carries the scene's `size` as its
+ *   `width`/`height`, which is the box `transform.anchorX/anchorY` are
+ *   fractions of. An instance of a sized scene with a non-zero anchor used to
+ *   ignore it silently (a group had no box at all) and now pivots on the
+ *   scene's own frame — `anchorX/Y: 0.5` scales and rotates about the scene
+ *   centre. A scene with no `size` is unchanged, and so is every instance
+ *   that leaves the anchor at 0/0, which is the default.
  */
-export const SCENE_EXPANSION_VERSION = 5;
+export const SCENE_EXPANSION_VERSION = 6;
 
 // ──────────────── Public types ────────────────
 
@@ -495,9 +503,17 @@ function expandSceneInstanceInScope(
       Object.keys(defItems.items).map((localId) => `${instanceId}__${localId}`),
     ),
   );
+  // L-3: the scene's declared `size` becomes the wrapper's anchor box, so an
+  // instance can pivot on the scene's own centre (`anchorX/Y: 0.5`) instead of
+  // on its top-left origin. It is an anchor box only — the wrapper still never
+  // clips, and a scene that draws outside its `size` is unaffected. A scene
+  // without a `size` leaves the wrapper anchorless, exactly as before.
   const groupItem: Record<string, unknown> = {
     type: "group",
     items: groupChildren,
+    ...(def.size !== undefined
+      ? { width: def.size.width, height: def.size.height }
+      : {}),
     transform: normalizeTransform(instance.transform),
   };
 
@@ -625,7 +641,10 @@ function expandSceneInstanceInScope(
  *      - Rewire any layer that referenced the instance id: keep the instance
  *        id in place (the wrapper group still lives there); inner ids stay
  *        nested via the group, NOT promoted to the layer's items list.
- *      - If no layer referenced the instance, fall back to `instance.layerId`.
+ *      - A root group that lists the instance id owns it the same way (L-2):
+ *        the expansion leaves a plain group under that id, so the parent's
+ *        child reference keeps working and no layer entry is added.
+ *      - If nothing referenced the instance, fall back to `instance.layerId`.
  *   3. Drop the top-level `scenes` key from the output (compile-time only —
  *      the canonical engine never sees it).
  *
@@ -748,8 +767,23 @@ export function expandSceneInstances(comp: unknown): unknown {
     }
   }
 
+  // Every id some root group claims as a child. An instance listed there is
+  // already owned (L-2): expansion replaces it with a plain group under the
+  // same id, so the parent group's reference keeps pointing at the wrapper and
+  // adding it to a layer as well would paint it twice (B-3,
+  // W_ITEM_MULTI_PARENT). Read off `newItems` so a group *inside* an expanded
+  // scene counts too — those are the wrapper's own descendants.
+  const groupOwned = new Set<string>();
+  for (const item of Object.values(newItems)) {
+    if (!isPlainObject(item) || item.type !== "group") continue;
+    if (!Array.isArray(item.items)) continue;
+    for (const child of item.items) {
+      if (typeof child === "string") groupOwned.add(child);
+    }
+  }
+
   // Re-route layers — the instance id stays in place (it's the wrapper group);
-  // we just need to ensure the instance is referenced by *some* layer.
+  // we just need to ensure the instance is referenced by *some* parent.
   const layersRaw = (comp as { layers?: unknown }).layers;
   let newLayers: unknown = layersRaw;
   if (Array.isArray(layersRaw)) {
@@ -757,8 +791,9 @@ export function expandSceneInstances(comp: unknown): unknown {
       isPlainObject(l) ? { ...l } : l,
     );
     for (const exp of expansions) {
-      let placed = false;
+      let placed = groupOwned.has(exp.instanceId);
       for (const lyr of layerCopies) {
+        if (placed) break;
         if (!isPlainObject(lyr)) continue;
         const items = lyr.items;
         if (!Array.isArray(items)) continue;
@@ -771,8 +806,8 @@ export function expandSceneInstances(comp: unknown): unknown {
         if (exp.layerId === undefined) {
           throw new MCPToolError(
             "E_INVALID_VALUE",
-            `Scene instance "${exp.instanceId}" has no layerId and is not referenced by any layer.`,
-            "Set `layerId` on the instance, or list the instance id in a layer's `items`.",
+            `Scene instance "${exp.instanceId}" has no layerId and is not referenced by any layer or group.`,
+            "Set `layerId` on the instance, list the instance id in a layer's `items`, or list it in a group's `items`.",
           );
         }
         const target = layerCopies.find(

@@ -47,7 +47,15 @@ const SHAPE_PROPS: PropertyDescriptor[] = [
   { path: "cornerRadius", kind: "number" },
 ];
 
-const GROUP_PROPS: PropertyDescriptor[] = [...COMMON_TRANSFORM];
+// A group's `width`/`height` are its anchor box (v1.3, L-3), not a size it
+// draws at — tweening them slides the pivot, which is how a group grows "out
+// of" a moving edge. Same names and kinds as sprite/shape/video so the
+// Inspector's "+ animate" list needs no special case.
+const GROUP_PROPS: PropertyDescriptor[] = [
+  ...COMMON_TRANSFORM,
+  { path: "width", kind: "number" },
+  { path: "height", kind: "number" },
+];
 
 // Video is spatially a sprite, so it tweens the same way (transform.* + the
 // width/height box) — but it has no `tint`. Render-time drawing lands in S8;

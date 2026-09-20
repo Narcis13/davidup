@@ -9,6 +9,45 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Scene instances anchor on their size and can live inside groups (L-2, L-3) — **⚠ pixel-changing for anchored instances of a sized scene**
+
+- A `group` takes optional `width`/`height`. They are its **anchor box** and
+  nothing else: a group still paints no pixels of its own and never clips its
+  children, but with a box its `transform.anchorX`/`anchorY` finally mean
+  something, so a group scales and rotates about its own centre instead of
+  about its origin. Absent ⇒ `anchorWidth`/`anchorHeight` are 0, which is
+  exactly the pre-v1.3 behaviour, so no existing frame moves. Both are
+  tweenable and both ride `add_group` / `update_item`.
+- **Decision (G6, step 3):** the box is an explicit `width`/`height` pair on
+  the group, not a nested `size` object and not "leave groups anchorless".
+  Same field names, kinds and semantics sprite/shape/video already use, so
+  `anchorWidth`/`anchorHeight`, the tweenable table, `ITEM_PROP_SHAPE` and the
+  editor's `ITEM_PROPS` needed one branch each and no new concept. Measuring
+  the children instead was rejected: the renderer has no bounds pass, the
+  answer would change as children animate, and a pivot that moves on its own
+  is not what an author asking for "about the centre" means.
+- A scene instance's synthetic wrapper picks the box up from the scene's
+  `size`, so `anchorX/Y: 0.5` on the instance pivots on the scene centre.
+  `SCENE_EXPANSION_VERSION` 5 → 6. An instance of a **sized** scene that set a
+  non-zero anchor used to have it silently ignored and now honours it; a scene
+  with no `size`, or an instance that leaves the anchor at the default 0/0, is
+  byte-identical.
+- A root **group may own a scene instance** (L-2): list the instance id in the
+  group's `items` and leave `layerId` off. Expansion leaves a plain group under
+  that id, so the parent's child reference keeps resolving, and the instance is
+  *not* also added to a layer (which would paint it twice — B-3). An instance
+  no layer and no group references is still `E_INVALID_VALUE`, now saying so.
+- New `W_GROUP_ANCHOR_NO_BOX`: a group sets an anchor on an axis it declares no
+  box for, per axis, tweened anchors included. The anchor is a silent no-op
+  there, which is what made L-3 hard to see.
+- The browser driver's hit-testing and selection ring now import the engine's
+  `anchorWidth`/`anchorHeight` instead of keeping a second copy that had
+  already started to drift.
+- `examples/showcase-vertical` drops the L-2/L-3 workaround: the five orrery
+  instances live inside the act's own group and pop in with a plain scale on
+  their anchored box, instead of tweening `x`/`y` alongside the scale to fake
+  a pivot and carrying a per-instance copy of the group's fade-out.
+
 ### Seed-library text is centred on its measured box (B-8) — **⚠ pixel-changing for library content**
 
 - Fix: the nine starter-pack templates that carry text (`endCard`,

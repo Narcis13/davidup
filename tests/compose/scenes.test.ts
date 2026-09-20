@@ -12,6 +12,7 @@ import {
   type SceneDefinition,
 } from "../../src/compose/scenes.js";
 import { precompile } from "../../src/compose/precompile.js";
+import { validate } from "../../src/schema/validator.js";
 import { MCPToolError } from "../../src/mcp/errors.js";
 
 function makeIntroCard(): SceneDefinition {
@@ -404,6 +405,116 @@ describe("expandSceneInstances — composition pass", () => {
     } catch (err) {
       expect((err as MCPToolError).code).toBe("E_SCENE_RECURSION");
     }
+  });
+});
+
+// ──────────── v1.3 L-2 / L-3 — ownership and the anchor box ────────────
+
+describe("expandSceneInstances — group ownership and the anchor box (L-2, L-3)", () => {
+  const tinyScene: SceneDefinition = {
+    id: "dot",
+    duration: 1,
+    size: { width: 300, height: 340 },
+    params: [],
+    assets: [],
+    items: {
+      body: {
+        type: "shape",
+        kind: "circle",
+        width: 40,
+        fillColor: "#ffffff",
+        transform: {
+          x: 150, y: 150, scaleX: 1, scaleY: 1, rotation: 0,
+          anchorX: 0, anchorY: 0, opacity: 1,
+        },
+      },
+    },
+    tweens: [],
+  };
+
+  function comp(overrides: {
+    items: Record<string, unknown>;
+    layerItems: string[];
+  }) {
+    return {
+      version: "0.2",
+      composition: { width: 600, height: 600, fps: 30, duration: 2, background: "#000" },
+      assets: [],
+      scenes: { dot: tinyScene },
+      layers: [
+        { id: "main", z: 0, opacity: 1, blendMode: "normal", items: overrides.layerItems },
+      ],
+      items: overrides.items,
+      tweens: [],
+    };
+  }
+
+  const T = (over: Record<string, number> = {}) => ({
+    x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0, opacity: 1, ...over,
+  });
+
+  it("carries the scene's size onto the wrapper as its anchor box", async () => {
+    const compiled = (await precompile(
+      comp({
+        layerItems: ["inst"],
+        items: { inst: { type: "scene", scene: "dot", transform: T({ anchorX: 0.5, anchorY: 0.5 }) } },
+      }),
+    )) as { items: Record<string, { width?: number; height?: number }> };
+
+    expect(compiled.items["inst"]?.width).toBe(300);
+    expect(compiled.items["inst"]?.height).toBe(340);
+  });
+
+  it("leaves a wrapper anchorless when the scene declares no size", async () => {
+    const sizeless = { ...tinyScene };
+    delete sizeless.size;
+    const authored = comp({
+      layerItems: ["inst"],
+      items: { inst: { type: "scene", scene: "dot", transform: T() } },
+    });
+    authored.scenes = { dot: sizeless };
+
+    const compiled = (await precompile(authored)) as {
+      items: Record<string, Record<string, unknown>>;
+    };
+    expect(compiled.items["inst"]).toBeDefined();
+    expect("width" in compiled.items["inst"]!).toBe(false);
+    expect("height" in compiled.items["inst"]!).toBe(false);
+  });
+
+  it("accepts a root group as the instance's parent, without adding it to a layer (L-2)", async () => {
+    const compiled = (await precompile(
+      comp({
+        layerItems: ["wrap"],
+        items: {
+          wrap: { type: "group", items: ["inst"], transform: T({ x: 100 }) },
+          inst: { type: "scene", scene: "dot", transform: T() },
+        },
+      }),
+    )) as {
+      items: Record<string, { type: string; items?: string[] }>;
+      layers: Array<{ items: string[] }>;
+    };
+
+    // The wrapper group lives under the instance id, so the parent group's
+    // child reference still resolves — and the instance is NOT also listed on
+    // the layer, which would paint it twice (B-3).
+    expect(compiled.items["wrap"]?.items).toEqual(["inst"]);
+    expect(compiled.items["inst"]?.type).toBe("group");
+    expect(compiled.layers[0]?.items).toEqual(["wrap"]);
+
+    // …and the result validates: one parent per item, no orphans.
+    const result = validate(compiled);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.filter((w) => w.code === "W_ITEM_MULTI_PARENT")).toEqual([]);
+  });
+
+  it("still rejects an instance no layer and no group owns", async () => {
+    const authored = comp({
+      layerItems: [],
+      items: { inst: { type: "scene", scene: "dot", transform: T() } },
+    });
+    await expect(precompile(authored)).rejects.toThrow(/layer or group/);
   });
 });
 

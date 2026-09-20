@@ -354,6 +354,60 @@ describe("CompositionStore — group compositing (v1.1 S18)", () => {
   });
 });
 
+describe("CompositionStore — group anchor box (v1.3, L-3)", () => {
+  function groupWithChild(store: CompositionStore): string {
+    const layerId = store.addLayer({ z: 0 });
+    const child = store.addShape({ layerId, kind: "rect", x: 0, y: 0, width: 5, height: 5 });
+    return store.addGroup({ layerId, x: 0, y: 0, childItemIds: [child] });
+  }
+
+  it("add_group stores width/height, and omits them when unasked", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    const boxed = store.addGroup({ layerId, x: 0, y: 0, width: 300, height: 340 });
+    expect(store.toJSON().items[boxed]).toMatchObject({ width: 300, height: 340 });
+
+    const plainId = store.addGroup({ layerId, x: 0, y: 0 });
+    const plain = store.toJSON().items[plainId] as Record<string, unknown>;
+    expect("width" in plain).toBe(false);
+    expect("height" in plain).toBe(false);
+  });
+
+  it("update_item sets the box on a group and keeps it valid", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+    store.updateItem(id, { width: 200, height: 100, anchorX: 0.5, anchorY: 0.5 });
+    expect(store.toJSON().items[id]).toMatchObject({ width: 200, height: 100 });
+    const result = store.validate();
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.filter((w) => w.code === "W_GROUP_ANCHOR_NO_BOX")).toEqual([]);
+  });
+
+  it("rejects a negative box", () => {
+    const { store } = makeStore();
+    const layerId = store.addLayer({ z: 0 });
+    expect(() => store.addGroup({ layerId, x: 0, y: 0, width: -1 })).toThrow(
+      /non-negative/,
+    );
+  });
+
+  it("tweens the box like any other width/height", () => {
+    const { store } = makeStore();
+    const id = groupWithChild(store);
+    store.updateItem(id, { width: 100, height: 100 });
+    const tweenId = store.addTween({
+      target: id,
+      property: "width",
+      from: 100,
+      to: 200,
+      start: 0,
+      duration: 1,
+    });
+    expect(store.toJSON().tweens.find((t) => t.id === tweenId)?.property).toBe("width");
+    expect(store.validate().errors).toEqual([]);
+  });
+});
+
 describe("CompositionStore — effects (v1.1 S21)", () => {
   function shape(store: CompositionStore): string {
     const layerId = store.addLayer({ z: 0 });

@@ -148,7 +148,9 @@ Transform = {
   x: number, y: number,
   scaleX: number, scaleY: number,
   rotation: number,            // radians
-  anchorX: number, anchorY: number,   // [0,1], fraction of item bounds
+  anchorX: number, anchorY: number,   // [0,1], fraction of the item's box
+                                      // (a group's box is its own width/height,
+                                      //  absent ⇒ the anchor is inert)
   opacity: number              // [0,1]
 }
 ```
@@ -160,7 +162,7 @@ Item variants and their unique properties:
 | sprite  | `asset` (image-asset id), `width`, `height`, `tint?`          |
 | text    | `text`, `font` (font-asset id), `fontSize`, `color`, `align?` |
 | shape   | `kind: "rect"|"circle"|"polygon"`, width, height, points, fill/stroke, cornerRadius |
-| group   | `items: string[]` — child ids; rendered with transform composition |
+| group   | `items: string[]` — child ids; rendered with transform composition; optional `width`/`height` = the anchor box (a pivot only — never clips) |
 
 ### 3.2 Tweenable properties (`src/schema/tweenable.ts`)
 
@@ -177,7 +179,7 @@ transform.rotation, transform.opacity, transform.anchorX, transform.anchorY
 // Text extras:      fontSize, color(color)
 // Shape extras:     width, height, fillColor(color), strokeColor(color),
 //                   strokeWidth, cornerRadius
-// Group extras:     (none — only common transform fields)
+// Group extras:     width, height  (the anchor box, v1.3 L-3)
 ```
 
 `getTweenable(type, path)` looks up via a precomputed
@@ -281,7 +283,10 @@ restore()
 
 For groups the recursive `drawGroupChildren` simply iterates `item.items[]`
 and calls `drawItem` on each child. Canvas2D's save/restore stack composes
-transforms automatically.
+transforms automatically. `w`/`h` in the anchor line above come from
+`anchorWidth`/`anchorHeight`: the declared box for sprite/video/shape, the
+optional `width`/`height` for a group (v1.3, L-3), and 0 for anything that
+declares none — text measures its own block inside `drawText`.
 
 **Sprite tinting** is the most subtle bit. To tint without flattening
 texture, the renderer uses an offscreen surface (`createOffscreen`
@@ -1228,6 +1233,7 @@ is bit-deterministic.
 | `W_ITEM_OFF_CANVAS`               | validator (warning) | item's full range of motion never overlaps the canvas rect  |
 | `W_FONT_UNREGISTERED`             | validator (warning) | text.font doesn't resolve to a registered font asset (host-dependent fallback at render) |
 | `W_SCENE_INSTANCE_OUTLIVES`       | validator (warning) | scene-instance wrapper group stays visible well past its content's last tween |
+| `W_GROUP_ANCHOR_NO_BOX`           | validator (warning) | group sets an anchor on an axis it declares no `width`/`height` for |
 | `W_VIDEO_NO_AUDIO_STREAM`         | validator (warning) | video item sets `keepAudio` but its asset was probed with no audio stream |
 | `E_NO_COMPOSITION`                | store / dispatch    | no default composition; pass `compositionId`               |
 | `E_DUPLICATE_ID`                  | store               | id already in use                                          |

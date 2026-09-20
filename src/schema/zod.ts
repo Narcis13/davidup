@@ -408,13 +408,24 @@ export const ShapeItemSchema = strictObject({
 //               Isolated, it applies once to the flattened result; otherwise
 //               it applies to each child's own draw (like `Layer.blendMode`).
 //
-// DUAL: mirror both in apps/editor/app/types/commands.ts or they are silently
-// stripped off UI payloads.
+// `width`/`height` (v1.3, L-3) are the group's *anchor box* and nothing else:
+// a group still has no pixels of its own and never clips its children, but
+// declaring a box makes `transform.anchorX/anchorY` mean something, so a group
+// can scale or rotate about its own centre instead of about its origin. Both
+// are optional and independent of the children's real extent — absent is
+// exactly the pre-v1.3 behaviour (anchor is inert, `anchorWidth` = 0), so no
+// existing frame moves. A scene instance's synthetic wrapper picks them up
+// from the scene's `size` (see compose/scenes.ts).
+//
+// DUAL: mirror all four in apps/editor/app/types/commands.ts or they are
+// silently stripped off UI payloads.
 export const GroupItemSchema = strictObject({
   type: z.literal("group"),
   items: z.array(z.string().min(1)),
   isolate: z.boolean().optional(),
   blendMode: BlendModeSchema.optional(),
+  width: z.number().nonnegative().optional(),
+  height: z.number().nonnegative().optional(),
   transform: TransformSchema,
   ...ItemFlagsSchema,
 });

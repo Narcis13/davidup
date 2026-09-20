@@ -1051,3 +1051,82 @@ describe("validate — single-parent invariant (W_ITEM_MULTI_PARENT, B-3)", () =
     expect(multi(comp)).toEqual([]);
   });
 });
+
+describe("validate — group anchor without a box (W_GROUP_ANCHOR_NO_BOX, L-3)", () => {
+  const transform = (over: Record<string, number> = {}) => ({
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+    ...over,
+  });
+
+  const noBox = (comp: ReturnType<typeof baseComposition>) =>
+    validate(comp).warnings.filter((w) => w.code === "W_GROUP_ANCHOR_NO_BOX");
+
+  it("warns on both axes when a boxless group sets an anchor", () => {
+    const comp = baseComposition();
+    comp.items["g"] = {
+      type: "group",
+      items: [],
+      transform: transform({ anchorX: 0.5, anchorY: 0.5 }),
+    };
+    comp.layers[1]!.items.push("g");
+    const warns = noBox(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.message).toMatch(/anchorX\/width and anchorY\/height/);
+    expect(warns[0]!.path).toBe("items.g.transform.anchorX");
+  });
+
+  it("warns per axis — a group with only a width is fine on x", () => {
+    const comp = baseComposition();
+    comp.items["g"] = {
+      type: "group",
+      items: [],
+      width: 300,
+      transform: transform({ anchorX: 0.5, anchorY: 0.5 }),
+    };
+    comp.layers[1]!.items.push("g");
+    const warns = noBox(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.message).toMatch(/anchorY\/height/);
+    expect(warns[0]!.message).not.toMatch(/anchorX/);
+    expect(warns[0]!.path).toBe("items.g.transform.anchorY");
+  });
+
+  it("stays quiet for a group with a box, and for one that leaves the anchor at 0", () => {
+    const comp = baseComposition();
+    comp.items["boxed"] = {
+      type: "group",
+      items: [],
+      width: 300,
+      height: 340,
+      transform: transform({ anchorX: 0.5, anchorY: 1 }),
+    };
+    comp.items["plain"] = { type: "group", items: [], transform: transform() };
+    comp.layers[1]!.items.push("boxed", "plain");
+    expect(noBox(comp)).toEqual([]);
+  });
+
+  it("counts a tweened anchor — the no-op is just as silent when it animates", () => {
+    const comp = baseComposition();
+    comp.items["g"] = { type: "group", items: [], transform: transform() };
+    comp.layers[1]!.items.push("g");
+    comp.tweens.push({
+      id: "pivot",
+      target: "g",
+      property: "transform.anchorX",
+      from: 0,
+      to: 0.5,
+      start: 0,
+      duration: 1,
+    });
+    const warns = noBox(comp);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.message).toMatch(/anchorX\/width/);
+  });
+});

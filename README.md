@@ -487,8 +487,13 @@ item; only its own shape is a hit. See
 
 `x`, `y`, `scaleX`, `scaleY`, `rotation` (radians, clockwise), `anchorX`,
 `anchorY` (fractional 0..1 of the item's box), `opacity` (0..1). All required.
-Anchors are inert on `group` (its anchor extent is 0). On `text` they pivot on
-the measured text block (box mode, see above).
+On `text` they pivot on the measured text block (box mode, see above). A
+`group` has a box only if it declares one — optional `width`/`height` on the
+group itself — and its anchor is a fraction of that; without them the anchor is
+inert, and `validate` says so (`W_GROUP_ANCHOR_NO_BOX`). The box is a pivot
+only: a group never clips its children and they may draw outside it. A scene
+instance's wrapper inherits the box from the scene's `size`, so
+`anchorX/Y: 0.5` scales and rotates it about the scene centre.
 
 ### Item and layer flags
 
@@ -543,7 +548,7 @@ forms (`list_engine_capabilities` reports it as `parametricEasings`).
 | sprite | + | `width`, `height` (number); `tint` (color) |
 | text | + | `fontSize`, `letterSpacing`, `lineHeight`, `strokeWidth` (number); `color` (color) |
 | shape | + | `width`, `height`, `strokeWidth`, `cornerRadius` (number); `fillColor`, `strokeColor` (color) |
-| group | + | — (children carry their own tweens) |
+| group | + | `width`, `height` (number — the anchor box; children carry their own tweens) |
 | video | + | `width`, `height` (number) |
 
 The resolver clamps `opacity` to [0,1] and sizes to ≥ 0 so overshooting
@@ -778,7 +783,10 @@ Define scenes with `define_scene` (literal) or `import_scene` (file). Place
 them with `add_scene_instance`. Scene instances expand into a synthetic
 wrapper `group` placed in the requested layer, with prefixed inner ids
 (`instance__title`), children painted in declaration order, and merged assets.
-Parent tweens may target the wrapper group only.
+Parent tweens may target the wrapper group only. The wrapper carries the
+scene's `size` as its anchor box, so an instance can pivot on the scene's
+centre, and it may be owned by a root group instead of a layer — list the
+instance id in the group's `items` and leave `layerId` off.
 
 ### `$ref` imports
 
@@ -928,7 +936,8 @@ axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 `W_VIDEO_NO_AUDIO_STREAM` (`keepAudio` on a source with no audio stream),
 `W_ITEM_MULTI_PARENT` (an item listed under more than one layer/group, or twice
 in one list — it paints once per reference; this becomes an error in the next
-major). Warnings never fail a call. The schema is strict: an unknown key such as
+major), `W_GROUP_ANCHOR_NO_BOX` (a group sets `anchorX`/`anchorY` on an axis it
+declares no `width`/`height` for, so the anchor does nothing). Warnings never fail a call. The schema is strict: an unknown key such as
 `opacty` is an `E_SCHEMA` error at its full path (`items.logo.transform.opacty`)
 with a "did you mean" suggestion. Keys starting with `$` (`$comment`, `$ref`,
 …) or `x-` (your own extensions) are allowed on any object and ignored by the
@@ -1202,7 +1211,7 @@ exact catalog or to add your own.
 - Overlap detection uses a fixed 1 µs epsilon — chained `start + duration`
   arithmetic that drifts by ≤ 1 ULP still validates.
 - Pixel-changing fixes bump `BEHAVIOR_EXPANSION_VERSION` (now 2) or
-  `SCENE_EXPANSION_VERSION` (now 3) and are logged in `CHANGELOG.md`.
+  `SCENE_EXPANSION_VERSION` (now 6) and are logged in `CHANGELOG.md`.
 
 What the test harness guarantees (`tests/determinism/`):
 

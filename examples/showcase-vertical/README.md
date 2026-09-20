@@ -17,7 +17,7 @@ bun run examples/showcase-vertical/render.ts --stills 2,27.5   # single PNG fram
 | 6–9 | Type | text v2 in four library fonts: wrap + breathing `lineHeight`, stroke→fill, tracking, hard shadow |
 | 9–12 | Light | RGB Venn that flickers on through a **user-defined** executable behavior (`neonFlicker`), tweened drop shadow, `isolate` false vs true |
 | 12–15 | Motion | six easings (incl. `bezier`, `steps(8)`) racing down lanes, replayed with `time: reverse` |
-| 15–18.5 | Time | an orrery scene with nested groups (v1.2 ownership fix) under five time mappings |
+| 15–18.5 | Time | an orrery scene with nested groups (v1.2 ownership fix) under five time mappings, the five instances owned by one group and popping in on their own `size` box (v1.3 L-2/L-3) |
 | 18.5–22.5 | Footage | `cover`-cropped b-roll with `keepAudio`, `fit` contain/cover, a circular mask, a ProRes 4444 overlay davidup rendered with alpha and composited back in |
 | 22.5–24 | Hush | NO TIMELINE. / NO KEYFRAMES. / JUST JSON. |
 | 24–26.4 | Reveal | the film in a rounded phone screen, playing itself (Droste, `--from/--to` range renders fed back in), compile stats |

@@ -48,6 +48,10 @@
 //      (B-3: the renderer paints it once per reference. A warning, not an
 //      error, because a hand-written v1.x composition may rely on the
 //      duplicate draw; flips to an error in the next major.)
+//  18. Group with a non-zero anchor on an axis it declares no box for
+//                                              → W_GROUP_ANCHOR_NO_BOX
+//      (L-3: the anchor is a fraction of `width`/`height`, which a group only
+//      has if it says so — without them the field reads as a silent no-op.)
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
@@ -79,7 +83,8 @@ export type ValidationWarningCode =
   | "W_FONT_UNREGISTERED"
   | "W_SCENE_INSTANCE_OUTLIVES"
   | "W_VIDEO_NO_AUDIO_STREAM"
-  | "W_ITEM_MULTI_PARENT";
+  | "W_ITEM_MULTI_PARENT"
+  | "W_GROUP_ANCHOR_NO_BOX";
 
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
@@ -153,8 +158,61 @@ export function validate(input: unknown): ValidationResult {
   validateSceneInstanceLifespans(comp, warnings);
   validateKeepAudioStreams(comp, assetMap, warnings);
   validateSingleParent(comp, warnings);
+  validateGroupAnchorBox(comp, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Group anchor without a box (L-3, W_GROUP_ANCHOR_NO_BOX). `anchorX`/`anchorY`
+// are fractions of the item's box, and a group's box is the optional
+// `width`/`height` pair — it is never measured from the children, since the
+// renderer has no cheap way to bound them. So a group that sets an anchor but
+// declares no box pivots on its origin anyway, and the field reads as a
+// promise the renderer doesn't keep. Per axis, because declaring one and not
+// the other is the easy mistake. Tweened anchors count: a tween's `from`/`to`
+// are the only other place a non-zero anchor can come from.
+function validateGroupAnchorBox(
+  comp: Composition,
+  warnings: ValidationWarning[],
+): void {
+  for (const [itemId, item] of Object.entries(comp.items)) {
+    if (item.type !== "group") continue;
+    const axes: string[] = [];
+    if (!(item.width !== undefined && item.width > 0) &&
+        anchorEverNonZero(comp, itemId, "anchorX", item.transform.anchorX)) {
+      axes.push("anchorX/width");
+    }
+    if (!(item.height !== undefined && item.height > 0) &&
+        anchorEverNonZero(comp, itemId, "anchorY", item.transform.anchorY)) {
+      axes.push("anchorY/height");
+    }
+    if (axes.length === 0) continue;
+    warnings.push({
+      code: "W_GROUP_ANCHOR_NO_BOX",
+      message:
+        `Group "${itemId}" sets ${axes.join(" and ")} but declares no box on that axis — ` +
+        "a group's anchor is a fraction of its own `width`/`height`, so this pivots on the " +
+        "group origin as if the anchor were 0. Give the group a `width`/`height`.",
+      path: `items.${itemId}.transform.${axes[0]!.split("/")[0]!}`,
+    });
+  }
+}
+
+function anchorEverNonZero(
+  comp: Composition,
+  itemId: string,
+  axis: "anchorX" | "anchorY",
+  staticValue: number,
+): boolean {
+  if (staticValue !== 0) return true;
+  const property = `transform.${axis}`;
+  return comp.tweens.some(
+    (t) =>
+      t.target === itemId &&
+      t.property === property &&
+      ((typeof t.from === "number" && t.from !== 0) ||
+        (typeof t.to === "number" && t.to !== 0)),
+  );
 }
 
 // Single-parent invariant (B-3, W_ITEM_MULTI_PARENT). Every item has exactly

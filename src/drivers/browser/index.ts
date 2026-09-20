@@ -41,6 +41,8 @@ import type { AssetLoader } from "../../assets/loader.js";
 import { precompile } from "../../compose/index.js";
 import type { ReadFile } from "../../compose/imports.js";
 import {
+  anchorHeight,
+  anchorWidth,
   applyTextStyle,
   computeStateAt,
   indexTweens,
@@ -887,25 +889,6 @@ function sortLayersByZ(layers: ReadonlyArray<Layer>): ReadonlyArray<Layer> {
     return a.idx - b.idx;
   });
   return indexed.map((x) => x.layer);
-}
-
-function anchorWidth(item: Item): number {
-  if (item.type === "sprite") return item.width;
-  // Video is spatially a sprite: its anchor pivots on the [width, height] box
-  // (mirrors the engine's anchorWidth in render.ts).
-  if (item.type === "video") return item.width;
-  if (item.type === "shape") return item.width ?? 0;
-  return 0;
-}
-
-function anchorHeight(item: Item): number {
-  if (item.type === "sprite") return item.height;
-  if (item.type === "video") return item.height;
-  if (item.type === "shape") {
-    if (item.kind === "circle") return item.height ?? item.width ?? 0;
-    return item.height ?? 0;
-  }
-  return 0;
 }
 
 function roundRectPath(
