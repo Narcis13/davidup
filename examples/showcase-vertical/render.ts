@@ -4,17 +4,18 @@
 //   bun run examples/showcase-vertical/render.ts --passes 3  # fewer recursion levels
 //   bun run examples/showcase-vertical/render.ts --stills 1.2,4,27.5   # PNG frames only
 //
-// Why not `davidup render`: this film uses `global:` asset srcs (fonts and the
-// profile picture from ~/.davidup/library) and an executable *user* behavior
-// (`neonFlicker`). The CLI rewrites `global:` srcs as relative paths and has
-// no way to register a user behavior, so the script drives
-// precompile → validate → renderToFile itself.
+// `davidup render examples/showcase-vertical/composition.json -o out.mp4`
+// renders the film as well — `global:` asset srcs (B-5), the library's
+// `ctaButton` template and the composition's own `neonFlicker` behavior (L-1)
+// all resolve through the CLI now. This script exists for the *build*: it
+// regenerates composition.json, renders the ProRes alpha overlay and the
+// recursive Droste passes, and feeds each one back in.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { precompile, registerBehavior } from "../../src/compose/index.js";
+import { precompile } from "../../src/compose/index.js";
 import { renderToFile } from "../../src/drivers/node/index.js";
 import { validateComposition } from "../../src/schema/index.js";
 
@@ -28,29 +29,6 @@ const flag = (name: string) => {
 const PASSES = Number(flag("--passes") ?? 4);
 const STILLS = flag("--stills");
 const DROP2 = 24;
-
-// An executable user behavior: a neon tube striking — N opacity flashes that
-// settle on full, written as a `$repeat` tween body over the block's window.
-registerBehavior({
-  name: "neonFlicker",
-  description: "Neon-tube strike: `flashes` hard opacity flickers settling on 1.",
-  params: [{ name: "flashes", type: "number", default: 4 }],
-  produces: "dynamic",
-  tweens: [
-    {
-      $repeat: { count: "${params.flashes}", as: "i" },
-      item: {
-        suffix: "f${i}",
-        property: "transform.opacity",
-        from: "${0.1 + i * 0.12}",
-        to: 1,
-        start: "${$.start + i * $.duration / params.flashes}",
-        duration: "${$.duration / params.flashes}",
-        easing: { steps: 2 },
-      },
-    },
-  ],
-} as never);
 
 type Comp = { items: Record<string, unknown>; tweens: unknown[]; assets: Array<{ src?: string }> };
 

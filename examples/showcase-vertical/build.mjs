@@ -14,8 +14,7 @@
 //
 // Cut grid is on the music: 120 BPM, drops at t = 3.5 and t = 24.
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -276,9 +275,33 @@ tw("para", "transform.y", 1450, 1420, 7.3, 0.6, "easeOutCubic");
 
 // ════════════════════════════════════════════════════════════════════════════
 // ACT 3 — LIGHT (9 → 12): additive RGB Venn that flickers on like a neon tube
-// (an executable *user* behavior, registered by render.ts), a card lifting on
-// a tweened drop shadow, isolate: false vs true.
+// (an executable *user* behavior the composition defines itself), a card
+// lifting on a tweened drop shadow, isolate: false vs true.
 // ════════════════════════════════════════════════════════════════════════════
+
+// A neon tube striking: N hard opacity flashes settling on full, written as a
+// `$repeat` tween body over the block's window. Composition-scoped — the
+// `behaviors` block in the assembly below registers it for this compile only,
+// so `davidup render` expands it with no session state (L-1).
+const neonFlicker = {
+  description: "Neon-tube strike: `flashes` hard opacity flickers settling on 1.",
+  params: [{ name: "flashes", type: "number", default: 4 }],
+  tweens: [
+    {
+      $repeat: { count: "${params.flashes}", as: "i" },
+      item: {
+        suffix: "f${i}",
+        property: "transform.opacity",
+        from: "${0.1 + i * 0.12}",
+        to: 1,
+        start: "${$.start + i * $.duration / params.flashes}",
+        duration: "${$.duration / params.flashes}",
+        easing: { steps: 2 },
+      },
+    },
+  ],
+};
+
 items.light = group(["venn", "card", "isoOff", "isoOn", "isoOffLbl", "isoOnLbl"], T(0, 0), {
   enter: 9, exit: 12,
 });
@@ -654,17 +677,20 @@ items.pitch = text("I build davidup in public —\nAI agents that direct video."
   C(CX, 1265, { o: 0 }), { align: "center", lineHeight: 1.35, enter: 26.4 });
 fadeIn("pitch", 26.95, 0.35);
 
-// Follow button: the global library's `ctaButton` template (inlined below),
-// plus the 𝕏 mark drawn as two polygons
+// Follow button: the global library's `ctaButton` template, named straight
+// from the library by id (L-1), plus the 𝕏 mark drawn as two polygons.
+// The library copy still positions its label in text point mode, so the word
+// sits a little above the pill's centre and the 𝕏 mark is placed to clear
+// it; that goes away when the library is re-seeded in box mode (B-8).
 const BTN_Y = 1450;
 items.follow = {
-  $template: "ctaButton", start: 27.2,
+  $template: "global:ctaButton", start: 27.2,
   params: {
     label: "Follow", x: CX, y: BTN_Y, width: 460, height: 124, cornerRadius: 62,
     fillColor: "#ffffff", textColor: "#0a0a0a", font: BOLD, fontSize: 56,
   },
 };
-items.xMark = group(["xThick", "xThin"], C(CX - 118, BTN_Y + 2, { o: 0 }), { enter: 27.2 });
+items.xMark = group(["xThick", "xThin"], C(CX - 145, BTN_Y - 18, { o: 0 }), { enter: 27.2 });
 // the 𝕏 glyph, drawn in a 60×60 box centred on the origin
 items.xThick = poly([[-27, -28], [-9, -28], [27, 28], [9, 28]], "#0a0a0a", T(0, 0));
 items.xThin = poly([[20, -28], [27, -28], [-20, 28], [-27, 28]], "#0a0a0a", T(0, 0));
@@ -747,18 +773,6 @@ for (const [id, at, color, y] of [["shock1", DROP1, "#ffffff", 860], ["shock2", 
   tw(`${id}Flash`, "transform.opacity", 0.8, 0, at, 0.45, "easeOutQuad");
 }
 
-// ── the global library's ctaButton template, inlined ───────────────────────
-// A composition can't name a global-library template by id yet (precompile
-// only sees `templates{}` and the built-ins), so the build copies it in.
-const libRoot = process.env.DAVIDUP_LIBRARY || join(homedir(), ".davidup", "library");
-const ctaButton = JSON.parse(readFileSync(join(libRoot, "templates", "ctaButton.template.json"), "utf8"));
-// The library copy positions its label in text point mode (baseline on the
-// button's centre), which sits the word visibly high since text v2. Centre it
-// on its measured box, and leave room on the left for the 𝕏 mark.
-Object.assign(ctaButton.items.label.transform, {
-  x: "${params.x + params.height * 0.3}", anchorX: 0.5, anchorY: 0.5,
-});
-
 // ── assembly ───────────────────────────────────────────────────────────────
 const ticks = [];
 for (const base of [12.35, 13.6]) {
@@ -801,7 +815,8 @@ const composition = {
     { id: "badge", type: "video", src: rel("output/alpha-badge.mov") },
     { id: "self", type: "video", src: rel(selfArg) },
   ],
-  templates: { codeChip: chipTemplate, ctaButton },
+  templates: { codeChip: chipTemplate },
+  behaviors: { neonFlicker },
   scenes: { race: raceScene, orrery },
   layers: [
     { id: "backdrop", z: 0, opacity: 1, blendMode: "normal", items: ["aurora", "lifeWrap"], name: "backdrop" },

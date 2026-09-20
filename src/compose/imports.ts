@@ -196,7 +196,12 @@ export async function resolveImports(
   return walk(json, rootDir, []);
 }
 
-async function defaultReadFile(absolutePath: string): Promise<string> {
+/**
+ * Default file reader: `fs/promises#readFile`, utf-8. Exported so the other
+ * file-reading compile pass (`libraryRefs.ts`) shares the one lazy import
+ * rather than growing a second copy of it.
+ */
+export async function defaultReadFile(absolutePath: string): Promise<string> {
   // Lazy-import so browser bundlers don't have to resolve node:fs/promises
   // at build time. Callers that supply their own `readFile` (the common case
   // outside of Node CLI) never reach this branch.

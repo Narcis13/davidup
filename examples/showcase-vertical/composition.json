@@ -196,134 +196,34 @@
      "easing": "easeInQuad"
     }
    ]
-  },
-  "ctaButton": {
-   "id": "ctaButton",
-   "description": "Animated call-to-action: rounded pill rectangle with centered text inside, both pop in together.",
+  }
+ },
+ "behaviors": {
+  "neonFlicker": {
+   "description": "Neon-tube strike: `flashes` hard opacity flickers settling on 1.",
    "params": [
     {
-     "name": "label",
-     "type": "string",
-     "required": true,
-     "description": "Button text."
-    },
-    {
-     "name": "x",
+     "name": "flashes",
      "type": "number",
-     "default": 640,
-     "description": "Button center x."
-    },
-    {
-     "name": "y",
-     "type": "number",
-     "default": 620,
-     "description": "Button center y."
-    },
-    {
-     "name": "width",
-     "type": "number",
-     "default": 360
-    },
-    {
-     "name": "height",
-     "type": "number",
-     "default": 88
-    },
-    {
-     "name": "cornerRadius",
-     "type": "number",
-     "default": 44
-    },
-    {
-     "name": "fillColor",
-     "type": "color",
-     "default": "#ff6b35"
-    },
-    {
-     "name": "textColor",
-     "type": "color",
-     "default": "#ffffff"
-    },
-    {
-     "name": "font",
-     "type": "string",
-     "required": true,
-     "description": "Font asset id for the label."
-    },
-    {
-     "name": "fontSize",
-     "type": "number",
-     "default": 32
+     "default": 4
     }
    ],
-   "items": {
-    "bg": {
-     "type": "shape",
-     "kind": "rect",
-     "width": "${params.width}",
-     "height": "${params.height}",
-     "fillColor": "${params.fillColor}",
-     "cornerRadius": "${params.cornerRadius}",
-     "transform": {
-      "x": "${params.x}",
-      "y": "${params.y}",
-      "scaleX": 1,
-      "scaleY": 1,
-      "rotation": 0,
-      "anchorX": 0.5,
-      "anchorY": 0.5,
-      "opacity": 0
-     }
-    },
-    "label": {
-     "type": "text",
-     "text": "${params.label}",
-     "font": "${params.font}",
-     "fontSize": "${params.fontSize}",
-     "color": "${params.textColor}",
-     "align": "center",
-     "transform": {
-      "x": "${params.x + params.height * 0.3}",
-      "y": "${params.y}",
-      "scaleX": 1,
-      "scaleY": 1,
-      "rotation": 0,
-      "anchorX": 0.5,
-      "anchorY": 0.5,
-      "opacity": 0
-     }
-    }
-   },
    "tweens": [
     {
-     "$behavior": "popIn",
-     "target": "bg",
-     "start": 0,
-     "duration": 0.5,
-     "easing": "easeOutBack",
-     "params": {
-      "fromScale": 0.7,
-      "toScale": 1,
-      "fromOpacity": 0,
-      "toOpacity": 1
-     }
-    },
-    {
-     "$behavior": "fadeIn",
-     "target": "label",
-     "start": 0.2,
-     "duration": 0.4,
-     "easing": "easeOutQuad"
-    },
-    {
-     "$behavior": "pulse",
-     "target": "bg",
-     "start": 1,
-     "duration": 0.6,
-     "easing": "easeInOutQuad",
-     "params": {
-      "peakScale": 1.06,
-      "fromScale": 1
+     "$repeat": {
+      "count": "${params.flashes}",
+      "as": "i"
+     },
+     "item": {
+      "suffix": "f${i}",
+      "property": "transform.opacity",
+      "from": "${0.1 + i * 0.12}",
+      "to": 1,
+      "start": "${$.start + i * $.duration / params.flashes}",
+      "duration": "${$.duration / params.flashes}",
+      "easing": {
+       "steps": 2
+      }
      }
     }
    ]
@@ -3281,7 +3181,7 @@
    "enter": 26.4
   },
   "follow": {
-   "$template": "ctaButton",
+   "$template": "global:ctaButton",
    "start": 27.2,
    "params": {
     "label": "Follow",
@@ -3303,8 +3203,8 @@
     "xThin"
    ],
    "transform": {
-    "x": 422,
-    "y": 1452,
+    "x": 395,
+    "y": 1432,
     "scaleX": 1,
     "scaleY": 1,
     "rotation": 0,

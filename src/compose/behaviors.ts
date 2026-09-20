@@ -363,31 +363,94 @@ function expandBehaviorInScope(block: BehaviorBlock, options: ExpandBehaviorOpti
  * Compile-time pass — replace every `{ "$behavior": ... }` entry in a
  * composition's `tweens` array with its expansion.
  *
+ * Reads the optional top-level `behaviors: { name: descriptor }` block
+ * (COMPOSITION_PRIMITIVES.md §11, L-1) and registers those definitions **for
+ * the duration of this compile only** — nothing is written to the process
+ * registry, so two compositions that define the same name never see each
+ * other's version and a composition that defines and uses an executable
+ * behavior renders from `davidup render` with no session state. Lookup order
+ * is composition block → `options.behaviors` (an MCP session's
+ * `define_user_behavior` records) → the registry overlay → the built-ins:
+ * the most local scope wins, matching `templates`.
+ *
  * Pure function; does not touch the input. Other top-level keys pass through
- * unchanged. After this runs, the result is a v0.1-shaped composition (no
- * `$behavior` markers anywhere in `tweens`).
+ * unchanged, and `behaviors` is dropped (compile-time only, like `templates`
+ * and `scenes`) so the result is a v0.1-shaped composition with no
+ * `$behavior` markers anywhere in `tweens`.
  */
 export function expandBehaviors(
   comp: unknown,
   options: ExpandBehaviorOptions = {},
 ): unknown {
   if (!isPlainObject(comp)) return comp;
+  const scoped = readCompositionBehaviors(comp);
+  const effective: ExpandBehaviorOptions =
+    scoped === undefined
+      ? options
+      : { behaviors: { ...options.behaviors, ...scoped } };
   const rawTweens = (comp as { tweens?: unknown }).tweens;
-  if (!Array.isArray(rawTweens)) return comp;
+  if (!Array.isArray(rawTweens)) return scoped === undefined ? comp : withoutBehaviors(comp);
   let touched = false;
   const out: unknown[] = [];
   for (const entry of rawTweens) {
     if (isBehaviorBlock(entry)) {
       touched = true;
       const block = readBehaviorBlock(entry);
-      const expanded = expandBehavior(block, options);
+      const expanded = expandBehavior(block, effective);
       for (const t of expanded) out.push(t);
     } else {
       out.push(entry);
     }
   }
-  if (!touched) return comp;
-  return { ...(comp as Record<string, unknown>), tweens: out };
+  if (!touched) return scoped === undefined ? comp : withoutBehaviors(comp);
+  const next = scoped === undefined ? { ...(comp as Record<string, unknown>) } : withoutBehaviors(comp);
+  next.tweens = out;
+  return next;
+}
+
+/**
+ * Read + normalize the composition-scoped `behaviors` block. Returns
+ * `undefined` when the key is absent (the overwhelmingly common case — the
+ * caller then skips cloning entirely). The map key is the behavior name a
+ * `$behavior` reference must use; a `name` inside the descriptor is ignored
+ * so the two can never disagree.
+ */
+function readCompositionBehaviors(
+  comp: Record<string, unknown>,
+): Record<string, BehaviorDescriptor> | undefined {
+  const raw = comp.behaviors;
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      "`behaviors` must be an object keyed by behavior name.",
+    );
+  }
+  const out: Record<string, BehaviorDescriptor> = {};
+  // Sorted for §10.2 determinism (normalization can throw, so the *first*
+  // malformed entry reported must not depend on key insertion order).
+  for (const name of Object.keys(raw).sort()) {
+    const defRaw = raw[name];
+    if (!isPlainObject(defRaw)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Behavior definition "${name}" must be an object.`,
+      );
+    }
+    out[name] = normalizeBehaviorDescriptor({
+      ...defRaw,
+      name,
+    } as unknown as BehaviorDescriptor);
+  }
+  return out;
+}
+
+function withoutBehaviors(comp: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(comp)) {
+    if (k !== "behaviors") out[k] = v;
+  }
+  return out;
 }
 
 // ──────────────── Helpers ────────────────

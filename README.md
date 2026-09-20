@@ -612,9 +612,10 @@ Composition settings in the editor):
 The same composition can be expressed at any of four levels of abstraction.
 Higher levels are *compiled down* to the level below by
 [`src/compose/precompile.ts`](./src/compose/precompile.ts) before render
-(`resolveImports` → `expandTemplates` → `expandSceneInstances` →
-`expandBehaviors`). The drivers always run precompile, so all four levels are
-valid inputs to `renderToFile`, `davidup render`, and `attach()`.
+(`resolveImports` → `resolveLibraryRefs` → `expandTemplates` →
+`expandSceneInstances` → `expandBehaviors`). The drivers always run
+precompile, so all four levels are valid inputs to `renderToFile`,
+`davidup render`, and `attach()`.
 
 ### Level 1 — Raw items + tweens
 
@@ -674,6 +675,16 @@ for a definition that ships no body — those stay catalog metadata and
 Library panel's behavior tab has **From selection**, which seeds a new
 behavior from the selected item's own tweens.
 
+A composition can carry its own definitions in a top-level
+`behaviors: { name: descriptor }` block. They are registered **for that one
+compile** — nothing is written to the process registry — so a file that
+defines and uses an executable behavior renders from `davidup render` with no
+session state, and two compositions that pick the same name never collide.
+The block is compile-time-only (like `templates` and `scenes`) and is gone
+from the canonical output. Lookup order is the composition's block → an MCP
+session's `define_user_behavior` records → the registry → the built-ins, so
+the most local definition wins.
+
 ### Level 3 — Templates (5 built-in + 11 shipped in the global library)
 
 Parameterised authoring patterns. Engine built-ins (auto-registered):
@@ -689,7 +700,25 @@ Library extras (installed by `bun run seed:library`): `endCard`, `quoteCard`,
 `countdown321`, `logoBadge`, `subtitleBar`, `compareSplit`.
 
 Use via `apply_template` (MCP) / `expandTemplate` (JS) / drag-from-Library
-(editor). Template and scene bodies take `${…}` expressions — `params.X`,
+(editor), or name one from the global library by id:
+
+```json
+"items":  { "follow": { "$template": "global:ctaButton", "params": { "label": "Follow" } } },
+"tweens": [ { "$behavior": "global:neonFlicker", "target": "venn", "start": 9, "duration": 0.6 } ]
+```
+
+`global:<id>` reads `<library>/templates/<id>.template.json` /
+`<library>/behaviors/<id>.behavior.json` at compile time — the same prefix and
+the same root (`$DAVIDUP_LIBRARY`, default `~/.davidup/library`) as a
+`global:` asset src. References inside a loaded definition resolve too, and a
+`templates` / `behaviors` key the composition writes itself under the same
+`global:<id>` name shadows the file on disk. Missing files are
+`E_TEMPLATE_UNKNOWN` / `E_BEHAVIOR_UNKNOWN` naming the path that was tried.
+The library is a directory on disk, so this is Node-only: a browser
+`attach()` gets `E_FEATURE_UNAVAILABLE` telling you to inline the definition
+or precompile server-side.
+
+Template and scene bodies take `${…}` expressions — `params.X`,
 `$.X`, numbers, `'strings'`, `+ - * / %`, `min` / `max` / `round` — either as
 a whole field (`"${params.stagger * 2}"` stays a number) or interpolated
 (`"Hello ${params.name}!"`).
@@ -1114,6 +1143,11 @@ Idempotent. Provisions:
   URLs that the browser loader rewrites at runtime.
 - No scenes or image assets are seeded; add your own or save them from the
   editor.
+
+Any composition can name a template or behavior from this pool with the
+`global:` prefix — `{ "$template": "global:ctaButton" }` — which resolves at
+compile time, so `davidup render` picks it up with no editor or MCP session
+involved (see *Level 3* above).
 
 Override the library root with `$DAVIDUP_LIBRARY`. See
 [`scripts/seed-global-library.ts`](./scripts/seed-global-library.ts) for the

@@ -7,6 +7,10 @@ export {
 } from "./imports.js";
 export { evaluatePointer, JsonPointerError } from "./jsonPointer.js";
 export {
+  resolveLibraryRefs,
+  type ResolveLibraryRefsOptions,
+} from "./libraryRefs.js";
+export {
   BEHAVIOR_EXPANSION_VERSION,
   expandBehavior,
   expandBehaviors,

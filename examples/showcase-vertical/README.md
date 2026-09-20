@@ -26,9 +26,14 @@ bun run examples/showcase-vertical/render.ts --stills 2,27.5   # single PNG fram
 HUD: a single 900-entry `$repeat` frame counter (per-compile budget, v1.2),
 code captions from an inline template, `steps(30)` REC dot, progress bar.
 
-`render.ts` drives the library API instead of `davidup render` because the
-film uses `global:` asset srcs and a user behavior. See
-`v1.3_showcase_findings.md` (B-5, L-1) for why, and for the other issues this
-example turned up.
+```sh
+davidup render examples/showcase-vertical/composition.json -o out.mp4
+```
+renders the film too: `global:` asset srcs (B-5), the library's `ctaButton`
+template named by id and the composition's own `neonFlicker` behavior (L-1)
+all resolve through the CLI. `render.ts` exists for the *build* — it
+regenerates `composition.json`, renders the ProRes alpha overlay, and feeds
+each Droste pass back into the next. See `v1.3_showcase_findings.md` for the
+other issues this example turned up.
 Footage, music and SFX are shared with `../showcase-v1.1/assets/`. The fonts
 and profile picture come from `~/.davidup/library`.

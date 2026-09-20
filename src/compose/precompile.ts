@@ -1,6 +1,7 @@
 // Pre-compile pipeline driver — orchestrates the v0.2/v0.3/v0.4 authoring →
-// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's six
-// passes: resolveImports → expandRepeats (root `$repeat` blocks, v1.1) →
+// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's seven
+// passes: resolveImports → resolveLibraryRefs (`global:` templates and
+// behaviors, v1.3, L-1) → expandRepeats (root `$repeat` blocks, v1.1) →
 // expandTemplates → expandSceneInstances → expandBehaviors →
 // applySchemaDefaults (v1.3, B-6). `$repeat` blocks inside template / scene
 // definitions expand with their instance, where params are bound.
@@ -62,6 +63,7 @@
 
 import { expandBehaviors } from "./behaviors.js";
 import { resolveImports, type ReadFile } from "./imports.js";
+import { resolveLibraryRefs } from "./libraryRefs.js";
 import { expandRepeats, withRepeatBudget } from "./repeat.js";
 import { expandSceneInstances } from "./scenes.js";
 import { expandTemplates } from "./templates.js";
@@ -85,11 +87,18 @@ export interface PrecompileOptions {
    */
   sourcePath?: string;
   /**
-   * Custom file reader for `$ref` resolution. Defaults to
-   * `fs/promises#readFile` with utf-8 encoding (suitable for Node).
-   * Pass an in-memory map for browser-side resolution.
+   * Custom file reader for `$ref` resolution and for `global:` template /
+   * behavior definitions. Defaults to `fs/promises#readFile` with utf-8
+   * encoding (suitable for Node). Pass an in-memory map for browser-side
+   * resolution.
    */
   readFile?: ReadFile;
+  /**
+   * Global library root for `global:` template / behavior references.
+   * Defaults to `$DAVIDUP_LIBRARY`, else `~/.davidup/library` — the same
+   * rule the asset loader applies to `global:` asset srcs.
+   */
+  libraryRoot?: string;
   /**
    * When `true`, switch the return shape to `{ resolved, sourceMap }`. Off
    * by default to preserve the v0.1–v0.4 contract of `Promise<unknown>` for
@@ -112,6 +121,9 @@ export interface PrecompileResult {
 /**
  * Run the authoring → canonical compile pipeline:
  *   1. resolveImports        — inline every `$ref`
+ *   1a. resolveLibraryRefs   — inline the definition behind every
+ *                              `global:` `$template` / `$behavior` reference
+ *                              into the composition's compile-time blocks
  *   1b. expandRepeats        — lower root-level `$repeat` blocks in `items` /
  *                              `tweens` (they may produce template / scene
  *                              instances and `$behavior` blocks)
@@ -122,7 +134,9 @@ export interface PrecompileResult {
  *                              synthetic group + namespaced inner items +
  *                              shifted tweens; merge scene assets into root
  *   4. expandBehaviors       — replace each `{ $behavior }` tween with its
- *                              expansion (now includes scene-internal tweens)
+ *                              expansion (now includes scene-internal tweens),
+ *                              with the composition's own `behaviors{}` block
+ *                              registered for this compile only (v1.3, L-1)
  *   5. applySchemaDefaults   — fill the schema's `.default()` fields the
  *                              author left out (`video.fit`, `video.loop`) so
  *                              the engine sees the output shape its types
@@ -168,7 +182,19 @@ export async function precompile(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
+  current = await resolveLibraryRefs(current, libraryOptions(options));
   return expandPasses(current);
+}
+
+/** `resolveLibraryRefs` options carved out of the precompile options. */
+function libraryOptions(options: PrecompileOptions): {
+  readFile?: ReadFile;
+  libraryRoot?: string;
+} {
+  return {
+    ...(options.readFile !== undefined ? { readFile: options.readFile } : {}),
+    ...(options.libraryRoot !== undefined ? { libraryRoot: options.libraryRoot } : {}),
+  };
 }
 
 /**
@@ -214,6 +240,10 @@ async function precompileWithSourceMap(
       options.readFile !== undefined ? { readFile: options.readFile } : {};
     current = await resolveImports(current, options.sourcePath, importOptions);
   }
+  // Library definitions carry no `__source`: their inner items are attributed
+  // to the *instance* that placed them (step 3's prefix lookup), which is the
+  // line the user can actually edit.
+  current = await resolveLibraryRefs(current, libraryOptions(options));
   current = withRepeatBudget(() => {
     let expanded = expandRepeats(current);
     // Root `$repeat` products carry the block's __source; the instances and

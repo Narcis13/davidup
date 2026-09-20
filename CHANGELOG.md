@@ -9,6 +9,39 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Composition-scoped behaviors; `global:` templates and behaviors (L-1)
+
+- New top-level `behaviors: { name: descriptor }` block. Definitions in it are
+  registered **for one compile only** — nothing reaches the process registry —
+  so a composition that defines and uses an executable behavior renders from
+  `davidup render` with no MCP/editor session, and two files that pick the
+  same name never see each other's version. Compile-time-only like
+  `templates` and `scenes`: it is stripped from the canonical output.
+  Lookup order is the composition's block → an MCP session's
+  `define_user_behavior` records → the registry → the built-ins.
+- `$template: "global:<id>"` and `$behavior: "global:<id>"` resolve against
+  the global library (`$DAVIDUP_LIBRARY`, default `~/.davidup/library`) at
+  compile time, reading `templates/<id>.template.json` /
+  `behaviors/<id>.behavior.json`. The same prefix and root the asset loader
+  already uses for `global:` srcs; `alias::name` (§12.3) stays reserved.
+  References inside a loaded definition resolve transitively, and a
+  `templates` / `behaviors` entry the composition writes under the same
+  `global:<id>` key shadows the file on disk. A missing file is
+  `E_TEMPLATE_UNKNOWN` / `E_BEHAVIOR_UNKNOWN` naming the path that was tried;
+  a name that would climb out of the library root is `E_INVALID_VALUE`.
+  Node only — the browser gets `E_FEATURE_UNAVAILABLE` pointing at the inline
+  alternative, and the pass lazy-imports `node:path` so no bundler has to
+  resolve it.
+- New `resolveLibraryRefs` pass in `src/compose/libraryRefs.ts`, run by
+  `precompile` between `$ref` inlining and the expansion passes. It costs one
+  walk and no I/O when nothing uses `global:`, and no expansion pass learns
+  about the library: the definitions are merged into the composition's own
+  compile-time blocks under their prefixed key.
+- `examples/showcase-vertical` drops both workarounds: `build.mjs` no longer
+  reads `ctaButton.template.json` off disk and `render.ts` no longer calls
+  `registerBehavior`, so the film renders with
+  `davidup render examples/showcase-vertical/composition.json`.
+
 ### `global:` / `bundled:` asset srcs survive the CLI and editor render paths (B-5)
 
 - Fix: `davidup render` no longer breaks every library asset. Both render
