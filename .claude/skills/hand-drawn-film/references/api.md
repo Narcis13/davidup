@@ -93,11 +93,11 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `LOOKS` The six presets (plan 1.4): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel.
 - `PASTELS` The doodle palette on another sheet of paper. Sheets measured off the reference film.
-- `derive(look, { hue = 0, sat = 1, light = 0, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta); paper, ink, night and light stay.
+- `derive(look, { hue = 0, sat = 1, light = 0, from, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of `from` -- a cutout record written by `hdf photo` (or a bare colours list).
 - `duotone(look, a, b)` Two inks on the look's paper, the way the flipbook goes magenta + blue for a beat.
 - `pastel(look, n)` The look on a pastel sheet: n names a PASTELS paper or is any colour.
 - `withLook(base, part = {})` A look with some fields replaced; palette and tools merge one level deep.
-- `resolveLook(l)` A full look from a preset name, { name } (what film() stores for a string) or a full look object.
+- `resolveLook(l, assets)` A full look from a preset name, { name } (what film() stores for a string) or a full look object.
 - `mix(a, b, t)` Colour helpers for derived palettes (hex in, CSS out); films use roles, not these, in ops.
 - `tint(c, t)` towards white
 - `shade(c, t)` towards black

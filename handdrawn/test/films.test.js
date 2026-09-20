@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadFilm } from '../cli/load.mjs';
+import { frame } from '../core/tree.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FILMS = join(ROOT, 'films');
@@ -39,4 +41,28 @@ test('every film matches its golden with 4 workers', { skip: process.platform !=
     const r = hdf('golden', f.file, 'check', '--workers', '4');
     assert.equal(r.status, 0, `${f.file}\n${r.stdout}${r.stderr}`);
   }
+});
+
+// S1: --look 'preset~from:<asset>' paints the film in a cutout's own colours. held-once pins a look per scene
+// (a pastel sheet each), so this is also the check that a modifier reaches those and leaves their paper alone.
+test("--look 'doodlePastel~from:teapot' repaints held-once in the teapot's colours", async () => {
+  const path = join(FILMS, 'held-once.js');
+  const plain = await loadFilm(path);
+  const from = await loadFilm(path, { look: 'doodlePastel~from:teapot' });
+  const teapot = (await import(pathToFileURL(join(FILMS, 'held-once-photos.js')).href)).default.teapot;
+
+  assert.equal(from.look.name, 'doodlePastel~from:teapot');
+  assert.deepEqual(from.look.palette.fills, teapot.colours.map((c) => c.hex));
+  const a = frame(plain, 24).look, b = frame(from, 24).look;
+  assert.equal(b.name, `${a.name}~from:teapot`, 'the scene keeps its own sheet, repainted');
+  assert.equal(b.palette.paper, a.palette.paper);
+  assert.notDeepEqual(b.palette.fills, a.palette.fills);
+
+  const r = hdf('grid', 'films/held-once.js', '--look', 'doodlePastel~from:teapot', '--n', '4', '--width', '160');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /held-once-doodlePastel~from:teapot-grid\.jpg/);
+
+  const bad = hdf('grid', 'films/held-once.js', '--look', 'doodlePastel~from:nope', '--n', '2', '--width', '160');
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /no asset 'nope'/);
 });

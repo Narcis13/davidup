@@ -8,13 +8,16 @@
 //   hdf photo cut.png --name boot --keep                 the file already has alpha: only crop, trace, register
 //   hdf photo flat.jpg --name card --flood --tol 34 --local 10 --shadow 60   flood the plain background by colour
 //   hdf photo --v1 held-once-photos.js [--js photos.js]  convert a v1 photos.js (registerPhoto lines): trace each
+//   hdf photo --refresh held-once-photos.js              re-read a module and add `colours` to every cutout (no re-matting)
 //
 // The cut: `rembg` (on PATH, or REMBG=/path/to/rembg) does the matting unless --flood or --keep; without it
 // the background is flooded from the borders by colour, which only holds on flat, evenly lit backgrounds.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
+import { css } from '../core/looks.js';
 import { skiaCanvas } from './skia.mjs';
 import { traceAlpha } from './trace.mjs';
 import { UsageError } from './load.mjs';
@@ -30,6 +33,7 @@ export async function run(args, flags) {
   const jsFile = resolve(String(flags.js ?? 'photos.js'));
   mkdirSync(outDir, { recursive: true });
   if (flags.v1) return convertV1(String(flags.v1 === true ? args[0] : flags.v1), jsFile, outDir);
+  if (flags.refresh) return refresh(String(flags.refresh === true ? args[0] : flags.refresh));
 
   const file = args[0], name = flags.name;
   if (!file || !name || name === true) throw usage('photo: need <img> and --name <id>');
@@ -57,12 +61,13 @@ export async function run(args, flags) {
   const { canvas, kept } = res;
   const sil = silhouette(canvas);
   const src = await dataURL(canvas);
-  const rec = { name: String(name), credit: str(flags.credit), source: str(flags.source), src, w: canvas.width, h: canvas.height, sil };
+  const rec = { name: String(name), credit: str(flags.credit), source: str(flags.source), src, w: canvas.width, h: canvas.height, sil, colours: colours(canvas, sil) };
   writeRecords(jsFile, [rec]);
   const sheet = join(outDir, `photo-${name}.jpg`);
   await checkSheet(canvas, sil).toFile(sheet, { quality: 0.9 });
   process.stdout.write(`${name}: ${rec.w}x${rec.h}, object covers ${(kept * 100).toFixed(0)}% of the source, `
     + `${sil.sub.length} subs / ${sil.sub.reduce((n, s) => n + s.pts.length / 2, 0)} pts, ${(src.length / 1024).toFixed(0)} KB -> ${jsFile}\n`
+    + `colours: ${swatches(rec.colours)}\n`
     + `check sheet: ${sheet}\n`);
   if (kept > 0.85) process.stderr.write('warning: almost nothing was removed. Raise --tol, or the background is not plain.\n');
   if (kept < 0.03) process.stderr.write('warning: almost everything was removed. Lower --tol or --local.\n');
@@ -171,6 +176,70 @@ function silhouette(canvas) {
   return traceAlpha(canvas.getContext('2d').getImageData(0, 0, w, h).data, w, h, { threshold: 96, size: 256, eps: 0.6 });
 }
 
+// The cutout's own palette (plan S1): opaque pixels posterised to 5 bits per channel, bins within MERGE of a
+// kept colour folded into it, the biggest 8 by area. `area` is the share of the cutout's opaque pixels, so a
+// few large flat colours come first -- which is the order derive({ from }) hands to `fills`.
+const MERGE = 40, KEEP = 8, MAX_BINS = 64;
+function colours(canvas, sil) {
+  const { width: w, height: h } = canvas, cv = skiaCanvas(w, h), g = cv.getContext('2d');
+  if (sil?.sub?.length) {     // only what the traced silhouette encloses counts, holes included
+    g.beginPath();
+    for (const sub of sil.sub) {
+      const p = sub.pts;
+      g.moveTo(p[0], p[1]);
+      for (let i = 2; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]);
+      g.closePath();
+    }
+    g.clip('evenodd');
+  }
+  g.drawImage(canvas, 0, 0);
+  const d = g.getImageData(0, 0, w, h).data, bins = new Map();
+  let tot = 0;
+  for (let p = 0; p < w * h; p++) {
+    if (d[p * 4 + 3] < 200) continue;
+    const r = d[p * 4], gg = d[p * 4 + 1], b = d[p * 4 + 2], k = ((r >> 3) << 10) | ((gg >> 3) << 5) | (b >> 3);
+    let e = bins.get(k);
+    if (!e) bins.set(k, e = [0, 0, 0, 0]);
+    e[0] += r; e[1] += gg; e[2] += b; e[3]++; tot++;
+  }
+  if (!tot) return [];
+  const kept = [];
+  for (const [, e] of [...bins].sort((a, b) => b[1][3] - a[1][3] || a[0] - b[0])) {
+    const r = e[0] / e[3], gg = e[1] / e[3], b = e[2] / e[3];
+    let near = null, best = MERGE;
+    for (const c of kept) {
+      const dd = Math.hypot(c[0] / c[3] - r, c[1] / c[3] - gg, c[2] / c[3] - b);
+      if (dd < best) { best = dd; near = c; }
+    }
+    if (near) for (let i = 0; i < 4; i++) near[i] += e[i];
+    else if (kept.length < MAX_BINS) kept.push([...e]);
+  }
+  return kept.sort((a, b) => b[3] - a[3]).slice(0, KEEP)
+    .map((c) => ({ hex: css([c[0] / c[3], c[1] / c[3], c[2] / c[3]]), area: +(c[3] / tot).toFixed(4) }));
+}
+
+const swatches = (cols) => cols.map((c) => `${c.hex} ${(c.area * 100).toFixed(0)}%`).join('  ');
+
+// --refresh: re-read a written module and give every cutout its `colours`, without touching the matte.
+async function refresh(file) {
+  const abs = resolve(file);
+  if (!existsSync(abs)) throw usage(`photo: no such file '${file}'`);
+  const mod = await import(`${pathToFileURL(abs).href}?t=${Date.now()}`);
+  const recs = Object.values(mod.default ?? mod.PHOTOS ?? {});
+  if (!recs.length) { process.stderr.write(`photo: no cutouts in ${file}\n`); return 1; }
+  const out = [];
+  for (const rec of recs) {
+    const img = await loadImage(rec.src), cv = skiaCanvas(rec.w, rec.h);
+    cv.getContext('2d').drawImage(img, 0, 0, rec.w, rec.h);
+    const cols = colours(cv, rec.sil);
+    out.push({ ...rec, colours: cols });
+    process.stdout.write(`${rec.name}: ${swatches(cols)}\n`);
+  }
+  writeRecords(abs, out);
+  process.stdout.write(`${out.length} cutouts refreshed -> ${abs}\n`);
+  return 0;
+}
+
 async function dataURL(canvas) {
   try {
     const buf = await canvas.toBuffer('webp', { quality: 0.92 });
@@ -234,7 +303,7 @@ async function convertV1(v1File, jsFile, outDir) {
     const cv = skiaCanvas(w, h);
     cv.getContext('2d').drawImage(img, 0, 0, w, h);
     const sil = silhouette(cv);
-    recs.push({ name, credit: meta.credit ?? '', source: meta.source ?? '', src: meta.src, w, h, sil });
+    recs.push({ name, credit: meta.credit ?? '', source: meta.source ?? '', src: meta.src, w, h, sil, colours: colours(cv, sil) });
     const sheet = join(outDir, `photo-${name}.jpg`);
     await checkSheet(cv, sil).toFile(sheet, { quality: 0.9 });
     process.stdout.write(`${name}: ${w}x${h}, ${sil.sub.length} subs / ${sil.sub.reduce((n, s) => n + s.pts.length / 2, 0)} pts `

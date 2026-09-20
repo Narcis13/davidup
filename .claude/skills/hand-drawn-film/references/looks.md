@@ -57,6 +57,7 @@ look: 'risoPop'                                                        // a pres
 look: withLook('risoPop', { name: 'gpu', palette: { fills: ['#3a7ca5', '#d9a441', '#c94c4c'] } })   // override keys
 look: withLook('paperInk', { palette: { wood: '#b88a5a' } })           // a new role: 'wood' (moon-book does this)
 look: derive('screenSea', { hue: 40, sat: 0.8, light: 0.05 })          // the whole palette shifted
+look: derive('doodlePastel', { from: PHOTOS.teapot })                   // the palette read off a cutout
 look: duotone('risoPop', '#ff48b0', '#0078bf')                          // two inks on the look's paper, halftone
 look: pastel('doodlePastel', 'mint')                                    // the doodle palette on another sheet
 look: withLook('pencilMinimal', { words: 3 })                           // allow three handwritten words a shot
@@ -67,6 +68,13 @@ look: withLook('pencilMinimal', { words: 3 })                           // allow
 - `derive(look, { hue, sat, light })` rotates hue (degrees), multiplies
   saturation, adds lightness across fills, accents, inks, shade and blush;
   paper, ink, night and light stay. A cool or warm variant without repainting.
+- `derive(look, { from })` takes `from` a cutout record (`hdf photo` writes its
+  `colours` table; `hdf photo --refresh <photos.js>` adds one to an older
+  module): `fills` become its colours biggest area first, `accents` its four
+  most saturated at mid lightness, `inks` end on its darkest saturated colour,
+  `shade` on its darkest and `blush` on its warmest. The sheet does not move.
+  On the command line it is `--look 'doodlePastel~from:teapot'`, which reaches
+  the looks a film pins shot by shot too, each keeping its own paper.
 - `duotone(look, a, b)`: one or two shots in two inks inside a colour film is
   a strong beat (recipe Q, `duotoneBeat`).
 - `pastel(look, sheet)`: `rose mint butter sky cream peach lilac sand night`,

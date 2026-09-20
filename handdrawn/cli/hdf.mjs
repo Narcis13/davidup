@@ -10,7 +10,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const USAGE = `usage: hdf <command> [args] [flags]
 
-  every command that takes a film also takes [--look <preset>] (replaces the root look)
+  every command that takes a film also takes [--look <preset>] (replaces the root look);
+  a preset may carry modifiers: --look 'doodlePastel~from:teapot' paints it in that cutout's own colours
 
   render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
@@ -23,7 +24,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
   golden  <film.js> write|check [--workers N]
   dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
-  photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet; --v1 <photos.js> converts
+  photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet
+                                    --v1 <photos.js> converts a v1 module; --refresh <photos.js> adds a colours table to an existing one
   clip    <clips.js|clip.json> [--name id] [--js clips.js]   roto.py output -> a v2 clips module
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg

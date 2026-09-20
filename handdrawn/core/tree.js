@@ -279,3 +279,21 @@ export function describe(f) {
 export function withRootLook(f, look) {
   return Object.freeze({ ...f, look: typeof look === 'string' ? { name: look } : look });
 }
+
+// The same film with fn over every look it pins: the root, every lookOn() and every shot that names one.
+// `--look 'preset~from:teapot'` uses this, because a modifier is a change of palette rather than another
+// look: a shot that pins its own sheet keeps it, repainted. Nothing else about the tree moves.
+export function mapLooks(f, fn) {
+  const node = (n) => {
+    const own = n.look ? { look: fn(n.look) } : null;
+    switch (n.kind) {
+      case 'shot': return own ? Object.freeze({ ...n, ...own }) : n;
+      case 'look': return Object.freeze({ ...n, ...own, child: node(n.child) });
+      case 'seq': case 'par': return Object.freeze({ ...n, kids: n.kids.map(node) });
+      case 'hold': return Object.freeze({ ...n, child: node(n.child) });
+      case 'cut': return Object.freeze({ ...n, a: node(n.a), b: node(n.b) });
+      default: return n;
+    }
+  };
+  return Object.freeze({ ...f, look: fn(f.look), timeline: node(f.timeline) });
+}

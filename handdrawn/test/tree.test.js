@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues } from '../core/tree.js';
+import { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues, mapLooks, withRootLook } from '../core/tree.js';
 import { paper, fill, stroke, group, circle, rect, hashList, walk } from '../core/list.js';
 import { hash32, seedOf } from '../core/rand.js';
 
@@ -111,6 +111,24 @@ test('par stacks, lookOn wraps shots in the innermost look', () => {
   assert.deepEqual(list.map((o) => [o.op, o.look.name]), [['look', 'blueprintNight'], ['look', 'inner']]);
   assert.equal(hashList(list[1].kids), hashList(frame(f, 5).list[1].kids), 'fg holds its last frame');
   assert.equal(frame(film({ name: 'l', look: 'paperInk', timeline: bg }), 0).list[0].op, 'paper', 'no look op without a look node');
+});
+
+test('withRootLook leaves pinned looks alone; mapLooks reaches every one of them', () => {
+  const bg = shot('bg', 1, () => [paper()]);
+  const fg = shot('fg', 1, () => [paper()], { look: { name: 'risoPop' } });
+  const f = film({ name: 'm', look: 'paperInk', timeline: seq(bg, lookOn('screenSea', hold(1, fg))) });
+  assert.equal(withRootLook(f, 'blueprintNight').timeline.kids[1].look.name, 'screenSea', 'pinned looks keep their own');
+
+  const seen = [];
+  const g = mapLooks(f, (l) => { seen.push(l.name); return { ...l, name: `${l.name}+` }; });
+  assert.deepEqual(seen, ['paperInk', 'screenSea', 'risoPop']);
+  assert.equal(g.look.name, 'paperInk+');
+  assert.equal(g.timeline.kids[1].look.name, 'screenSea+');
+  assert.equal(g.timeline.kids[1].child.child.look.name, 'risoPop+');
+  assert.equal(g.timeline.kids[0].look, undefined, 'a shot with no look of its own gains none');
+  assert.equal(g.n, f.n);
+  assert.equal(hashList(frame(g, 0).list), hashList(frame(f, 0).list), 'only the looks moved');
+  assert.deepEqual(f.timeline.kids[1].look, { name: 'screenSea' }, 'the original is untouched');
 });
 
 test('fit: anchor redraws around the target centre, reframe scales, letterbox pads', () => {

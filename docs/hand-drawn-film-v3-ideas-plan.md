@@ -433,7 +433,7 @@ doodle recipe in the user's hand without reading the source.
 
 | # | Session | Needs | Idea served | Done |
 |---|---|---|---|---|
-| S1 | Palette from an asset | — | palette from an asset | [ ] |
+| S1 | Palette from an asset | — | palette from an asset | [x] |
 | S2 | Store part 1 | — | (prereq) | [ ] |
 | S3 | Store part 2, migration | S2 | (prereq) | [ ] |
 | S4 | Puppets | S2 | (prereq) | [ ] |

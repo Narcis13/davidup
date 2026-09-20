@@ -255,6 +255,7 @@ Variants:
 ```js
 withLook('risoPop', { palette: { fills: ['#3a7ca5', '#d9a441'] }, words: 3 })   // override keys; the only place hex belongs
 derive('screenSea', { hue: 40, sat: 0.8, light: 0.05 })                         // shift the whole palette
+derive('doodlePastel', { from: PHOTOS.teapot })                                   // repaint it in a cutout's own colours
 duotone('risoPop', '#ff48b0', '#0078bf')                                          // two inks on the look's paper
 pastel('doodlePastel', 'mint')                                                    // another sheet: rose mint butter sky cream peach lilac sand night
 ```
@@ -394,7 +395,10 @@ hdf photo teapot.jpg --name teapot --credit "Teapot, ca. 1755, The Met, CC0" --s
 ```
 
 This cuts the object out (with `rembg` if it is on `PATH`, otherwise a colour
-flood), traces its silhouette, and writes a check sheet with a u,v grid. You
+flood), traces its silhouette, quantises its opaque pixels into a `colours`
+table (the biggest eight by area, which `derive({ from })` and
+`--look 'preset~from:<id>'` paint a look with), and writes a check sheet with a
+u,v grid. You
 read attachment points (spout, hub, lip) off that grid. Then
 `pin(photo, { x, y, h, rot })` places it, `on(pl, u, v)` attaches drawings so
 they move with the object, `rim` walks its real edge, `mask` draws on its
@@ -432,8 +436,11 @@ Raw events: `note(t, hz, dur, type, gain)`, `burst(t, dur, gain, seed)`,
 ## 9. The CLI
 
 Every command that takes a film also takes `--look <preset>` (restyles every
-shot that does not name its own look). Outputs are named
-`<film>[-<look>][-<ar>]`, so variants never overwrite each other.
+shot that does not name its own look). A preset may carry modifiers, and those
+reach the looks a film pins shot by shot as well, because they change a palette
+rather than replace a look: `--look 'doodlePastel~from:teapot'` paints the whole
+film in that cutout's own colours and leaves every scene its own sheet. Outputs
+are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 
 | command | does |
 |---|---|
@@ -447,7 +454,8 @@ shot that does not name its own look). Outputs are named
 | `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |
 | `hdf dev <film> [--port 4321]` | the player with hot reload |
 | `hdf bundle <film> [--out dir]` | one self-contained HTML player |
-| `hdf photo <img> --name <id> [--credit] [--source] [--js photos.js] [--flood\|--keep] [--punch u,v]` | a cutout with its silhouette, plus a check sheet |
+| `hdf photo <img> --name <id> [--credit] [--source] [--js photos.js] [--flood\|--keep] [--punch u,v]` | a cutout with its silhouette, colours table and check sheet |
+| `hdf photo --refresh <photos.js>` | add the colours table to a module written before it existed |
 | `hdf clip <roto.py output> [--js clips.js]` | a traced clip in the v2 format |
 | `hdf donate <module> <cel...> [--pack name]`, `hdf donate --manifest` | move cels into packs; rebuild the manifest and sheets |
 

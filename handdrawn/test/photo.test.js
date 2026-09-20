@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { traceAlpha } from '../cli/trace.mjs';
 import { skiaCanvas } from '../cli/skia.mjs';
 import { inside, isPath } from '../core/list.js';
+import { parse } from '../core/looks.js';
 
 // An alpha plane: 255 where f(x, y) (pixel centres), 0 elsewhere.
 function plane(w, h, f) {
@@ -80,5 +81,46 @@ test('hdf photo: flood cut of a red disc on white, module replaces by name and k
     const all = await load();
     assert.deepEqual(Object.keys(all), ['disc', 'disc2']);
     assert.equal(all.disc.credit, 'again');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('hdf photo: the colours table, and --refresh adding it to a module that has none', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-colours-'));
+  try {
+    // two thirds red, one third blue, on a white background the flood takes away
+    const c = skiaCanvas(400, 300), g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 400, 300);
+    g.fillStyle = '#d02020'; g.fillRect(100, 60, 200, 120);
+    g.fillStyle = '#2040c0'; g.fillRect(100, 180, 200, 60);
+    const png = join(dir, 'flag.png');
+    await c.toFile(png);
+    const js = join(dir, 'photos.js');
+    const hdf = (...a) => spawnSync(process.execPath, ['cli/hdf.mjs', 'photo', ...a, '--out', dir], { encoding: 'utf8' });
+    const load = async () => (await import(`${pathToFileURL(js).href}?t=${Math.random()}`)).default;
+
+    const r = hdf(png, '--name', 'flag', '--flood', '--js', js);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const { flag } = await load();
+    assert.equal(flag.colours.length, 2, `red and blue, no white: ${JSON.stringify(flag.colours)}`);
+    assert.equal(flag.colours[0].hex, '#d02020');
+    assert.equal(flag.colours[1].hex, '#2040c0');
+    assert.ok(flag.colours[0].area > flag.colours[1].area, 'biggest area first');
+    near(flag.colours[0].area / flag.colours[1].area, 2, 0.15, 'the red block is twice the blue one');
+    assert.ok(flag.colours.reduce((n, x) => n + x.area, 0) > 0.9, 'the table covers the cutout');
+
+    // a module written before S1: --refresh gives it the same table and leaves everything else alone
+    const stripped = readFileSync(js, 'utf8').replace(/,"colours":\[[^\]]*\]/, '');
+    writeFileSync(js, stripped);
+    assert.equal((await load()).flag.colours, undefined);
+    const rr = hdf('--refresh', js);
+    assert.equal(rr.status, 0, rr.stdout + rr.stderr);
+    assert.match(rr.stdout, /^flag: #d0(20|21)(20|21) 6[67]%/m);
+    const back = (await load()).flag;
+    // the same two blocks, read back through the webp: a couple of 0.5% bins of edge mush may trail them
+    near(parse(back.colours[0].hex)[0], 208, 4, 'red back');
+    near(parse(back.colours[1].hex)[2], 192, 4, 'blue back');
+    near(back.colours[0].area, flag.colours[0].area, 0.01, 'red area');
+    near(back.colours[1].area, flag.colours[1].area, 0.01, 'blue area');
+    assert.deepEqual({ ...back, colours: undefined }, { ...flag, colours: undefined }, 'only colours moved');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

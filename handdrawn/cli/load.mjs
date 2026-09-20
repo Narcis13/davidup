@@ -4,8 +4,8 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
-import { withRootLook } from '../core/tree.js';
-import { resolveLook } from '../core/looks.js';
+import { mapLooks, withRootLook } from '../core/tree.js';
+import { modifyLook, parseLookName, resolveLook } from '../core/looks.js';
 
 export class UsageError extends Error {}
 
@@ -29,7 +29,8 @@ export async function loadImages(film, dir = '.') {
 }
 
 // Imports a film module and checks its default export has the shape film() produces. look: a preset name
-// replacing the film's root look (--look).
+// replacing the film's root look (--look), which may carry modifiers read off the film's assets
+// ('doodlePastel~from:teapot'); it is resolved here, once, so renderers downstream never need them.
 export async function loadFilm(path, { look } = {}) {
   if (!path) throw new UsageError('missing <film.js>');
   const abs = resolve(path);
@@ -42,8 +43,11 @@ export async function loadFilm(path, { look } = {}) {
   if (f.timeline == null) throw new Error(`${path}: film has no timeline`);
   if (!decoded.has(f)) await loadImages(f, dirname(abs));
   if (!look) return f;
-  resolveLook(look);   // fails early on an unknown name
-  const g = withRootLook(f, look);
+  const full = resolveLook(look, f.assets);   // fails early on an unknown name or modifier
+  const { mods } = parseLookName(typeof look === 'string' ? look : look?.name ?? '');
+  // A plain preset replaces the root only; a modified one repaints the looks the film pins shot by shot too.
+  const rooted = withRootLook(f, full);
+  const g = mods.length ? mapLooks(rooted, (l) => (l === full ? l : modifyLook(l, mods, f.assets))) : rooted;
   decoded.set(g, decoded.get(f));
   return g;
 }

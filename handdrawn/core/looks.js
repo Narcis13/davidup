@@ -121,13 +121,48 @@ function deepFreeze(o) {
   return o;
 }
 
-// A full look from a preset name, { name } (what film() stores for a string) or a full look object.
-export function resolveLook(l) {
+// A preset name split on its modifiers: 'doodlePastel~from:teapot' -> { base: 'doodlePastel', mods: [['from', 'teapot']] }.
+export function parseLookName(name) {
+  const [base, ...rest] = String(name).split('~');
+  return { base, mods: rest.filter(Boolean).map((m) => { const i = m.indexOf(':'); return i < 0 ? [m, ''] : [m.slice(0, i), m.slice(i + 1)]; }) };
+}
+
+// The look modifiers `--look` understands, applied left to right. `from` needs the film's assets, so it only
+// resolves where they are at hand (cli/load.mjs passes them).
+const MODS = {
+  from: (look, id, assets, name) => derive(look, { from: assetRecord(id, assets, name), name: `${look.name}~from:${id}` }),
+};
+
+function assetRecord(id, assets, name) {
+  if (!assets) throw new Error(`look '${name}': a '~from:' look needs the film's assets; pass --look to a command that loads a film, or call derive(look, { from })`);
+  const rec = assets instanceof Map ? assets.get(id) : assets[id];
+  const have = (assets instanceof Map ? [...assets.keys()] : Object.keys(assets)).join(', ');
+  if (!rec) throw new Error(`look '${name}': no asset '${id}' in this film (has ${have || 'none'})`);
+  return rec;
+}
+
+// A look with the modifiers of a name applied to it, in order (mods as parseLookName returns them). The name's
+// own base is not consulted: this transforms the look it is handed, which is how a modifier reaches the looks a
+// film pins shot by shot.
+export function modifyLook(look, mods, assets, name) {
+  let out = resolveLook(look);
+  for (const [kind, value] of mods) {
+    const label = name ?? `${out.name}~${kind}:${value}`;
+    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => `${k}:<id>`).join(', ')})`);
+    out = MODS[kind](out, value, assets, label);
+  }
+  return out;
+}
+
+// A full look from a preset name, { name } (what film() stores for a string) or a full look object. A name may
+// carry modifiers -- 'doodlePastel~from:teapot' -- and those that read an asset need the film's `assets`.
+export function resolveLook(l, assets) {
   if (l && typeof l === 'object' && l.palette) return l;
   const name = typeof l === 'string' ? l : l?.name;
-  const found = LOOKS[name];
-  if (!found) throw new Error(`unknown look '${name}' (expected ${Object.keys(LOOKS).join(', ')}, or a look object)`);
-  return found;
+  if (LOOKS[name]) return LOOKS[name];
+  const { base, mods } = parseLookName(name ?? '');
+  if (!LOOKS[base] || !mods.length) throw new Error(`unknown look '${name}' (expected ${Object.keys(LOOKS).join(', ')}, or a look object)`);
+  return modifyLook(LOOKS[base], mods, assets, name);
 }
 
 // A look with some fields replaced; palette and tools merge one level deep.
@@ -140,12 +175,49 @@ export function withLook(base, part = {}) {
   });
 }
 
-// Shift a whole palette (hue in degrees, saturation factor, lightness delta); paper, ink, night and light stay.
-export function derive(look, { hue = 0, sat = 1, light = 0, name } = {}) {
-  const b = resolveLook(look), p = b.palette, f = (c) => lighten(saturate(rotateHue(c, hue), sat), light);
+// Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of
+// `from` -- a cutout record written by `hdf photo` (or a bare colours list). Either way paper, ink, night,
+// light and chalk stay: the sheet does not change, what is drawn on it does.
+export function derive(look, { hue = 0, sat = 1, light = 0, from, name } = {}) {
+  const b = from === undefined ? resolveLook(look) : fromColours(resolveLook(look), from);
+  if (!hue && sat === 1 && !light) return name && name !== b.name ? withLook(b, { name }) : b;
+  const p = b.palette, f = (c) => lighten(saturate(rotateHue(c, hue), sat), light);
   return withLook(b, {
     name: name ?? `${b.name}~h${hue}s${sat}l${light}`,
     palette: { fills: p.fills.map(f), accents: p.accents.map(f), inks: p.inks.map(f), shade: f(p.shade), blush: f(p.blush) },
+  });
+}
+
+// The colours table of a cutout record (or a bare list of { hex, area } / hex strings), biggest area first.
+function coloursOf(from) {
+  const list = Array.isArray(from) ? from : from?.colours;
+  if (!Array.isArray(list) || !list.length) {
+    const who = Array.isArray(from) ? 'this list' : `cutout '${from?.name ?? String(from)}'`;
+    throw new Error(`derive({ from }): ${who} has no colours; run \`hdf photo --refresh <photos.js>\` to add them`);
+  }
+  return list.map((c) => (typeof c === 'string' ? { hex: c, area: 0 } : { hex: c.hex, area: c.area ?? 0 }))
+    .map((c) => { parse(c.hex); return c; })
+    .sort((a, b) => b.area - a.area).map((c) => c.hex);
+}
+
+// fills are the cutout's colours by area, accents its four most saturated pushed to mid lightness, the inks
+// end on its darkest saturated colour, shade on its darkest, blush on its warmest.
+function fromColours(base, from) {
+  const hexes = coloursOf(from), h = hexes.map((c) => hsl(c)), idx = hexes.map((_, i) => i);
+  const best = (score, among = idx) => among.reduce((a, b) => (score(h[b]) > score(h[a]) ? b : a));
+  const dark = best(([, , l]) => -l), saturated = idx.filter((i) => h[i][1] >= 0.15);
+  const warm = idx.filter((i) => h[i][0] <= 90 || h[i][0] >= 330);
+  const bySat = [...idx].sort((a, b) => h[b][1] - h[a][1]);
+  const pop = (c) => withHsl(c, ([hh, s]) => [hh, clamp(s * 1.3, 0, 1), 0.5]);
+  return withLook(base, {
+    name: `${base.name}~from:${Array.isArray(from) ? 'colours' : from.name}`,
+    palette: {
+      fills: hexes,
+      accents: Array.from({ length: 4 }, (_, i) => pop(hexes[bySat[i % bySat.length]])),
+      inks: [base.palette.ink, hexes[saturated.length ? best(([, , l]) => -l, saturated) : dark]],
+      shade: shade(hexes[dark], 0.3),
+      blush: tint(hexes[best(([, s]) => s, warm.length ? warm : idx)], 0.3),
+    },
   });
 }
 
