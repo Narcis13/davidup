@@ -625,3 +625,88 @@ describe("precompile — source-map: __source never leaks into validator input",
     expect(resolved).toEqual(vanilla);
   });
 });
+
+// v1.3 Session G2 (B-6): the pipeline ends with `applySchemaDefaults`, so a
+// hand-written video item reaches the engine in the output shape its types
+// promise instead of crashing in `drawVideo` with `fit: undefined`.
+describe("precompile — schema defaults", () => {
+  const IDENTITY = {
+    x: 0,
+    y: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+    opacity: 1,
+  } as const;
+
+  function compWithVideo(video: Record<string, unknown>): Record<string, unknown> {
+    return {
+      version: "0.1",
+      composition: { width: 320, height: 180, fps: 30, duration: 2, background: "#000" },
+      assets: [{ id: "clip", type: "video", src: "clip.mp4" }],
+      layers: [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: ["v"] }],
+      items: { v: video },
+      tweens: [],
+    };
+  }
+
+  const authored = {
+    type: "video",
+    asset: "clip",
+    width: 320,
+    height: 180,
+    start: 0,
+    transform: { ...IDENTITY },
+  };
+
+  it("fills video fit/loop on canonical input", async () => {
+    const out = (await precompile(compWithVideo({ ...authored }))) as {
+      items: { v: Record<string, unknown> };
+    };
+    expect(out.items.v.fit).toBe("contain");
+    expect(out.items.v.loop).toBe(false);
+  });
+
+  it("fills them on template-expanded items too", async () => {
+    const comp = {
+      version: "0.3",
+      composition: { width: 320, height: 180, fps: 30, duration: 2, background: "#000" },
+      assets: [{ id: "clip", type: "video", src: "clip.mp4" }],
+      templates: {
+        clipBox: {
+          params: [],
+          items: { inner: { ...authored } },
+          tweens: [],
+        },
+      },
+      layers: [{ id: "L", z: 0, opacity: 1, blendMode: "normal", items: [] }],
+      items: { v: { $template: "clipBox", layerId: "L" } },
+      tweens: [],
+    };
+    const out = (await precompile(comp)) as { items: Record<string, Record<string, unknown>> };
+    expect(out.items.v__inner!.fit).toBe("contain");
+  });
+
+  it("keeps the short-circuit: a complete document comes back by reference", async () => {
+    const comp = compWithVideo({ ...authored, fit: "cover", loop: true });
+    expect(await precompile(comp)).toBe(comp);
+  });
+
+  it("fills them on the source-map path as well", async () => {
+    const { resolved, sourceMap } = await precompile(compWithVideo({ ...authored }), {
+      sourcePath: "/proj/root.json",
+      emitSourceMap: true,
+    });
+    const items = (resolved as { items: { v: Record<string, unknown> } }).items;
+    expect(items.v.fit).toBe("contain");
+    expect(items.v.loop).toBe(false);
+    expect(items.v.__source).toBeUndefined();
+    expect(sourceMap.items["v"]).toEqual({
+      file: "/proj/root.json",
+      jsonPointer: "/items/v",
+      originKind: "literal",
+    });
+  });
+});

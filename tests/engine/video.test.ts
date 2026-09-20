@@ -29,6 +29,7 @@ import type {
   VideoFrameRequest,
 } from "../../src/engine/types.js";
 import { FakeContext } from "./fakeContext.js";
+import { precompile } from "../../src/compose/index.js";
 
 // ─────────────────────────────── helpers ───────────────────────────────────
 
@@ -339,6 +340,52 @@ describe("renderFrame — video fit issues a 9-arg drawImage", () => {
       expect(d.dw).toBeCloseTo(400 / 3, 9);
       expect(d.dx).toBeCloseTo((200 - 400 / 3) / 2, 9);
       expect(d.dy).toBe(0);
+    }
+  });
+
+  // B-6: a hand-written item with no `fit` used to reach computeFitRects as
+  // `undefined` and crash ("undefined is not an object (evaluating 'r.sw')").
+  // `precompile` now fills the schema default, and drawVideo guards anyway for
+  // callers that build a Composition by hand.
+  it("letterboxes a video item authored without fit (contain default)", async () => {
+    const authored = {
+      type: "video",
+      asset: "clip",
+      width: 200,
+      height: 100,
+      start: 0,
+      transform: { ...IDENTITY },
+    };
+    const compiled = (await precompile({
+      ...compWith({}, oneVideoLayer),
+      items: { v: authored },
+    })) as Composition;
+    expect((compiled.items.v as VideoItem).fit).toBe("contain");
+    expect((compiled.items.v as VideoItem).loop).toBe(false);
+
+    const ctx = new FakeContext();
+    renderFrame(compiled, 0, ctx, {
+      video: fakeProvider({ v: { frameCount: 1, width: 320, height: 240 } }),
+    });
+    const d = frameDraw(ctx);
+    expect(d).toBeDefined();
+    if (d && d.op === "drawImage") {
+      expect(d.dh).toBe(100);
+      expect(d.dw).toBeCloseTo(400 / 3, 9);
+    }
+
+    // Same item straight to the renderer, skipping precompile.
+    const raw = new FakeContext();
+    renderFrame(
+      { ...compiled, items: { v: authored as unknown as VideoItem } },
+      0,
+      raw,
+      { video: fakeProvider({ v: { frameCount: 1, width: 320, height: 240 } }) },
+    );
+    const rawDraw = frameDraw(raw);
+    expect(rawDraw).toBeDefined();
+    if (rawDraw && rawDraw.op === "drawImage") {
+      expect(rawDraw.dw).toBeCloseTo(400 / 3, 9);
     }
   });
 });

@@ -456,6 +456,11 @@ export const VideoFitSchema = z.enum(VIDEO_FIT_MODES);
 // discriminatedUnion, and the `≤ asset.duration` bound needs the asset map.
 // DUAL: mirror any new field in apps/editor/app/types/commands.ts or it is
 // silently stripped off UI payloads.
+// `.default()` fields below are NOT free at runtime: `validate()` discards its
+// parsed output, so they reach the engine only because `precompile` ends with
+// `applySchemaDefaults` (schema/defaults.ts, B-6). Add a default here and that
+// pass picks it up automatically — but a reader that skips precompile still
+// sees a missing key.
 export const VideoItemSchema = strictObject({
   type: z.literal("video"),
   asset: z.string().min(1),

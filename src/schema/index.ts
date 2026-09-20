@@ -39,6 +39,12 @@ export {
   VideoItemSchema,
 } from "./zod.js";
 export {
+  applySchemaDefaults,
+  defaultFactory,
+  ITEM_DEFAULTS,
+  type DefaultFactories,
+} from "./defaults.js";
+export {
   isExtensionKey,
   safeParseWithExtensions,
   strictObject,

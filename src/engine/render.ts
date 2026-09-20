@@ -431,7 +431,11 @@ function drawVideo(
   const image = clip.getFrame(frameIndex);
   if (image === undefined) return;
 
-  const r = computeFitRects(item.fit, clip.width, clip.height, item.width, item.height);
+  // `precompile` fills the schema default (B-6), but `drawScene` is public
+  // API and a caller may hand us a raw authored item where `fit` is absent —
+  // the type says otherwise, so guard rather than crash inside computeFitRects.
+  const fit = item.fit ?? "contain";
+  const r = computeFitRects(fit, clip.width, clip.height, item.width, item.height);
   if (r.sw <= 0 || r.sh <= 0 || r.dw <= 0 || r.dh <= 0) return;
   ctx.drawImage(image, r.sx, r.sy, r.sw, r.sh, r.dx, r.dy, r.dw, r.dh);
 }

@@ -1,9 +1,9 @@
 // Pre-compile pipeline driver — orchestrates the v0.2/v0.3/v0.4 authoring →
-// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's five
+// canonical passes from COMPOSITION_PRIMITIVES.md §10. Today that's six
 // passes: resolveImports → expandRepeats (root `$repeat` blocks, v1.1) →
-// expandTemplates → expandSceneInstances → expandBehaviors. `$repeat` blocks
-// inside template / scene definitions expand with their instance, where
-// params are bound.
+// expandTemplates → expandSceneInstances → expandBehaviors →
+// applySchemaDefaults (v1.3, B-6). `$repeat` blocks inside template / scene
+// definitions expand with their instance, where params are bound.
 //
 // Drivers (`renderToFile`, `attach`) call this transparently so callers can
 // hand authored JSON straight to the engine without thinking about a
@@ -65,6 +65,7 @@ import { resolveImports, type ReadFile } from "./imports.js";
 import { expandRepeats, withRepeatBudget } from "./repeat.js";
 import { expandSceneInstances } from "./scenes.js";
 import { expandTemplates } from "./templates.js";
+import { applySchemaDefaults } from "../schema/defaults.js";
 // Side-effect import: registers the v0.3 built-in templates with the global
 // registry so any caller that goes through `precompile` (drivers, MCP tools,
 // tests) sees them, even if they never reached the public `compose/index.js`.
@@ -122,6 +123,10 @@ export interface PrecompileResult {
  *                              shifted tweens; merge scene assets into root
  *   4. expandBehaviors       — replace each `{ $behavior }` tween with its
  *                              expansion (now includes scene-internal tweens)
+ *   5. applySchemaDefaults   — fill the schema's `.default()` fields the
+ *                              author left out (`video.fit`, `video.loop`) so
+ *                              the engine sees the output shape its types
+ *                              promise (B-6)
  *
  * Returns the input unchanged when no v0.2/v0.3/v0.4 markers are present, so
  * calling this on a canonical v0.1 composition is a near-zero-cost no-op.
@@ -175,7 +180,8 @@ function expandPasses(comp: unknown): unknown {
     let current = expandRepeats(comp);
     current = expandTemplates(current);
     current = expandSceneInstances(current);
-    return expandBehaviors(current);
+    current = expandBehaviors(current);
+    return applySchemaDefaults(current);
   });
 }
 
@@ -215,7 +221,10 @@ async function precompileWithSourceMap(
     collectRepeatProductSources(expanded, instanceSources, behaviorSources);
     expanded = expandTemplates(expanded);
     expanded = expandSceneInstances(expanded);
-    return expandBehaviors(expanded);
+    expanded = expandBehaviors(expanded);
+    // Defaults are added, never removed, so the `__source` sidecars step 3
+    // lifts out ride through this pass untouched.
+    return applySchemaDefaults(expanded);
   });
 
   // Step 3 + 4: Extract __source into the SourceMap, derive missing entries

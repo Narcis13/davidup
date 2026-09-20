@@ -835,11 +835,17 @@ authoredJSON (any Composition v0.2 file, possibly with $ref / behaviors / templa
 └───────────────────────────────────────────────┘
     │
     ▼
+┌───────────────────────────────────────────────┐
+│ 5. applySchemaDefaults                        │  fill the schema's `.default()` fields
+│    (src/schema/defaults.ts, B-6)               │  the author left out (video.fit/loop)
+└───────────────────────────────────────────────┘
+    │
+    ▼
 canonical Composition v0.1 JSON
     │
     ▼
 ┌───────────────────────────────────────────────┐
-│ 5. validate (existing §3.5 rules unchanged)   │
+│ 6. validate (existing §3.5 rules unchanged)   │
 └───────────────────────────────────────────────┘
     │
     ▼
