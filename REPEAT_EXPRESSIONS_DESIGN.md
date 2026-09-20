@@ -55,9 +55,11 @@ it", and item 23 is that demand.
 
 **Non-goals**
 
-- No JS sandbox, no function calls (v1), no string manipulation beyond
-  interpolation, no conditionals/comparisons, no user variables, no loops
-  other than `$repeat`, no randomness (seeding stays §16-O10 territory).
+- No JS sandbox, no string manipulation beyond interpolation, no
+  conditionals/comparisons, no user variables, no loops other than `$repeat`,
+  no randomness (seeding stays §16-O10 territory). Calls were a v1 non-goal
+  too; v1.1 shipped `min`/`max`/`round` and v1.3 (G7) closed Q1 with a fixed
+  math whitelist — still no user-defined functions.
 
 ## 3. Expression language
 
@@ -70,11 +72,21 @@ fixed reference regex.
 ```
 expr    := term  (('+' | '-') term)*
 term    := factor (('*' | '/' | '%') factor)*
-factor  := NUMBER | ref | '(' expr ')' | '-' factor
+factor  := NUMBER | ref | CONST | CALL | '(' expr ')' | '-' factor
 ref     := ('params' | '$') '.' IDENT ('.' IDENT)*
+CALL    := FUNC '(' expr (',' expr)* ')'
+FUNC    := 'min' | 'max' | 'abs' | 'round' | 'floor' | 'ceil'
+         | 'clamp' | 'lerp' | 'sqrt' | 'pow' | 'sin' | 'cos' | 'tan' | 'atan2'
+CONST   := 'pi'
 NUMBER  := JSON-number syntax
 IDENT   := [A-Za-z_$][A-Za-z0-9_$]*
 ```
+
+`min` / `max` are variadic; `pow` and `atan2` take two arguments,
+`clamp(x, lo, hi)` and `lerp(a, b, t)` three (`t` is not clamped, so it
+extrapolates), the rest one. A wrong count is `E_TEMPLATE_EXPR` naming the
+function, as is `clamp` with `lo > hi`. Every `FUNC` and `CONST` name is
+reserved: a `$repeat` can't bind them as its `as`.
 
 Hand-rolled recursive-descent parser (~150 lines), zero dependencies —
 per COMPOSITION_PRIMITIVES.md §19.7's own advice ("a tiny custom parser;
@@ -92,7 +104,17 @@ with `hasOwn`).
 - **Anything else is numeric:** every operand must be a finite number;
   the result must be finite. A string param in `${params.x + 1}`, a
   division by zero, or a NaN/Infinity result is an error — never a silent
-  `NaN` propagating into a tween.
+  `NaN` propagating into a tween. `sqrt(-1)`, `pow(-1, 0.5)` and
+  `pow(10, 400)` therefore fail at the call, with the caret on the function.
+- **Cross-engine determinism:** ECMAScript leaves `sin`, `cos`, `tan`,
+  `atan2`, `sqrt` and `pow` implementation-approximated, so their last bits
+  may differ between node and a browser. Their results are rounded to a
+  1e-9 grid before use, which collapses that spread (~1 ULP) for every
+  magnitude a position, size or duration actually takes, and incidentally
+  makes `cos(pi / 2)` exactly 0. Values above 1e12 skip the grid (it is
+  finer than the double's own spacing there). The exact operators and
+  `abs` / `round` / `floor` / `ceil` / `clamp` / `lerp` / `min` / `max` are
+  IEEE-exact everywhere and are left alone.
 - Whole-string placeholders substitute to the raw result value (number
   stays a number); embedded placeholders (§3.4) stringify it.
 
@@ -336,6 +358,9 @@ Follows §6.6 exactly, with the gaps it left unspecified filled in:
 4. **`list_engine_capabilities`** — advertise
    `expressions: { version: 1, ops: ["+","-","*","/","%"], maxLength: 256 }`
    and `repeat: { maxNodes: 10000, maxDepth: 4 }` for feature detection.
+   (Shipped as `repeat` only; the `expressions` block is still unbuilt, so
+   the function set is discoverable from the docs and from the
+   `E_TEMPLATE_EXPR` hint, which lists every name.)
 5. **Manifest sync** — server.json + README + mcp-demo (manifest.test
    trap) for every description change above.
 
@@ -362,10 +387,11 @@ error code; the review's live drives showed hint quality is load-bearing).
   hand-rolled parser on different grounds: determinism, security audit
   surface (SaaS multi-tenant MCP is the roadmap), and zero-dependency
   policy all favor ~150 lines we own outright.
-- **Function whitelist (`min`, `max`, `floor`…) in v1**: deferred (Q1).
-  Every motivating case in the review (stagger arithmetic, offset sums,
-  bullet grids) needs only `+ - * / %`. Adding functions later is purely
-  additive to the grammar.
+- **Function whitelist (`min`, `max`, `floor`…) in v1**: deferred (Q1) and
+  then landed additively, exactly as predicted — `min`/`max`/`round` in v1.1,
+  the math set in v1.3 (G7) once a brief needed it: the showcase's 960-dot
+  iris had to be laid out by rotating each dot and tweening a large negative
+  `anchorX` because there was no `cos`.
 - **`$repeat` as a fifth standalone compile pass**: can't see template/scene
   params, so `count: "${params.n}"` — the parametric case that makes
   templates like `bulletList` variable-length — would be impossible. Hence
@@ -401,7 +427,7 @@ error code; the review's live drives showed hint quality is load-bearing).
 
 | # | Question | Lean |
 |---|---|---|
-| Q1 | Function whitelist (`floor`, `min`, `max`, `abs`)? | Defer; add as grammar v2 when a brief actually needs them. |
+| Q1 | Function whitelist (`floor`, `min`, `max`, `abs`)? | **Closed.** `min`/`max`/`round` in v1.1; `abs` `floor` `ceil` `clamp` `lerp` `sqrt` `pow` `sin` `cos` `tan` `atan2` + `pi` in v1.3 G7. |
 | Q2 | Should `add_tween.repeat` accept expressions in `from`/`to` even without a `$repeat` body? | Yes — it's the same evaluator; costs nothing. |
 | Q3 | Outer-index access in nested repeats (`$.outer.i`)? | Defer; route via template params when needed. |
 | Q4 | `name@version` for user behaviors (§16-O9)? | Reserve the field now, enforce at library-lock time. |

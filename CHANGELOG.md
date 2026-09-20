@@ -9,6 +9,42 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Math functions in `${…}` expressions (L-4)
+
+- Template, scene, behavior and `$repeat` expressions gain `abs`, `floor`,
+  `ceil`, `clamp(x, lo, hi)`, `lerp(a, b, t)`, `sqrt`, `pow`, `sin`, `cos`,
+  `tan`, `atan2` and the constant `pi`, alongside the v1.1 `min` / `max` /
+  `round`. A ring of dots is now
+  `"x": "${540 + cos(i * 2 * pi / 24) * 300}"` instead of a per-item rotation
+  plus a tweened negative `anchorX`, and a floor is `floor(x)` instead of
+  `round(x - 0.5)`.
+- `min` / `max` stay variadic; `pow` and `atan2` take two arguments, `clamp`
+  and `lerp` three, the rest one. A wrong count, or `clamp` with `lo > hi`, is
+  `E_TEMPLATE_EXPR` naming the function, and a non-finite result (`sqrt(-1)`,
+  `pow(10, 400)`) still fails at the call instead of leaking a NaN into a
+  tween. `lerp`'s `t` is deliberately unclamped so a value can overshoot.
+- **Decision (G7):** the six calls ECMAScript leaves *implementation-
+  approximated* (`sin`, `cos`, `tan`, `atan2`, `sqrt`, `pow`) have their
+  results rounded to a 1e-9 grid, rather than documenting a node↔browser
+  tolerance. A compiled composition is written back to disk and diffed, so it
+  has to be the same file whoever compiled it; the grid collapses the ~1 ULP
+  engine-to-engine spread at every magnitude a position, size or duration
+  takes, and makes `cos(pi / 2)` read as 0. Values above 1e12 skip it (1e-9 is
+  finer than the double's own spacing there), and the exact operators, `abs`,
+  `round`, `floor`, `ceil`, `clamp`, `lerp`, `min` and `max` are IEEE-exact
+  everywhere and are left untouched.
+- Every function and constant name is reserved: a `$repeat` can no longer bind
+  `as: "cos"` (or `pi`), and the reserved list is built from the evaluator's
+  own table so the two can't drift.
+- Unchanged: a `${…}` is still only read as an expression when it mentions
+  `params.`, `$.` or a loop variable, so `"${cos(pi)}"` on its own stays
+  literal text like every other non-referencing `${…}`.
+- `examples/showcase-vertical` drops the L-4 workaround: the 960-dot iris flies
+  each dot out to `cos`/`sin` of its angle on plain `transform.x` / `y` tweens
+  instead of rotating every dot and tweening a large negative `anchorX`. Same
+  frame to within 0.008 px (the old angle constant was a 6-decimal literal);
+  the dots no longer carry a rotation, so their antialiasing differs slightly.
+
 ### Scene instances anchor on their size and can live inside groups (L-2, L-3) — **⚠ pixel-changing for anchored instances of a sized scene**
 
 - A `group` takes optional `width`/`height`. They are its **anchor box** and

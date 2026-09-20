@@ -12,7 +12,7 @@ bun run examples/showcase-vertical/render.ts --stills 2,27.5   # single PNG fram
 
 | t (s) | Act | On screen |
 |---|---|---|
-| 0–3.5 | Hook | "THIS VIDEO IS A JSON FILE." inside a 960-dot iris from one nested `$repeat`, laid out with expression-driven rotation + a tweened `anchorX`; bezier implode into the drop |
+| 0–3.5 | Hook | "THIS VIDEO IS A JSON FILE." inside a 960-dot iris from one nested `$repeat`, each dot flying out to `cos`/`sin` of its own angle (v1.3 L-4); bezier implode into the drop |
 | 3.5–6 | Logo | additive R/G/B wordmark (`isolate` + `lighter`), `shake` behaviors, glow, multiline tagline |
 | 6–9 | Type | text v2 in four library fonts: wrap + breathing `lineHeight`, stroke→fill, tracking, hard shadow |
 | 9–12 | Light | RGB Venn that flickers on through a **user-defined** executable behavior (`neonFlicker`), tweened drop shadow, `isolate` false vs true |

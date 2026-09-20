@@ -17,14 +17,17 @@
 // byte-identical, so content strings authored before v1.1 don't change.
 //
 // The expression language is tiny and total: number and string literals,
-// `params.X` / `$.X` refs, `+ - * / %`, unary minus, parentheses, and the
-// functions `min`, `max`, `round`. Inside a `$repeat` body the loop variable
-// (`${i}`, or whatever `as` names) is a bare identifier, and `params[expr]`
-// looks a param up by a computed name (`params['y' + (i + 1)]` — inside the
-// brackets `+` may join numbers onto strings to build the name). No other
-// calls, no property access beyond one level, no `eval`. `+` adds numbers or concatenates two strings; mixing
-// is an error, as is any non-finite result. Failures throw E_TEMPLATE_EXPR
-// with the offending position.
+// `params.X` / `$.X` refs, `+ - * / %`, unary minus, parentheses, the constant
+// `pi`, and the functions `min`, `max`, `abs`, `round`, `floor`, `ceil`,
+// `clamp`, `lerp`, `sqrt`, `pow`, `sin`, `cos`, `tan`, `atan2` (v1.3, L-4 —
+// polar layouts used to need a rotation plus an anchor tween to fake `cos`).
+// Inside a `$repeat` body the loop variable (`${i}`, or whatever `as` names)
+// is a bare identifier, and `params[expr]` looks a param up by a computed name
+// (`params['y' + (i + 1)]` — inside the brackets `+` may join numbers onto
+// strings to build the name). No other calls, no property access beyond one
+// level, no `eval`. `+` adds numbers or concatenates two strings; mixing is an
+// error, as is any non-finite result. Failures throw E_TEMPLATE_EXPR with the
+// offending position.
 
 import { MCPToolError } from "../engine/errors.js";
 
@@ -315,10 +318,12 @@ function tokenize(source: string, path: string): Token[] {
 //   expr    := term (('+' | '-') term)*
 //   term    := unary (('*' | '/' | '%') unary)*
 //   unary   := '-' unary | primary
-//   primary := NUMBER | STRING | ref | LOCAL | FUNC '(' expr (',' expr)* ')' | '(' expr ')'
+//   primary := NUMBER | STRING | ref | LOCAL | CONST | FUNC '(' expr (',' expr)* ')' | '(' expr ')'
 //   ref     := ('params' | '$') '.' IDENT | 'params' '[' expr ']'
 //   LOCAL   := a `$repeat` loop variable in scope
-//   FUNC    := 'min' | 'max' | 'round'
+//   FUNC    := 'min' | 'max' | 'abs' | 'round' | 'floor' | 'ceil' | 'clamp'
+//            |  'lerp' | 'sqrt' | 'pow' | 'sin' | 'cos' | 'tan' | 'atan2'
+//   CONST   := 'pi'
 //
 // Parsing and evaluation happen in one recursive-descent walk: expressions
 // are short (≤ 256 chars) and evaluated once per expansion.
@@ -330,7 +335,85 @@ interface Value {
   pos: number;
 }
 
-const FUNCTIONS = new Set(["min", "max", "round"]);
+interface FunctionSpec {
+  /** Fixed argument count, or `null` for the variadic `min` / `max`. */
+  arity: number | null;
+  /**
+   * True for the functions ECMAScript leaves *implementation-approximated*,
+   * whose last bits may differ between node and a browser. Their results go
+   * through `quantize` so one composition compiles to the same numbers
+   * everywhere — precompiled output is written back to disk and diffed.
+   */
+  approx: boolean;
+  apply: (a: number[]) => number;
+}
+
+/**
+ * The whole call vocabulary. Every entry is pure, total on finite inputs and
+ * free of state; a non-finite result is caught by `finite()` at the call site
+ * (so `sqrt(-1)` and `pow(-1, 0.5)` are errors, not a NaN in a tween).
+ */
+const FUNCTIONS: Record<string, FunctionSpec> = {
+  min: { arity: null, approx: false, apply: (a) => Math.min(...a) },
+  max: { arity: null, approx: false, apply: (a) => Math.max(...a) },
+  abs: { arity: 1, approx: false, apply: (a) => Math.abs(a[0] as number) },
+  round: { arity: 1, approx: false, apply: (a) => Math.round(a[0] as number) },
+  floor: { arity: 1, approx: false, apply: (a) => Math.floor(a[0] as number) },
+  ceil: { arity: 1, approx: false, apply: (a) => Math.ceil(a[0] as number) },
+  // clamp(x, lo, hi); lerp(a, b, t) — t is not clamped, so t > 1 extrapolates.
+  clamp: {
+    arity: 3,
+    approx: false,
+    apply: (a) => Math.min(Math.max(a[0] as number, a[1] as number), a[2] as number),
+  },
+  lerp: {
+    arity: 3,
+    approx: false,
+    apply: (a) => (a[0] as number) + ((a[1] as number) - (a[0] as number)) * (a[2] as number),
+  },
+  sqrt: { arity: 1, approx: true, apply: (a) => Math.sqrt(a[0] as number) },
+  pow: { arity: 2, approx: true, apply: (a) => Math.pow(a[0] as number, a[1] as number) },
+  sin: { arity: 1, approx: true, apply: (a) => Math.sin(a[0] as number) },
+  cos: { arity: 1, approx: true, apply: (a) => Math.cos(a[0] as number) },
+  tan: { arity: 1, approx: true, apply: (a) => Math.tan(a[0] as number) },
+  atan2: { arity: 2, approx: true, apply: (a) => Math.atan2(a[0] as number, a[1] as number) },
+};
+
+/** Named constants, looked up before `$repeat` loop variables. */
+const CONSTANTS: Record<string, number> = { pi: Math.PI };
+
+/**
+ * Names an expression can't use for anything else — `$repeat`'s `as` checks
+ * against this (plus `params`) so a loop variable can never shadow a call.
+ */
+export const EXPR_RESERVED_NAMES: readonly string[] = [
+  ...Object.keys(FUNCTIONS),
+  ...Object.keys(CONSTANTS),
+];
+
+const FUNCTION_LIST = Object.keys(FUNCTIONS).join(", ");
+const ARITY_WORDS: Record<number, string> = {
+  1: "one argument",
+  2: "two arguments",
+  3: "three arguments",
+};
+
+/**
+ * Grid the approximated functions onto 1e-9 so node and a browser agree.
+ * `Math.sin` & co. are only specified to within an implementation's own
+ * accuracy, and their engine-to-engine spread is ~1 ULP (≈1e-16 relative);
+ * snapping to a nanometre-scale grid collapses that for every value in the
+ * range positions, sizes and seconds actually live in, at the cost of making
+ * results below 5e-10 read as 0. Values too large for the grid to mean
+ * anything (1e-9 is finer than the double's own spacing there) pass through
+ * untouched, so `pow(10, 300)` keeps its value instead of becoming Infinity.
+ */
+function quantize(v: number): number {
+  if (!Number.isFinite(v) || Math.abs(v) > 1e12) return v;
+  const q = Math.round(v * 1e9) / 1e9;
+  // `-0` would serialise as `0` anyway; normalise so it can never leak.
+  return q === 0 ? 0 : q;
+}
 
 class Evaluator {
   private readonly tokens: Token[];
@@ -448,12 +531,15 @@ class Evaluator {
         throw this.error(`unexpected "${t.text}"`, t.pos);
       case "ident":
         if (t.text === "params" || t.text === "$") return this.ref(t);
-        if (FUNCTIONS.has(t.text)) return this.call(t);
+        if (hasOwn(FUNCTIONS, t.text)) return this.call(t);
+        if (hasOwn(CONSTANTS, t.text)) {
+          return { v: CONSTANTS[t.text] as number, label: "number", pos: t.pos };
+        }
         if (this.ctx.locals !== undefined && hasOwn(this.ctx.locals, t.text)) {
           return { v: this.ctx.locals[t.text], label: `${t.text} (number)`, pos: t.pos };
         }
         throw this.error(
-          `unknown name "${t.text}" (use params.X, $.X, min, max, round` +
+          `unknown name "${t.text}" (use params.X, $.X, pi, ${FUNCTION_LIST}` +
             (this.ctx.locals !== undefined && Object.keys(this.ctx.locals).length > 0
               ? ` or a $repeat variable: ${Object.keys(this.ctx.locals).join(", ")}`
               : "") +
@@ -511,16 +597,18 @@ class Evaluator {
     }
     this.expect(")");
     this.depth -= 1;
-    let v: number;
-    if (fn.text === "round") {
-      if (args.length !== 1) {
-        throw this.error("round() takes exactly one argument", fn.pos);
-      }
-      v = Math.round(args[0] as number);
-    } else {
-      v = fn.text === "min" ? Math.min(...args) : Math.max(...args);
+    const spec = FUNCTIONS[fn.text] as FunctionSpec;
+    if (spec.arity !== null && args.length !== spec.arity) {
+      throw this.error(
+        `${fn.text}() takes exactly ${ARITY_WORDS[spec.arity] as string}`,
+        fn.pos,
+      );
     }
-    return { v, label: "number", pos: fn.pos };
+    if (fn.text === "clamp" && (args[1] as number) > (args[2] as number)) {
+      throw this.error("clamp(x, lo, hi) needs lo <= hi", fn.pos);
+    }
+    const v = this.finite(spec.apply(args), fn.pos);
+    return { v: spec.approx ? quantize(v) : v, label: "number", pos: fn.pos };
   }
 
   private number(value: Value, op: string): number {
@@ -611,7 +699,8 @@ function exprError(
       `  \${${expression}}\n` +
       `  ${" ".repeat(position + 2)}^`,
     "Expressions support numbers, 'strings', params.X, params['X'], $.X, " +
-      "$repeat variables, + - * / %, parentheses, min(), max() and round(). " +
+      `$repeat variables, + - * / %, parentheses, the constant pi and ` +
+      `${FUNCTION_LIST} (as calls). ` +
       "+ joins two strings; all other operators need numbers.",
     { details: { path: at, expression, position } },
   );

@@ -725,10 +725,19 @@ The library is a directory on disk, so this is Node-only: a browser
 `attach()` gets `E_FEATURE_UNAVAILABLE` telling you to inline the definition
 or precompile server-side.
 
-Template and scene bodies take `${…}` expressions — `params.X`,
-`$.X`, numbers, `'strings'`, `+ - * / %`, `min` / `max` / `round` — either as
+Template and scene bodies take `${…}` expressions — `params.X`, `$.X`,
+numbers, `'strings'`, `+ - * / %`, the constant `pi` and the functions
+`min` / `max` / `abs` / `round` / `floor` / `ceil` / `clamp(x, lo, hi)` /
+`lerp(a, b, t)` / `sqrt` / `pow` / `sin` / `cos` / `tan` / `atan2` — either as
 a whole field (`"${params.stagger * 2}"` stays a number) or interpolated
-(`"Hello ${params.name}!"`).
+(`"Hello ${params.name}!"`). So a ring of dots is
+`"x": "${540 + cos(i * 2 * pi / 24) * 300}"`. A result that isn't finite
+(`sqrt(-1)`, `pow(10, 400)`) is an error, never a NaN in a tween; the
+approximated calls (`sin`, `cos`, `tan`, `atan2`, `sqrt`, `pow`) are rounded
+to 1e-9 so node and the browser compile a composition to the same numbers.
+A `${…}` is still only read as an expression when it mentions `params.`, `$.`
+or a `$repeat` variable — `"${cos(pi)}"` on its own stays literal text, as
+every non-referencing `${…}` always has.
 
 `$repeat` generates entries from one block, in `items` or `tweens` of the
 root composition, a template or a scene:

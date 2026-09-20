@@ -123,11 +123,13 @@ for (const [at, ...cols] of AURORA) {
 // ════════════════════════════════════════════════════════════════════════════
 // ACT 0 — HOOK (0 → 3.5): 960 dots — one nested $repeat — burst out of the
 // centre into a twisted iris around the headline, then implode on the drop.
-// Each dot sits on the iris centre and is pushed out along its own rotation
-// by tweening `anchorX` (the expression language has no sin/cos, so the
-// polar layout is done by the transform instead).
+// Each dot starts on the iris centre and flies out to its own polar position,
+// written as `cos`/`sin` of its angle (v1.3 G7; before the expression language
+// had trigonometry this needed a per-dot `rotation` plus a tweened negative
+// `anchorX` to fake the same push).
 // ════════════════════════════════════════════════════════════════════════════
 const RINGS = 20, SPOKES = 48;
+const angle = `(j * 2 * pi / ${SPOKES} + k * 0.105)`;
 const ringR = "(250 + k * 13)";
 const dotD = "(5 + k * 0.55)";
 items.iris = group(["irisDot"], C(CX, 960, { s: 0.7, r: -1.4 }), {
@@ -138,23 +140,25 @@ items.irisDot = {
   item: {
     $repeat: { count: SPOKES, as: "j", id: "iris${k}_${j}" },
     item: circle(`\${${dotD}}`, "rgb(${round(61 + k * 10)}, ${round(232 - k * 9)}, ${round(255 - k * 5)})", {
-      x: 0, y: 0, scaleX: 1, scaleY: 1,
-      rotation: `\${j * ${(2 * Math.PI / SPOKES).toFixed(6)} + k * 0.105}`,
+      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
       anchorX: 0.5, anchorY: 0.5, opacity: 1,
     }),
   },
 };
-tweens.push({
-  $repeat: { count: RINGS, as: "k" },
-  item: {
-    $repeat: { count: SPOKES, as: "j" },
+for (const [axis, fn] of [["x", "cos"], ["y", "sin"]]) {
+  tweens.push({
+    $repeat: { count: RINGS, as: "k" },
     item: {
-      id: "irisOut${k}_${j}", target: "iris${k}_${j}", property: "transform.anchorX",
-      from: 0.5, to: `\${0.5 - ${ringR} / ${dotD}}`,
-      start: "${0.15 + k * 0.03 + j * 0.002}", duration: 1.2, easing: "easeOutExpo",
+      $repeat: { count: SPOKES, as: "j" },
+      item: {
+        id: `irisOut${axis.toUpperCase()}\${k}_\${j}`, target: "iris${k}_${j}",
+        property: `transform.${axis}`,
+        from: 0, to: `\${${fn}${angle} * ${ringR}}`,
+        start: "${0.15 + k * 0.03 + j * 0.002}", duration: 1.2, easing: "easeOutExpo",
+      },
     },
-  },
-});
+  });
+}
 tw("iris", "transform.rotation", -1.4, 0.35, 0.1, 3.2, "easeOutCubic");
 scaleTw("iris", 0.7, 1, 0.1, 1.4, "easeOutExpo");
 scaleTw("iris", 1, 0.02, 2.75, 0.75, { bezier: [0.6, -0.5, 0.9, 0.4] });

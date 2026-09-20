@@ -35,7 +35,7 @@
 
 import { MCPToolError } from "../engine/errors.js";
 import type { SourceLocation } from "../engine/types.js";
-import { substitute, type SubstitutionContext } from "./params.js";
+import { EXPR_RESERVED_NAMES, substitute, type SubstitutionContext } from "./params.js";
 
 /** Entries all `$repeat` blocks of one compile may produce together. */
 export const REPEAT_MAX_NODES = 10_000;
@@ -48,7 +48,9 @@ export type RepeatErrorReason = "count" | "budget" | "depth" | "as" | "id" | "sh
 const SOURCE_FIELD = "__source";
 const DEFAULT_AS = "i";
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const RESERVED_NAMES = new Set(["params", "min", "max", "round"]);
+// `params` plus every name the expression language already owns (function
+// names and constants), so a loop variable can never shadow a call.
+const RESERVED_NAMES = new Set(["params", ...EXPR_RESERVED_NAMES]);
 const BLOCK_KEYS = new Set(["$repeat", "item", SOURCE_FIELD]);
 const ITEM_HEADER_KEYS = new Set(["count", "as", "id"]);
 const TWEEN_HEADER_KEYS = new Set(["count", "as"]);
@@ -383,7 +385,7 @@ function readHeader(
   const as = raw.as ?? DEFAULT_AS;
   if (typeof as !== "string" || !IDENT_RE.test(as) || RESERVED_NAMES.has(as)) {
     throw repeatError(
-      `\`as\` must be a plain identifier other than params/min/max/round, got ${JSON.stringify(as)}`,
+      `\`as\` must be a plain identifier and not a reserved name (${[...RESERVED_NAMES].join(", ")}), got ${JSON.stringify(as)}`,
       path,
       "as",
     );

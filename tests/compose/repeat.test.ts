@@ -240,6 +240,9 @@ describe("$repeat errors", () => {
       "shape",
     ],
     [{ $repeat: { count: 1, as: "params" }, item: {} }, "`as` must be", "as"],
+    // Every expression function/constant is reserved too (v1.3 G7).
+    [{ $repeat: { count: 1, as: "cos" }, item: {} }, "`as` must be", "as"],
+    [{ $repeat: { count: 1, as: "pi" }, item: {} }, "`as` must be", "as"],
     [{ $repeat: { count: 1, as: "a-b" }, item: {} }, "`as` must be", "as"],
     [{ $repeat: { count: 1, id: 7 }, item: {} }, "`id` must be", "id"],
     [{ $repeat: { count: 1 }, item: 5 }, "`item` must be an object", "shape"],

@@ -123,6 +123,112 @@ describe("arithmetic", () => {
   });
 });
 
+// v1.3 G7 (L-4): polar layouts, clamped values and integer division used to
+// need a rotation plus an anchor tween, or `round(x - 0.5)` for a floor.
+describe("math functions (v1.3)", () => {
+  it("rounds, floors, ceils and takes absolute values", () => {
+    expect(evaluateExpression("abs(params.n - 10)", ctx)).toBe(7);
+    expect(evaluateExpression("abs(-0.5)", ctx)).toBe(0.5);
+    expect(evaluateExpression("floor(params.n / 2)", ctx)).toBe(1);
+    expect(evaluateExpression("floor(-2.5)", ctx)).toBe(-3);
+    expect(evaluateExpression("ceil(params.n / 2)", ctx)).toBe(2);
+    expect(evaluateExpression("ceil(-2.5)", ctx)).toBe(-2);
+  });
+
+  it("clamps and interpolates", () => {
+    expect(evaluateExpression("clamp(params.n, 0, 2)", ctx)).toBe(2);
+    expect(evaluateExpression("clamp(-5, 0, 2)", ctx)).toBe(0);
+    expect(evaluateExpression("clamp(1.5, 0, 2)", ctx)).toBe(1.5);
+    expect(evaluateExpression("lerp(100, 300, 0.25)", ctx)).toBe(150);
+    expect(evaluateExpression("lerp(100, 300, 0)", ctx)).toBe(100);
+    // `t` is deliberately unclamped, so a behavior can overshoot.
+    expect(evaluateExpression("lerp(0, 10, 1.5)", ctx)).toBe(15);
+    expect(exprError(() => evaluateExpression("clamp(1, 5, 2)", ctx)).message).toContain(
+      "lo <= hi",
+    );
+  });
+
+  it("does roots and powers", () => {
+    expect(evaluateExpression("sqrt(144)", ctx)).toBe(12);
+    expect(evaluateExpression("sqrt(2)", ctx)).toBe(1.414213562);
+    expect(evaluateExpression("pow(2, 10)", ctx)).toBe(1024);
+    expect(evaluateExpression("pow(params.n, 3)", ctx)).toBe(27);
+    expect(evaluateExpression("pow(9, 0.5)", ctx)).toBe(3);
+    // A huge-but-finite result is not quantized, so it survives intact.
+    expect(evaluateExpression("pow(10, 300)", ctx)).toBe(1e300);
+  });
+
+  it("does trigonometry around the constant pi", () => {
+    expect(evaluateExpression("pi", ctx)).toBe(Math.PI);
+    expect(evaluateExpression("sin(0)", ctx)).toBe(0);
+    expect(evaluateExpression("sin(pi / 6)", ctx)).toBe(0.5);
+    expect(evaluateExpression("sin(pi / 2)", ctx)).toBe(1);
+    expect(evaluateExpression("cos(0)", ctx)).toBe(1);
+    expect(evaluateExpression("cos(pi)", ctx)).toBe(-1);
+    // Would be 6.12e-17 without quantization.
+    expect(evaluateExpression("cos(pi / 2)", ctx)).toBe(0);
+    expect(evaluateExpression("tan(pi / 4)", ctx)).toBe(1);
+    expect(evaluateExpression("atan2(1, 1)", ctx)).toBe(0.785398163);
+    expect(evaluateExpression("round(cos(pi / 3) * 300)", ctx)).toBe(150);
+  });
+
+  it("quantizes the approximated functions to 1e-9 for node/browser parity", () => {
+    // Exact IEEE arithmetic is left alone; only the approximated calls grid.
+    expect(evaluateExpression("0.1 + 0.2", ctx)).toBe(0.1 + 0.2);
+    expect(evaluateExpression("lerp(0.1, 0.3, 0.5)", ctx)).toBe(0.1 + (0.3 - 0.1) * 0.5);
+    for (const src of ["sin(1)", "cos(1)", "tan(1)", "sqrt(3)", "pow(2, 0.3)", "atan2(3, 7)"]) {
+      const v = evaluateExpression(src, ctx) as number;
+      expect(v).toBe(Math.round(v * 1e9) / 1e9);
+    }
+  });
+
+  it("errors instead of letting NaN through", () => {
+    expect(exprError(() => evaluateExpression("sqrt(-1)", ctx)).message).toContain("finite");
+    expect(exprError(() => evaluateExpression("pow(-1, 0.5)", ctx)).message).toContain(
+      "finite",
+    );
+    expect(exprError(() => evaluateExpression("pow(10, 400)", ctx)).message).toContain(
+      "finite",
+    );
+  });
+
+  it("checks arity per function", () => {
+    const cases: Array<[string, string]> = [
+      ["sin(1, 2)", "sin() takes exactly one argument"],
+      ["abs()", "unexpected"],
+      ["pow(2)", "pow() takes exactly two arguments"],
+      ["pow(2, 3, 4)", "pow() takes exactly two arguments"],
+      ["atan2(1)", "atan2() takes exactly two arguments"],
+      ["clamp(1, 2)", "clamp() takes exactly three arguments"],
+      ["lerp(1, 2, 3, 4)", "lerp() takes exactly three arguments"],
+      ["floor(1, 2)", "floor() takes exactly one argument"],
+    ];
+    for (const [source, fragment] of cases) {
+      const err = exprError(() => evaluateExpression(source, ctx));
+      expect(err.code).toBe("E_TEMPLATE_EXPR");
+      expect(err.message).toContain(fragment);
+    }
+    // min/max stay variadic.
+    expect(evaluateExpression("min(1, 2, 3, 4, params.n)", ctx)).toBe(1);
+    expect(evaluateExpression("max(1)", ctx)).toBe(1);
+  });
+
+  it("names pi and the functions in the unknown-name hint", () => {
+    const err = exprError(() => evaluateExpression("tau + params.n", ctx));
+    expect(err.message).toContain("unknown name");
+    expect(err.message).toContain("pi");
+    expect(err.message).toContain("atan2");
+  });
+
+  it("is usable from a $repeat body with the loop variable", () => {
+    const local: SubstitutionContext = { ...ctx, locals: { i: 3 } };
+    expect(substitute("${round(cos(i * pi / 6) * 200)}", local)).toBe(0);
+    expect(substitute("${round(sin(i * pi / 6) * 200)}", local)).toBe(200);
+    expect(substitute("${floor(i / 2)}", local)).toBe(1);
+  });
+
+});
+
 describe("strings and interpolation", () => {
   it("interpolates embedded placeholders", () => {
     expect(substitute("Hello ${params.name}!", ctx)).toBe("Hello Ada!");
@@ -213,6 +319,9 @@ describe("parse errors carry a position", () => {
     ["params.n # 2", 9, "unexpected character"],
     ["'open", 0, "unterminated"],
     ["round(1, 2)", 0, "exactly one"],
+    ["clamp(1, 2)", 0, "exactly three"],
+    ["pi(2)", 2, "unexpected"],
+    ["cos 1", 4, 'expected "("'],
     ["", 0, "empty"],
   ];
   for (const [source, position, fragment] of cases) {
