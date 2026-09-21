@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LOOKS, resolveLook, resolveRole, derive, duotone, pastel, hashLook, hsl, mix, parse, parseLookName } from '../core/looks.js';
 
-test('six presets, each with the full role set', () => {
-  assert.deepEqual(Object.keys(LOOKS), ['paperInk', 'risoPop', 'screenSea', 'pencilMinimal', 'blueprintNight', 'doodlePastel']);
+test('seven presets, each with the full role set', () => {
+  assert.deepEqual(Object.keys(LOOKS), ['paperInk', 'risoPop', 'screenSea', 'pencilMinimal', 'blueprintNight', 'doodlePastel', 'cutout']);
   for (const l of Object.values(LOOKS)) {
     for (const r of ['paper', 'ink', 'chalk', 'night', 'shade', 'light', 'blush', 'fills.0', 'accents.3', 'inks.1']) assert.ok(resolveRole(r, l), `${l.name} ${r}`);
     assert.ok(Object.isFrozen(l.palette.fills));
@@ -79,4 +79,15 @@ test("'preset~from:id' resolves against a film's assets, and only there", () => 
   assert.throws(() => resolveLook('doodlePastel~from:cup', { teapot: TEAPOT }), /no asset 'cup'.*has teapot/);
   assert.throws(() => resolveLook('doodlePastel~nope:x', { teapot: TEAPOT }), /unknown modifier 'nope'/);
   assert.throws(() => resolveLook('nope~from:teapot', { teapot: TEAPOT }), /unknown look/);
+});
+
+test('cutout: flat fills on card stock; only it carries a cut-out, and the other six hash as before', async () => {
+  const { expand } = await import('../core/finish.js');
+  const { fill, paper, rect, walk } = await import('../core/list.js');
+  assert.deepEqual(Object.keys(LOOKS).filter((n) => LOOKS[n].cutout), ['cutout']);
+  assert.ok(!('cutout' in LOOKS.paperInk), 'a look without a cut-out has no such field, so its hash is unchanged');
+  const f = fill(rect(0, 0, 100, 100), 'fills.0', { finish: true });
+  assert.deepEqual(expand([f], 'cutout').map((o) => o.op), ['fill'], 'flat: no hatch, no dots');
+  const specks = (look) => { let n = 0; walk(expand([paper()], look), (op) => { if (op.op === 'specks') n += op.rects.length / 4; }); return n; };
+  assert.ok(specks('cutout') > 2 * specks('risoPop'), 'card is coarser than cream');
 });

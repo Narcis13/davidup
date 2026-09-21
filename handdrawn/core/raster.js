@@ -370,7 +370,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
       // nightShot's chalk pass redraws only the drawing: no stock, no day-only fills (shadows, backdrop light),
       // no glows (they are lights, screened once over the finished shot).
       if (look.chalkPass && (op.op === 'paper' || op.op === 'night' || op.day || (op.op === 'fx' && op.kind === 'glow'))) continue;
-      if (needsExpand(op)) { drawList(ctx, expandOp(op, look, env), look, env); continue; }
+      if (needsExpand(op, look)) { drawList(ctx, expandOp(op, look, env), look, env); continue; }
       switch (op.op) {
         case 'fill': drawFill(ctx, op, look); break;
         case 'stroke': drawStroke(ctx, op, look, env.S); break;

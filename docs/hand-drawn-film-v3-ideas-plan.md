@@ -288,6 +288,16 @@ Done when: the shot plays with mouth, letters and plucks in sync.
 - `films/four-looks.js` stays as is (golden untouched). New `films/cutout-fox.js`:
   fox-and-teapot's three shots under `cutout`. Golden written.
 
+(Built: the look reaches a puppet in the finish pass, not in `puppet.js`'s draw, because a cel never sees
+the look. `puppet()` registers each built puppet by cel name (units, ground, each part 'joint' / 'card' /
+'print'), so the drawing carries nothing extra and still hashes like the same cel in code; under a look with
+`cutout`, `expand` and the rasteriser hand a registered cel to `asCutout()`. Only parts with a pivot of their
+own are cards; pivotless parts (eye, mouth) are printed on theirs. Shadow offset 3 and blur 2 hundredths of the
+puppet's units, always down-right on the table through joints and the turnaround mirror; the paper edge is a
+`light` stroke up-left along the coloured fills; fasteners are rim + brass + a dot-screen highlight in
+accents.2. `card` stock is coarser grain. cutout-fox is the three scenes plus the sign-off (lint wants one),
+all through the doodle recipes with `look: LOOKS.cutout, paper: null`. lint allows the cutout look 3 words.)
+
 Done when: `hdf render films/cutout-fox.js` reads as layered card with
 fasteners and shadows; every other golden holds.
 
@@ -449,7 +459,7 @@ doodle recipe in the user's hand without reading the source.
 | S7 | Turnarounds | S5, S6 | turnarounds | [x] |
 | S8 | Pose sheets as briefs | S7 | pose sheets | [x] |
 | S9 | Speech scribbles | S5 | speech scribbles | [x] |
-| S10 | Cut-out look | S4 | cut-out look | [ ] |
+| S10 | Cut-out look | S4 | cut-out look | [x] |
 | S11 | Hands part 1 | S2 | same film, two hands | [ ] |
 | S12 | Hands part 2 | S11 | same film, two hands | [ ] |
 | S13 | Living packs | S4 | living packs | [ ] |

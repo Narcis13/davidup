@@ -24,10 +24,16 @@
 // one is missing), and a negative dir mirrors the drawing about the ground point, so the puppet turns itself
 // and a stage does not flip it again. Painter order is the key order in every view.
 //
+// The cut-out look (3.0 S10): every puppet built is registered by its cel name with its units, ground and each
+// part's kind -- 'joint' (a pivot of its own, on a parent), 'card' (a pivot, no parent) or 'print' (it rides
+// its parent: an eye, a mouth). The drawing carries nothing extra, so a puppet still hashes like the same cel
+// in code. Under a look with a `cutout` field the finish pass (core/finish.js) hands a cel that cutoutOf()
+// knows to asCutout(), which rebuilds it as card on a table: see there.
+//
 // Browser-safe: the payload comes from the registry (core/store.js), which `fromStore` fills in node and
 // `hdf dev` / `hdf bundle` fill from `window.HDF.assets`.
 import { FPS } from './curves.js';
-import { bounds, group, mmul, norm, parse, rotate, serialise, translate } from './list.js';
+import { bounds, circle, dots, fill, fx, group, mmul, norm, parse, rotate, scale, serialise, stroke, translate, withProps } from './list.js';
 import { record } from './store.js';
 import { cel } from './tree.js';
 
@@ -49,6 +55,13 @@ const unite = (a, b) => (!a ? b : !b ? a : [Math.min(a[0], b[0]), Math.min(a[1],
   Math.max(a[0] + a[2], b[0] + b[2]) - Math.min(a[0], b[0]), Math.max(a[1] + a[3], b[1] + b[3]) - Math.min(a[1], b[1])]);
 
 const built = new WeakMap();
+const CUT = new Map();   // cel name -> { units, ground, kinds }: what the cut-out look needs of a puppet
+
+// The cut-out record of a cel group, when a puppet drew it (its name is a puppet's, its kids its parts).
+export function cutoutOf(g) {
+  const c = g?.op === 'group' && typeof g.cel === 'string' ? CUT.get(g.cel) : undefined;
+  return c && g.kids.every((k) => k.op === 'group' && (c.kinds[k.name] || k.name === 'mirror')) ? c : undefined;
+}
 
 // puppet(id) => the cel of the puppet that id names in the registry; puppet(data) builds one from a payload
 // in hand (a test, or `hdf sheet store <id>` reading the blob itself). Built once per payload object: the ops
@@ -186,6 +199,10 @@ function build(d, id) {
   let box = d.box ?? (views ? views.reduce((b, V) => unite(b, bounds(norm(draw({ ...rest, dir: VIEW_DIRS[V] ?? 1 })))), null) : bounds(norm(draw(rest)))) ?? [0, 0, 0, 0];
   if (views) box = unite(box, [2 * ground[0] - box[0] - box[2], box[1], box[2], box[3]]);
   const make = cel(name, draw, { box, inputs, desc: d.desc });
+  CUT.set(name, Object.freeze({
+    units: d.units ?? 300, ground,
+    kinds: Object.fromEntries(names.map((n) => [n, d.parts[n].pivot === undefined ? 'print' : parent[n] === undefined ? 'card' : 'joint'])),
+  }));
 
   // Poses and cycles hand the cel a full input set (every joint, every variant), so two states that draw the
   // same are the same object however they were asked for.
@@ -219,4 +236,64 @@ function build(d, id) {
   make.pose = (pose, k = 1, extra) => make({ ...poseOf(pose, k), ...extra });
   make.cycle = (cycle, t, extra) => make({ ...frameOf(cycle, t), ...extra });
   return make;
+}
+
+// ---------- the cut-out look (3.0 S10) ----------
+
+// A puppet's cel (a group tagged `puppet`) as cut card, for a look whose `cutout` is { shadow, fastener, edge,
+// tilt }. Every part with a pivot of its own is a piece of card: a soft drop shadow of its silhouette falls
+// down-right on what lies under it (alpha `shadow`, fx soft), then the piece, then its paper edge (a `light`
+// stroke `edge` hundredths of the puppet's units wide, offset up-left, along each coloured fill), and a
+// jointed piece a brass fastener at its pivot (accents.2, a dot screen on a disc `fastener` hundredths
+// across). Directions are the table's, whatever the joints and the mirror turn. A print part (an eye, a mouth)
+// is printed on its card and gets none of it. The whole puppet is squashed to `tilt` about its ground point:
+// the camera sits above the table. Shots and parts never ask for this; the look does.
+export function asCutout(g, look) {
+  const pup = cutoutOf(g);
+  if (!pup) throw new TypeError(`asCutout: '${g?.cel ?? g?.name}' is not a puppet's cel`);
+  const c = look.cutout, u = pup.units / 100, [gx, gy] = pup.ground;
+  const off = 3 * u, q = 2 * u, ew = c.edge * u, r = c.fastener * u;
+  // A screen-space offset (dx, dy) in the coordinates under matrix m.
+  const local = (m, dx, dy) => { const det = m[0] * m[3] - m[1] * m[2] || 1; return [(m[3] * dx - m[2] * dy) / det, (m[0] * dy - m[1] * dx) / det]; };
+  const silhouette = (ops) => ops.flatMap((op) => (op.op === 'fill' ? [fill(op.path, 'ink', { seed: op.seed })]
+    : op.op === 'stroke' ? [withProps(op, { role: 'ink', alpha: undefined })]
+      : op.op === 'group' ? [withProps(op, { kids: silhouette(op.kids) })] : []));
+  const edges = (ops) => ops.flatMap((op) => (op.op === 'fill' && op.role !== 'light' && op.role !== 'paper' && op.role !== 'ink'
+    ? [stroke(op.path, 'light', { w: ew, wobble: 0, alpha: 0.9, seed: op.seed, name: 'edge' })]
+    : op.op === 'group' ? [withProps(op, { kids: edges(op.kids) })] : []));
+  // One piece's own drawing (a run of its kids that are not parts) as card, in coordinates under m.
+  const card = (run, m, part) => {
+    if (part === 'print' || !run.length) return run;
+    const [sx, sy] = local(m, off, off), [ex, ey] = local(m, -ew, -ew);
+    const sil = silhouette(run), rim = edges(run);
+    return [
+      ...(sil.length ? [fx('soft', { q, alpha: c.shadow }, [group({ name: 'shadow', xf: translate(sx, sy) }, sil)])] : []),
+      ...run,
+      ...(rim.length ? [group({ name: 'edge', xf: translate(ex, ey) }, rim)] : []),
+    ];
+  };
+  // A domed brass head: a dark rim, the brass, a fine dot screen of light towards the upper left.
+  const fastener = () => [
+    fill(circle(0, 0, r, 16), { base: 'accents.2', shade: 0.45 }, { name: 'fastener' }),
+    fill(circle(0, 0, r * 0.82, 16), 'accents.2', { name: 'fastener' }),
+    dots(circle(-r * 0.2, -r * 0.2, r * 0.5, 12), { base: 'accents.2', tint: 0.6 }, { cell: r * 0.22, density: 0.6, name: 'fastener' }),
+  ];
+  const walkIn = (ops, m, part) => {
+    const out = [];
+    let run = [];
+    const flush = () => { out.push(...card(run, m, part)); run = []; };
+    for (const op of ops) {
+      const kind = op.op === 'group' ? pup.kinds[op.name] ?? (op.name === 'mirror' ? 'print' : undefined) : undefined;
+      if (kind) {
+        flush();
+        out.push(withProps(op, { kids: [...walkIn(op.kids, mmul(m, op.xf), kind), ...(kind === 'joint' ? fastener() : [])] }));
+      } else run.push(op);
+    }
+    flush();
+    return out;
+  };
+  const tilt = mmul(translate(gx, gy), mmul(scale(1, c.tilt), translate(-gx, -gy)));
+  const { cel: _cel, box, ...rest } = g;   // no longer a puppet's cel: the pass does not see it twice
+  const grown = box && [box[0] - ew, box[1] - ew, box[2] + ew + off + 2 * q, box[3] + ew + off + 2 * q];
+  return group({ ...rest, cutout: g.cel, ...(grown ? { box: grown } : {}) }, [group({ name: 'table', xf: tilt, cache: 'never' }, walkIn(g.kids, tilt, 'print'))]);
 }

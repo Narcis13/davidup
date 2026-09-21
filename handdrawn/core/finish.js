@@ -2,12 +2,14 @@
 //   fill{finish:true} -> the flat fill plus the look's texture clipped to it (hatch strokes, grain specks)
 //   paper / night     -> the stock: a frame fill, light bands, grain, drawn in screen space
 //   text              -> hand-lettered strokes (text.js)
+//   a puppet's cel    -> card on a table (puppet.js asCutout), only under a look with a `cutout` field
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
 // Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour).
 // Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
 // coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
 import { clip, dots, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
 import { hashLook, parse as parseColour, resolveLook } from './looks.js';
+import { asCutout, cutoutOf } from './puppet.js';
 import { rng } from './rand.js';
 import { handText } from './text.js';
 import { reveal } from './tools.js';
@@ -169,7 +171,8 @@ function finished(op, look) {
   return [flat, clip(op.path, make(op.path.box, o.role ?? 'shade', seed, o, cov))];
 }
 
-// The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area.
+// The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area;
+// card (paper: 'card') is heavier, with coarser grain and a few fibres.
 function stock(op, look, { W, H }, dark) {
   const p = look.palette, frame = [-2, -2, W + 4, H + 4], area = (W * H) / (1080 * 1080), seed = op.seed ?? 5;
   const kids = [fill(rect(...frame), dark ? 'night' : 'paper', { name: 'stock' })];
@@ -181,6 +184,10 @@ function stock(op, look, { W, H }, dark) {
       const m = [c, s, -s, c, W / 2, H / 2], sub = [];
       for (let i = -n; i <= n; i++) sub.push(...xfPath(rect(-half, i * 160 - 40, 2 * half, 80), m).sub);
       kids.push(fill(mkPath(sub), 'paperBand', { name: 'bands' }));
+    }
+    if (look.paper === 'card') {
+      kids.push(grain(frame, Math.round(2600 * area), { base: 'paper', shade: 0.4 }, 0.08, seed + 1, 2.4));
+      kids.push(grain(frame, Math.round(900 * area), 'light', 0.35, seed + 2, 2));
     }
     kids.push(grain(frame, Math.round(1400 * area), { base: 'paper', shade: 0.5 }, 0.06, seed, 1.6));
   }
@@ -242,11 +249,14 @@ export function expandOp(op, look, { W = 1080, H = 1080 } = {}) {
       const g = handText(op), seeded = withProps(g, { kids: seedList(g.kids, op.seed ?? 1) });
       return [op.p != null && op.p < 1 ? reveal(op.p, seeded) : seeded];   // p: set by reveal() on a text op
     });
+    case 'group': return lk.cutout && cutoutOf(op) ? [remember(op, key + ':cut', () => asCutout(op, lk))] : [op];
     default: return [op];
   }
 }
 
-export const needsExpand = (op) => op.op === 'paper' || op.op === 'night' || op.op === 'text' || (op.op === 'fill' && !!op.finish);
+// look: only a puppet's cel depends on it (the cut-out look); without one a cel is never expanded.
+export const needsExpand = (op, look) => op.op === 'paper' || op.op === 'night' || op.op === 'text' || (op.op === 'fill' && !!op.finish)
+  || (op.op === 'group' && !!look && !!resolveLook(look).cutout && !!cutoutOf(op));
 
 // The whole list, recursively (lint, projection and tests use this; the rasteriser expands lazily).
 export function expand(list, look, { W = 1080, H = 1080 } = {}) {
@@ -261,6 +271,7 @@ export function expand(list, look, { W = 1080, H = 1080 } = {}) {
     return changed ? out : ops;
   };
   const one = (op, lk, key) => {
+    if (op.op === 'group' && lk.cutout && cutoutOf(op)) return one(expandOp(op, lk, { W, H })[0], lk, key);
     if (needsExpand(op)) return expandOp(op, lk, { W, H });
     if (op.op === 'look') {
       const inner = resolveLook(op.look), kids = run(op.kids, inner);

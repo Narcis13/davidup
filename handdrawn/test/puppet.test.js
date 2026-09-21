@@ -2,9 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fromStore, validatePayload } from '../core/assets.js';
-import { circle, fill, group, hashList, hashOp, parse, serialise, stroke, translate, walk } from '../core/list.js';
+import { circle, fill, group, hashList, hashOp, mapply, parse, serialise, stroke, translate, walk } from '../core/list.js';
+import { expand } from '../core/finish.js';
+import { CUTOUT, LOOKS, withLook } from '../core/looks.js';
 import { lintPuppet } from '../core/lint.js';
-import { DIR, JOINT, puppet } from '../core/puppet.js';
+import { DIR, JOINT, asCutout, cutoutOf, puppet } from '../core/puppet.js';
 import { cel } from '../core/tree.js';
 
 // Ops as a payload carries them: plain data, paths as { $p }.
@@ -175,4 +177,69 @@ test('lint: cel-box looks at every view both ways round', () => {
   const found = lintPuppet(wide).filter((f) => f.rule === 'cel-box');
   assert.equal(found.length, 1);
   assert.match(found[0].detail, /^view front draws .* outside the declared box/);
+});
+
+// ---------- the cut-out look (3.0 S10) ----------
+
+// A card body, a jointed arm on it, an eye printed on the body.
+const PINNED = {
+  name: 'pinned', units: 100, box: [-60, -120, 140, 120],
+  parts: {
+    body: { pivot: [0, -50], ops: ops(BLOB) },
+    arm: { parent: 'body', pivot: [30, -10], ops: ops([fill(circle(20, 0, 12), 'fills.1'), fill(circle(22, 0, 4), 'light'), stroke(circle(20, 0, 12), 'ink')]) },
+    eye: { parent: 'body', ops: ops([fill(circle(-10, -10, 4), 'ink')]) },
+  },
+};
+const named = (list, name) => { const got = []; walk(list, (op, m) => { if (op.name === name) got.push({ op, m }); }); return got; };
+// Where a translation group moves things to, in the coordinates the walk started in.
+const moved = ({ op, m }) => { const [x0, y0] = mapply(m, 0, 0), [x1, y1] = mapply(m, op.xf[4], op.xf[5]); return [+(x1 - x0).toFixed(9), +(y1 - y0).toFixed(9)]; };
+
+test('cut-out: the look only; a puppet in any other look, and a cel in code, expand to themselves', () => {
+  const p = puppet(PINNED), list = [p({ arm: 40 })];
+  for (const name of Object.keys(LOOKS).filter((n) => n !== 'cutout')) {
+    const [g] = expand(list, name);
+    assert.deepEqual([g.cel, named([g], 'table').length, named([g], 'shadow').length], ['pinned', 0, 0], name);
+  }
+  assert.equal(LOOKS.cutout.cutout, CUTOUT);
+  assert.deepEqual([LOOKS.cutout.finish, LOOKS.cutout.paper], ['flat', 'card']);
+  const code = cel('someone', () => [group({ name: 'body' }, BLOB)]);
+  assert.equal(cutoutOf(code({})), undefined);
+  assert.deepEqual([expand([code({})], 'cutout')[0].cel, named(expand([code({})], 'cutout'), 'table').length], ['someone', 0], 'a code cel is not cut out');
+  assert.throws(() => asCutout(code({}), LOOKS.cutout), /not a puppet's cel/);
+  assert.equal(hashList([p({})]), hashList([cel('pinned', () => p({}).kids, { box: p.cel.box })({})]), 'the drawing carries nothing extra');
+});
+
+test('cut-out: every card drops a shadow down-right, joints get a brass fastener, prints get neither; the puppet tilts', () => {
+  const p = puppet(PINNED);
+  const [out] = expand([p({ arm: 90 })], 'cutout');
+  const [table] = named([out], 'table');
+  assert.deepEqual(table.op.xf, [1, 0, 0, CUTOUT.tilt, 0, 0], 'squashed about the ground point (0, 0)');
+  const shadows = named([out], 'shadow');
+  assert.equal(shadows.length, 2, 'body and arm; the eye is printed on the body');
+  // 3 hundredths of 100 units down-right on the table, however far the arm is turned.
+  for (const sh of shadows) assert.deepEqual(moved(sh), [3, 3]);
+  for (const e of named([out], 'edge').filter((x) => x.op.op === 'group')) {
+    const [dx, dy] = moved(e);
+    assert.ok(Math.abs(dx + CUTOUT.edge) < 1e-9 && Math.abs(dy + CUTOUT.edge) < 1e-9, `edge up-left, got ${dx}, ${dy}`);
+  }
+  const rims = named([out], 'edge').filter((x) => x.op.op === 'stroke');
+  assert.deepEqual(rims.map((x) => x.op.role), ['light', 'light'], "the body's and the arm's coloured fills; not the arm's light patch, not the ink eye");
+  const pins = named([out], 'fastener');
+  assert.equal(pins.length, 3, 'one fastener (rim, brass, dots) at the one joint');
+  assert.deepEqual(mapply(pins[0].m, 0, 0).map((v) => +v.toFixed(9)), [30, +(-10 * CUTOUT.tilt).toFixed(9)], "at the arm's pivot on the table");
+  const soft = [];
+  walk([out], (op) => { if (op.op === 'fx') soft.push(`${op.kind}:${op.args.alpha}`); });
+  assert.deepEqual(soft, ['soft:0.3', 'soft:0.3']);
+  assert.equal(hashList(expand([p({ arm: 90 })], 'cutout')), hashList([out]), 'the same every time');
+});
+
+test('cut-out: a mirrored turnaround still casts its shadow down-right; a look can carry its own cut-out', () => {
+  const t = puppet(TURN), [out] = expand([t({ dir: -1 })], 'cutout');
+  const shadows = named([out], 'shadow');
+  assert.ok(shadows.length >= 2);
+  for (const sh of shadows) assert.deepEqual(moved(sh), [3, 3]);
+  const riso = withLook('risoPop', { cutout: { ...CUTOUT, tilt: 1, shadow: 0.5 } });
+  const [flat] = expand([t({ dir: 1 })], riso);
+  assert.deepEqual(named([flat], 'table')[0].op.xf, [1, 0, 0, 1, 0, 0]);
+  walk([flat], (op) => { if (op.op === 'fx') assert.equal(op.args.alpha, 0.5); });
 });

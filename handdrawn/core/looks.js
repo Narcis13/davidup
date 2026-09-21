@@ -71,12 +71,19 @@ const TOOLS = {
   pencil: { w: 0.9, wobble: 1.2 },
   chalk: { w: 2, wobble: 1.6, dash: 10, gap: 2.5 },
 };
-const mkLook = (name, palette, finish, paper, tools = {}) => deepFreeze({
+const mkLook = (name, palette, finish, paper, tools = {}, more = {}) => deepFreeze({
   name, palette, finish, paper, edition: 0,
   tools: Object.fromEntries(Object.keys(TOOLS).map((k) => [k, { ...TOOLS[k], ...tools[k] }])),
+  ...more,
 });
 
-// The six presets (plan 1.4): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel.
+// The cut-out of a look that has one (read only by core/puppet.js): shadow is the drop shadow's alpha,
+// fastener the brass fastener's radius and edge the paper edge's width (both in hundredths of the puppet's
+// units), tilt the scale-y of the whole puppet, the camera above the table.
+export const CUTOUT = Object.freeze({ shadow: 0.3, fastener: 3, edge: 0.6, tilt: 0.94 });
+
+// The seven presets (plan 1.4 and 3.0 S10): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
+// doodlePastel, cutout.
 export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
@@ -114,6 +121,13 @@ export const LOOKS = Object.freeze({
     fills: ['#f2a7b3', '#8fc4e8', '#f6d46b', '#9fd3a8', '#f3b27a', '#c3a6e0'], shade: '#6b6577', light: '#fffdf7', blush: '#f28aa0',
     accents: ['#e8505b', '#3f7fd1', '#f0b429', '#4caf7d'], inks: ['#23202b', '#e8505b'],
   }, 'wash', 'pastel', { pen: { w: 4, wobble: 1.4 } }),
+  // Gilliam by way of stage3d: printed card on a table, flat colours, pieces pinned with brass fasteners
+  // (accents.2) that cast soft shadows
+  cutout: mkLook('cutout', {
+    paper: '#e6dcc4', paperBand: null, ink: '#2a2220', night: '#1e1b26', chalk: '#f4ecd8', chalkDim: '#9c9280', guide: 'rgba(42,34,32,.4)',
+    fills: ['#d0632f', '#2f6f73', '#d9a441', '#7b8f5a', '#b98a6a', '#394a6d'], shade: '#4a3a30', light: '#f8f1df', blush: '#c9573f',
+    accents: ['#b8352a', '#2f6f73', '#c49a3c', '#7d4f86'], inks: ['#2a2220', '#b8352a'],
+  }, 'flat', 'card', { pen: { w: 2.2, wobble: 0.6 } }, { cutout: CUTOUT }),
 });
 
 function deepFreeze(o) {

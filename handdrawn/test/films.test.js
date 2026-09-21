@@ -24,9 +24,9 @@ async function films() {
 }
 const hdf = (...args) => spawnSync(process.execPath, ['cli/hdf.mjs', ...args], { cwd: ROOT, encoding: 'utf8' });
 
-test('films/ holds the seven ported films and fox-and-teapot, each with a golden', async () => {
+test('films/ holds the seven ported films, fox-and-teapot and cutout-fox, each with a golden', async () => {
   const all = await films();
-  assert.deepEqual(all.map((f) => f.name).sort(), ['fly-style', 'four-looks', 'fox-and-teapot', 'gallop', 'held-once', 'mini', 'moon-book', 'one-year']);
+  assert.deepEqual(all.map((f) => f.name).sort(), ['cutout-fox', 'fly-style', 'four-looks', 'fox-and-teapot', 'gallop', 'held-once', 'mini', 'moon-book', 'one-year']);
   for (const f of all) assert.ok(existsSync(join(FILMS, 'goldens', `${f.name}.json`)), `no golden for ${f.name}; run hdf golden ${f.file} write --workers 1`);
 });
 

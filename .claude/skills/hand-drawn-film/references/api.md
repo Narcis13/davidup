@@ -103,7 +103,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/looks.js
 
-- `LOOKS` The six presets (plan 1.4): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel.
+- `LOOKS` The seven presets (plan 1.4 and 3.0 S10): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout.
 - `PASTELS` The doodle palette on another sheet of paper. Sheets measured off the reference film.
 - `derive(look, { hue = 0, sat = 1, light = 0, from, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of `from` -- a cutout record written by `hdf photo` (or a bare colours list).
 - `duotone(look, a, b)` Two inks on the look's paper, the way the flipbook goes magenta + blue for a beat.
@@ -347,7 +347,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ## Tables
 
-- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel
+- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout
 - paper sheets (`PASTELS`, for `pastel(look, name)`): rose, mint, butter, sky, cream, peach, lilac, sand, night
 - fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
 - easings (`ease.<name>`): linear, in, out, io, back, bounce
