@@ -34,8 +34,12 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     roto.py output -> a v2 clips module; a rig labels a skeleton per frame
                                     (skel: joints, chains) and writes out/clip-<name>-skel.jpg
   clip    --store <id> --rig quadruped|biped   the same for a clip in the asset store, in place
+  clip    --kind pose <frames-dir|landmarks.json> --name <id> [--fps 30] [--model f.task] [--no-loop]
+                                    your own motion: MediaPipe's pose landmarker (python, $HDF_PYTHON) per frame
+                                    -> a biped clip in the store at 12 fps, cut to its best loop
   retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]   a clip's skeleton as a
                                     puppet cycle in the store (maps in assets/src/): joints on 2 degrees, a lift
+                                    (--clip me --map biped-fox.json --name walk: the fox walks like you)
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
                                     --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record

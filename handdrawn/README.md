@@ -376,6 +376,25 @@ hdf sheet store fox --cycle gallop
 (`fox-and-teapot.js`, the chase); the actor contract lifts the stage by each
 frame's `lift`, the moment in the air. Re-importing the fox's SVG keeps the cycle.
 
+Or film yourself. `hdf clip --kind pose` runs MediaPipe's pose landmarker
+(`cli/pose.py`) over a folder of phone frames and puts a biped clip in the
+store: the skeleton comes from the 33 landmarks (`core/pose.js`: a limb keeps
+its side, a left/right swap is undone, the frames go to 12 fps and are cut to
+their best loop), the outline is their hull. Then the fox walks like you:
+
+```bash
+python3 -m pip install mediapipe                       # once (or HDF_PYTHON=<a venv's python>)
+ffmpeg -i me.mov -vf fps=30 work/me/%04d.png            # walk across the frame, side on, whole body in shot
+hdf clip --kind pose work/me --name me --fps 30         # keeps the landmarks in out/pose-me.json
+hdf retarget --clip me --to fox --map biped-fox.json --name walk   # replaces the hand-authored walk
+hdf sheet store fox --cycle walk
+```
+
+Without MediaPipe the command says what to install; `hdf clip --kind pose
+out/pose-me.json --name me` remakes the clip from kept landmarks with nothing
+installed. Film two strides or more so a loop can be found (a single stride is
+kept whole).
+
 ### Sand (`engines/sim.js`, see `one-year.js`)
 
 A height field of sand on a light table, stepped at 48 Hz and shaded as
@@ -646,6 +665,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf photo --refresh <photos.js>` | add the colours table to a module written before it existed |
 | `hdf clip <roto.py output> [--js clips.js] [--rig quadruped\|biped]` | a traced clip in the v2 format, with a skeleton per frame when rigged |
 | `hdf clip --store <id> --rig <rig>` | a skeleton for a clip already in the store, in place |
+| `hdf clip --kind pose <frames-dir\|landmarks.json> --name <id> [--fps 30] [--model] [--no-loop]` | your own motion: MediaPipe pose landmarks per frame -> a biped clip in the store |
 | `hdf retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]` | a clip's skeleton as a puppet cycle in the store |
 | `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
 | `hdf import --v2 <photos.js\|clips.js> [--licence] [--tags]` | a 2.0 data module into the store: one entry per record |
@@ -892,6 +912,7 @@ one.
 | **Your dog's run, as Muybridge would have drawn it** | film 12 fps of the dog in slow motion on a plain wall, run `roto.py --kind dark`, then `traced` with `wash`, `airborne()` to freeze the moment all four feet are off the ground, and a `reveal` of the strokes for the title |
 | **A dancer's phrase as a brush drawing** | trace a 2-second phrase, play it at half speed (`Math.floor(i / 2)`), draw on with `p`, then hold the pose as a sign-off |
 | **Skate trick breakdown** | the same clip three times: at speed, as a zoopraxiscope disc of 12 poses spinning, and frozen at `airborne` with red construction circles (recipe J's devices) |
+| **The fox walks like you** | film yourself walking side on, `hdf clip --kind pose`, `hdf retarget --map biped-fox.json --name walk`, and every recipe that walks the fox walks your walk |
 | **The parade** | `gallop.js`'s last shot with your own animals: every traced clip crossing the frame on the same ground line |
 
 ### Sand (one take, no cuts)

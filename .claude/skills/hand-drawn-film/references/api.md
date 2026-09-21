@@ -97,6 +97,10 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `retarget(clip, d, map)` The cycle a clip's skeleton drives on a puppet payload d through a map: { cycle: { fps, n, frames }, report: { parts, flip, scale, lift } }.
 
+### core/pose.js
+
+- `poseClip(raw, { loop = true, seam = 0.03, credit = '', source = '' } = {})` A pose landmarker's output as a biped clip (see the top of this file).
+
 ### core/actor.js
 
 - `actorOf(src, spec = {})` actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.

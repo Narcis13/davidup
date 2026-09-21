@@ -1,0 +1,15 @@
+{
+  "desc": "you on the fox: your legs on its legs, your arms on its arms (one side of the body each), your spine's lean on its body, your head's nod at half (ears jitter); its tail follows leg-l at a third, as the hand-drawn walk had it",
+  "rig": "biped",
+  "facing": 1,
+  "parts": {
+    "body": { "chain": ["hip", "shoulder"], "zero": "mean" },
+    "head": { "chain": ["shoulder", "head"], "zero": "mean", "gain": 0.5 },
+    "tail": { "chain": ["hip", "ankle-1"], "zero": "mean", "gain": 0.33 },
+    "leg-l": { "chain": ["hip", "ankle-1"], "zero": "mean" },
+    "leg-r": { "chain": ["hip", "ankle-2"], "zero": "mean" },
+    "arm-l": { "chain": ["shoulder", "wrist-1"], "zero": "mean" },
+    "arm-r": { "chain": ["shoulder", "wrist-2"], "zero": "mean" }
+  },
+  "ground": ["leg-l", "leg-r"]
+}

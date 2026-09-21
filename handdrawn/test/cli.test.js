@@ -286,3 +286,40 @@ test('skeletons and retargeting: clip --store rigs a stored clip in place, retar
     assert.match(bad.out, /--clip fox is a puppet, not a clip/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('motion from your phone: clip --kind pose explains itself without MediaPipe, makes a clip from landmarks, retarget walks the fox', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-pose-'));
+  try {
+    const root = join(dir, 'store');
+    assert.match((await hdf('help')).out, /^ {2}clip {4}--kind pose <frames-dir\|landmarks\.json> --name <id>/m);
+    // A folder of frames with no python that has MediaPipe: it says what to install, and how to go on without.
+    const noPy = spawnSync(process.execPath, ['cli/hdf.mjs', 'clip', '--kind', 'pose', dir, '--name', 'me', '--root', root],
+      { encoding: 'utf8', env: { ...process.env, HDF_PYTHON: join(dir, 'no-python') } });
+    assert.equal(noPy.status, 1);
+    assert.match(noPy.stderr, /needs MediaPipe, and there is no '.*no-python' to run/);
+    assert.match(noPy.stderr, /python3 -m pip install mediapipe/);
+    assert.match(noPy.stderr, /hdf clip --kind pose out\/pose-<name>\.json --name <id>/);
+    assert.equal((await hdf('clip', '--kind', 'film', dir, '--name', 'me')).code, 2);
+
+    // Landmarks as cli/pose.py writes them (a synthetic walker) -> a biped clip in the store.
+    const { poseJSON } = await import('./walker.js');
+    writeFileSync(join(dir, 'pose-me.json'), JSON.stringify(poseJSON()));
+    const made = await hdf('clip', '--kind', 'pose', join(dir, 'pose-me.json'), '--name', 'me', '--root', root, '--out', dir);
+    assert.equal(made.code, 0, made.out);
+    assert.match(made.out, /^me {2}75 frames at 30 fps -> 12 at 12 fps, biped, facing 1, h \d+, loop of 12 from \d+ \(seam 0 h\)$/m);
+    assert.match(made.out, /^me {2}clip {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
+    assert.ok(existsSync(join(dir, 'clip-me-skel.jpg')));
+    assert.match(made.out, /^next: hdf retarget --clip me --to fox --map biped-fox\.json --name walk/m);
+
+    // The fox as its SVG draws it, with the hand-authored walk; the filmed one replaces it.
+    assert.equal((await hdf('svg', 'assets/src/fox.svg', '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root, '--no-sheet')).code, 0);
+    const walk = await hdf('retarget', '--clip', 'me', '--to', 'fox', '--map', 'biped-fox.json', '--name', 'walk', '--root', root);
+    assert.equal(walk.code, 0, walk.out);
+    assert.match(walk.out, /^me -> fox\.walk: 12 frames at 12 fps, body head tail leg-l leg-r arm-l arm-r, lift x0\.\d+$/m);
+    assert.match(walk.out, /^replaces cycle walk \(hand-authored\)$/m);
+    const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
+    const fox = JSON.parse(readFileSync(join(root, 'blobs', `${cat.fox.sha}.json`), 'utf8'));
+    assert.deepEqual(fox.cycles.walk.from, { clip: 'me', sha: cat.me.sha, map: 'biped-fox.json' });
+    assert.equal(fox.cycles.walk.n, 12);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

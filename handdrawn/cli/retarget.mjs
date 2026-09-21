@@ -8,6 +8,8 @@
 //   hdf clip --store horse --rig quadruped                                  the skeleton, once
 //   hdf retarget --clip horse --to fox --map horse-fox.json --name gallop   (maps: as given, else the store's src/)
 //   hdf sheet store fox --cycle gallop
+//   hdf clip --kind pose work/me --name me                                  your walk, filmed (3.0 S15)
+//   hdf retarget --clip me --to fox --map biped-fox.json --name walk        replaces the hand-authored walk
 //
 // --dry prints the frames and the lift without writing; --root <dir> works on another store.
 import { existsSync, readFileSync, rmSync } from 'node:fs';
@@ -44,6 +46,8 @@ export async function run(args, flags) {
   const found = lintPuppet(data, to);
   if (found.length) throw new Error(`retarget: ${to} with cycle '${name}' does not pass lint:\n  ${found.map((f) => `${f.rule}  ${f.detail}`).join('\n  ')}`);
   const bytes = Buffer.from(JSON.stringify(data));
+  const was = d.cycles?.[name];
+  if (was) process.stdout.write(`replaces cycle ${name} (${was.from ? `retargeted from ${was.from.clip}` : 'hand-authored'})\n`);
   const put = st.put({ ...pe }, bytes);
   if (put.sha !== pe.sha && ![...st.entries.values()].some((e) => e.sha === pe.sha)) rmSync(st.payloadPath(pe), { force: true });
   process.stdout.write(`${to}  puppet  ${put.sha}.json  cycles: ${Object.keys(data.cycles).join(', ')}  (${put.sha === pe.sha ? 'unchanged' : `replaces ${pe.sha.slice(0, 8)}`})\n`);

@@ -14,11 +14,25 @@
 //   python3 cli/roto.py work/horse --name horse --kind disc --drop-last --rig quadruped --js work/clips.js
 //   hdf clip work/clips.js --js films/gallop-clips.js
 //   hdf clip --store horse --rig quadruped          the horse in the store, without its source frames
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+//
+// Motion from your phone (3.0 S15): `--kind pose <frames-dir> --name me` runs cli/pose.py (MediaPipe's pose
+// landmarker, in the python named by $HDF_PYTHON, else python3) over the frames, keeps what it found in
+// out/pose-<name>.json, and puts a biped clip into the store (core/pose.js: the skeleton from the landmarks,
+// their hull as the outline, 12 fps, cut to its best loop unless --no-loop; licence `own` unless --licence).
+// Given that .json instead of a folder it skips MediaPipe, so a clip can be made again without it installed.
+// Without mediapipe it says what to install.
+//
+//   ffmpeg -i me.mov -vf fps=30 work/me/%04d.png
+//   hdf clip --kind pose work/me --name me [--fps 30] [--model pose_landmarker_full.task]
+//   hdf retarget --clip me --to fox --map biped-fox.json --name walk
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
+import { poseClip } from '../core/pose.js';
 import { RIGS, rigClip } from '../core/rig.js';
+import { putPayload } from './import.mjs';
 import { UsageError } from './load.mjs';
 import { skiaCanvas } from './skia.mjs';
 
@@ -76,6 +90,10 @@ const rigged = (clip, flags) => {
 };
 
 export async function run([input], flags) {
+  if (flags.kind !== undefined) {
+    if (flags.kind !== 'pose') throw new UsageError(`clip: --kind ${flags.kind} (expected pose; traced clips come from cli/roto.py)`);
+    return posed(input, flags);
+  }
   if (flags.store) return rigStored(String(flags.store), flags);
   if (!input) throw new UsageError('clip: need <clips.js | clip.json> (or --store <id> --rig <rig>)');
   if (!existsSync(input)) throw new UsageError(`clip: no such file '${input}'`);
@@ -111,6 +129,46 @@ async function rigStored(id, flags) {
   process.stdout.write(`${id}  clip  ${put.sha}.json  ${out.rig} skeleton, ${out.frames.length} frames  (${put.sha === was.sha ? 'unchanged' : `replaces ${was.sha.slice(0, 8)}`})\n`);
   process.stdout.write(`${await skelSheet(id, out, flags.out)}\n`);
   return 0;
+}
+
+const PY = () => process.env.HDF_PYTHON || 'python3';
+const INSTALL = (py, why) => `clip --kind pose: needs MediaPipe, and ${why}.\n`
+  + '  python3 -m pip install mediapipe        (or a virtualenv with it: HDF_PYTHON=<venv>/bin/python)\n'
+  + '  the Tasks API also wants its model: cli/pose.py --help says where to put pose_landmarker_full.task\n'
+  + `  (checked: ${py} -c 'import mediapipe')\n`
+  + 'Landmarks already found (out/pose-<name>.json) need none of it: hdf clip --kind pose out/pose-<name>.json --name <id>\n';
+
+// A folder of frames (through MediaPipe) or its landmarks JSON -> a biped clip in the store.
+async function posed(input, flags) {
+  const name = typeof flags.name === 'string' ? flags.name : '';
+  if (!input || !name) throw new UsageError('clip --kind pose: need <frames-dir | landmarks.json> --name <id>');
+  if (!existsSync(input)) throw new UsageError(`clip --kind pose: no such folder or file '${input}'`);
+  const outDir = String(flags.out ?? 'out');
+  let rawFile = input;
+  if (statSync(input).isDirectory()) {
+    const py = PY(), probe = spawnSync(py, ['-c', 'import mediapipe'], { encoding: 'utf8' });
+    if (probe.error || probe.status !== 0) {
+      process.stderr.write(INSTALL(py, probe.error ? `there is no '${py}' to run` : `'${py}' does not have it`));
+      return 1;
+    }
+    rawFile = join(outDir, `pose-${name}.json`);
+    const args = [join(dirname(fileURLToPath(import.meta.url)), 'pose.py'), input, '--fps', String(flags.fps ?? 30), '--out', rawFile];
+    if (typeof flags.model === 'string') args.push('--model', flags.model);
+    const r = spawnSync(py, args, { stdio: ['ignore', 'inherit', 'inherit'] });
+    if (r.status !== 0) return r.status ?? 1;
+  }
+  let raw;
+  try { raw = JSON.parse(readFileSync(rawFile, 'utf8')); } catch (e) { throw new UsageError(`clip --kind pose: ${rawFile} is not landmarks JSON (${e.message})`); }
+  const clip = poseClip(raw, { loop: flags.loop !== false, credit: typeof flags.credit === 'string' ? flags.credit : '', source: typeof flags.source === 'string' ? flags.source : '' });
+  const p = clip.pose, loop = p.loop;
+  process.stdout.write(`${name}  ${p.from} frames at ${p.fps} fps -> ${clip.n} at 12 fps, biped, facing ${clip.facing}, h ${clip.h}`
+    + `${p.swaps ? `, ${p.swaps} left/right swaps undone` : ''}`
+    + `${loop?.cut ? `, loop of ${loop.n} from ${loop.start} (seam ${loop.err} h)` : loop ? `, kept whole (the best loop, ${loop.n} from ${loop.start}, has a seam of ${loop.err} h)` : flags.loop === false ? ', not looped' : ''}\n`);
+  const code = await putPayload({ kind: 'clip', name, bytes: Buffer.from(JSON.stringify(clip)), abs: resolve(input),
+    flags: { ...flags, licence: flags.licence ?? 'own' } });
+  process.stdout.write(`${await skelSheet(name, clip, outDir)}\n`);
+  process.stdout.write(`next: hdf retarget --clip ${name} --to fox --map biped-fox.json --name walk${flags.root ? ` --root ${flags.root}` : ''}\n`);
+  return code;
 }
 
 // The check sheet: every frame's silhouette with its skeleton on it, a colour a chain, joints named on frame 0.

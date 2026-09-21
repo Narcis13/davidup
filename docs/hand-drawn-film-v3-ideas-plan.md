@@ -468,6 +468,19 @@ Done when: with mediapipe installed, a folder of phone frames becomes
 `fox.cycle('walk')` in one command chain; without it the command explains
 itself.
 
+(Built: cli/pose.py only finds landmarks (Tasks API with a model file, or the legacy `solutions` API at
+complexity 1, which ships its model) and writes them to out/pose-<name>.json; everything else is
+`core/pose.js`, in JS: a lost frame is filled from its neighbours, a left/right swap is undone against where
+the limbs were heading (comparing with the frame before alone took legs crossing mid-stride for swaps),
+resampling to 12 fps, the biped joints by body side (side 1 leads in the first frame, legs and arms alike,
+so the map pairs leg-l with ankle-1 and arm-l with wrist-1), x from each frame's hip, and a cut to the best
+loop only when its seam is within 3% of the figure's height. The landmarks JSON can be given instead of a
+folder, which is how the CLI test runs. `assets/src/biped-fox.json` damps the head to half (ears jitter) and
+has the tail follow leg-l at a third, as the hand walk did. Checked on this machine with mediapipe 0.10.21 in
+a scratch venv on Muybridge's walking man (Wikimedia Commons, 12 frames, one stride, kept whole): legs swing
++-30, arms counter-swing, and the fox's sheet strip walks. The house fox keeps its hand-authored walk until
+someone films theirs.)
+
 ### S16. Store as a davidup asset source
 
 *Idea: the two projects meet through a script, not a new item type.*
@@ -521,7 +534,7 @@ doodle recipe in the user's hand without reading the source.
 | S12 | Hands part 2 | S11 | same film, two hands | [x] |
 | S13 | Living packs | S4 | living packs | [x] |
 | S14 | Skeletons + retarget | S4 | (prereq) | [x] |
-| S15 | Motion from your phone | S14 | motion from your phone | [ ] |
+| S15 | Motion from your phone | S14 | motion from your phone | [x] |
 | S16 | Store ↔ davidup | S2 | davidup asset source | [ ] |
 | S17 | The 3.0 skill | all | — | [ ] |
 
