@@ -4,7 +4,7 @@
 // and subject, which is what makes one broken rule one finding.
 import { FPS } from './curves.js';
 import { bounds, mmul, norm } from './list.js';
-import { fallbacks } from './glyphs.js';
+import { fallbacks, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
 import { JOINT, VIEW_DIRS, puppet } from './puppet.js';
 import { cues, evalShot, frame } from './tree.js';
@@ -187,7 +187,7 @@ export function inspect(film) {
         const backdrop = first?.op === 'image' && (first.backdrop || (first.x <= 0 && first.y <= 0 && first.x + first.w >= env.W && first.y + first.h >= env.H));
         if (!first || !(first.op === 'paper' || first.op === 'night' || backdrop)) report('first-op', `first op is ${first ? `'${first.op}'` : 'missing'}; start with paper(), night() or a backdrop image`, 'first');
       }
-      const got = scan(list, ev.look, report);
+      const got = withHand(handOf(ev.look), () => scan(list, ev.look, report));
       if (got.looks) { looked = true; report('one-look', 'a look op inside the shot; put the look on the shot or on lookOn()', 'look'); }
       got.finishes.forEach((x) => s.finishes.add(x));
       got.words.forEach((w) => s.words.add(w));
@@ -195,7 +195,7 @@ export function inspect(film) {
       if (got.scribbles > MAX_SCRIBBLES) report('scribble', `${got.scribbles} scribbled parts in one frame (at most ${MAX_SCRIBBLES})`, 'scribble');
       if (!got.anchors.length) { s.anchor = false; report('anchor', "no meta('anchor', ...) in the shot", 'anchor'); return; }
       // Several anchors are alternatives (a seed dot, and the ripples it makes): one of them must be drawn.
-      const drawn = got.anchors.map((d) => [d, anchorBoxes(list, d)]).filter(([, boxes]) => boxes);
+      const drawn = withHand(handOf(ev.look), () => got.anchors.map((d) => [d, anchorBoxes(list, d)])).filter(([, boxes]) => boxes);
       if (drawn.length && drawn.every(([, boxes]) => !boxes.length)) report('anchor', `anchor names ${drawn.map(([d]) => anchorLabel(d)).join(' / ')} but the shot does not draw it`, 'anchor');
       for (const [d, boxes] of drawn) {
         for (const b of boxes) {
@@ -321,7 +321,7 @@ function gridRule(film, F) {
 // per-frame checks that make sense of any drawing, `role` and `cel-box`.
 export function lintList(list, look, name = 'list') {
   const F = finder();
-  scan(norm(list), look, (rule, detail, key) => { if (rule === 'role' || rule === 'cel-box') F.add(rule, name, null, detail, key); });
+  withHand(handOf(look), () => scan(norm(list), look, (rule, detail, key) => { if (rule === 'role' || rule === 'cel-box') F.add(rule, name, null, detail, key); }));
   return F.list;
 }
 

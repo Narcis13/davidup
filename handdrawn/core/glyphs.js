@@ -2,7 +2,7 @@
 // x-height -48, ascender and figures -72, descender +24. Each glyph is { w: advance, s: [flat pts, ...] }.
 // Capitals stand at cap height -72 (same as the figures). Brackets run from cap height to the descender;
 // the operators (+ - = × ÷ → ←) sit on -24, half the x-height.
-import { spline } from './list.js';
+import { splinePts } from './spline.js';
 
 const D = Math.PI / 180;
 // Elliptical arc from angle d0 to d1 in degrees (0 = east, 90 = south; d1 < d0 runs anticlockwise on screen).
@@ -12,7 +12,7 @@ function A(cx, cy, rx, ry, d0, d1) {
   return out;
 }
 const L = (...xy) => xy;                                  // a polyline
-const S = (...xy) => spline(xy, { n: 6 }).sub[0].pts;     // a smooth curve through the points
+const S = (...xy) => splinePts(xy, { n: 6 });     // a smooth curve through the points
 const J = (...parts) => parts.flat();                     // join pieces into one stroke
 const dot = (x, y) => A(x, y, 2.2, 2.2, 0, 360);
 

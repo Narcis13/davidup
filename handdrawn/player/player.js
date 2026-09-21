@@ -77,6 +77,7 @@ function show(i, { quiet = false } = {}) {
   if (cv.width !== size.outW || cv.height !== size.outH) { cv.width = onion.width = size.outW; cv.height = onion.height = size.outH; S.R.forget(); }
   const f = S.R.renderFrame(ctx, film, i, { ar: S.ar, width: S.width });
   S.hash(i, f.list);
+  S.shown = f;
   cur = i;
   if (!quiet && !playing) drawOnion();
   else onion.getContext('2d').clearRect(0, 0, onion.width, onion.height);
@@ -99,6 +100,7 @@ function drawOnion() {
   const g = onion.getContext('2d');
   g.clearRect(0, 0, onion.width, onion.height);
   fitOnion();
+  drawBoxes(g);
   if (!$('onionOn').checked) return;
   const { D, film, size } = S;
   scratch ??= document.createElement('canvas');
@@ -124,6 +126,26 @@ function drawOnion() {
     g.drawImage(scratch, 0, 0);
     g.globalAlpha = 1;
   }
+}
+// The box of every text op and lettered group (a handText, textBox or bullets group) in the frame shown, in
+// the hand of its shot: what bounds() and lint's cel-box rule see.
+function drawBoxes(g) {
+  if (!$('boxesOn').checked || !S.shown) return;
+  const { D, size } = S, { list, look } = S.shown, boxes = [];
+  D.withHand(D.handOf(look), () => D.walk(list, (op, m) => {
+    const lettered = op.op === 'text' || (op.op === 'group' && typeof op.name === 'string' && /^(text|bullets):/.test(op.name));
+    if (!lettered) return;
+    const b = D.bounds([op], m);
+    if (b) boxes.push(b);
+    return false;
+  }));
+  g.save();
+  g.setTransform(size.S, 0, 0, size.S, 0, 0);
+  g.strokeStyle = '#2f7fd0';
+  g.lineWidth = 1.5 / size.S;
+  g.setLineDash([6 / size.S, 4 / size.S]);
+  for (const [x, y, w, h] of boxes) g.strokeRect(x, y, w, h);
+  g.restore();
 }
 function fitOnion() {
   Object.assign(onion.style, { left: `${cv.offsetLeft}px`, top: `${cv.offsetTop}px`, width: `${cv.offsetWidth}px`, height: `${cv.offsetHeight}px` });
@@ -314,6 +336,7 @@ $('play').onclick = toggle;
 $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
 $('onionOn').onchange = () => drawOnion();
+$('boxesOn').onchange = () => drawOnion();
 addEventListener('resize', () => { fitOnion(); drawStrip(); });
 addEventListener('keydown', (e) => {
   if (!S || e.target.tagName === 'INPUT' && e.target.type === 'range' || e.metaKey || e.ctrlKey) return;
@@ -325,6 +348,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'End') { if (playing) stop(); show(n() - 1); }
   else if (k === 'l' || k === 'L') $('loop').checked = !$('loop').checked;
   else if (k === 'o' || k === 'O') { $('onionOn').checked = !$('onionOn').checked; drawOnion(); }
+  else if (k === 'b' || k === 'B') { $('boxesOn').checked = !$('boxesOn').checked; drawOnion(); }
   else return;
   e.preventDefault();
 });

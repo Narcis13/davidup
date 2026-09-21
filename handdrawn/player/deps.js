@@ -6,5 +6,6 @@ export { frame, describe, cues, place, seedList, withRootLook } from '../core/tr
 export { format } from '../core/fit.js';
 export { FPS } from '../core/curves.js';
 export { SR, filmAudio } from '../core/synth.js';
-export { group, paper, stroke, rect, walk, hashList, withProps } from '../core/list.js';
-export { hashLook, resolveLook } from '../core/looks.js';
+export { bounds, group, paper, stroke, rect, walk, hashList, withProps } from '../core/list.js';
+export { withHand } from '../core/glyphs.js';
+export { handOf, hashLook, resolveLook } from '../core/looks.js';

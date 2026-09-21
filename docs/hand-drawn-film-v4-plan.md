@@ -760,7 +760,8 @@ most of a day. About twice v3.
 | session | done |
 |---|---|
 | T1 | [x] 2026-09-21: 24 glyphs (94 with letters and figures), sheet pages latin + symbols told by a code along the bottom edge, `hdf hand <page.jpg ...>` merges pages |
-| T2 T3 T4 T5 T6 T7 T8 T9 T10 | [ ] each |
+| T5 | [x] 2026-09-21: `layout` / `measureBox` from real advances and glyph ink (`core/layout.js`), `textBox`, `bullets` (dot dash number check), `text` op wraps with `width` (`w` stays the pen) and breaks on `\n`; `bounds` of a text op measures its ink in the shot's hand; player `B` shows text boxes; every film lint clean, every golden holds |
+| T2 T3 T4 T6 T7 T8 T9 T10 | [ ] each |
 | K1 K2 K3 K4 K5 K6 K7 K8 | [ ] each |
 | V1 V2 V3 V4 | [ ] each |
 | L1 L2 L3 L4 | [ ] each |

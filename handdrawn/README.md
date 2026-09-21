@@ -211,13 +211,28 @@ export default film({
 | `fill` | `fill(path, role, { finish, cov, alpha, blend })` | `finish: true` means the look's texture; `cov` is riso coverage |
 | `stroke` | `stroke(path, role, { tool, w, wobble, taper, dash, order })` | tools: `pen brush pencil chalk crayon marker gouache` |
 | `dots` | `dots(path, role, { cell, cov, angle })` | a dot screen inside a path |
-| `text` | `text(str, x, y, { size, align })`, `handText`, `signOff` | single-stroke hand lettering, no fonts; it wobbles and reveals like a drawing |
+| `text` | `text(str, x, y, { size, align, width })`, `handText`, `textBox`, `bullets`, `signOff` | single-stroke hand lettering, no fonts; it wobbles and reveals like a drawing; `width` wraps it, `\n` breaks it |
 | `image` | `image(src, x, y, w, h, { sil })` | a registered asset (a cutout photo, a sand bed) |
 | `group` | `group(name, kids, { xf })`, `place(x, y, {rot, scale, flip}, node)` | the cache unit |
 | `clip` | `clip(path, kids)` | |
 | `fx` | `fx(kind, args, kids)` | `dissolve wipe blot iris mosaic flash flicker nightShot bleed glow scribble photoMask soft` |
 | `look` | `lookOn(look, node)` / `lookNode` | innermost look wins |
 | `meta` | `meta('anchor', {cel} \| {name})`, `meta('intent', 'crop')` | read by lint and the board, never drawn |
+
+Lettering is laid out from the hand's own glyphs: their advances place it,
+the ink of their strokes makes its box.
+
+```js
+layout('Copy that wraps.', { size: 40, w: 300 })   // { lines: [{ str, x, y, w }], box, truncated }
+measureBox('two\nlines', 40)                       // the ink box the copy needs, baseline at 0
+textBox(copy, [x, y, w, h], { size: 36, align: 'center', valign: 'middle', maxLines: 4 })
+bullets(['mix', 'add two eggs', 'bake'], [x, y, w, h], { marker: 'number' })   // dot, dash, number, check
+text(copy, x, y, { size: 40, width: 300 })         // the op wraps too; w on a text op is the pen
+```
+
+`textBox` and `bullets` return groups whose `.box` is the bounds of what they
+draw, and `bounds()` of a `text` op is measured the same way (in the shot's
+hand), so the `cel-box` rule judges lettering by its ink.
 
 Paths are flattened polylines, so they transform, project, measure and hash
 trivially: `circle ellipse rect roundRect poly line cubic spline arc`, plus
@@ -763,6 +778,8 @@ before the first full render.
   position, with short grains while scrubbing;
 - onion skin (`O`): frame i − 1 in red and i + 1 in blue, drawn in chalk from
   their lists;
+- text boxes (`B`): the box of every text op and lettered group in the frame,
+  dashed, as `bounds()` and lint see it;
 - a shot list from `describe()` that jumps on click;
 - one slider per input of the selected cel, a live preview, and "copy values";
 - a changed-frame marker.
@@ -864,7 +881,9 @@ handdrawn/
     finish.js      finishes as geometry (hatch, halftone, dots, graphite, wash), riso plates, the stock
     tools.js       pen, brush, pencil, chalk, crayon, marker, gouache; reveal
     glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation and signs: 94 glyphs)
-    text.js        handText, signOff, squiggleText
+    text.js        handText, layout, textBox, bullets, measureBox, signOff, squiggleText
+    layout.js      line breaking and boxes from a hand's advances and ink (list.js bounds reads it)
+    spline.js      the cardinal spline's arithmetic (glyphs.js builds on it at load)
     fx.js          the raster effects
     raster.js      the cached renderer
     synth.js       the offline score renderer and WAV writer
@@ -901,8 +920,6 @@ they are rough edges rather than defects:
 - The pen's `bleed` setting is unused.
 - **Lint** counts scribbles per shot rather than per frame, does not check
   roles passed inside fx arguments, and counts distinct words only.
-- **Text bounds** use a 0.55-em estimate, so the cel-box rule can misjudge a
-  cel that contains lettering.
 - `mapPaths` moves paths only (not text positions, image boxes or fx
   arguments).
 - The doodle recipes (AA–AM) need a `photo`, and have no `.defaults` or

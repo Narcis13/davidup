@@ -231,6 +231,20 @@ Pick one only when the brief asks for it or the subject is better served by
 it: a real animal's movement, a story that must not cut, a book or a stage.
 `references/engines.md` has each condensed.
 
+## Copy in a box
+
+Lettering wraps from the hand's real glyph widths. Put copy in a box rather
+than placing lines by hand:
+
+```js
+textBox('A caption that wraps into its box.', [80, 760, 920, 220], { size: 48, align: 'center', valign: 'middle', maxLines: 3 })
+bullets(['first', 'second, which wraps', 'third'], [120, 200, 700, 600], { marker: 'number', size: 40 })   // dot dash number check
+layout(str, { size, w })   // the lines and ink box without drawing; measureBox(str, size, { w }) the box alone
+```
+
+Both return groups with `.box` (what they draw); anything that needs to sit
+beside the copy reads it. `hdf dev` shows every text box with `B`.
+
 ## Hands: the film in the user's handwriting
 
 A hand is a store asset: up to 94 glyphs plus a pen profile (wobble, overshoot,
@@ -442,7 +456,9 @@ These need eyes, and they are the review list:
   reads it as an import.
 - A cel's draw must be pure in its inputs: no `t` from outside, no closures
   over mutable state. Animate by changing inputs or the `place` around it.
-- `text` / `handText` count as words; the sign-off does not.
+- `text` / `handText` / `textBox` / `bullets` count as words; the sign-off
+  does not. On a `text` op and `handText`, `w` is the pen: wrap with
+  `width` (or `textBox(str, [x, y, w, h])`), break with `\n`.
 - `hdf svg` refuses `use`, live text, gradients, filters, masks, clip paths,
   CSS and embedded images by element and line: in Figma, detach instances,
   outline text, turn off "clip content", export with presentation attributes.

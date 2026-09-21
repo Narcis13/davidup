@@ -17,7 +17,7 @@ export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf, mix, tint, shade, alpha } from './looks.js';
 export { houseHand, asHand, fallbacks, withHand } from './glyphs.js';
-export { handText, signOff, squiggleText, measure, syllablesOf, speech, VISEMES } from './text.js';
+export { handText, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, syllablesOf, speech, VISEMES } from './text.js';
 export { reveal } from './tools.js';
 export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn } from './finish.js';
 export { FX, chalkLook } from './fx.js';

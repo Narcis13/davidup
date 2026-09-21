@@ -1,7 +1,9 @@
 // Display lists: paths (flattened polylines), op constructors, hashing, bounds, walking and JSON.
 // A list is an array of frozen op objects. Every value in an op is data, never a function,
 // so a list is always hashable and serialisable (plan 1.2).
+import { opBox } from './layout.js';
 import { hash64 } from './rand.js';
+import { splinePts } from './spline.js';
 
 const TAU = Math.PI * 2;
 
@@ -34,7 +36,6 @@ function boxOfSubs(sub) {
 
 export const mkPath = (sub) => Object.freeze({ sub, box: boxOfSubs(sub) });
 const flat = (pts) => (pts.length && Array.isArray(pts[0]) ? pts.flat() : [...pts]);
-const pairs = (pts) => { const f = flat(pts), out = []; for (let i = 0; i < f.length; i += 2) out.push([f[i], f[i + 1]]); return out; };
 export const isPath = (v) => !!v && typeof v === 'object' && Array.isArray(v.sub) && Array.isArray(v.box);
 
 // A closed ellipse of n points (plan 1.1: curves are flattened at construction).
@@ -74,23 +75,7 @@ export function cubic(p0, c0, c1, p1, n = 16) {
 }
 
 // Cardinal spline through the points; tension 0 is Catmull-Rom, 1 is straight segments.
-export function spline(points, { tension = 0.5, closed = false, n = 8 } = {}) {
-  const P = pairs(points), m = P.length;
-  if (m < 3) return poly(P, closed);
-  const get = (i) => (closed ? P[(i + m) % m] : P[Math.max(0, Math.min(m - 1, i))]);
-  const k = (1 - tension) / 2, pts = [], segs = closed ? m : m - 1;
-  for (let s = 0; s < segs; s++) {
-    const p0 = get(s - 1), p1 = get(s), p2 = get(s + 1), p3 = get(s + 2);
-    const m1 = [(p2[0] - p0[0]) * k, (p2[1] - p0[1]) * k], m2 = [(p3[0] - p1[0]) * k, (p3[1] - p1[1]) * k];
-    for (let i = 0; i < n; i++) {
-      const t = i / n, t2 = t * t, t3 = t2 * t;
-      const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
-      pts.push(h00 * p1[0] + h10 * m1[0] + h01 * p2[0] + h11 * m2[0], h00 * p1[1] + h10 * m1[1] + h01 * p2[1] + h11 * m2[1]);
-    }
-  }
-  if (!closed) pts.push(P[m - 1][0], P[m - 1][1]);
-  return mkPath([{ pts, closed }]);
-}
+export const spline = (points, o = {}) => mkPath([{ pts: splinePts(points, o), closed: !!o.closed }]);
 
 // An open arc from angle a0 to a1 (radians), about 48 points per turn.
 export function arc(cx, cy, r, a0, a1, n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / TAU * 48))) {
@@ -208,7 +193,8 @@ export const fill = (path, role = 'fills.0', o = {}) => mkOp({ op: 'fill', path:
 export const stroke = (path, role = 'ink', o = {}) => mkOp({ op: 'stroke', path: needPath(path, 'stroke'), role, tool: 'pen', ...o });
 // A dot screen inside the path; o: cell (spacing), density or cov, angle, blend: 'multiply'.
 export const dots = (path, role = 'ink', o = {}) => mkOp({ op: 'dots', path: needPath(path, 'dots'), role, cell: 8, ...o });
-// Hand-lettered text (expanded into strokes, no fonts); o: size, role, tool, align, w. Counted by lint's word rule.
+// Hand-lettered text (expanded into strokes, no fonts); o: size, role, tool, align, w (the pen), width (wraps
+// to it), lineH, maxLines, wrap, valign; '\n' breaks a line. Counted by lint's word rule.
 export const text = (str, x, y, o = {}) => mkOp({ op: 'text', str: String(str), x, y, size: 48, role: 'ink', tool: 'pen', align: 'left', ...o });
 // An image asset (src: an id in film assets) in the box; o: sil (silhouette path), alpha, blend.
 export const image = (src, x, y, w, h, o = {}) => mkOp({ op: 'image', src, x, y, w, h, ...o });
@@ -311,7 +297,7 @@ function intersect(a, b) {
 const inflate = (b, d) => [b[0] - d, b[1] - d, b[2] + 2 * d, b[3] + 2 * d];
 
 // Union of the ops' boxes in the list's coordinates (through each group's xf). paper/night/meta have
-// no box. Text is estimated at 0.55 em per character until text.js expands it into strokes.
+// no box. A text op is measured from its glyphs (layout.js opBox) in the hand of the shot being drawn.
 export function bounds(list, m = I) {
   let out = null;
   for (const op of norm(list)) {
@@ -319,10 +305,7 @@ export function bounds(list, m = I) {
     switch (op.op) {
       case 'fill': case 'dots': b = boxThrough(op.path.box, m); break;
       case 'stroke': b = boxThrough(inflate(op.path.box, (op.w ?? 2) / 2), m); break;
-      case 'text': {
-        const w = op.str.length * op.size * 0.55, x = op.align === 'center' ? op.x - w / 2 : op.align === 'right' ? op.x - w : op.x;
-        b = boxThrough([x, op.y - op.size * 0.8, w, op.size], m); break;
-      }
+      case 'text': b = boxThrough(opBox(op), m); break;
       case 'image': b = boxThrough([op.x, op.y, op.w, op.h], m); break;
       case 'mesh': {   // a projected image grid (engines/stage3d.js); NaN points are behind the camera
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

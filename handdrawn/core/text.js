@@ -2,7 +2,8 @@
 // reveals in stroke order and hashes like any other drawing. No host fonts anywhere.
 import { FPS } from './curves.js';
 import { asHand, currentHand, glyph, HOUSE_DRIFT, HOUSE_STROKE, houseHand } from './glyphs.js';
-import { circle, fill, group, meta, mkPath, text, stroke } from './list.js';
+import { advance, layoutWith, LINE_H, opLayout, penOf } from './layout.js';
+import { bounds, circle, fill, group, meta, mkPath, text, stroke, withProps } from './list.js';
 import { handOf } from './looks.js';
 import { hash32, rng } from './rand.js';
 import { reveal } from './tools.js';
@@ -18,58 +19,130 @@ function handFor(v) {
 }
 
 // Advance width of a string at a size, in logical units, in the look's hand (or a hand record; the hand of
-// the shot being drawn when neither is given).
-export function measure(str, size, look) {
-  const H = handFor(look), k = size / 100;
-  let w = 0;
-  for (const ch of str) { const g = glyph(ch, H); w += (g.w * g.k + H.track) * k; }
-  return Math.max(0, w - H.track * k);
+// the shot being drawn when neither is given). One line: '\n' is not a break here (see layout).
+export const measure = (str, size, look) => advance(str, size, handFor(look));
+
+// layout(str, { size, w, lineH, wrap: 'word' | 'char' | 'none', maxLines, align, valign, x, y, box, look | hand })
+//   => { lines: [{ str, x, y, w }], box: [x, y, w, h], size, lineH, truncated }
+// Copy broken into lines from the hand's real advances: '\n' always breaks, then each paragraph wraps to w.
+// A line's x is where its pen starts, y its baseline, w its advance; box is the ink of the glyphs (no pen).
+// Anchored at (x, y) as a text op is (valign 'baseline': y is the first baseline; 'top', 'middle', 'bottom'
+// put the ink's edge or centre on y), or inside box [x, y, w, h] (wraps to its width; valign 'top' default,
+// 'baseline' puts the first baseline a cap height, 0.72 size, below the top).
+// Past maxLines the last line ends in '...' and truncated is true.
+export function layout(str, o = {}) {
+  const { look, hand, ...rest } = o;
+  return layoutWith(String(str), rest, handFor(hand ?? look));
 }
 
-// handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed, look | hand })
-// => group of stroke ops. Glyph placement (baseline drift, small turns) comes from the string's own
-// seed, so the letters only move when the words change; the pen wobble comes from each stroke's seed.
-// ink2 (default accents.0, null for none) is a misregistered second ink drawn under the first.
+// measureBox(str, size, { w, lineH, wrap, maxLines, look | hand }) => [x, y, w, h]: the ink box the copy
+// needs, first baseline at y = 0, pen starting at x = 0 (x and y are the ink's offsets from there).
+export const measureBox = (str, size, o = {}) => layout(str, { ...o, size, x: 0, y: 0, align: 'left', valign: 'baseline', box: undefined }).box;
+
+// The strokes of one line from pen start gx on baseline y, pushed into st (running glyph and order counters).
+// The baseline's wander runs from ox (the op's anchor), so a one-line op letters exactly as it always has.
+function letterLine(st, str, gx, y, ox, seed) {
+  const { H, size, k, w, wobble, ink2, off, op } = st, r = rng(seed), sl = H.slant ? Math.tan(H.slant * D) : 0;
+  const phase = r() * TAU, amp = size * (H.baselineDrift * 0.01), jit = H.baselineDrift / HOUSE_DRIFT;
+  for (const ch of str) {
+    const g = glyph(ch, H), s = k * g.k;
+    const rot = (r() - 0.5) * 0.08, dy = Math.sin(phase + (gx - ox) / size * 1.3) * amp + (r() - 0.5) * size * 0.015 * jit;
+    const ca = Math.cos(rot) * s, sa = Math.sin(rot) * s, px0 = gx, py0 = y + dy;
+    g.s.forEach((pts, si) => {
+      const out = new Array(pts.length);
+      for (let i = 0; i < pts.length; i += 2) {
+        const px = sl ? pts[i] - pts[i + 1] * sl : pts[i];
+        out[i] = px0 + ca * px - sa * pts[i + 1]; out[i + 1] = py0 + sa * px + ca * pts[i + 1];
+      }
+      const path = mkPath([{ pts: out, closed: false }]), name = `g${st.gi}.${si}`;
+      const common = { tool: op.tool ?? 'pen', w, wobble, order: st.order };
+      st.main.push(stroke(path, op.role ?? 'ink', { ...common, name }));
+      if (ink2) {
+        const shifted = mkPath([{ pts: out.map((v, i) => v + (i % 2 ? off * 0.6 : off)), closed: false }]);
+        st.under.push(stroke(shifted, ink2, { ...common, name: `${name}b`, alpha: 0.85 }));
+      }
+      st.order++;
+    });
+    gx += (g.w * g.k + H.track) * k;
+    st.gi++;
+  }
+}
+
+// Does a text op need layout (more than one line, or a wrap width)?
+const isBlock = (op) => op.str.includes('\n') || op.width !== undefined || op.valign !== undefined;
+
+// handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed,
+// width, lineH, maxLines, wrap, valign, look | hand }) => group of stroke ops. Glyph placement (baseline
+// drift, small turns) comes from each line's own seed, so the letters only move when the words change; the
+// pen wobble comes from each stroke's seed. ink2 (default accents.0, null for none) is a misregistered
+// second ink drawn under the first. w is the pen; width wraps the copy (see layout), '\n' breaks it.
 // The hand (plan 1.4; the shot's when none is given) brings the glyphs, the track between them, the slant
 // (degrees, positive leans right), the baseline drift (em units) and the pen's wobble.
 export function handText(a, x, y, o = {}) {
   let op, H;
   if (typeof a === 'string') { const { look, hand, ...rest } = o; op = text(a, x, y, rest); H = handFor(hand ?? look); }
   else { op = a; H = handFor(x?.hand ?? x?.look); }
-  const { str, size } = op;
-  const k = size / 100, w = op.w ?? Math.max(1.2, size * 0.045);
-  const r = rng(op.glyphSeed ?? hash32('text', str));
-  const width = measure(str, size, H), drift = H.baselineDrift, sl = H.slant ? Math.tan(H.slant * D) : 0;
-  let gx = op.align === 'center' ? op.x - width / 2 : op.align === 'right' ? op.x - width : op.x;
-  const phase = r() * TAU, amp = size * (drift * 0.01), jit = drift / HOUSE_DRIFT, main = [], under = [];
+  const { str, size } = op, w = penOf(op);
   const wobble = H.stroke.wobble === HOUSE_STROKE.wobble ? w * 0.3 : w * 0.3 * (H.stroke.wobble / HOUSE_STROKE.wobble);
   const ink2 = op.ink2 === undefined ? 'accents.0' : op.ink2, off = op.offset ?? Math.max(1, size * 0.035);
-  let order = op.order ?? 0, gi = 0;
-  for (const ch of str) {
-    const g = glyph(ch, H), s = k * g.k;
-    const rot = (r() - 0.5) * 0.08, dy = Math.sin(phase + (gx - op.x) / size * 1.3) * amp + (r() - 0.5) * size * 0.015 * jit;
-    const ca = Math.cos(rot) * s, sa = Math.sin(rot) * s, ox = gx, oy = op.y + dy;
-    g.s.forEach((pts, si) => {
-      const out = new Array(pts.length);
-      for (let i = 0; i < pts.length; i += 2) {
-        const px = sl ? pts[i] - pts[i + 1] * sl : pts[i];
-        out[i] = ox + ca * px - sa * pts[i + 1]; out[i + 1] = oy + sa * px + ca * pts[i + 1];
-      }
-      const path = mkPath([{ pts: out, closed: false }]), name = `g${gi}.${si}`;
-      const common = { tool: op.tool ?? 'pen', w, wobble, order };
-      main.push(stroke(path, op.role ?? 'ink', { ...common, name }));
-      if (ink2) {
-        const shifted = mkPath([{ pts: out.map((v, i) => v + (i % 2 ? off * 0.6 : off)), closed: false }]);
-        under.push(stroke(shifted, ink2, { ...common, name: `${name}b`, alpha: 0.85 }));
-      }
-      order++;
-    });
-    gx += (g.w * g.k + H.track) * k;
-    gi++;
+  const st = { H, size, k: size / 100, w, wobble, ink2, off, op, main: [], under: [], order: op.order ?? 0, gi: 0 };
+  if (isBlock(op)) {
+    layoutWith(str, opLayout(op), H).lines.forEach((l, i) => letterLine(st, l.str, l.x, l.y, op.x, op.glyphSeed !== undefined ? hash32(op.glyphSeed, i) : hash32('text', l.str, i)));
+  } else {
+    const width = advance(str, size, H);
+    const gx = op.align === 'center' ? op.x - width / 2 : op.align === 'right' ? op.x - width : op.x;
+    letterLine(st, str, gx, op.y, op.x, op.glyphSeed ?? hash32('text', str));
   }
   const props = { name: op.name ?? `text:${str}` };
   if (op.seed !== undefined) props.seed = op.seed;
-  return group(props, [...under, ...main]);
+  return group(props, [...st.under, ...st.main]);
+}
+
+// textBox(str, [x, y, w, h], { size, align, valign, lineH, maxLines, wrap, role, tool, w, ink2, seed, name,
+// look | hand }) => a handText group of the copy wrapped into the box ('\n' honoured, valign 'top' by
+// default), its .box the bounds of what it draws and .lines the layout's lines. The copy may run out of a
+// box too short for it: give maxLines to cut it, or read .lines to size the box.
+export function textBox(str, bx, o = {}) {
+  const { look, hand, ...rest } = o, H = handFor(hand ?? look);
+  const L = layoutWith(String(str), { ...rest, w: undefined, box: bx }, H);   // rest.w is the pen
+  // One text op per box: its anchor is the first line's, its width the box's; lines letter from the layout.
+  const x0 = rest.align === 'center' ? bx[0] + bx[2] / 2 : rest.align === 'right' ? bx[0] + bx[2] : bx[0];
+  const op = text(L.lines.map((l) => l.str).join('\n'), x0, L.lines[0].y, { ...rest, width: undefined, valign: undefined, lineH: L.lineH });
+  const g = handText(op, { hand: H });
+  return withProps(g, { box: bounds(g.kids) ?? L.box, lines: L.lines.map((l) => [l.str, l.x, l.y, l.w]) });
+}
+
+// The drawn markers of bullets(), each at (x, y) on a line's baseline, size s.
+const MARKERS = {
+  dot: (x, y, s, role) => fill(circle(x + s * 0.12, y - s * 0.24, s * 0.07, 16), role, { name: 'marker' }),
+  dash: (x, y, s, role, w) => stroke(mkPath([{ pts: [x, y - s * 0.24, x + s * 0.3, y - s * 0.25], closed: false }]), role, { w, name: 'marker' }),
+  check: (x, y, s, role, w) => stroke(mkPath([{ pts: [x, y - s * 0.26, x + s * 0.12, y - s * 0.08, x + s * 0.4, y - s * 0.52], closed: false }]), role, { w, name: 'marker' }),
+};
+
+// bullets(items, [x, y, w, h], { marker: 'dot' | 'dash' | 'number' | 'check', start, size, gap, lineH,
+// role, markerRole, ink2, look | hand, ... textBox options }) => a group: one marker and one textBox per
+// item (named text:..., so lint counts their words), stacked from the top of the box with gap (default a third of a line) between items. Numbers count
+// from start (1) and right-align, so the copy of every item starts on the same x. Its .box is what it draws.
+export function bullets(items, bx, o = {}) {
+  const { marker = 'dot', start = 1, gap, markerRole, ...rest } = o, H = handFor(rest.hand ?? rest.look);
+  const size = rest.size ?? 48, lineH = rest.lineH ?? size * LINE_H, role = markerRole ?? rest.role ?? 'ink', pen = penOf({ size, w: rest.w });
+  const label = (i) => `${start + i}.`;
+  const indent = marker === 'number'
+    ? Math.max(...items.map((_, i) => advance(label(i), size, H))) + size * 0.3
+    : size * (marker === 'check' ? 0.75 : 0.55);
+  const kids = [];
+  let top = bx[1];
+  items.forEach((item, i) => {
+    const body = textBox(item, [bx[0] + indent, top, Math.max(1, bx[2] - indent), Math.max(0, bx[1] + bx[3] - top)], { ...rest, size, lineH, align: 'left', valign: 'baseline', hand: H });
+    const [, , y0] = body.lines[0];
+    const mark = marker === 'number'
+      ? handText(label(i), bx[0] + indent - size * 0.3, y0, { ...rest, size, role, align: 'right', hand: H })
+      : MARKERS[marker]?.(bx[0], y0, size, role, pen) ?? (() => { throw new TypeError(`bullets: no marker '${marker}' (dot, dash, number, check)`); })();
+    kids.push(group(`bullet${i}`, [mark, body]));
+    top = body.lines[body.lines.length - 1][2] + lineH - size * 0.72 + (gap ?? lineH / 3);
+  });
+  const g = group(`bullets:${marker}`, kids);
+  return withProps(g, { box: bounds(g.kids) ?? [bx[0], bx[1], 0, 0] });
 }
 
 // The film's signature: two dots, then word a, then word b (smaller, below), each revealed in stroke

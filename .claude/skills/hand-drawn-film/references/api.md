@@ -14,7 +14,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `poly(pts, closed = true)` A polyline through pts ([[x, y], ...] or flat [x0, y0, ...]), closed by default.
 - `line(x0, y0, x1, y1)` One open segment.
 - `cubic(p0, c0, c1, p1, n = 16)` An open cubic Bezier from p0 to p1 with control points c0, c1, as n segments.
-- `spline(points, { tension = 0.5, closed = false, n = 8 } = {})` Cardinal spline through the points; tension 0 is Catmull-Rom, 1 is straight segments.
+- `spline(points, o = {})` Cardinal spline through the points; tension 0 is Catmull-Rom, 1 is straight segments.
 - `arc(cx, cy, r, a0, a1, n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / TAU * 48)))` An open arc from angle a0 to a1 (radians), about 48 points per turn.
 - `xf(path, m)` The path with every point through matrix m ([a, b, c, d, e, f]).
 - `box(path)` [x, y, w, h]
@@ -28,7 +28,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `fill(path, role = 'fills.0', o = {})` A flat fill in a role; o: finish (true: the look's texture, or a finish name / options), cov (riso coverage), alpha, blend, name, seed.
 - `stroke(path, role = 'ink', o = {})` A hand-drawn line along the path; o: tool (pen brush pencil chalk crayon marker), w, wobble, taper, dash, alpha, order (for reveal), name, seed.
 - `dots(path, role = 'ink', o = {})` A dot screen inside the path; o: cell (spacing), density or cov, angle, blend: 'multiply'.
-- `text(str, x, y, o = {})` Hand-lettered text (expanded into strokes, no fonts); o: size, role, tool, align, w.
+- `text(str, x, y, o = {})` Hand-lettered text (expanded into strokes, no fonts); o: size, role, tool, align, w (the pen), width (wraps to it), lineH, maxLines, wrap, valign; '\n' breaks a line.
 - `image(src, x, y, w, h, o = {})` An image asset (src: an id in film assets) in the box; o: sil (silhouette path), alpha, blend.
 - `group(a, b, c)` group(kids) | group(name, kids, opts) | group({ name, xf, box, cache, ...
 - `clip(path, kids)` Kids drawn only inside the path.
@@ -139,10 +139,14 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/text.js
 
-- `handText(a, x, y, o = {})` handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed, look | hand }) => group of stroke ops.
+- `handText(a, x, y, o = {})` handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed, width, lineH, maxLines, wrap, valign, look | hand }) => group of stroke ops.
 - `signOff(a, b, { x = 540, y = 540, size = 60, pA = 1, pB = 1, ink = 'ink', ink2 = 'accents.0' } = {})` The film's signature: two dots, then word a, then word b (smaller, below), each revealed in stroke order by pA and pB.
 - `squiggleText(box, lines, seed = 1, { role = 'ink', lineH, amp = 4, w = 1.3, gap = 0.4 } = {})` Illegible handwriting: rows of little arches filling box [x, y, w, h?] (v1 squiggleText).
 - `measure(str, size, look)` Advance width of a string at a size, in logical units, in the look's hand (or a hand record; the hand of the shot being drawn when neither is given).
+- `layout(str, o = {})` layout(str, { size, w, lineH, wrap: 'word' | 'char' | 'none', maxLines, align, valign, x, y, box, look | hand }) => { lines: [{ str, x, y, w }], box: [x, y, w, h], size, lineH, truncated } Copy broken into lines from the hand's real ...
+- `measureBox(str, size, o = {})` measureBox(str, size, { w, lineH, wrap, maxLines, look | hand }) => [x, y, w, h]: the ink box the copy needs, first baseline at y = 0, pen starting at x = 0 (x and y are the ink's offsets from there).
+- `textBox(str, bx, o = {})` textBox(str, [x, y, w, h], { size, align, valign, lineH, maxLines, wrap, role, tool, w, ink2, seed, name, look | hand }) => a handText group of the copy wrapped into the box ('\n' honoured, valign 'top' by default), its .box the bounds ...
+- `bullets(items, bx, o = {})` bullets(items, [x, y, w, h], { marker: 'dot' | 'dash' | 'number' | 'check', start, size, gap, lineH, role, markerRole, ink2, look | hand, ...
 - `syllablesOf(word)` A word's syllables as vowel groups: each ends where its vowel group does, the last takes the tail.
 - `speech(str, t0 = 0)` A line of speech on the 1/12 s grid from t0: each syllable is one viseme cycle (VISEMES, a step each), a space rests the mouth a step, a comma or a full stop two.
 - `VISEMES` The mouth over one syllable, a step (1/12 s) each: shut, wide, smiling, a little open (a puppet's mouth variants 0..3).
