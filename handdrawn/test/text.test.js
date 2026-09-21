@@ -13,8 +13,28 @@ const total = (node) => strokes(node).reduce((a, s) => a + s.path.sub.reduce((b,
 
 test('the font covers a-z, A-Z, 0-9 and the punctuation set', () => {
   for (const ch of "abcdefghijklmnopqrstuvwxyz0123456789.,:'-!?& ") assert.ok(GLYPHS[ch], ch);
-  assert.equal(glyph('~').s, GLYPHS['?'].s);
+  assert.equal(glyph('§').s, GLYPHS['?'].s);
   assert.equal(glyph('É').s, GLYPHS.E.s);          // accents fall back to the base letter
+});
+
+// T1: the house hand can write a sentence.
+test("punctuation and signs: every character of \"it's 3 + 4 = 7 (yes!)\" is lettered in its own glyph", () => {
+  const SIGNS = `'":;()[]/+=%°×÷→←↑↓~*_#@$€`;
+  for (const ch of SIGNS) {
+    const G = GLYPHS[ch];
+    assert.ok(G, ch);
+    assert.notEqual(glyph(ch).s, GLYPHS['?'].s, ch);
+    assert.ok(G.w >= 12 && G.w <= 70 && G.s.length >= 1 && G.s.length <= 4, `${ch}: advance ${G.w}, ${G.s.length} strokes`);
+    for (const pts of G.s) for (let i = 0; i < pts.length; i += 2) {
+      assert.ok(pts[i] >= -2 && pts[i] <= G.w + 2, `${ch} x ${pts[i]}`);
+      assert.ok(pts[i + 1] >= -80 && pts[i + 1] <= 26, `${ch} y ${pts[i + 1]}`);
+    }
+  }
+  const str = "it's 3 + 4 = 7 (yes!)", node = handText(str, 0, 100, { size: 60, ink2: null });
+  const want = [...str].reduce((n, ch) => n + GLYPHS[ch].s.length, 0);
+  assert.equal(strokes(node).length, want, 'one stroke per glyph stroke, no ? standing in');
+  assert.ok(measure(str, 60) > measure("it's 3 4 7 yes", 60));
+  assert.equal(glyph('×').s === GLYPHS.x.s, false, '× is not x');
 });
 
 test('capitals are true capitals: own strokes at k = 1, inside the cap box', () => {

@@ -48,11 +48,13 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--licence] [--credit] [--source] [--tags] [--no-sheet]
                                     an SVG into the store: parts from <g id>, pivots, variants, poses, cycles
                                     (rules in core/svg.js); prints the colour table, writes the sheet
-  hand    --template [--paper a4|letter] > out/hand-template.pdf   the hand sheet to print and fill in
-                                    (--letter <hand>: the sheet filled in by a stored hand, as a JPEG)
-  hand    <sheet.jpg> --name <id> [--thr 0.6] [--credit] [--root dir] [--no-sheet]   a photo of a filled-in sheet
-                                    into the store as a hand: glyphs traced, pen fitted from the last row; writes
-                                    out/hand-<id>-trace.jpg and assets/sheets/<id>.jpg (then --look 'x~hand:<id>')
+  hand    --template [--paper a4|letter] [--pages latin,symbols] > out/hand-template.pdf   the hand sheet to
+                                    print and fill in, both pages unless --pages says (--letter <hand>: a page
+                                    filled in by a stored hand, as a JPEG; the latin one unless --pages says)
+  hand    <page.jpg ...> --name <id> [--thr 0.6] [--credit] [--root dir] [--no-sheet]   photos of filled-in pages
+                                    into the store as a hand: glyphs traced, pen fitted from the latin page's last
+                                    row; writes out/hand-<id>-trace[-<page>].jpg and assets/sheets/<id>.jpg
+                                    (then --look 'x~hand:<id>')
   hand    --synth <id> [--root dir] a deterministic hand made from the house one, into the store
   sheet   --hand <id>               a hand's page beside the house's: every glyph (house fallbacks marked), pangrams, its pen
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit

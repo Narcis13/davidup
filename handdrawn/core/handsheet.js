@@ -3,9 +3,11 @@
 // canvas 2D context, so the same geometry serves the PDF, the tests' synthetic sheets and the reader.
 //
 // The sheet is a frame FRAME mm wide and tall, centred on A4 or letter, with a thick black L at each corner
-// (the one at the top left has a square key beside it, so a photo taken sideways still reads). Inside: 62
-// boxes (a-z, A-Z, 0-9), each with its baseline, x-height and cap line in light blue and a small grey
-// exemplar, and a last row for the pen: three lines drawn left to right, a circle, a square, a zigzag, a long S.
+// (the one at the top left has a square key beside it, so a photo taken sideways still reads). A sheet has
+// pages (PAGES): latin, 62 boxes (a-z, A-Z, 0-9) and a last row for the pen: three lines drawn left to right, a
+// circle, a square, a zigzag, a long S; symbols, 32 boxes of punctuation and signs. Each box has its baseline,
+// x-height and cap line in light blue and a small grey exemplar. A page is told by its code, filled squares
+// along the bottom edge (latin has none, so sheets printed before pages existed read as latin).
 // Every box is laid out in em units (UNIT mm each), the 100-unit em of core/glyphs.js, so what is written on
 // the baseline comes back at the size the house glyphs are drawn at.
 //
@@ -21,15 +23,27 @@ export const FRAME = Object.freeze([180, 250]);                                 
 export const MARK = Object.freeze({ arm: 12, thick: 3, key: [5, 5, 4] });        // key: x, y, side, inside the top-left L
 export const UNIT = 0.2;                                                          // mm per em unit
 export const CHARS = Object.freeze([...'abcdefghijklmnopqrstuvwxyz', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'0123456789']);
+export const SYMBOLS = Object.freeze([...'.,:;\'"-!?&()[]/+=%°×÷→←↑↓~*_#@$€']);
+// The pages of the sheet: index is the page's code (bit k set: the k-th square filled), pen whether it has the pen row.
+export const PAGES = Object.freeze({
+  latin: Object.freeze({ index: 0, chars: CHARS, pen: true }),
+  symbols: Object.freeze({ index: 1, chars: SYMBOLS, pen: false }),
+});
+export const CODE = Object.freeze({ x: 20, y: 241, side: 5, step: 8, bits: 3 });   // mm: the code squares, left to right
+const pageOf = (page) => {
+  const p = PAGES[page];
+  if (!p) throw new Error(`hand sheet: page '${page}' (expected ${Object.keys(PAGES).join(' | ')})`);
+  return p;
+};
 export const BOX = Object.freeze({ w: 90, h: 120, base: 84 });                    // em units; base: baseline below the top
 const COLS = 9, TOP = 18, GAP = [2.25, 3];                                        // mm
 export const ROW = Object.freeze({ y: 208, h: 140 });                             // the pen row: mm from the top, em tall
 export const PPU = 2;                                                             // pixels per em unit when reading
 
-// The glyph boxes in frame mm: { ch, x, y, w, h }; em (ex, ey) of a box is at x + ex * UNIT, y + (base + ey) * UNIT.
-export function glyphBoxes() {
+// The glyph boxes of a page in frame mm: { ch, x, y, w, h }; em (ex, ey) of a box is at x + ex * UNIT, y + (base + ey) * UNIT.
+export function glyphBoxes(page = 'latin') {
   const bw = BOX.w * UNIT, bh = BOX.h * UNIT;
-  return CHARS.map((ch, i) => ({ ch, x: (i % COLS) * (bw + GAP[0]), y: TOP + Math.floor(i / COLS) * (bh + GAP[1]), w: bw, h: bh }));
+  return pageOf(page).chars.map((ch, i) => ({ ch, x: (i % COLS) * (bw + GAP[0]), y: TOP + Math.floor(i / COLS) * (bh + GAP[1]), w: bw, h: bh }));
 }
 export const emToFrame = (box, ex, ey) => [box.x + ex * UNIT, box.y + (BOX.base + ey) * UNIT];
 
@@ -72,9 +86,9 @@ export function markCentroids() {
 
 const INK = '#000', GUIDE = '#9cc3e6', FAINT = '#c6ddf0', EXEMPLAR = '#bdbdbd', LABEL = '#6a6a6a';
 
-// The template on a page, drawn with ctx in mm (the caller scales to points or pixels). paper: 'a4' | 'letter'.
-export function drawTemplate(ctx, paper = 'a4') {
-  const [pw, ph] = PAPERS[paper] ?? PAPERS.a4, [ox, oy] = frameOrigin(paper), [W, H] = FRAME;
+// One page of the template, drawn with ctx in mm (the caller scales to points or pixels). paper: 'a4' | 'letter'.
+export function drawTemplate(ctx, paper = 'a4', page = 'latin') {
+  const [pw, ph] = PAPERS[paper] ?? PAPERS.a4, [ox, oy] = frameOrigin(paper), [W, H] = FRAME, pg = pageOf(page);
   ctx.save();
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, pw, ph);
@@ -91,6 +105,7 @@ export function drawTemplate(ctx, paper = 'a4') {
     ctx.lineTo(cx + sx * t, cy + sy * a); ctx.lineTo(cx, cy + sy * a); ctx.closePath(); ctx.fill();
   }
   ctx.fillRect(key[0], key[1], key[2], key[2]);
+  for (let k = 0; k < CODE.bits; k++) if (pg.index >> k & 1) ctx.fillRect(CODE.x + k * CODE.step, CODE.y, CODE.side, CODE.side);
 
   // The header.
   ctx.fillStyle = '#333';
@@ -99,12 +114,20 @@ export function drawTemplate(ctx, paper = 'a4') {
   ctx.fillStyle = LABEL;
   ctx.font = '2.3px sans-serif';
   ctx.fillText(`${paper === 'letter' ? 'US letter' : 'A4'}  ·  print at 100%, no scaling`, 18, 11);
-  ctx.fillText('Write each character once in its box, standing on the blue baseline, small letters up to the dashed line,', 58, 5);
-  ctx.fillText('capitals and figures up to the dotted one, in a dark pen. Last row: three lines left to right, a circle, a square,', 58, 8.2);
-  ctx.fillText('a zigzag and a long S over the faint guides. Photograph the whole sheet, flat, with all four black corners in it.', 58, 11.4);
+  ctx.fillText(`page: ${page}`, 18, 14.3);
+  const say = pg.pen ? [
+    'Write each character once in its box, standing on the blue baseline, small letters up to the dashed line,',
+    'capitals and figures up to the dotted one, in a dark pen. Last row: three lines left to right, a circle, a square,',
+    'a zigzag and a long S over the faint guides. Photograph the whole sheet, flat, with all four black corners in it.',
+  ] : [
+    'Write each mark once in its box where it sits in a sentence, as the grey exemplar shows: on the baseline,',
+    'brackets from the dotted line down to the faint one, + = × ÷ and arrows halfway to the dashed line. Dark pen.',
+    'Photograph the whole sheet, flat, with all four black corners and the square along the bottom in the picture.',
+  ];
+  say.forEach((line, i) => ctx.fillText(line, 58, 5 + 3.2 * i));
 
   // The glyph boxes.
-  for (const b of glyphBoxes()) {
+  for (const b of glyphBoxes(page)) {
     ctx.strokeStyle = EXEMPLAR;
     ctx.lineWidth = 0.2;
     ctx.setLineDash([]);
@@ -133,7 +156,7 @@ export function drawTemplate(ctx, paper = 'a4') {
   }
 
   // The pen row: each cell boxed, its guides faint and dotted.
-  for (const c of SHAPES) {
+  for (const c of pg.pen ? SHAPES : []) {
     const [x0, y0] = cellToFrame(c, 0, 0);
     ctx.strokeStyle = EXEMPLAR; ctx.lineWidth = 0.2; ctx.setLineDash([]);
     ctx.strokeRect(x0, y0, c.w, ROW.h * UNIT);
@@ -247,6 +270,20 @@ function shoelace(p) {
   let s = 0;
   for (let i = 0, j = p.length - 1; i < p.length; j = i++) s += p[j][0] * p[i][1] - p[i][0] * p[j][1];
   return s / 2;
+}
+
+// The page a photo is of, from its code: each square's ink against the paper round it. at: frameMap()'s.
+export function readPage(img, at) {
+  const S = 4, strip = sample(img, at, (x, y) => [x, y], [CODE.x - 3, CODE.y - 3, CODE.bits * CODE.step + 4, CODE.side + 6], S);
+  const paper = Float32Array.from(strip.data).sort()[Math.floor(strip.data.length * 0.9)];
+  let index = 0;
+  for (let k = 0; k < CODE.bits; k++) {
+    const x = CODE.x + k * CODE.step + 1, cell = sample(img, at, (fx, fy) => [fx, fy], [x, CODE.y + 1, CODE.side - 2, CODE.side - 2], S);
+    if (cell.data.reduce((t, v) => t + v, 0) / cell.data.length < 0.55 * paper) index |= 1 << k;
+  }
+  const name = Object.keys(PAGES).find((p) => PAGES[p].index === index);
+  if (!name) throw new Error(`hand sheet: the page code reads ${index}, which is no page (${Object.keys(PAGES).join(', ')}); photograph the whole sheet`);
+  return name;
 }
 
 // The frame (mm) -> photo (px) map from the four marks.
@@ -454,19 +491,21 @@ export function fitProfile(rasters, ppu = PPU) {
 
 // ---------- the whole sheet ----------
 
-// A photo of a hand sheet -> { glyphs, missing, profile, marks, at, traced }. img: { data, w, h } luminance
-// 0..1. glyphs: { ch: { w, s } } for every box with writing in it; missing: the characters left blank (the house
-// draws them); profile: fitProfile()'s; traced: { ch: strokes in frame mm } for a check image.
-export function readSheet(img, { ppu = PPU, ratio } = {}) {
+// A photo of a hand sheet page -> { page, glyphs, missing, profile, marks, at, traced }. img: { data, w, h }
+// luminance 0..1. page: which page it is, read off its code unless given; glyphs: { ch: { w, s } } for every box
+// with writing in it; missing: the characters left blank (the house draws them); profile: fitProfile()'s ({ found:
+// [] } on a page with no pen row); traced: { ch: strokes in frame mm } for a check image.
+export function readSheet(img, { ppu = PPU, ratio, page } = {}) {
   const { marks, at } = frameMap(img), glyphs = {}, missing = [], traced = {};
+  page ??= readPage(img, at);
   const rect = [3, -BOX.base + 3, BOX.w - 6, BOX.h - 6];      // the box less a margin round its border
-  for (const b of glyphBoxes()) {
+  for (const b of glyphBoxes(page)) {
     const g = traceGlyph(sample(img, at, (ex, ey) => emToFrame(b, ex, ey), rect, ppu), rect, { ppu, ratio });
     if (!g) { missing.push(b.ch); continue; }
     glyphs[b.ch] = { w: g.w, s: g.s };
     traced[b.ch] = g.s.map((s) => { const out = []; for (let i = 0; i < s.length; i += 2) out.push(emToFrame(b, s[i] - g.dx, s[i + 1])); return out; });
   }
   const rasters = {};
-  for (const c of SHAPES) if (c.name === 'line' || c.name === 'square') rasters[c.name] = sample(img, at, (ex, ey) => cellToFrame(c, ex, ey), [0, 0, c.w / UNIT, ROW.h], ppu);
-  return { glyphs, missing, profile: fitProfile(rasters, ppu), marks, at, traced };
+  for (const c of PAGES[page].pen ? SHAPES : []) if (c.name === 'line' || c.name === 'square') rasters[c.name] = sample(img, at, (ex, ey) => cellToFrame(c, ex, ey), [0, 0, c.w / UNIT, ROW.h], ppu);
+  return { page, glyphs, missing, profile: fitProfile(rasters, ppu), marks, at, traced };
 }

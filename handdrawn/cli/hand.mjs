@@ -1,15 +1,19 @@
 // hdf hand: hands into the store (plan 1.4). A hand is the glyphs a look letters in and the pen profile its
 // strokes are drawn with; `--look 'risoPop~hand:<id>'` letters and draws a film in it.
 //
-//   hdf hand --template > out/hand-template.pdf         the sheet to print (A4; --paper letter for US letter)
-//   hdf hand sheet.jpg --name narcis                     a photo of the filled-in sheet -> the hand 'narcis'
+//   hdf hand --template > out/hand-template.pdf         the sheet to print, both pages (A4; --paper letter for US
+//                                                        letter; --pages latin for the letters alone)
+//   hdf hand latin.jpg symbols.jpg --name narcis         photos of the filled-in pages -> the hand 'narcis'
 //   hdf hand --synth test                                a deterministic hand made from the house one (tests, goldens)
-//   hdf hand --template --letter test > out/sample.jpg   the sheet filled in by a stored hand, as a 300 dpi JPEG
+//   hdf hand --template --letter test > out/sample.jpg   a page filled in by a stored hand, as a 300 dpi JPEG
+//                                                        (the latin page; --pages symbols for the other)
 //   ... --root ../other                                  into (or from) a store that is not handdrawn/assets
 //
 // Reading a sheet writes the hand into the store, its page next to the house's (assets/sheets/<id>.jpg, as
-// `hdf sheet --hand <id>` does) and the photo straightened with the traces over it (out/hand-<id>-trace.jpg).
-// Boxes left blank are drawn by the house hand, glyph by glyph; the report names them.
+// `hdf sheet --hand <id>` does) and each photo straightened with the traces over it (out/hand-<id>-trace.jpg for
+// the latin page, out/hand-<id>-trace-<page>.jpg for the others). Each photo's page is read off its code, in any
+// order. Boxes left blank, and pages not photographed, are drawn by the house hand, glyph by glyph; the report
+// names the blank boxes.
 import { existsSync, realpathSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +21,7 @@ import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { GLYPHS, asHand } from '../core/glyphs.js';
 import {
-  FRAME, PAPERS, SHAPES, UNIT, cellToFrame, drawTemplate, emToFrame, frameOrigin, glyphBoxes, readSheet, sample,
+  FRAME, PAGES, PAPERS, SHAPES, UNIT, cellToFrame, drawTemplate, emToFrame, frameOrigin, glyphBoxes, readSheet, sample,
 } from '../core/handsheet.js';
 import { group, poly, stroke } from '../core/list.js';
 import { LOOKS, modifyLook } from '../core/looks.js';
@@ -67,29 +71,42 @@ export function synthHand(id) {
 
 const PT = 72 / 25.4;   // points per mm
 
-// The empty template as a one-page PDF.
-export async function templatePdf(paper = 'a4') {
+// The empty template as a PDF, a page for each of pages (names in PAGES).
+export async function templatePdf(paper = 'a4', pages = Object.keys(PAGES)) {
   const [pw, ph] = PAPERS[paper];
-  const canvas = skiaCanvas(pw * PT, ph * PT), ctx = canvas.getContext('2d');
-  ctx.scale(PT, PT);
-  drawTemplate(ctx, paper);
+  const canvas = skiaCanvas(pw * PT, ph * PT);
+  for (const page of pages) {
+    const ctx = canvas.newPage(pw * PT, ph * PT);
+    ctx.scale(PT, PT);
+    drawTemplate(ctx, paper, page);
+  }
   return canvas.toBuffer('pdf');
 }
 
-// The template filled in by a hand record, as a skia canvas at dpi: every box lettered by handText in that
-// hand, the pen row drawn with its pen (a look carrying the hand, so wobble, overshoot, hook and pressure all
-// apply). This is how the package tests `hdf hand` without a photo; w is the pen row's width in em units.
-export function letterSheet(hand, { paper = 'a4', dpi = 300, w = 4.5, skip = [] } = {}) {
+// --pages latin,symbols -> ['latin', 'symbols'], every page when not given.
+export function pagesOf(flag) {
+  if (flag === undefined) return Object.keys(PAGES);
+  const pages = String(flag).split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+  const bad = pages.filter((p) => !PAGES[p]);
+  if (!pages.length || bad.length) throw new UsageError(`hand: --pages ${flag} (expected a list of ${Object.keys(PAGES).join(', ')})`);
+  return [...new Set(pages)];
+}
+
+// A page of the template filled in by a hand record, as a skia canvas at dpi: every box lettered by handText
+// in that hand, the pen row (on the latin page) drawn with its pen (a look carrying the hand, so wobble,
+// overshoot, hook and pressure all apply). This is how the package tests `hdf hand` without a photo; w is the
+// pen row's width in em units.
+export function letterSheet(hand, { paper = 'a4', page = 'latin', dpi = 300, w = 4.5, skip = [] } = {}) {
   const [pw, ph] = PAPERS[paper], k = dpi / 25.4, [ox, oy] = frameOrigin(paper), H = asHand(hand);
   const canvas = skiaCanvas(Math.round(pw * k), Math.round(ph * k)), ctx = canvas.getContext('2d');
-  ctx.save(); ctx.scale(k, k); drawTemplate(ctx, paper); ctx.restore();
+  ctx.save(); ctx.scale(k, k); drawTemplate(ctx, paper, page); ctx.restore();
   const list = [];
-  for (const b of glyphBoxes()) {
+  for (const b of glyphBoxes(page)) {
     if (skip.includes(b.ch)) continue;
     const [x, y] = emToFrame(b, 12, 0);
     list.push(handText(b.ch, ox + x, oy + y, { size: 100 * UNIT, hand: H, ink2: null }));
   }
-  for (const c of SHAPES) {
+  for (const c of PAGES[page].pen ? SHAPES : []) {
     const [x, y] = cellToFrame(c, 0, 0);
     list.push(place(ox + x, oy + y, { scale: UNIT }, group(`pen:${c.name}`, c.paths.map((p, i) => stroke(poly(p, false), 'ink', { w, name: `${c.name}${i}` })))));
   }
@@ -114,10 +131,13 @@ export function lumOf(rgba, w, h) {
 
 const FIELDS = ['wobble', 'overshoot', 'hook', 'pressure', 'tremor', 'rounding'];
 
-// A read sheet as a hand record: the glyphs written, the profile fitted (speed is not on a sheet: the house's).
+// Read sheet pages (one readSheet() result, or a list of them) as a hand record: the glyphs written on every
+// page, the profile fitted from the page with the pen row (speed is not on a sheet: the house's).
 export function handFromSheet(read, id, { credit = '' } = {}) {
-  const stroke = Object.fromEntries(FIELDS.filter((k) => read.profile[k] !== undefined).map((k) => [k, read.profile[k]]));
-  return { kind: 'hand', name: id, glyphs: read.glyphs, stroke, credit, licence: 'own' };
+  const reads = [read].flat(), glyphs = Object.assign({}, ...reads.map((r) => r.glyphs));
+  const profile = reads.find((r) => r.profile.found.length)?.profile ?? {};
+  const stroke = Object.fromEntries(FIELDS.filter((k) => profile[k] !== undefined).map((k) => [k, profile[k]]));
+  return { kind: 'hand', name: id, glyphs, stroke, credit, licence: 'own' };
 }
 
 // The photo straightened (3 px per mm) with every trace over it in red and blank boxes crossed out.
@@ -134,7 +154,7 @@ async function traceCheck(img, read, file) {
     g.beginPath(); s.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
   }
   g.strokeStyle = 'rgba(230,120,0,.9)';
-  for (const b of glyphBoxes()) {
+  for (const b of glyphBoxes(read.page)) {
     if (!read.missing.includes(b.ch)) continue;
     g.beginPath(); g.moveTo(b.x + 2, b.y + 2); g.lineTo(b.x + b.w - 2, b.y + b.h - 2); g.moveTo(b.x + b.w - 2, b.y + 2); g.lineTo(b.x + 2, b.y + b.h - 2); g.stroke();
   }
@@ -145,13 +165,15 @@ export async function run(args, flags) {
   if (flags.template) {
     const paper = flags.paper === undefined ? 'a4' : String(flags.paper).toLowerCase();
     if (!PAPERS[paper]) throw new UsageError(`hand: --paper ${paper} (expected ${Object.keys(PAPERS).join(' | ')})`);
+    const pages = flags.letter && flags.pages === undefined ? ['latin'] : pagesOf(flags.pages);
+    if (flags.letter && pages.length > 1) throw new UsageError('hand: --letter writes one page as a JPEG; say which with --pages latin or --pages symbols');
     if (process.stdout.isTTY) throw new UsageError(`hand: --template writes ${flags.letter ? 'a JPEG' : 'a PDF'} to stdout; redirect it, e.g. hdf hand --template > out/hand-template.${flags.letter ? 'jpg' : 'pdf'}`);
     let bytes;
     if (flags.letter) {
       const id = String(flags.letter), st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
       if (!st.has(id) || st.entry(id).kind !== 'hand') throw new UsageError(`hand: no hand '${id}' in the store`);
-      bytes = await letterSheet({ ...st.json(id), name: id }, { paper }).toBuffer('jpg', { quality: 0.9 });
-    } else bytes = await templatePdf(paper);
+      bytes = await letterSheet({ ...st.json(id), name: id }, { paper, page: pages[0] }).toBuffer('jpg', { quality: 0.9 });
+    } else bytes = await templatePdf(paper, pages);
     await new Promise((ok, fail) => process.stdout.write(bytes, (e) => (e ? fail(e) : ok())));
     return 0;
   }
@@ -164,28 +186,38 @@ export async function run(args, flags) {
       flags: { licence: 'own', credit: data.credit, tags: 'hand,synthetic', ...flags },
     });
   }
-  const [file] = args;
-  if (!file) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <sheet.jpg> --name <id>, or hdf hand --synth <id>');
+  if (!args.length) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <page.jpg ...> --name <id>, or hdf hand --synth <id>');
   const id = flags.name === undefined || flags.name === true ? '' : String(flags.name);
-  if (!id) throw new UsageError('hand: need --name <id> for the hand, e.g. hdf hand sheet.jpg --name narcis');
+  if (!id) throw new UsageError('hand: need --name <id> for the hand, e.g. hdf hand latin.jpg symbols.jpg --name narcis');
   if (id === 'house') throw new UsageError("hand: 'house' is the package's own hand; name yours something else");
-  if (!existsSync(file)) throw new UsageError(`hand: no file ${file}`);
+  for (const file of args) if (!existsSync(file)) throw new UsageError(`hand: no file ${file}`);
 
-  const img = await luminance(file), read = readSheet(img, { ratio: flags.thr });
-  const n = Object.keys(read.glyphs).length;
-  if (n < 10) throw new Error(`hand: only ${n} of 62 boxes have writing in them; is this a filled-in hand sheet (hdf hand --template)?`);
-  const data = handFromSheet(read, id, { credit: flags.credit === undefined ? `traced by hdf hand from ${basename(file)}` : String(flags.credit) });
+  const photos = [];
+  for (const file of args) {
+    const img = await luminance(file), read = readSheet(img, { ratio: flags.thr }), twin = photos.find((p) => p.read.page === read.page);
+    if (twin) throw new UsageError(`hand: ${basename(twin.file)} and ${basename(file)} are both the ${read.page} page`);
+    photos.push({ file, img, read });
+  }
+  const reads = photos.map((p) => p.read), boxes = reads.reduce((t, r) => t + PAGES[r.page].chars.length, 0);
+  const n = reads.reduce((t, r) => t + Object.keys(r.glyphs).length, 0), missing = reads.flatMap((r) => r.missing);
+  if (n < 10) throw new Error(`hand: only ${n} of ${boxes} boxes have writing in them; is this a filled-in hand sheet (hdf hand --template)?`);
+  const names = photos.map((p) => basename(p.file)).join(', ');
+  const data = handFromSheet(reads, id, { credit: flags.credit === undefined ? `traced by hdf hand from ${names}` : String(flags.credit) });
   const code = await putPayload({
     kind: 'hand', name: id, bytes: Buffer.from(JSON.stringify(data) + '\n'), abs: resolve(`${id}.hand.json`),
-    flags: { licence: 'own', credit: data.credit, source: basename(file), tags: 'hand,sheet', ...flags },
+    flags: { licence: 'own', credit: data.credit, source: names, tags: 'hand,sheet', ...flags },
   });
-  const p = read.profile;
-  process.stdout.write(`${n} of 62 glyphs traced${read.missing.length ? `; the house draws ${read.missing.join(' ')}` : ''}\n`);
-  process.stdout.write(`pen: ${FIELDS.filter((k) => p[k] !== undefined).map((k) => `${k} ${Array.isArray(p[k]) ? p[k].join('/') : p[k]}`).join(', ')}`
-    + `${p.pen ? `, width ${p.pen} em` : ''}  (from ${p.found.join(' and ') || 'nothing: the pen row is blank, the house pen stands in'})\n`);
-  const check = join(outDir(flags), `hand-${id}-trace.jpg`);
-  await traceCheck(img, read, check);
-  process.stdout.write(`${check}  the sheet straightened, traces in red\n`);
+  const p = reads.find((r) => PAGES[r.page].pen)?.profile;
+  process.stdout.write(`${n} of ${boxes} glyphs traced (${reads.map((r) => r.page).join(' + ')})${missing.length ? `; the house draws ${missing.join(' ')}` : ''}\n`);
+  if (p) {
+    process.stdout.write(`pen: ${FIELDS.filter((k) => p[k] !== undefined).map((k) => `${k} ${Array.isArray(p[k]) ? p[k].join('/') : p[k]}`).join(', ')}`
+      + `${p.pen ? `, width ${p.pen} em` : ''}  (from ${p.found.join(' and ') || 'nothing: the pen row is blank, the house pen stands in'})\n`);
+  } else process.stdout.write('pen: the house pen (the pen row is on the latin page)\n');
+  for (const { img, read } of photos) {
+    const check = join(outDir(flags), `hand-${id}-trace${read.page === 'latin' ? '' : `-${read.page}`}.jpg`);
+    await traceCheck(img, read, check);
+    process.stdout.write(`${check}  the ${read.page} page straightened, traces in red\n`);
+  }
   if (flags.sheet !== false) await handSheetFile(id, flags);
   return code;
 }

@@ -174,7 +174,7 @@ test("hand: --synth puts a hand in the store; --look 'x~hand:<id>' letters a fil
     assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{40}\.json {2}own {2}\(new\)/m);
     const cat = JSON.parse(readFileSync(join(dir, 'catalogue.json'), 'utf8'));
     assert.equal(cat.scribe.kind, 'hand');
-    assert.equal(cat.scribe.glyphs, 71);
+    assert.equal(cat.scribe.glyphs, 95);
     assert.match((await hdf('hand', '--synth', 'scribe', '--root', dir)).out, /\(unchanged\)/, 'deterministic');
     assert.equal((await hdf('hand', '--root', dir)).code, 2);
 
@@ -206,7 +206,7 @@ test('hand: --template prints the sheet (PDF, or lettered by a stored hand), <sh
     const r = await hdf('hand', file, '--name', 'scribe', '--root', dir, '--out', dir);
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{40}\.json {2}own {2}\(new\)/m);
-    assert.match(r.out, /^62 of 62 glyphs traced$/m);
+    assert.match(r.out, /^62 of 62 glyphs traced \(latin\)$/m);
     assert.match(r.out, /^pen: wobble [\d.]+, overshoot [\d.]+, hook [\d.]+, pressure [\d.]+\/1\/[\d.]+, tremor [\d.]+, rounding [\d.]+, width [\d.]+ em {2}\(from 3 lines and the square\)$/m);
     assert.ok(existsSync(join(dir, 'hand-scribe-trace.jpg')));
     assert.ok(existsSync(join(dir, 'sheets', 'scribe.jpg')));
@@ -215,8 +215,28 @@ test('hand: --template prints the sheet (PDF, or lettered by a stored hand), <sh
 
     const sheet = await hdf('sheet', '--hand', 'scribe', '--root', dir);
     assert.equal(sheet.code, 0, sheet.out);
-    assert.match(sheet.out, /sheets\/scribe\.jpg {2}house \| scribe {2}\(the house draws \. , : ' - ! \? &\)/);
+    assert.match(sheet.out, /sheets\/scribe\.jpg {2}house \| scribe {2}\(the house draws \. , : ' - ! \? & ; " \( \) \[ .* €\)/);
     assert.equal((await hdf('sheet', 'store', 'scribe', '--root', dir)).code, 0, 'a hand in the store gets the same page');
+
+    // T1: two pages in one PDF (--pages picks), the symbols page lettered, both photos read into one hand.
+    const pages = (b) => (b.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length;
+    assert.equal(pages(raw('hand', '--template').stdout), 2);
+    assert.equal(pages(raw('hand', '--template', '--pages', 'symbols').stdout), 1);
+    assert.equal(raw('hand', '--template', '--pages', 'latin,runes').status, 2);
+    assert.equal(raw('hand', '--template', '--letter', 'test', '--pages', 'latin,symbols').status, 2, '--letter is one page');
+    const sym = raw('hand', '--template', '--letter', 'test', '--pages', 'symbols');
+    assert.equal(sym.status, 0, sym.stderr.toString());
+    const symFile = join(dir, 'symbols.jpg');
+    writeFileSync(symFile, sym.stdout);
+    const two = await hdf('hand', symFile, file, '--name', 'scribe', '--root', dir, '--out', dir, '--no-sheet');
+    assert.equal(two.code, 0, two.out);
+    assert.match(two.out, /^94 of 94 glyphs traced \(symbols \+ latin\)$/m);
+    assert.match(two.out, /\(from 3 lines and the square\)$/m);
+    assert.ok(existsSync(join(dir, 'hand-scribe-trace-symbols.jpg')));
+    assert.equal(JSON.parse(readFileSync(join(dir, 'catalogue.json'), 'utf8')).scribe.glyphs, 94);
+    const twice = await hdf('hand', file, file, '--name', 'scribe', '--root', dir, '--out', dir);
+    assert.equal(twice.code, 2);
+    assert.match(twice.out, /are both the latin page/);
 
     assert.equal((await hdf('hand', file, '--root', dir)).code, 2, 'needs --name');
     assert.equal((await hdf('hand', file, '--name', 'house', '--root', dir)).code, 2);

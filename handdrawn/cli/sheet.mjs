@@ -31,7 +31,7 @@ import { VIEW_DIRS, puppet } from '../core/puppet.js';
 import { hash32 } from '../core/rand.js';
 import { handText, measure } from '../core/text.js';
 import { asHand, glyph, GLYPHS, houseHand } from '../core/glyphs.js';
-import { SHAPES, UNIT } from '../core/handsheet.js';
+import { SHAPES, SYMBOLS, UNIT } from '../core/handsheet.js';
 import { cel, frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
 import { imagesOf, UsageError } from './load.mjs';
@@ -317,7 +317,7 @@ async function modelSheetFile(make, entry, st, flags) {
 
 // ---------- a hand beside the house ----------
 
-const HAND_W = 1600, SPARE = [...".,:'-!?&"], PANGRAMS = ['The quick brown fox jumps over the lazy dog.', 'Pack my box with five dozen liquor jugs!', '0123456789  Sphinx of black quartz, judge my vow.'];
+const HAND_W = 1600, PANGRAMS = ['The quick brown fox jumps over the lazy dog.', 'Pack my box with five dozen liquor jugs!', '0123456789  Sphinx of black quartz, judge my vow.'];
 
 // handPage(hand) => { list, W, H }: one hand on a page: its name, its pen profile, every glyph (the ones it
 // lacks drawn by the house, in the guide colour and listed), three pangrams, and the pen row of the hand sheet
@@ -329,7 +329,7 @@ export function handPage(rec) {
   const prof = `wobble ${st.wobble}, overshoot ${st.overshoot}, hook ${st.hook}, pressure ${st.pressure.join(' ')}, tremor ${st.tremor}, rounding ${st.rounding}`;
   list.push(handText(prof, M, y + 140, { size: 26, hand: H, ink2: null }));
   y += 170;
-  const chars = [...Object.keys(GLYPHS).filter((c) => /[0-9A-Za-z]/.test(c)).sort((a, b) => rank(a) - rank(b)), ...SPARE];
+  const chars = [...Object.keys(GLYPHS).filter((c) => /[0-9A-Za-z]/.test(c)).sort((a, b) => rank(a) - rank(b)), ...SYMBOLS];
   const per = 14, cw = (HAND_W - 2 * M) / per, ch = 112, lacks = [];
   chars.forEach((c, i) => {
     const own = glyph(c, H).own;

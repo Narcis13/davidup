@@ -233,16 +233,17 @@ it: a real animal's movement, a story that must not cut, a book or a stage.
 
 ## Hands: the film in the user's handwriting
 
-A hand is a store asset: 62 glyphs plus a pen profile (wobble, overshoot,
+A hand is a store asset: up to 94 glyphs plus a pen profile (wobble, overshoot,
 hook, pressure, speed). `look.hand` is the house hand unless a look says
 `~hand:<id>`; then every `handText`, sign-off, doodle reveal and pen stroke
 of the film is in that hand (hatching and ruled lines stay).
 
 ```bash
-hdf hand --template > out/hand-template.pdf      # A4 (--paper letter); print it
-#   the user fills the 62 boxes on the baseline in their own pen, then the last row: three lines
-#   left to right, a circle, a square, a zigzag, a long S; photographs it flat, all four corner marks in
-hdf hand sheet.jpg --name narcis                 # traces every glyph, fits the pen; out/hand-narcis-trace.jpg
+hdf hand --template > out/hand-template.pdf      # two pages, A4 (--paper letter); print them
+#   page latin: 62 boxes on the baseline in their own pen, then the last row: three lines left to
+#   right, a circle, a square, a zigzag, a long S; page symbols: 32 boxes of punctuation and signs
+#   (' " : ; ( ) [ ] / + = % ° × ÷ → ← ↑ ↓ ~ * _ # @ $ € ...); each photographed flat, corner marks in
+hdf hand latin.jpg symbols.jpg --name narcis     # traces every glyph, fits the pen; out/hand-narcis-trace*.jpg
 hdf sheet --hand narcis                          # house | narcis, every glyph (house fallbacks marked), pangrams
 hdf render work/<film>/<film>.js --look 'doodlePastel~hand:narcis'      # or pin it in film({ look })
 ```

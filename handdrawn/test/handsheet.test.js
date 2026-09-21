@@ -3,10 +3,10 @@
 // drawn with its pen), then "photographed": warped in perspective onto a dark table, lit unevenly, grained.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asHand, glyph } from '../core/glyphs.js';
+import { asHand, glyph, GLYPHS } from '../core/glyphs.js';
 import {
-  BOX, CHARS, FRAME, UNIT, emToFrame, findMarks, fitProfile, frameOrigin, glyphBoxes, homography, markCentroids, PAPERS, readSheet, sample,
-  SHAPES, cellToFrame, ROW,
+  BOX, CHARS, CODE, FRAME, MARK, PAGES, SYMBOLS, UNIT, emToFrame, findMarks, fitProfile, frameOrigin, glyphBoxes, homography, markCentroids,
+  PAPERS, readSheet, sample, SHAPES, cellToFrame, ROW,
 } from '../core/handsheet.js';
 import { components, distanceTransform, prune, traceSkeleton, zhangSuen } from '../core/skeleton.js';
 import { walk } from '../core/list.js';
@@ -69,6 +69,21 @@ test('template: a PDF for A4 and letter; 62 boxes in em units, four marks, the p
   assert.deepEqual(emToFrame(boxes[0], 0, 0), [0, 18 + BOX.base * UNIT]);
   for (const c of SHAPES) assert.ok(c.x >= 0 && c.x + c.w <= FRAME[0] && ROW.y + ROW.h * UNIT < FRAME[1] - 12, c.name);
   assert.equal(markCentroids().length, 4);
+
+  // T1: the symbols page, 32 boxes in the same grid, every one a house glyph; each page told by its code.
+  const pdf = await templatePdf('a4'), one = await templatePdf('a4', ['latin']);
+  const pages = (b) => (b.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length;
+  assert.deepEqual([pages(pdf), pages(one)], [2, 1]);
+  const sym = glyphBoxes('symbols');
+  assert.deepEqual(sym.map((b) => b.ch), SYMBOLS);
+  assert.equal(new Set([...CHARS, ...SYMBOLS]).size, 94);
+  assert.deepEqual([...CHARS, ...SYMBOLS, ' '].sort(), Object.keys(GLYPHS).sort(), 'every house glyph is on a page');
+  for (const b of sym) assert.ok(b.y + b.h < ROW.y && GLYPHS[b.ch], b.ch);
+  assert.throws(() => glyphBoxes('cyrillic'), /page 'cyrillic' \(expected latin \| symbols\)/);
+  assert.deepEqual(Object.values(PAGES).map((p) => p.index), [0, 1]);
+  const codeRight = CODE.x + (CODE.bits - 1) * CODE.step + CODE.side;
+  assert.ok(CODE.x > MARK.arm + 2 && codeRight < FRAME[0] - MARK.arm - 2, 'the code clears the bottom marks');
+  assert.ok(CODE.y > ROW.y + ROW.h * UNIT && CODE.y + CODE.side < FRAME[1], 'the code sits below the pen row');
 });
 const MARKS_BOTTOM = 12;
 
@@ -109,7 +124,7 @@ test('marks: found in a keystoned photo on a dark table, and in one taken sidewa
 });
 
 // Every glyph's trace against the strokes handText drew it with: mean distance each way, in em units.
-function fidelity(read) {
+function fidelity(read, hand = TEST) {
   const [ox, oy] = frameOrigin('a4'), out = {};
   const near = (p, polys) => {
     let best = Infinity;
@@ -121,9 +136,9 @@ function fidelity(read) {
     return best;
   };
   const mean = (pts, polys) => pts.reduce((s, p) => s + near(p, polys), 0) / pts.length;
-  for (const b of glyphBoxes()) {
+  for (const b of glyphBoxes(read.page)) {
     const [x, y] = emToFrame(b, 12, 0), src = [];
-    walk([handText(b.ch, ox + x, oy + y, { size: 100 * UNIT, hand: asHand(TEST), ink2: null })], (op) => {
+    walk([handText(b.ch, ox + x, oy + y, { size: 100 * UNIT, hand: asHand(hand), ink2: null })], (op) => {
       if (op.op !== 'stroke') return;
       const p = op.path.sub[0].pts, q = [];
       for (let i = 0; i < p.length; i += 2) q.push([p[i] - ox, p[i + 1] - oy]);
@@ -143,6 +158,7 @@ function fidelity(read) {
 
 test('reading a photographed sheet: every glyph traces close to what was written, the profile close to the pen', () => {
   const read = readSheet(photograph(sheetOf(), UPRIGHT));
+  assert.equal(read.page, 'latin', 'no code squares: the latin page');
   assert.deepEqual(read.missing, []);
   assert.deepEqual(Object.keys(read.glyphs).sort(), [...CHARS].sort());
   const fit = fidelity(read);
@@ -181,6 +197,34 @@ test('reading a photographed sheet: every glyph traces close to what was written
   const lettered = handText('Riso', 0, 0, { size: 60, look }), strokes = [];
   walk([lettered], (op) => { if (op.op === 'stroke' && !op.name.endsWith('b')) strokes.push(op); });
   assert.equal(strokes.length, ['R', 'i', 's', 'o'].reduce((n, c) => n + rec.glyphs[c].s.length, 0));
+});
+
+// T1: the symbols page, photographed sideways, reads as symbols by its code, every mark traced close to what
+// was written; with the latin page it makes one hand of 94 glyphs, its pen from the latin page's last row.
+test('reading the symbols page: told by its code, every mark traced, merged with the latin page into one hand', () => {
+  const c = letterSheet(TEST, { page: 'symbols' }), sheet = lumOf(c.getContext('2d').getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  const read = readSheet(photograph(sheet, SIDEWAYS, { W: 3000, H: 2200 }));
+  assert.equal(read.page, 'symbols');
+  assert.deepEqual(read.missing, []);
+  assert.deepEqual(Object.keys(read.glyphs).sort(), [...SYMBOLS].sort());
+  assert.deepEqual(read.profile, { found: [] }, 'no pen row on this page');
+  const fit = fidelity(read);
+  if (process.env.HDF_FIDELITY) console.log(Object.entries(fit).map(([c, f]) => `${c} ${f.there.toFixed(2)}/${f.back.toFixed(2)}`).join('  '));
+  // A mark that is only dots (. :) comes back as fitted circles, which is all of it, so it gets 1.6.
+  for (const [ch, { there, back }] of Object.entries(fit)) assert.ok(there < 2 && back < ('.:'.includes(ch) ? 1.6 : 1.2), `${ch}: traced ${there.toFixed(2)} off the written strokes, written ${back.toFixed(2)} off the trace`);
+  // Where a mark sits is kept: the underscore under the baseline, the degree sign up at cap height, brackets across both.
+  const ys = (ch) => read.glyphs[ch].s.flatMap((s) => s.filter((_, i) => i % 2));
+  assert.ok(Math.min(...ys('_')) > 4, `_ at ${Math.min(...ys('_'))}`);
+  assert.ok(Math.max(...ys('°')) < -45, `° down to ${Math.max(...ys('°'))}`);
+  assert.ok(Math.min(...ys('(')) < -60 && Math.max(...ys('(')) > 12, '( spans cap height to descender');
+  assert.equal(readSheet(sheet, { page: 'latin' }).page, 'latin', 'a page given is not read off the code');
+
+  const both = handFromSheet([read, readSheet(sheetOf())], 'scribe2');
+  assert.equal(Object.keys(both.glyphs).length, 94);
+  assert.deepEqual(Object.keys(both.stroke).sort(), ['hook', 'overshoot', 'pressure', 'rounding', 'tremor', 'wobble'], 'the pen from the latin page, whichever comes first');
+  const h = asHand(both);
+  for (const ch of "it's 3 + 4 = 7 (yes!)") if (ch !== ' ') assert.equal(glyph(ch, h).own, true, ch);
+  assert.deepEqual(handFromSheet(read, 'marks').stroke, {}, 'the symbols page alone: the house pen');
 });
 
 test('reading: blank boxes are missing (the house stands in); a blank pen row fits nothing', () => {

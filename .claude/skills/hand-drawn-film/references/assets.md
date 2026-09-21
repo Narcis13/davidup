@@ -225,12 +225,16 @@ at 24 pen widths), `hook` (a 60 to 120° entry flick), `pressure` (width at
 0` (hatching, ruled lines) are never touched. A cel drawn under a hand is
 memoised apart, so two hands never share a cache.
 
-**The sheet.** `hdf hand --template [--paper a4|letter] > out/hand-template.pdf`
-prints a 180 x 250 mm frame with a thick black L at each corner (a square key
-beside the top-left one, so a sideways photo still reads), 62 boxes (a-z, A-Z,
-0-9), each with a baseline, x-height and cap line in light blue and a grey
-exemplar, and a pen row: three lines drawn left to right, a circle, a square,
-a zigzag, a long S. Instructions for the user:
+**The sheet.** `hdf hand --template [--paper a4|letter] [--pages latin,symbols] > out/hand-template.pdf`
+prints two pages (or the ones `--pages` names), each a 180 x 250 mm frame with a
+thick black L at each corner (a square key beside the top-left one, so a
+sideways photo still reads). Page `latin`: 62 boxes (a-z, A-Z, 0-9) and a pen
+row: three lines drawn left to right, a circle, a square, a zigzag, a long S.
+Page `symbols`: 32 boxes, `. , : ; ' " - ! ? & ( ) [ ] / + = % ° × ÷ → ← ↑ ↓ ~
+* _ # @ $ €`. Every box has a baseline, x-height and cap line in light blue and
+a grey exemplar. A page says which it is with filled squares along its bottom
+edge (latin has none, so a sheet printed before pages existed reads as latin).
+Instructions for the user:
 
 1. Print at 100% (no "fit to page"). Write each glyph on its baseline in the
    pen you letter with; leave a box blank rather than correct it (a blank
@@ -241,10 +245,11 @@ a zigzag, a long S. Instructions for the user:
    frame, even light (a phone is fine; perspective is corrected).
 
 ```bash
-hdf hand sheet.jpg --name narcis [--thr 0.6] [--credit "..."]   # -> the hand in the store, assets/sheets/narcis.jpg,
-                                                                #    out/hand-narcis-trace.jpg (straightened, traces in red)
+hdf hand latin.jpg symbols.jpg --name narcis [--thr 0.6] [--credit "..."]   # -> the hand in the store, assets/sheets/narcis.jpg,
+                                        #    out/hand-narcis-trace.jpg and -trace-symbols.jpg (straightened, traces in red);
+                                        #    photos in any order, one page is enough (the house draws the rest)
 hdf sheet --hand narcis                                         # house | narcis: every glyph, fallbacks marked, pangrams, the pen
-hdf hand --template --letter narcis > out/narcis-sample.jpg     # the template filled in by the stored hand
+hdf hand --template --letter narcis > out/narcis-sample.jpg     # the latin page filled in by the stored hand (--pages symbols)
 hdf hand --synth <id>                                           # a deterministic hand made from the house one (`test`)
 ```
 

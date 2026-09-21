@@ -863,7 +863,7 @@ handdrawn/
     looks.js       colour maths, the six presets, derive / duotone / pastel / withLook
     finish.js      finishes as geometry (hatch, halftone, dots, graphite, wash), riso plates, the stock
     tools.js       pen, brush, pencil, chalk, crayon, marker, gouache; reveal
-    glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation)
+    glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation and signs: 94 glyphs)
     text.js        handText, signOff, squiggleText
     fx.js          the raster effects
     raster.js      the cached renderer
