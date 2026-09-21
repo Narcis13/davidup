@@ -1,44 +1,62 @@
 // Hand lettering as strokes: text ops become groups of pen strokes from glyphs.js, so text wobbles,
 // reveals in stroke order and hashes like any other drawing. No host fonts anywhere.
 import { FPS } from './curves.js';
-import { glyph, TRACK } from './glyphs.js';
+import { asHand, currentHand, glyph, HOUSE_DRIFT, HOUSE_STROKE, houseHand } from './glyphs.js';
 import { circle, fill, group, meta, mkPath, text, stroke } from './list.js';
+import { handOf } from './looks.js';
 import { hash32, rng } from './rand.js';
 import { reveal } from './tools.js';
 
-const TAU = Math.PI * 2;
+const TAU = Math.PI * 2, D = Math.PI / 180;
 
-// Advance width of a string at a size, in logical units.
-export function measure(str, size) {
-  const k = size / 100;
-  let w = 0;
-  for (const ch of str) w += (glyph(ch).w * glyph(ch).k + TRACK) * k;
-  return Math.max(0, w - TRACK * k);
+// The hand to letter in: a hand record, a look (its hand), or, when neither is given, the hand of the shot
+// being drawn. Always a full record; house when nothing names another.
+function handFor(v) {
+  if (v === undefined || v === null) return currentHand() ?? houseHand();
+  if (v.kind === 'hand' || (v.glyphs && !v.palette)) return asHand(v);
+  return handOf(v) ?? houseHand();
 }
 
-// handText(op) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed })
+// Advance width of a string at a size, in logical units, in the look's hand (or a hand record; the hand of
+// the shot being drawn when neither is given).
+export function measure(str, size, look) {
+  const H = handFor(look), k = size / 100;
+  let w = 0;
+  for (const ch of str) { const g = glyph(ch, H); w += (g.w * g.k + H.track) * k; }
+  return Math.max(0, w - H.track * k);
+}
+
+// handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed, look | hand })
 // => group of stroke ops. Glyph placement (baseline drift, small turns) comes from the string's own
 // seed, so the letters only move when the words change; the pen wobble comes from each stroke's seed.
 // ink2 (default accents.0, null for none) is a misregistered second ink drawn under the first.
+// The hand (plan 1.4; the shot's when none is given) brings the glyphs, the track between them, the slant
+// (degrees, positive leans right), the baseline drift (em units) and the pen's wobble.
 export function handText(a, x, y, o = {}) {
-  const op = typeof a === 'string' ? text(a, x, y, o) : a;
+  let op, H;
+  if (typeof a === 'string') { const { look, hand, ...rest } = o; op = text(a, x, y, rest); H = handFor(hand ?? look); }
+  else { op = a; H = handFor(x?.hand ?? x?.look); }
   const { str, size } = op;
   const k = size / 100, w = op.w ?? Math.max(1.2, size * 0.045);
   const r = rng(op.glyphSeed ?? hash32('text', str));
-  const width = measure(str, size);
+  const width = measure(str, size, H), drift = H.baselineDrift, sl = H.slant ? Math.tan(H.slant * D) : 0;
   let gx = op.align === 'center' ? op.x - width / 2 : op.align === 'right' ? op.x - width : op.x;
-  const phase = r() * TAU, amp = size * 0.03, main = [], under = [];
+  const phase = r() * TAU, amp = size * (drift * 0.01), jit = drift / HOUSE_DRIFT, main = [], under = [];
+  const wobble = H.stroke.wobble === HOUSE_STROKE.wobble ? w * 0.3 : w * 0.3 * (H.stroke.wobble / HOUSE_STROKE.wobble);
   const ink2 = op.ink2 === undefined ? 'accents.0' : op.ink2, off = op.offset ?? Math.max(1, size * 0.035);
   let order = op.order ?? 0, gi = 0;
   for (const ch of str) {
-    const g = glyph(ch), s = k * g.k;
-    const rot = (r() - 0.5) * 0.08, dy = Math.sin(phase + (gx - op.x) / size * 1.3) * amp + (r() - 0.5) * size * 0.015;
+    const g = glyph(ch, H), s = k * g.k;
+    const rot = (r() - 0.5) * 0.08, dy = Math.sin(phase + (gx - op.x) / size * 1.3) * amp + (r() - 0.5) * size * 0.015 * jit;
     const ca = Math.cos(rot) * s, sa = Math.sin(rot) * s, ox = gx, oy = op.y + dy;
     g.s.forEach((pts, si) => {
       const out = new Array(pts.length);
-      for (let i = 0; i < pts.length; i += 2) { out[i] = ox + ca * pts[i] - sa * pts[i + 1]; out[i + 1] = oy + sa * pts[i] + ca * pts[i + 1]; }
+      for (let i = 0; i < pts.length; i += 2) {
+        const px = sl ? pts[i] - pts[i + 1] * sl : pts[i];
+        out[i] = ox + ca * px - sa * pts[i + 1]; out[i + 1] = oy + sa * px + ca * pts[i + 1];
+      }
       const path = mkPath([{ pts: out, closed: false }]), name = `g${gi}.${si}`;
-      const common = { tool: op.tool ?? 'pen', w, wobble: w * 0.3, order };
+      const common = { tool: op.tool ?? 'pen', w, wobble, order };
       main.push(stroke(path, op.role ?? 'ink', { ...common, name }));
       if (ink2) {
         const shifted = mkPath([{ pts: out.map((v, i) => v + (i % 2 ? off * 0.6 : off)), closed: false }]);
@@ -46,7 +64,7 @@ export function handText(a, x, y, o = {}) {
       }
       order++;
     });
-    gx += (g.w * g.k + TRACK) * k;
+    gx += (g.w * g.k + H.track) * k;
     gi++;
   }
   const props = { name: op.name ?? `text:${str}` };

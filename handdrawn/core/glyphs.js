@@ -94,9 +94,76 @@ export const GLYPHS = Object.freeze({
 
 export const TRACK = 7;         // gap between glyphs, in em units
 
-// { w, s, k } for a character, where k is the scale it is drawn at (always 1 today). Accented letters
-// draw as their base letter (É -> E); unknown characters draw as '?'.
-export function glyph(ch) {
-  const base = GLYPHS[ch] ? ch : ch.normalize('NFD')[0];
-  return { ...(GLYPHS[base] ?? GLYPHS['?']), k: 1 };
+// ---------- hands (plan 1.4) ----------
+
+// The pen of the house hand: what the tools do when a look names no hand. wobble is the pen's jitter
+// amplitude, overshoot the ratio a corner runs past its vertex, hook the entry flick (its radius in 1.5 pen widths),
+// pressure the width at 0.1 / 0.5 / 0.9 along a stroke, speed the doodle reveal in units per second,
+// tremor and rounding what `hdf hand` measures off a sheet (read by nothing yet).
+export const HOUSE_STROKE = Object.freeze({ wobble: 1.8, overshoot: 0, hook: 0, pressure: Object.freeze([1, 1, 1]), speed: 1000, tremor: 0, rounding: 0 });
+export const HOUSE_DRIFT = 3;   // the baseline's wander, in em units
+
+let house = null;
+// The 2.0 glyph set and tool defaults as a hand record named `house`, in the shape of a hand asset.
+export function houseHand() {
+  house ??= Object.freeze({
+    kind: 'hand', name: 'house', glyphs: GLYPHS, track: TRACK, slant: 0, baselineDrift: HOUSE_DRIFT,
+    stroke: HOUSE_STROKE, credit: '', licence: 'own',
+  });
+  return house;
 }
+
+const flatStroke = (st) => (Array.isArray(st[0]) ? st.flat() : st);
+const hands = new WeakMap();
+// A hand record (a store payload, or houseHand()) with every field there: strokes flat as in GLYPHS, the
+// stroke profile over the house one, missing fields the house's. Glyphs are kept by reference when already
+// flat, so a record is read once.
+export function asHand(rec) {
+  if (!rec || rec === house || rec.glyphs === GLYPHS) return houseHand();
+  let h = hands.get(rec);
+  if (h) return h;
+  if (!rec.glyphs || typeof rec.glyphs !== 'object') throw new TypeError(`hand '${rec.name ?? '?'}': no glyphs`);
+  const glyphs = {};
+  for (const [c, g] of Object.entries(rec.glyphs)) glyphs[c] = Object.freeze({ w: g.w, s: g.s.map(flatStroke) });
+  h = Object.freeze({
+    ...rec, kind: 'hand', name: rec.name ?? 'hand', glyphs: Object.freeze(glyphs),
+    track: rec.track ?? TRACK, slant: rec.slant ?? 0, baselineDrift: rec.baselineDrift ?? HOUSE_DRIFT,
+    stroke: Object.freeze({ ...HOUSE_STROKE, ...rec.stroke }),
+  });
+  hands.set(rec, h);
+  return h;
+}
+
+// { w, s, k, own } for a character in a hand (house when none), where k is the scale it is drawn at
+// (always 1 today) and own is false when the hand lacks it and the house glyph stands in. Accented letters
+// draw as their base letter (É -> E); unknown characters draw as '?'.
+export function glyph(ch, hand) {
+  const G = hand?.glyphs ?? GLYPHS;
+  const base = G[ch] ? ch : GLYPHS[ch] ? ch : ch.normalize('NFD')[0];
+  if (G[base]) return { ...G[base], k: 1, own: true };
+  if (G === GLYPHS || !GLYPHS[base]) return { ...(G['?'] ?? GLYPHS['?']), k: 1, own: G === GLYPHS || !!G['?'] };
+  return { ...GLYPHS[base], k: 1, own: false };
+}
+
+// The characters of str a hand draws with house glyphs (a hand fitted from a sheet may miss some).
+export function fallbacks(str, hand) {
+  const h = hand ? asHand(hand) : houseHand(), out = new Set();
+  for (const ch of String(str)) if (ch !== ' ' && !glyph(ch, h).own) out.add(ch);
+  return [...out];
+}
+
+// ---------- the hand of the shot being drawn ----------
+
+let current = null;
+// fn() lettered in a hand (null: the house). Cels and shots never see the look, but the letters they write
+// belong to its hand: evalShot (tree.js) draws each shot inside withHand(its look's hand), and handText,
+// measure and doodle read it when not told. Everything drawn outside a shot gets the house hand.
+export function withHand(hand, fn) {
+  const prev = current;
+  current = hand ? asHand(hand) : null;
+  if (current === house) current = null;
+  try { return fn(); } finally { current = prev; }
+}
+// The hand withHand() set, or null for the house.
+export const currentHand = () => current;
+

@@ -324,6 +324,19 @@ fasteners and shadows; every other golden holds.
   'paperInk~hand:test'` gets a second golden entry.
 - Lint `hand-missing`.
 
+(Built: a cel never sees the look, so `evalShot` draws each shot inside `withHand(handOf(look))` and
+`handText`, `measure` and `doodle` read that hand when not told one (a text op gets the look's at expand
+time); a cel drawn under a hand other than house is memoised apart. `look.hand` is the whole record (absent =
+house, so no preset's hash moved); `~hand:<id>` finds it in the film's assets or the store registry, and
+`loadFilm` reads the hands a look names from the store. House output is byte-identical: drift, track and
+wobble scale by exact 1s. The hand's pen (wobble before the look's, overshoot, hook, pressure) applies only
+under a look with a hand and never to a `wobble: 0` stroke (hatching, ruled lines); overshoot is capped at
+24 pen widths, the hook is a 60-120 degree flick of radius hook x 1.5 pen widths, pressure draws a segment at a
+time. Hand strokes are stored flat like `glyphs.js` (`[[x, y], ...]` also accepted). `hdf hand --synth <id>`
+is the verb (`--template` and sheets are S12); the test hand has track 6, slant -6, drift 1.8, wobble 2.2,
+overshoot 0.15, hook 0.35, pressure [0.7, 1, 0.85], speed 1150. `hdf golden --look` writes
+`goldens/<film>-<look>.json`; the hand draws the pens too, so every mini frame with a stroke moves under it.)
+
 Done when: `hdf render films/mini.js --look 'paperInk~hand:test'` is visibly
 lettered in another hand; `mini` default golden holds.
 
@@ -460,7 +473,7 @@ doodle recipe in the user's hand without reading the source.
 | S8 | Pose sheets as briefs | S7 | pose sheets | [x] |
 | S9 | Speech scribbles | S5 | speech scribbles | [x] |
 | S10 | Cut-out look | S4 | cut-out look | [x] |
-| S11 | Hands part 1 | S2 | same film, two hands | [ ] |
+| S11 | Hands part 1 | S2 | same film, two hands | [x] |
 | S12 | Hands part 2 | S11 | same film, two hands | [ ] |
 | S13 | Living packs | S4 | living packs | [ ] |
 | S14 | Skeletons + retarget | S4 | (prereq) | [ ] |

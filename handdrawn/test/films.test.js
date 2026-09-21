@@ -44,6 +44,16 @@ test('every film matches its golden with 4 workers', { skip: process.platform !=
   }
 });
 
+// S11: mini lettered in the synthetic test hand is a golden of its own (goldens/mini-paperInk~hand:test.json).
+test("mini under --look 'paperInk~hand:test' matches its own golden, and lints clean", { skip: process.platform !== 'darwin' && 'goldens are written on darwin-arm64' }, async () => {
+  const look = 'paperInk~hand:test';
+  assert.ok(existsSync(join(FILMS, 'goldens', `mini-${look}.json`)));
+  const r = hdf('golden', 'films/mini.js', 'check', '--workers', '4', '--look', look);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const l = hdf('lint', 'films/mini.js', '--look', look);
+  assert.equal(l.status, 0, l.stdout + l.stderr);
+});
+
 // S1: --look 'preset~from:<asset>' paints the film in a cutout's own colours. held-once pins a look per scene
 // (a pastel sheet each), so this is also the check that a modifier reaches those and leaves their paper alone.
 test("--look 'doodlePastel~from:teapot' repaints held-once in the teapot's colours", async () => {

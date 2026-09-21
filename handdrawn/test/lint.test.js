@@ -8,6 +8,7 @@ import { signOff } from '../core/text.js';
 import { lint, lintList, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
 import { actorOf } from '../core/actor.js';
 import { puppet } from '../core/puppet.js';
+import { register } from '../core/store.js';
 import mini from '../films/mini.js';
 
 // A clean scratch film: every shot has paper, an anchor cel in frame, one finish; it ends on a sign-off
@@ -172,6 +173,20 @@ test('actor-cycle: a fallback bob on screen over 1 s in one shot', () => {
   assert.match(f.detail, /actor 'blob' has no cycle 'hop'; its fallback bob is on screen 1\.50 s/);
   assert.equal(f.shot, 'hop');
   assert.ok(A.fallbacks.has('hop'));
+});
+
+test('hand-missing: a look names a hand no store has, or the sign-off falls back to house for a glyph', () => {
+  const gone = lint(film({ name: 'scratch', look: 'paperInk~hand:gone', timeline: seq(scene('a'), end()) }));
+  const f = gone.find((x) => x.rule === 'hand-missing');
+  assert.ok(f, gone.map((x) => formatFinding(x)).join('\n'));
+  assert.match(f.detail, /no hand 'gone' in the store/);
+  // A hand with an 'a' and no 'b': the sign-off ('a', 'b') letters its 'b' in the house hand.
+  register({ half: { name: 'half', glyphs: { a: { w: 44, s: [[4, -40, 40, 0]] } } } });
+  const g = one(film({ name: 'scratch', look: 'paperInk~hand:half', timeline: seq(scene('a'), end()) }), 'hand-missing');
+  assert.match(g.detail, /the sign-off letters 'b' in the house hand: hand 'half' has no glyph for it/);
+  assert.equal(g.shot, 'end');
+  register({ whole: { name: 'whole', glyphs: { a: { w: 44, s: [[4, -40, 40, 0]] }, b: { w: 44, s: [[4, -72, 4, 0]] } } } });
+  assert.deepEqual(rules(film({ name: 'scratch', look: 'paperInk~hand:whole', timeline: seq(scene('a'), end()) })), []);
 });
 
 test('inspect summarises shots for the board; hold and par plays are covered', () => {

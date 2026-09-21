@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
-import { ASSET_ROOT, readCatalogue, recordOf } from '../core/assets.js';
+import { ASSET_ROOT, fromStore, readCatalogue, recordOf } from '../core/assets.js';
 import { mapLooks, withRootLook } from '../core/tree.js';
 import { modifyLook, parseLookName, resolveLook } from '../core/looks.js';
 
@@ -56,6 +56,19 @@ export async function loadImages(film, dir = '.') {
   return out;
 }
 
+// The hands the look names ('paperInk~hand:test'), read from the store into the registry so resolveLook finds
+// them; one the store lacks is left for resolveLook (or lint's hand-missing) to name.
+export function readHands(names, assets = {}) {
+  let st = null;
+  for (const name of names) {
+    for (const [kind, id] of parseLookName(name ?? '').mods) {
+      if (kind !== 'hand' || id === 'house' || assets[id]?.glyphs) continue;
+      st ??= readCatalogue(ASSET_ROOT);
+      if (st.has(id) && st.entry(id).kind === 'hand') fromStore([id]);
+    }
+  }
+}
+
 // Imports a film module and checks its default export has the shape film() produces. look: a preset name
 // replacing the film's root look (--look), which may carry modifiers read off the film's assets
 // ('doodlePastel~from:teapot'); it is resolved here, once, so renderers downstream never need them.
@@ -70,6 +83,7 @@ export async function loadFilm(path, { look } = {}) {
   if (!f.look || typeof f.look !== 'object') throw new Error(`${path}: film has no look`);
   if (f.timeline == null) throw new Error(`${path}: film has no timeline`);
   if (!decoded.has(f)) await loadImages(f, dirname(abs));
+  readHands([f.look.name, typeof look === 'string' ? look : look?.name], assetsOf(f));
   if (!look) return f;
   const full = resolveLook(look, assetsOf(f));   // fails early on an unknown name or modifier
   const { mods } = parseLookName(typeof look === 'string' ? look : look?.name ?? '');

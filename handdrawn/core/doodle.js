@@ -7,6 +7,7 @@
 // adds a custom mark revealed by k = 0..1, d.end is when it is finished.
 import { ease } from './curves.js';
 import { gouache, wash } from './finish.js';
+import { currentHand, houseHand } from './glyphs.js';
 import { group, isPath, len, poly, spline, stroke } from './list.js';
 import { handText } from './text.js';
 import { reveal } from './tools.js';
@@ -15,7 +16,9 @@ const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const asPath = (pts, close) => (isPath(pts) ? pts : poly(pts, !!close));
 
 // A self-drawing doodle builder (see above): lines, fills, washes and text revealed in pen order from `start`.
-export function doodle({ start = 0, speed = 1000, gap = 0.03, seed = 1, w = 4, role = 'ink' } = {}) {
+// speed (units per second) is the hand's (plan 1.4; the shot's hand, 1000 for the house hand) unless given.
+export function doodle({ start = 0, speed, gap = 0.03, seed = 1, w = 4, role = 'ink' } = {}) {
+  speed ??= (currentHand() ?? houseHand()).stroke.speed;
   const ops = [];
   let t = start, z = 0, n = 0;
   const api = {

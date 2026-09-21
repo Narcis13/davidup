@@ -1,8 +1,8 @@
 // Drawing tools: how a stroke op becomes marks on a canvas. Browser and skia contexts are driven the
 // same way. All jitter comes from the op's seed, so a stroke boils only when its seed or inputs change.
 // Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache.
-import { rng } from './rand.js';
-import { resolveLook, resolveRole } from './looks.js';
+import { hash32, rng } from './rand.js';
+import { handOf, resolveLook, resolveRole } from './looks.js';
 import { mkPath, norm, spline, withProps } from './list.js';
 import { handText } from './text.js';
 
@@ -28,13 +28,105 @@ function jittered(path, amp, r) {
   });
 }
 
+// ---------- the hand's pen (plan 1.4) ----------
+
+const CORNER = Math.cos(50 * Math.PI / 180);   // a turn sharper than 50 degrees is a corner
+
+// Each corner run past its vertex: the line in goes on by ratio x its length (at most 24 pen widths' worth)
+// and the line out starts as far back, so the two cross the way a quick hand's do. A sub with a corner comes
+// back open; one without comes back as it was.
+export function overshoot(sub, ratio, w) {
+  if (!(ratio > 0)) return sub;
+  const cap = 24 * w, out = [];
+  for (const s of sub) {
+    const p = s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts, n = p.length / 2;
+    let cur = [p[0], p[1]], cut = false;
+    for (let i = 1; i < n - 1; i++) {
+      const x = p[2 * i], y = p[2 * i + 1], ix = x - p[2 * i - 2], iy = y - p[2 * i - 1], ox = p[2 * i + 2] - x, oy = p[2 * i + 3] - y;
+      const li = Math.hypot(ix, iy), lo = Math.hypot(ox, oy);
+      if (li > 0 && lo > 0 && (ix * ox + iy * oy) / (li * lo) < CORNER) {
+        const ei = ratio * Math.min(li, cap) / li, eo = ratio * Math.min(lo, cap) / lo;
+        cur.push(x + ix * ei, y + iy * ei);
+        out.push({ pts: cur, closed: false });
+        cur = [x - ox * eo, y - oy * eo, x, y];
+        cut = true;
+      } else cur.push(x, y);
+    }
+    if (!cut) { out.push(s); continue; }
+    cur.push(p[2 * n - 2], p[2 * n - 1]);
+    out.push({ pts: cur, closed: false });
+  }
+  return out;
+}
+
+// A short entry flick before each open line long enough to carry one: an arc of radius hook x 1.5 pen widths,
+// 60 to 120 degrees, that leaves tangent to the line's first step, curling to a seeded side.
+export function hook(sub, amount, w, r) {
+  if (!(amount > 0)) return sub;
+  const R = amount * 1.5 * w;
+  return sub.map((s) => {
+    const p = s.pts;
+    if (s.closed || p.length < 4) return s;
+    let L = 0;
+    for (let i = 2; i < p.length && L < 8 * R; i += 2) L += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+    const side = r() < 0.5 ? -1 : 1, sweep = (1 + r()) * Math.PI / 3;
+    if (L < 8 * R) return s;
+    let j = 2;
+    while (j < p.length - 2 && p[j] === p[0] && p[j + 1] === p[1]) j += 2;
+    const dl = Math.hypot(p[j] - p[0], p[j + 1] - p[1]);
+    if (!dl) return s;
+    const dx = (p[j] - p[0]) / dl, dy = (p[j + 1] - p[1]) / dl, nx = -dy * side, ny = dx * side;
+    const cx = p[0] + nx * R, cy = p[1] + ny * R, curl = [];
+    for (let k = 4; k >= 1; k--) {
+      const f = sweep * k / 4;
+      curl.push(cx + R * (-nx * Math.cos(f) - dx * Math.sin(f)), cy + R * (-ny * Math.cos(f) - dy * Math.sin(f)));
+    }
+    return { pts: [...curl, ...p], closed: false };
+  });
+}
+
+// Width along a stroke from the hand's pressure, given at 0.1, 0.5 and 0.9 of its length.
+export function pressureAt([a, b, c], u) {
+  if (u <= 0.1) return a;
+  if (u >= 0.9) return c;
+  return u < 0.5 ? a + (b - a) * (u - 0.1) / 0.4 : b + (c - b) * (u - 0.5) / 0.4;
+}
+const flatPressure = (p) => !p || (p[0] === 1 && p[1] === 1 && p[2] === 1);
+
+// Each sub drawn a segment at a time, as wide as the pressure at the middle of the segment.
+function pressed(ctx, sub, w, pressure) {
+  for (const s of sub) {
+    const p = s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts, n = p.length / 2;
+    let L = 0;
+    for (let i = 1; i < n; i++) L += Math.hypot(p[2 * i] - p[2 * i - 2], p[2 * i + 1] - p[2 * i - 1]);
+    if (!L) continue;
+    let at = 0;
+    for (let i = 1; i < n; i++) {
+      const d = Math.hypot(p[2 * i] - p[2 * i - 2], p[2 * i + 1] - p[2 * i - 1]);
+      ctx.lineWidth = w * pressureAt(pressure, (at + d / 2) / L);
+      ctx.beginPath(); ctx.moveTo(p[2 * i - 2], p[2 * i - 1]); ctx.lineTo(p[2 * i], p[2 * i + 1]); ctx.stroke();
+      at += d;
+    }
+  }
+}
+
 // dash: [on, off] in logical units, offset from the seed (v1 dashedRing).
-function pen(ctx, op, t) {
-  const r = rng(op.seed ?? 1);
-  ctx.lineWidth = op.w ?? t.w;
+// Under a look with a hand, the op's own wobble still wins, the hand's comes before the look's; the hand
+// overshoots corners, hooks entries and presses along the line (seeded apart from the jitter) -- except on a
+// stroke with wobble 0, which is a ruled line (hatching, guides) the hand does not touch.
+function pen(ctx, op, t, S, look) {
+  const r = rng(op.seed ?? 1), hand = look?.hand ? handOf(look)?.stroke : null, w = op.w ?? t.w;
+  ctx.lineWidth = w;
   if (op.dash) { ctx.setLineDash(op.dash); ctx.lineDashOffset = r() * 40; }
+  let path = op.path;
+  if (hand && op.wobble !== 0) {
+    const hr = rng(hash32('hand', op.seed ?? 1));
+    path = { sub: hook(overshoot(path.sub, hand.overshoot, w), hand.hook, w, hr) };
+  }
+  const sub = jittered(path, op.wobble ?? hand?.wobble ?? t.wobble, r);
+  if (hand && op.wobble !== 0 && !op.dash && !flatPressure(hand.pressure)) { pressed(ctx, sub, w, hand.pressure); return; }
   ctx.beginPath();
-  tracePath(ctx, { sub: jittered(op.path, op.wobble ?? t.wobble, r) });
+  tracePath(ctx, { sub });
   ctx.stroke();
 }
 
@@ -166,7 +258,7 @@ export function drawStroke(ctx, op, look, S = 1) {
   else if (op.blend) ctx.globalCompositeOperation = op.blend;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  draw(ctx, op, look.tools[op.tool ?? 'pen'] ?? {}, S);
+  draw(ctx, op, look.tools[op.tool ?? 'pen'] ?? {}, S, look);
   ctx.restore();
 }
 

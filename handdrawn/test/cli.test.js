@@ -142,3 +142,26 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     assert.equal((await hdf('svg', file, '--name', 'bad', '--kind', 'cutout', '--root', root)).code, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("hand: --synth puts a hand in the store; --look 'x~hand:<id>' letters a film in it, an unknown hand is named", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-hand-'));
+  try {
+    assert.match(await hdf('help').then((r) => r.out), /^ {2}hand {4}--synth <id>/m);
+    const r = await hdf('hand', '--synth', 'scribe', '--root', dir);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{40}\.json {2}own {2}\(new\)/m);
+    const cat = JSON.parse(readFileSync(join(dir, 'catalogue.json'), 'utf8'));
+    assert.equal(cat.scribe.kind, 'hand');
+    assert.equal(cat.scribe.glyphs, 71);
+    assert.match((await hdf('hand', '--synth', 'scribe', '--root', dir)).out, /\(unchanged\)/, 'deterministic');
+    assert.equal((await hdf('hand', '--root', dir)).code, 2);
+
+    const only = await hdf('only', 'films/mini.js', '53', '--look', 'paperInk~hand:test', '--out', dir);
+    assert.equal(only.code, 0, only.out);
+    assert.ok(existsSync(join(dir, 'mini-paperInk~hand:test-053.png')));
+    const bad = await hdf('only', 'films/mini.js', '53', '--look', 'paperInk~hand:nobody', '--out', dir);
+    assert.equal(bad.code, 1);
+    assert.match(bad.out, /no hand 'nobody' in the store/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+

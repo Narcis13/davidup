@@ -1,6 +1,8 @@
 // Looks: palette, finish, paper stock and tool defaults. Colour maths ported from v1 core.js so ported
 // films keep their colours. A role (plan 1.2) is resolved against the current look, never raw hex.
+import { asHand, houseHand } from './glyphs.js';
 import { hashData } from './list.js';
+import { record, stored } from './store.js';
 
 // ---------- colour maths (hex in, hex out; alpha() and rgba parsing are the exceptions) ----------
 
@@ -145,7 +147,34 @@ export function parseLookName(name) {
 // resolves where they are at hand (cli/load.mjs passes them).
 const MODS = {
   from: (look, id, assets, name) => derive(look, { from: assetRecord(id, assets, name), name: `${look.name}~from:${id}` }),
+  // The look lettered (and its pens drawn) in a hand from the store; the whole record is part of the look, so
+  // two hands hash as two looks and never share a cache.
+  hand: (look, id, assets, name) => withLook(look, { name: `${look.name}~hand:${id}`, hand: handRecord(id, assets, name) }),
 };
+
+// A hand by id: 'house', one of the film's assets, or one read from a store (loadFilm reads the hand a look
+// names; a film may name it in fromStore([...]) instead).
+export function handRecord(id, assets, name = `~hand:${id}`) {
+  if (id === 'house') return houseHand();
+  const own = assets instanceof Map ? assets.get(id) : assets?.[id];
+  if (own?.glyphs) return asHand(own);
+  if (stored().includes(id) && record(id)?.glyphs) return asHand(record(id));
+  throw new Error(`look '${name}': no hand '${id}' in the store (make one with \`hdf hand --synth ${id}\` or \`hdf import <file> --kind hand --name ${id}\`)`);
+}
+
+// The hand a look letters in, as a full record, or null for the house hand. A look named with a '~hand:'
+// modifier is resolved to find it; any other named preset is house.
+export function handOf(look) {
+  if (!look) return null;
+  let lk = look;
+  if (!(typeof look === 'object' && look.palette)) {
+    if (!parseLookName(typeof look === 'string' ? look : look.name ?? '').mods.some(([k]) => k === 'hand')) return null;
+    lk = resolveLook(look);
+  }
+  if (!lk.hand) return null;
+  const h = asHand(lk.hand);
+  return h === houseHand() ? null : h;
+}
 
 function assetRecord(id, assets, name) {
   if (!assets) throw new Error(`look '${name}': a '~from:' look needs the film's assets; pass --look to a command that loads a film, or call derive(look, { from })`);

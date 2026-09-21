@@ -2,7 +2,9 @@
 // arrange them. frame(film, i) is the one entry point the rasteriser and lint use.
 import { FPS } from './curves.js';
 import { fitFor, format } from './fit.js';
-import { fx, group, lookNode, mmul, norm, rotate, scale, translate, walk, withProps } from './list.js';
+import { currentHand, withHand } from './glyphs.js';
+import { fx, group, hashData, lookNode, mmul, norm, rotate, scale, translate, walk, withProps } from './list.js';
+import { handOf } from './looks.js';
 import { hash32, seedOf } from './rand.js';
 
 // Durations must land on the 1/12 s grid; everything downstream counts drawn frames.
@@ -34,9 +36,13 @@ function quantise(v, spec) {
   return step > 0 ? +(lo + Math.round((c - lo) / step) * step).toFixed(9) : c;
 }
 
+const handKeys = new WeakMap();
+const handKey = (h) => { let k = handKeys.get(h); if (!k) { k = hashData(h); handKeys.set(h, k); } return k; };
+
 // cel(name, draw, { box, inputs: { key: [min, max, step] }, desc }) => (inputs = {}) => group op.
 // Continuous inputs are quantised before drawing so a wing angle does not defeat the cache; the same
-// quantised inputs return the same (frozen) group object.
+// quantised inputs return the same (frozen) group object. A cel drawn in a shot lettered in another hand is
+// cached apart (its words are in that hand).
 export function cel(name, draw, { box, inputs = {}, desc } = {}) {
   if (typeof name !== 'string' || !name) throw new TypeError('cel: needs a name');
   if (typeof draw !== 'function') throw new TypeError(`cel ${name}: draw must be a function`);
@@ -44,7 +50,7 @@ export function cel(name, draw, { box, inputs = {}, desc } = {}) {
   const make = (given = {}) => {
     const q = {};
     for (const k of Object.keys(given).sort()) q[k] = quantise(given[k], inputs[k]);
-    const key = JSON.stringify(q);
+    const hand = currentHand(), key = hand ? `${JSON.stringify(q)}~${handKey(hand)}` : JSON.stringify(q);
     let g = memo.get(key);
     if (!g) {
       if (memo.size >= 512) memo.clear();
@@ -156,7 +162,7 @@ export function evalShot(f, node, k, { i = 0, target = f.format, look } = {}) {
   const edition = eff?.edition ?? 0;   // presets (by name) are edition 0
   const seed = edition ? seedOf(seedOf(f.seed, node.name), `edition ${edition}`) : seedOf(f.seed, node.name);
   const { env, wrap } = fitFor(node.fit, f.format, target);
-  const raw = node.draw({ t: k / FPS, k, i, T: node.dur, seed, ...env, look: eff });
+  const raw = withHand(handOf(eff), () => node.draw({ t: k / FPS, k, i, T: node.dur, seed, ...env, look: eff }));
   return { list: seedList(norm(raw), seed), wrap, seed, look: eff, env };
 }
 

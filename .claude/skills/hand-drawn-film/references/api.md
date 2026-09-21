@@ -110,17 +110,25 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `pastel(look, n)` The look on a pastel sheet: n names a PASTELS paper or is any colour.
 - `withLook(base, part = {})` A look with some fields replaced; palette and tools merge one level deep.
 - `resolveLook(l, assets)` A full look from a preset name, { name } (what film() stores for a string) or a full look object.
+- `handOf(look)` The hand a look letters in, as a full record, or null for the house hand.
 - `mix(a, b, t)` Colour helpers for derived palettes (hex in, CSS out); films use roles, not these, in ops.
 - `tint(c, t)` towards white
 - `shade(c, t)` towards black
 - `alpha(c, a)` c with its alpha multiplied by a.
 
+### core/glyphs.js
+
+- `houseHand()` The 2.0 glyph set and tool defaults as a hand record named `house`, in the shape of a hand asset.
+- `asHand(rec)` A hand record (a store payload, or houseHand()) with every field there: strokes flat as in GLYPHS, the stroke profile over the house one, missing fields the house's.
+- `fallbacks(str, hand)` The characters of str a hand draws with house glyphs (a hand fitted from a sheet may miss some).
+- `withHand(hand, fn)` fn() lettered in a hand (null: the house). Cels and shots never see the look, but the letters they write belong to its hand: evalShot (tree.js) draws each shot inside withHand(its look's hand), and handText, measure and doodle read it ...
+
 ### core/text.js
 
-- `handText(a, x, y, o = {})` handText(op) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed }) => group of stroke ops.
+- `handText(a, x, y, o = {})` handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed, look | hand }) => group of stroke ops.
 - `signOff(a, b, { x = 540, y = 540, size = 60, pA = 1, pB = 1, ink = 'ink', ink2 = 'accents.0' } = {})` The film's signature: two dots, then word a, then word b (smaller, below), each revealed in stroke order by pA and pB.
 - `squiggleText(box, lines, seed = 1, { role = 'ink', lineH, amp = 4, w = 1.3, gap = 0.4 } = {})` Illegible handwriting: rows of little arches filling box [x, y, w, h?] (v1 squiggleText).
-- `measure(str, size)` Advance width of a string at a size, in logical units.
+- `measure(str, size, look)` Advance width of a string at a size, in logical units, in the look's hand (or a hand record; the hand of the shot being drawn when neither is given).
 - `syllablesOf(word)` A word's syllables as vowel groups: each ends where its vowel group does, the last takes the tail.
 - `speech(str, t0 = 0)` A line of speech on the 1/12 s grid from t0: each syllable is one viseme cycle (VISEMES, a step each), a space rests the mouth a step, a comma or a full stop two.
 - `VISEMES` The mouth over one syllable, a step (1/12 s) each: shut, wide, smiling, a little open (a puppet's mouth variants 0..3).
@@ -189,7 +197,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/doodle.js
 
-- `doodle({ start = 0, speed = 1000, gap = 0.03, seed = 1, w = 4, role = 'ink' } = {})` A self-drawing doodle builder (see above): lines, fills, washes and text revealed in pen order from `start`.
+- `doodle({ start = 0, speed, gap = 0.03, seed = 1, w = 4, role = 'ink' } = {})` A self-drawing doodle builder (see above): lines, fills, washes and text revealed in pen order from `start`.
 - `pen(tau, i, start, seed, build, o = {})` One hand drawing one thing (v1 pen): several pens with different starts fill the frame from many sides.
 
 ### core/synth.js

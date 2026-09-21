@@ -1,7 +1,7 @@
 // Finishes as geometry. expand(list, look, env) is a list-to-list pass run before rasterising:
 //   fill{finish:true} -> the flat fill plus the look's texture clipped to it (hatch strokes, grain specks)
 //   paper / night     -> the stock: a frame fill, light bands, grain, drawn in screen space
-//   text              -> hand-lettered strokes (text.js)
+//   text              -> hand-lettered strokes (text.js), in the look's hand
 //   a puppet's cel    -> card on a table (puppet.js asCutout), only under a look with a `cutout` field
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
 // Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour).
@@ -246,7 +246,7 @@ export function expandOp(op, look, { W = 1080, H = 1080 } = {}) {
     case 'night': return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, true))];
     case 'fill': return op.finish ? rememberLeaf(op, key, () => finished(op, lk)) : [op];
     case 'text': return rememberLeaf(op, key, () => {
-      const g = handText(op), seeded = withProps(g, { kids: seedList(g.kids, op.seed ?? 1) });
+      const g = handText(op, { look: lk }), seeded = withProps(g, { kids: seedList(g.kids, op.seed ?? 1) });
       return [op.p != null && op.p < 1 ? reveal(op.p, seeded) : seeded];   // p: set by reveal() on a text op
     });
     case 'group': return lk.cutout && cutoutOf(op) ? [remember(op, key + ':cut', () => asCutout(op, lk))] : [op];

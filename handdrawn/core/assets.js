@@ -143,9 +143,24 @@ function checkHand(d) {
   if (!d || typeof d !== 'object') return ['hand: not an object'];
   const g = d.glyphs && typeof d.glyphs === 'object' ? d.glyphs : null;
   if (!g || !Object.keys(g).length) return [...bad, 'glyphs: a non-empty object keyed by character'];
+  // A stroke is flat [x0, y0, x1, y1, ...] as in core/glyphs.js, or [[x, y], ...]; only a blank draws none.
+  const flat = (st) => st.length >= 4 && st.length % 2 === 0 && st.every(isNum);
+  const pairs = (st) => st.length >= 2 && st.every((p) => Array.isArray(p) && p.length === 2 && p.every(isNum));
   for (const [c, gl] of Object.entries(g)) {
     if (!gl || !posNum.ok(gl.w)) bad.push(`glyphs.${c}.w: the advance in the 100-unit em, > 0`);
-    if (!Array.isArray(gl.s) || !gl.s.length || !gl.s.every((st) => Array.isArray(st) && st.length >= 2)) bad.push(`glyphs.${c}.s: strokes, each [[x, y], ...]`);
+    if (!Array.isArray(gl?.s) || (!gl.s.length && c.trim()) || !gl.s.every((st) => Array.isArray(st) && (flat(st) || pairs(st)))) {
+      bad.push(`glyphs.${c}.s: strokes, each a flat [x0, y0, x1, y1, ...] or [[x, y], ...]`);
+    }
+  }
+  for (const k of ['track', 'slant', 'baselineDrift']) if (d[k] !== undefined && !isNum(d[k])) bad.push(`${k}: a number (em units; slant in degrees)`);
+  const st = d.stroke;
+  if (st !== undefined) {
+    if (!st || typeof st !== 'object') bad.push('stroke: { wobble, overshoot, hook, pressure, speed, tremor, rounding }');
+    else {
+      for (const k of ['wobble', 'overshoot', 'hook', 'tremor', 'rounding']) if (st[k] !== undefined && !(isNum(st[k]) && st[k] >= 0)) bad.push(`stroke.${k}: a number >= 0`);
+      if (st.speed !== undefined && !posNum.ok(st.speed)) bad.push('stroke.speed: units per second, > 0');
+      if (st.pressure !== undefined && !(Array.isArray(st.pressure) && st.pressure.length === 3 && st.pressure.every((v) => isNum(v) && v > 0))) bad.push('stroke.pressure: [at 0.1, at 0.5, at 0.9] of the pen width, each > 0');
+    }
   }
   return bad;
 }

@@ -11,7 +11,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const USAGE = `usage: hdf <command> [args] [flags]
 
   every command that takes a film also takes [--look <preset>] (replaces the root look);
-  a preset may carry modifiers: --look 'doodlePastel~from:teapot' paints it in that cutout's own colours
+  a preset may carry modifiers: --look 'doodlePastel~from:teapot' paints it in that cutout's own colours,
+  --look 'paperInk~hand:test' letters it (and draws its pens) in a hand from the store
 
   render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
@@ -24,7 +25,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     cycles, credits on one page (assets/sheets/<id>-model.jpg)
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
-  golden  <film.js> write|check [--workers N]
+  golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json
   dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet
@@ -37,6 +38,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--licence] [--credit] [--source] [--tags] [--no-sheet]
                                     an SVG into the store: parts from <g id>, pivots, variants, poses, cycles
                                     (rules in core/svg.js); prints the colour table, writes the sheet
+  hand    --synth <id> [--root dir] a deterministic hand made from the house one, into the store (--look 'x~hand:<id>')
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg
@@ -44,7 +46,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'import', 'svg', 'find', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'import', 'svg', 'hand', 'find', 'donate'];
 
 export { loadFilm, UsageError };
 

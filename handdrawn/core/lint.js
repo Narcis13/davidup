@@ -4,7 +4,8 @@
 // and subject, which is what makes one broken rule one finding.
 import { FPS } from './curves.js';
 import { bounds, mmul, norm } from './list.js';
-import { resolveLook, resolveRole } from './looks.js';
+import { fallbacks } from './glyphs.js';
+import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
 import { JOINT, VIEW_DIRS, puppet } from './puppet.js';
 import { cues, evalShot, frame } from './tree.js';
 
@@ -26,6 +27,7 @@ export const RULES = Object.freeze({
   'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint off the 2 degree grid or out of range',
   'roles-raw': 'a raw colour in a puppet part, where a palette role belongs',
   'actor-cycle': 'an actor lacks a cycle a recipe asked for, and its fallback bob is on screen over 1 s in a shot',
+  'hand-missing': 'the look names a hand the store lacks, or the sign-off falls back to the house hand for a glyph',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
 });
 
@@ -214,6 +216,7 @@ export function inspect(film) {
     shots.push(s);
   }
   timelineRules(film, F);
+  handRule(film, F);
   signOffRule(film, F);
   gridRule(film, F);
   const findings = F.list.sort((a, b) => (a.frame ?? -1) - (b.frame ?? -1));
@@ -250,11 +253,34 @@ function signOffIn(list) {
   return found;
 }
 
-// The sign-off must be in the last frame and complete (pA = pB = 1) by end - 1.5 s.
+// hand-missing, first half: every look the film names (its own, lookOn, a shot's) whose '~hand:<id>' is in
+// neither the film's assets nor a store that was read.
+function handRule(film, F) {
+  const names = new Set([film.look?.name]);
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.look?.name) names.add(node.look.name);
+    for (const c of [node.child, node.a, node.b, ...(node.kids ?? [])]) visit(c);
+  };
+  visit(film.timeline);
+  const assets = Array.isArray(film.assets) ? {} : film.assets;
+  for (const name of names) {
+    for (const [kind, id] of parseLookName(name ?? '').mods) {
+      if (kind !== 'hand') continue;
+      try { handRecord(id, assets, name); } catch (e) { F.add('hand-missing', null, 0, e.message, `look|${id}`); }
+    }
+  }
+}
+
+// The sign-off must be in the last frame and complete (pA = pB = 1) by end - 1.5 s; in a look with a hand,
+// every letter of it must be that hand's own (hand-missing, second half).
 function signOffRule(film, F) {
   let last;
   try { last = frame(film, film.n - 1); } catch { return; }   // a draw error is already a finding
-  if (!signOffIn(last.list)) { F.add('sign-off', last.shot, film.n - 1, 'no signOff() in the last frame', 'none'); return; }
+  const sign = signOffIn(last.list);
+  if (!sign) { F.add('sign-off', last.shot, film.n - 1, 'no signOff() in the last frame', 'none'); return; }
+  const hand = handOf(last.look), missing = hand ? fallbacks(`${sign.a ?? ''}${sign.b ?? ''}`, hand) : [];
+  if (missing.length) F.add('hand-missing', last.shot, film.n - 1, `the sign-off letters ${missing.map((c) => `'${c}'`).join(', ')} in the house hand: hand '${hand.name}' has no glyph for ${missing.length > 1 ? 'them' : 'it'}`, 'fallback');
   const i = Math.max(0, film.n - Math.round(SIGN_OFF_LEAD * FPS)), at = frame(film, i), s = signOffIn(at.list);
   const done = s && (s.pA ?? 1) >= 1 && (s.pB ?? 1) >= 1;
   if (!done) F.add('sign-off', at.shot, i, `not complete at ${(i / FPS).toFixed(2)} s (end ${(film.n / FPS).toFixed(2)} s - ${SIGN_OFF_LEAD} s): ${s ? `pA ${(+s.pA).toFixed(2)}, pB ${(+s.pB).toFixed(2)}` : 'not drawn yet'}`, 'late');

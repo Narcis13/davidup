@@ -62,7 +62,7 @@ test('payload validators read the shapes of plan 1.2, 1.4 and the clip format', 
   assert.deepEqual(validatePayload('puppet', { ...PUPPET, parts: { ...PUPPET.parts, tail: { parent: 'nose', ops: [] } } }), ["parts.tail.parent: no part 'nose'"]);
   assert.deepEqual(validatePayload('puppet', { ...PUPPET, parts: { body: { pivot: [0] } } }), ['parts.body: needs ops or variants', 'parts.body.pivot: [x, y]']);
   assert.deepEqual(validatePayload('clip', { ...CLIP, n: 3 }), ['frames: 2 of them, n says 3']);
-  assert.deepEqual(validatePayload('hand', { glyphs: { a: { w: 44, s: [] } } }), ['glyphs.a.s: strokes, each [[x, y], ...]']);
+  assert.deepEqual(validatePayload('hand', { glyphs: { a: { w: 44, s: [] } } }), ['glyphs.a.s: strokes, each a flat [x0, y0, x1, y1, ...] or [[x, y], ...]']);
   assert.deepEqual(validatePayload('motif', []), ['motif: a non-empty serialised op list']);
 });
 
