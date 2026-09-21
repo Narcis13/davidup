@@ -25,6 +25,7 @@ export const RULES = Object.freeze({
   grid: 'a cue off the 1/12 s grid',
   'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint off the 2 degree grid or out of range',
   'roles-raw': 'a raw colour in a puppet part, where a palette role belongs',
+  'actor-cycle': 'an actor lacks a cycle a recipe asked for, and its fallback bob is on screen over 1 s in a shot',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
 });
 
@@ -37,7 +38,7 @@ export const WARNINGS = Object.freeze({
 export const WORDS = Object.freeze({ doodlePastel: 3 });
 export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
 export const SIGN_OFF_LEAD = 1.5;  // seconds the finished sign-off must hold before the end
-const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1;
+const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1, MAX_BOB = 1;
 
 const lookName = (l) => resolveLook(l).name;
 const wordAllowance = (l) => { const lk = resolveLook(l); return lk.words ?? WORDS[lk.name.split('~')[0]] ?? 0; };
@@ -101,7 +102,7 @@ export function celOverflow(op) {
 
 // One evaluated shot frame: roles, looks, finishes, scribbles, cels, words, anchors and crop intent.
 function scan(list, look, report) {
-  const got = { looks: 0, finishes: new Set(), scribbles: 0, words: new Set(), anchors: [], crop: false };
+  const got = { looks: 0, finishes: new Set(), scribbles: 0, words: new Set(), anchors: [], crop: false, bobs: new Set() };
   const role = (r, lk, where) => {
     if (r === null || r === undefined) return;
     try { resolveRole(r, lk); } catch (e) { report('role', `${where}: ${e.message}`, `${JSON.stringify(r)}@${lookName(lk)}`); }
@@ -121,6 +122,7 @@ function scan(list, look, report) {
         case 'meta':
           if (op.tag === 'anchor') got.anchors.push(op.data ?? {});
           if (isCrop(op)) got.crop = true;
+          if (op.tag === 'actor-cycle') got.bobs.add(`${op.data?.actor}|${op.data?.cycle}`);   // core/actor.js fallback
           break;
         case 'group': {
           if (op.cel && op.box) {
@@ -167,6 +169,7 @@ export function inspect(film) {
     const { node } = p, name = node.name;
     const s = { name, f0: p.f0, n: p.ks.length === 1 ? 1 : node.n, dur: node.dur, look: null, anchor: true, recipe: node.recipe, camera: node.camera, finishes: new Set(), words: new Set() };
     let looked = false, size = null;
+    const bobs = new Map();   // 'actor|cycle' => { n, i }: frames the fallback bob was drawn, and the first
     p.ks.forEach((k, j) => {
       const i = p.i(k);
       const report = (rule, detail, key) => F.add(rule, name, i, detail, key);
@@ -184,6 +187,7 @@ export function inspect(film) {
       if (got.looks) { looked = true; report('one-look', 'a look op inside the shot; put the look on the shot or on lookOn()', 'look'); }
       got.finishes.forEach((x) => s.finishes.add(x));
       got.words.forEach((w) => s.words.add(w));
+      got.bobs.forEach((b) => { const e = bobs.get(b); if (e) e.n++; else bobs.set(b, { n: 1, i }); });
       if (got.scribbles > MAX_SCRIBBLES) report('scribble', `${got.scribbles} scribbled parts in one frame (at most ${MAX_SCRIBBLES})`, 'scribble');
       if (!got.anchors.length) { s.anchor = false; report('anchor', "no meta('anchor', ...) in the shot", 'anchor'); return; }
       // Several anchors are alternatives (a seed dot, and the ripples it makes): one of them must be drawn.
@@ -198,6 +202,10 @@ export function inspect(film) {
         }
       }
     });
+    for (const [b, e] of bobs) {
+      const [who, cyc] = b.split('|');
+      if (e.n > MAX_BOB * FPS) F.add('actor-cycle', name, e.i, `actor '${who}' has no cycle '${cyc}'; its fallback bob is on screen ${(e.n / FPS).toFixed(2)} s (at most ${MAX_BOB} s): give it the cycle, or ask for one it has`, b);
+    }
     if (s.finishes.size > 1 && !looked) F.add('one-look', name, p.f0, `two finishes in one shot: ${[...s.finishes].join(', ')}`, 'finish');
     if (size && size.px < FLOOR_PX) F.add('subject-size', name, size.i, `${size.label} is at most ${size.px.toFixed(1)} px at 240 px wide (floor ${FLOOR_PX})`, 'size');
     const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.lookObj ? wordAllowance(s.lookObj) : 0;

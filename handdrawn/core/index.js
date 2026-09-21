@@ -9,6 +9,7 @@ export {
 } from './curves.js';
 export { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues } from './tree.js';
 export { JOINT, puppet } from './puppet.js';
+export { actorOf, EMOTES } from './actor.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, mix, tint, shade, alpha } from './looks.js';

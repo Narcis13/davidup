@@ -32,7 +32,7 @@ and `ffmpeg` on `PATH`. The design is explained in
 4. [Looks](#4-looks)
 5. [Recipes](#5-recipes)
 6. [Packs](#6-packs)
-7. [Engines: found motion, sand, paper in space, photos, the asset store, puppets](#7-engines)
+7. [Engines: found motion, sand, paper in space, photos, the asset store, puppets, actors](#7-engines)
 8. [Score](#8-score)
 9. [The CLI](#9-the-cli)
 10. [The working loop and the agent skill](#10-the-working-loop-and-the-agent-skill)
@@ -104,7 +104,7 @@ one of three engines that go beyond drawing on a flat frame.
 | **sand** (`sim`) | a bed of sand on a backlit glass that a hand pours, sweeps and combs, in one take with no cuts |
 | **paper in space** (`stage3d`, `book3`) | flat drawn sheets stood up in a lit 3D room: pop-up books, paper theatres, turning pages, shadows |
 
-The seven example films in `films/` are the worked examples:
+The eight example films in `films/` are the worked examples:
 
 | film | length | look / engine | what it shows |
 |---|---|---|---|
@@ -115,6 +115,7 @@ The seven example films in `films/` are the worked examples:
 | `one-year.js` | 39.5 s | sand | a tree goes through a year in one take, poured, swept and combed |
 | `moon-book.js` | 29 s | paper in space | *The hedgehog and the moon*, a pop-up book on a table: the cover opens, pieces rise, a lamp lights the page |
 | `held-once.js` | 22.75 s | doodle | five museum objects (The Met, CC0) and a hedgehog who uses them anyway |
+| `fox-and-teapot.js` | 13.5 s | doodle + a puppet | the store's fox through three hedgehog recipes by `actor: CAST.FOX`: tea, a helmet that roars, a teapot that bolts |
 
 ---
 
@@ -481,6 +482,32 @@ hdf import assets/src/fox.puppet.json --kind puppet --name fox --licence own
 hdf sheet store fox --cycle walk    # every look x every pose and variant x 3 scales, the walk as a strip
 ```
 
+### Actors
+
+An actor is a cast member a recipe can direct (`core/actor.js`). `actorOf`
+wraps a puppet, a code cel or a v1 doodle builder; the recipe asks it for
+states -- plain input objects -- merges them and puts the result on the stage:
+
+```js
+import { CAST, doesItsJob } from 'handdrawn/recipes/doodle.js';
+fromStore(['teapot', 'fox']);
+doesItsJob({ photo: PHOTOS.teapot, actor: CAST.FOX })   // the fox waits by the cups instead of the hedgehog
+
+A.put(d, x, y, s, { ...A.idle(tau), ...A.look(-1), ...A.emote('happy'), ...A.cycle('run', tau) })
+```
+
+`idle(t, seed)` breathes and blinks on the twos, `look(dir)` faces, `emote(name)`
+is `happy | sleep | wide | sad` (a puppet's own pose of that name wins),
+`cycle(name, t)` is a declared cycle, `reveal(tau)` draws it in stroke order.
+For a puppet they come from its poses, cycles and the conventional part names
+(`head`, `eye`, `mouth`, `tail`, `body`, `arm-l`, `arm-r`); `hand: [x, y]` aims
+an arm. A cycle the actor lacks falls back to a two-pose bob and marks the
+drawing, which lint reports when it stays on screen over 1 s. Every doodle
+recipe AA to AM takes `actor:` (default `HOG`, the hedgehog, drawing exactly
+what it drew before; `who: builder` still works), and so do recipes A, G, M, U,
+W, X and Z, where the actor takes the boat's place. `films/fox-and-teapot.js`
+is the worked example.
+
 The store is read with `node:fs`, which the browser has not got:
 `hdf dev` and `hdf bundle` serve `core/assets.web.js` in place of
 `core/assets.js` (`cli/modules.mjs` TWINS), and hand the page the records it
@@ -637,6 +664,7 @@ that reads the asset store needs `hdf dev` or `hdf bundle`).
 - a cut longer than 1 s, or two cuts in a row;
 - no sign-off, or one still writing 1.5 s before the end;
 - cues off the 1/12 s grid;
+- an actor's fallback bob (a cycle it lacks) on screen over 1 s in a shot;
 - `Math.random`, `Date`, `filter`, `shadowBlur` or gradients in the source.
 
 `hdf import --kind puppet` runs three of them over a payload before it reaches

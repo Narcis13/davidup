@@ -6,6 +6,8 @@ import { paper, night, fill, stroke, text, fx, lookNode, meta, circle, rect } fr
 import { ramp } from '../core/curves.js';
 import { signOff } from '../core/text.js';
 import { lint, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
+import { actorOf } from '../core/actor.js';
+import { puppet } from '../core/puppet.js';
 import mini from '../films/mini.js';
 
 // A clean scratch film: every shot has paper, an anchor cel in frame, one finish; it ends on a sign-off
@@ -151,7 +153,20 @@ test('puppet-joint, roles-raw and cel-box: what `hdf import --kind puppet` runs 
   // The declared box has to hold every pose, every variant and every frame of every cycle.
   assert.match(said({ ...good, box: [-2, -2, 4, 4] })[0], /^cel-box .* outside the declared box \[-2, -2, 4, 4\]/);
   assert.match(said({ ...good, parts: { body: { pivot: [0, 0], ops: 'nope' } } })[0], /^draw /);
-  assert.ok(['puppet-joint', 'roles-raw'].every((r) => r in RULES));
+  assert.ok(['puppet-joint', 'roles-raw', 'actor-cycle'].every((r) => r in RULES));
+});
+
+test('actor-cycle: a fallback bob on screen over 1 s in one shot', () => {
+  const blob = [fill(circle(0, -50, 40), 'fills.0', { finish: true }), stroke(circle(0, -50, 40), 'ink', { w: 2 })];
+  const A = actorOf(puppet({ name: 'blob', units: 100, box: [-50, -100, 100, 100], parts: { body: { ops: JSON.parse(JSON.stringify(blob)) } } }));
+  const hopping = (dur) => shot('hop', dur, ({ t, CX, CY }) => [
+    paper(), meta('anchor', { name: 'actor:blob' }), A.place(CX, CY, 100, A.cycle('hop', t)),
+  ]);
+  assert.deepEqual(rules(make(hopping(1))), [], 'a second of bob is allowed');
+  const f = one(make(hopping(1.5)), 'actor-cycle');
+  assert.match(f.detail, /actor 'blob' has no cycle 'hop'; its fallback bob is on screen 1\.50 s/);
+  assert.equal(f.shot, 'hop');
+  assert.ok(A.fallbacks.has('hop'));
 });
 
 test('inspect summarises shots for the board; hold and par plays are covered', () => {

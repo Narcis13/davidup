@@ -7,20 +7,26 @@
 //
 // Common options: photo (a cutout, plan 1.6; register it in film({ assets })), name, dur (on the 1/12 s grid;
 // the recipe's timing stretches to it), paper (a PASTELS name, or null for the inherited look), look (base
-// look, default doodlePastel), who (the cast builder), seed (added to every pen seed), word(s) (null drops them).
+// look, default doodlePastel), actor (the cast member, default HOG), seed (added to every pen seed), word(s)
+// (null drops them).
 // Everything is laid out on a 1080 square "stage" centred in the frame, so other formats keep the layout and
 // get more paper at the sides; ground lines and seas run well past the square.
 //
-// A cast member is a builder who(d, x, y, s, o) that adds strokes to a doodle d (core/doodle.js), centred at
-// (x, y), about 2.4 s wide, feet at y + .86 s. o: { dir: 1 | -1, rot, eye: 'dot'|'happy'|'sleep'|'wide',
-// scarf: role | null, hand: [x, y] | null, run: phase | null, fright: 0..1 }. hog is the default; spark (the
-// runaway light) and bird are the other two.
+// A cast member is an actor (core/actor.js, plan 1.3): the recipes ask it for look(dir), emote(name) and
+// cycle('run', t) and put() the merged state on the stage, centred at (x, y), feet at y + .86 s, with rot,
+// hand ([x, y]) and fright (0..1) beside it. HOG is the default: the builder hog(d, x, y, s, o) below as an
+// actor, drawing exactly what it drew when recipes called it directly. Any puppet in the store is one
+// actor away (`actor: CAST.FOX`), and the old option `who: builder` still works (it is wrapped the same way).
+// spark (the runaway light) and bird stay builders the recipes call themselves.
 import {
   FPS, ease, ramp, shot, rng, LOOKS, pastel, signOff, circle, ellipse, rect, poly, spline, xf, fill, stroke, group, clip,
   fx, meta, lookNode, translate, rotate, scale, mmul, linear, speedLines, cam, whip, pin, on, silhouette, photo,
   photoFront, rim, backdrop, glow, pen,
 } from '../core/index.js';
 import { withProps } from '../core/list.js';
+import { actorOf } from '../core/actor.js';
+import { puppet } from '../core/puppet.js';
+import { stored } from '../core/store.js';
 
 const TAU = Math.PI * 2;
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -164,7 +170,29 @@ export function bird(d, x, y, s, o = {}) {
   return d;
 }
 
-export const CAST = Object.freeze({ hog, spark, bird });   // the doodle characters by name
+// The hedgehog as an actor: states are hog's own options (dir, eye, run phase), put() is hog itself.
+export const HOG = actorOf(hog, {
+  name: 'hedgehog', size: 60, box: [-110, -100, 220, 156], inputs: { dir: [-1, 1, 2], fright: [0, 1, 0.25] },
+  defaults: { eye: 'happy', scarf: 'accents.0', w: 4.2 }, desc: 'the doodle hedgehog with a scarf; eye dot | happy | sleep | wide',
+});
+
+// The recipe's actor: actor, or who (a v1 builder) wrapped once, or HOG.
+const wrapped = new WeakMap();
+const actorFor = (o) => {
+  if (o.actor) return o.actor;
+  if (!o.who || o.who === hog) return HOG;
+  if (!wrapped.has(o.who)) wrapped.set(o.who, actorOf(o.who));
+  return wrapped.get(o.who);
+};
+
+let fox = null;
+// The doodle characters by name. FOX is the store's puppet as an actor, built the first time it is asked
+// for, and only once the film has read it (fromStore(['fox'])); undefined before that. It stands 2.6 s tall:
+// narrower than the hedgehog, so a little taller to weigh the same on the stage.
+export const CAST = Object.freeze({
+  hog, spark, bird, HOG,
+  get FOX() { return fox ?? (stored().includes('fox') ? (fox = actorOf(puppet('fox'), { height: 2.6 })) : undefined); },
+});
 
 // ---------- props (v1 held-once / night-shift) ----------
 
@@ -247,8 +275,9 @@ function follow(p, t, T, { zoom = 1.16, kx = 0.35, ky = 0.22, dy = 0, whip: w = 
 export function becomesVehicle(o = {}) {
   const {
     name = 'becomesVehicle', dur = 3.5, photo: ph, x = 610, y = 640, h: h0, rot = 0, drift = 16, bob = 7,
-    mastAt = 0.62, mast = 1.9, flag = 'accents.0', who = hog, sailor = true, word = 'almost', lighthouse = true, seed = 0,
+    mastAt = 0.62, mast = 1.9, flag = 'accents.0', sailor = true, word = 'almost', lighthouse = true, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const h = h0 ?? fitH(ph, rot, 820);
   const D0 = 3.5, anchor = photoAnchor(ph);
@@ -277,7 +306,7 @@ export function becomesVehicle(o = {}) {
     }));
     if (sailor) {
       const oarA = [seat[0] + 22, seat[1] + s * 0.3], oarB = [seat[0] + 210, y0 + 70];
-      kids.push(P(1.0, 6, (d) => { who(d, seat[0], seat[1], s, { dir: -1, rot: pl.rot - rot, hand: oarA, eye: tau > 2.4 ? 'happy' : 'dot' }); d.line([oarA, oarB], { w: 3.6, role: ROLES.wood }); }));
+      kids.push(P(1.0, 6, (d) => { A.put(d, seat[0], seat[1], s, { ...A.idle(tau, 1), ...A.look(-1), ...A.emote(tau > 2.4 ? 'happy' : 'dot'), rot: pl.rot - rot, hand: oarA }); d.line([oarA, oarB], { w: 3.6, role: ROLES.wood }); }));
     }
     // the sea, over the hull
     const topPts = Array.from({ length: 41 }, (_, k) => [-600 + k * 60, y0 + Math.sin(k * 1.3 + tau * 3) * 7]);
@@ -310,9 +339,10 @@ export function becomesVehicle(o = {}) {
 export function livesInside(o = {}) {
   const {
     name = 'livesInside', dur = 3.5, photo: ph, x = 540, ground: gy = 902, h = 520, pivot = [0.5, 1], lip = [0.04, 0.96],
-    lipDrop = 0.06, at = [0.3, 0.68], size = 70, who = hog, scarves = ['accents.0', 'accents.1'], word = 'for two',
-    perch = 0.93, withBird = true, seed = 0,
+    lipDrop = 0.06, at = [0.3, 0.68], size = 70, scarves = ['accents.0', 'accents.1'], word = 'for two',
+    perch = 0.93, withBird = true, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3.5, anchor = photoAnchor(ph);
   return shot(name, dur, (c) => {
@@ -322,7 +352,7 @@ export function livesInside(o = {}) {
     kids.push(P(0.4, 51, (d) => { sun(d, 150, 170, 48); cloud(d, 850, 140, 58); }));
     const up = ease.out(sm(0.5, 1.0, tau, ease.linear)), nod = Math.sin(tau * 5) * 0.05 * sm(2.2, 2.6, tau);
     const spots = at.map((u) => rim(pl, 'top', u));
-    spots.forEach((p, k) => kids.push(P(0.5 + k * 0.3, 9 + k, (d) => who(d, p[0], p[1] + 70 - up * 70, size, { dir: k % 2 ? -1 : 1, scarf: scarves[k % scarves.length], eye: 'happy', rot: k % 2 ? -nod : nod }))));
+    spots.forEach((p, k) => kids.push(P(0.5 + k * 0.3, 9 + k, (d) => A.put(d, p[0], p[1] + 70 - up * 70, size, { ...A.idle(tau, k), ...A.look(k % 2 ? -1 : 1), ...A.emote('happy'), scarf: scarves[k % scarves.length], rot: k % 2 ? -nod : nod }))));
     const lipPts = Array.from({ length: 9 }, (_, k) => { const p = rim(pl, 'top', lerp(lip[0], lip[1], k / 8)); return [p[0], p[1] + lipDrop * pl.h]; });
     const L = smooth(lipPts, 6);
     kids.push(photoFront(pl, poly([...L, [1700, L[L.length - 1][1]], [1700, 1600], [-620, 1600], [-620, L[0][1]]])));
@@ -345,8 +375,9 @@ export function livesInside(o = {}) {
 export function doesItsJob(o = {}) {
   const {
     name = 'doesItsJob', dur = 3.5, photo: ph, x = 690, ground: gy = 706, h = 320, pivot = [0.4, 1], spout = [0.02, 0.28],
-    handle = [0.86, 0.1], tip, cups = 2, who = hog, word = 'for two', stream = ROLES.tea, seed = 0,
+    handle = [0.86, 0.1], tip, cups = 2, word = 'for two', stream = ROLES.tea, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3.5, anchor = photoAnchor(ph), side = spout[0] < 0.5 ? -1 : 1, tipTo = tip ?? 0.36 * side;
   return shot(name, dur, (c) => {
@@ -357,7 +388,7 @@ export function doesItsJob(o = {}) {
     const kids = [P(0.2, 1, (d) => ground(d, gy, 60, 1020), { speed: 2800, still: true }), photo(pl, { ground: gy })];
     kids.push(P(0.4, 40, (d) => { sun(d, side < 0 ? 930 : 150, 150, 48); cloud(d, 560, 130, 60); cloud(d, side < 0 ? 330 : 750, 215, 40); }));
     kids.push(P(0.5, 3, (d) => { for (let n = 0; n < cups; n++) teacup(d, cupX(n), gy - 42, 42, n % 2 ? 'fills.0' : 'fills.1'); }));
-    kids.push(P(0.9, 5, (d) => who(d, hx, gy - 62, 54, { dir: -side, eye: tau > 2.6 ? 'happy' : 'dot', w: 4.2 })));
+    kids.push(P(0.9, 5, (d) => A.put(d, hx, gy - 62, 54, { ...A.idle(tau), ...A.look(-side), ...A.emote(tau > 2.6 ? 'happy' : 'dot'), w: 4.2 })));
     if (handle) {
       const h0 = on(pl, ...handle), flap = Math.sin(i * 2.4) * 10, by = h0[1] - 170 - k * 10;
       kids.push(P(1.3, 7, (d) => {
@@ -390,8 +421,9 @@ function teacup(d, x, y, s, role) {
 export function timeOnIt(o = {}) {
   const {
     name = 'timeOnIt', dur = 3.5, photo: ph, x = 540, y = 625, h = 610, hub = [0.5, 0.5], hand = 0.36, turns = 1,
-    who = hog, words = ['tick', 'soon?', 'z'], seed = 0,
+    words = ['tick', 'soon?', 'z'], actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3.5, anchor = photoAnchor(ph), [wTick, wAsk, wZ] = words ?? [];
   return shot(name, dur, (c) => {
@@ -406,7 +438,7 @@ export function timeOnIt(o = {}) {
     kids.push(P(0.5, 9, (d) => sun(d, 540 + Math.cos(sa) * 470, 800 + Math.sin(sa) * 620, 42, day > 0.8 ? 'fills.4' : 'fills.2'), { still: true }));
     kids.push(photo(pl));
     const top = rim(pl, 'top', 0.5), sleepy = tau > 2.75;
-    kids.push(P(0.45, 5, (d) => who(d, top[0] - 8, top[1] - 42 + (sleepy ? 5 : 0), 60, { dir: 1, rot: sleepy ? 0.17 : 0, eye: sleepy ? 'sleep' : 'dot', w: 4.2 })));
+    kids.push(P(0.45, 5, (d) => A.put(d, top[0] - 8, top[1] - 42 + (sleepy ? 5 : 0), 60, { ...A.idle(tau), ...A.look(1), ...A.emote(sleepy ? 'sleep' : 'dot'), rot: sleepy ? 0.17 : 0, w: 4.2 })));
     const c0 = on(pl, ...hub), ha = -Math.PI / 2 + day * TAU * turns, R = pl.w * hand;
     if (tau > 0.95) {
       kids.push(stroke(poly([c0, [c0[0] + Math.cos(ha) * R, c0[1] + Math.sin(ha) * R]], false), 'accents.0', { tool: 'brush', w: 7, seed: 2, p: sm(0.95, 1.1, tau), amp: 0.5, name: 'hand' }));
@@ -427,8 +459,9 @@ export function timeOnIt(o = {}) {
 export function nightFalls(o = {}) {
   const {
     name = 'nightFalls', dur = 4.25, photo: ph, x = 290, ground: gy = 912, h = 740, pivot = [0.5, 1], flame = [0.52, 0.62],
-    match = [1.0, 0.74], k: night = 0.86, who = hog, friend = 'accents.1', word = 'you came', moon = true, seed = 0,
+    match = [1.0, 0.74], k: night = 0.86, friend = 'accents.1', word = 'you came', moon = true, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 4.25, anchor = photoAnchor(ph);
   return shot(name, dur, (c) => {
@@ -441,9 +474,9 @@ export function nightFalls(o = {}) {
       if (moon) { const mo = [[835, 120], [800, 160], [812, 220], [860, 252], [915, 240], [868, 222], [842, 175]]; d.wash(blob(mo), ROLES.star, { al: 0.95, off: 0 }).line(mo, { close: true, w: 3.2 }); }
     }));
     const turned = tau > 2.0;
-    kids.push(P(0.15, 7, (d) => { who(d, 620, gy - 74, 68, { dir: turned ? 1 : -1, hand: holding ? hand : null, eye: tau > 3.0 ? 'happy' : 'dot', w: 4.2 }); if (holding) d.line([hand, m], { w: 2.8, role: ROLES.wood }); }));
+    kids.push(P(0.15, 7, (d) => { A.put(d, 620, gy - 74, 68, { ...A.idle(tau), ...A.look(turned ? 1 : -1), ...A.emote(tau > 3.0 ? 'happy' : 'dot'), hand: holding ? hand : null, w: 4.2 }); if (holding) d.line([hand, m], { w: 2.8, role: ROLES.wood }); }));
     const walk = sm(1.8, 3.1, tau, ease.out), fx0 = lerp(1220, 900, walk), step = walk < 1 ? Math.abs(Math.sin(tau * 11)) * 8 : 0;
-    kids.push(P(-9, 17, (d) => who(d, fx0, gy - 74 - step, 68, { dir: -1, scarf: friend, eye: walk >= 1 ? 'happy' : 'dot', rot: walk < 1 ? Math.sin(tau * 11) * 0.05 : 0, w: 4.2 })));
+    kids.push(P(-9, 17, (d) => A.put(d, fx0, gy - 74 - step, 68, { ...(walk < 1 ? A.cycle('walk', tau) : A.idle(tau, 2)), ...A.look(-1), ...A.emote(walk >= 1 ? 'happy' : 'dot'), scarf: friend, rot: walk < 1 ? Math.sin(tau * 11) * 0.05 : 0, w: 4.2 })));
     kids.push(P(1.9, 19, (d) => { for (let n = 0; n < 7; n++) dot(d, 1060 - n * 30, gy + 43 + Math.sin(n) * 7, 3.6, 'chalkDim'); }, { still: true }));
     kids.push(P(3.2, 23, (d) => heart(d, 760, 700 - sm(3.2, 4.2, tau, ease.linear) * 34, 32, { base: 'accents.0', tint: 0.3 })));
     if (word) kids.push(P(3.3, 25, (d) => d.text(word, 560, 560, { size: 76, w: 5.3 })));
@@ -485,9 +518,10 @@ function printable(list, sheet) {
 // ======================================================================================================
 export function printsOnALine(o = {}) {
   const {
-    name = 'printsOnALine', dur = 4.5, prints = [], a = 'the end', b = 'for now', size = 66, who = hog,
-    scarves = ['accents.0', 'accents.1'], cast = true, sheet = { base: 'paper', tint: 0.4 }, seed = 0,
+    name = 'printsOnALine', dur = 4.5, prints = [], a = 'the end', b = 'for now', size = 66,
+    scarves = ['accents.0', 'accents.1'], cast = true, sheet = { base: 'paper', tint: 0.4 }, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   const D0 = 4.5, n = prints.length, ps = n ? Math.min(168, 940 / n - 32) : 168, gapX = ps + 32, step = n ? Math.min(0.22, 1.1 / n) : 0.22;
   return shot(name, dur, (c) => {
     const { t, T } = c, { tau, P } = clock(c, D0, seed);
@@ -514,8 +548,8 @@ export function printsOnALine(o = {}) {
     const done = T - 1.6;
     kids.push(signOff(a, b, { x: 540, y: 720, size, pA: ramp(done - 1.35, done - 0.7, t, ease.linear), pB: ramp(done - 0.65, done, t, ease.linear) }));
     if (cast) {
-      kids.push(P(2.2, 4, (d) => who(d, 440, 955, 40, { dir: 1, eye: 'happy', scarf: scarves[0] }), { speed: 2600 }));
-      kids.push(P(2.4, 5, (d) => who(d, 640, 955, 40, { dir: -1, eye: 'happy', scarf: scarves[1 % scarves.length] }), { speed: 2600 }));
+      kids.push(P(2.2, 4, (d) => A.put(d, 440, 955, 40, { ...A.idle(tau), ...A.look(1), ...A.emote('happy'), scarf: scarves[0] }), { speed: 2600 }));
+      kids.push(P(2.4, 5, (d) => A.put(d, 640, 955, 40, { ...A.idle(tau, 1), ...A.look(-1), ...A.emote('happy'), scarf: scarves[1 % scarves.length] }), { speed: 2600 }));
       kids.push(P(2.8, 6, (d) => heart(d, 540, 915, 18)));
     }
     return frameOf(c, { anchor: { name: hung.length ? 'prints' : 'signOff' }, kids });
@@ -529,8 +563,9 @@ export function printsOnALine(o = {}) {
 export function lightEscapes(o = {}) {
   const {
     name = 'lightEscapes', dur = 3.5, photo: ph, x = 560, ground: gy = 930, h = 700, pivot = [0.5, 1], flame = [0.52, 0.62],
-    match = [-0.02, 0.74], land = 830, k: night = 0.88, who = hog, runner = spark, word = 'hey!', title = null, whip: wh = false, seed = 0,
+    match = [-0.02, 0.74], land = 830, k: night = 0.88, runner = spark, word = 'hey!', title = null, whip: wh = false, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3.5, anchor = photoAnchor(ph), HS = 70, HY = 62, SS = 34, SY = 45;
   return shot(name, dur, (c) => {
@@ -542,7 +577,7 @@ export function lightEscapes(o = {}) {
     const kids = [P(-9, 1, (d) => ground(d, gy), { still: true }), photo(pl)];
     kids.push(P(1.0, 31, (d) => stars(d, [[150, 160, 12], [330, 90, 9], [880, 140, 13], [980, 330, 9], [760, 70, 8], [90, 420, 8]])));
     kids.push(P(0.05, 7, (d) => {
-      who(d, hx, gy - HY, HS, { dir: 1, hand: tau < 1.5 ? hand : null, eye: tau > 2.0 ? 'wide' : 'dot', run: tau > 2.7 ? tau * 15 : null, fright: sm(2.0, 2.2, tau) * (1 - sm(2.6, 2.8, tau)) });
+      A.put(d, hx, gy - HY, HS, { ...A.look(1), ...A.emote(tau > 2.0 ? 'wide' : 'dot'), ...(tau > 2.7 ? A.cycle('run', tau) : {}), hand: tau < 1.5 ? hand : null, fright: sm(2.0, 2.2, tau) * (1 - sm(2.6, 2.8, tau)) });
       if (tau < 1.5) d.line([hand, m], { w: 3, role: ROLES.wood });
     }, NOW));
     if (tau > 1.35) kids.push(P(-9, 9, (d) => runner(d, sp[0], sp[1], tau < 1.95 ? 24 : SS, { run: tau > 2.55 ? tau * 17 : null, mood: tau < 1.95 ? 'o' : 'happy', lean: tau > 2.55 ? 0.25 : 0 })));
@@ -564,8 +599,9 @@ export function lightEscapes(o = {}) {
 export function alongTheEdge(o = {}) {
   const {
     name = 'alongTheEdge', dur = 2.5, photo: ph, x = 540, y = 600, h: h0, rot = 0, delay = 0.45, notes = true, trestles = true,
-    k: night = 0.88, who = hog, runner = spark, whip: wh = false, seed = 0,
+    k: night = 0.88, runner = spark, whip: wh = false, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const h = h0 ?? fitH(ph, rot, 900);
   const D0 = 2.5, anchor = photoAnchor(ph), HS = 70, HY = 62, SS = 34, SY = 45, GY = 930;
@@ -589,7 +625,7 @@ export function alongTheEdge(o = {}) {
       const t0 = 0.15 + v * 1.4;
       if (tau > t0) { const p = edge(v), up = (tau - t0) * 90; kids.push(P(t0, 50 + k, (d) => musicNote(d, p[0] - 10, p[1] - 110 - up, 24, k % 2 ? 'accents.0' : 'accents.1'))); }
     });
-    kids.push(P(-9, 7, (d) => who(d, hp[0], hp[1], HS, { run: tau * 15, eye: 'dot' })));
+    kids.push(P(-9, 7, (d) => A.put(d, hp[0], hp[1], HS, { ...A.emote('dot'), ...A.cycle('run', tau) })));
     kids.push(P(-9, 9, (d) => runner(d, sp[0], sp[1], SS, { run: tau * 17, lean: 0.25 })), trail(pa, tau));
     kids.push(P(0.5, 41, (d) => stars(d, [[120, 170, 11], [420, 110, 9], [760, 190, 12], [960, 90, 9]])));
     return frameOf(c, { anchor, kids, k: night, lights: [{ x: sp[0], y: sp[1], r: 330 }], view, crop: true });
@@ -604,8 +640,9 @@ export function alongTheEdge(o = {}) {
 export function insideTheTube(o = {}) {
   const {
     name = 'insideTheTube', dur = 2, photo: ph, x = 540, y = 500, h: h0, rot = 0, mouth = [0.5, 0], bell = [0.5, 1],
-    k: night = 0.88, who = hog, runner = spark, word = 'toot!', trestles = true, whip: wh = false, seed = 0,
+    k: night = 0.88, runner = spark, word = 'toot!', trestles = true, whip: wh = false, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const h = h0 ?? fitH(ph, rot, 980);
   const D0 = 2, anchor = photoAnchor(ph), HS = 70, HY = 62, SS = 34, GY = 930;
@@ -620,7 +657,7 @@ export function insideTheTube(o = {}) {
     const hx = tau < 1.15 ? lerp(-90, 130, sm(0.35, 0.9, tau, ease.out)) - kick * 60 : 130 + Math.pow(tau - 1.15, 1.2) * 1250;
     const sil = silhouette(pl0), [bx, , bw] = sil.box;
     const kids = [P(-9, 1, (d) => { ground(d, GY); if (trestles) [0.25, 0.75].forEach((f) => { const tx = bx + bw * f, top = bottomAt(sil, tx) - 8; if (top < GY - 60) trestle(d, tx, top, GY, 60); }); }, { still: true }), photo(pl, { shadow: 0 })];
-    kids.push(P(-9, 7, (d) => who(d, hx, GY - HY, HS, { run: tau > 1.15 || tau < 0.9 ? tau * 15 : null, eye: tau > 0.9 && tau < 1.3 ? 'wide' : 'dot', rot: tau > 0.9 && tau < 1.15 ? -0.3 : 0, fright: kick })));
+    kids.push(P(-9, 7, (d) => A.put(d, hx, GY - HY, HS, { ...A.emote(tau > 0.9 && tau < 1.3 ? 'wide' : 'dot'), ...(tau > 1.15 || tau < 0.9 ? A.cycle('run', tau) : {}), rot: tau > 0.9 && tau < 1.15 ? -0.3 : 0, fright: kick })));
     if (!inside) kids.push(P(-9, 9, (d) => runner(d, sp[0], sp[1], SS, { lean: 0.3, mood: tau > 1 ? 'o' : 'happy' })), trail(path, tau, { n: 10, step: 0.04 }));
     if (tau > 1.0) {
       const a0 = Math.atan2(e[1], e[0]);
@@ -642,9 +679,10 @@ export function insideTheTube(o = {}) {
 export function looksBack(o = {}) {
   const {
     name = 'looksBack', dur = 3, photo: ph, x = 680, ground: gy = 930, h = 760, pivot = [0.5, 1], flip = true,
-    eye = [0.62, 0.275], jaw = [0.74, 0.44], crown = [0.4, 0], k: night = 0.9, who = hog, runner = spark,
-    roar: roarWord = 'rrrr', laugh = 'hee hee', whip: wh = false, seed = 0,
+    eye = [0.62, 0.275], jaw = [0.74, 0.44], crown = [0.4, 0], k: night = 0.9, runner = spark,
+    roar: roarWord = 'rrrr', laugh = 'hee hee', whip: wh = false, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3, anchor = photoAnchor(ph), HS = 70, HY = 62, SS = 34, SY = 45;
   return shot(name, dur, (c) => {
@@ -657,7 +695,7 @@ export function looksBack(o = {}) {
     const hy = gy - HY - (tau > 1.2 && tau < 1.6 ? Math.sin((tau - 1.2) / 0.4 * Math.PI) * 120 : 0);
     const view = follow([out ? sp[0] : 450, 560], t, T, { zoom: 1.08 + roar * 0.1, kx: 0.4, ky: 0, whip: wh });
     const fl = 1 + Math.sin(i * 2.1) * 0.12;
-    const H = P(-9, 7, (d) => who(d, hx, hy, HS, { run: tau < 0.85 || tau > 2.3 ? tau * 15 : null, eye: tau > 0.85 && tau < 2.3 ? 'wide' : 'dot', fright: sm(1.15, 1.3, tau) * (1 - sm(2.0, 2.3, tau)) }));
+    const H = P(-9, 7, (d) => A.put(d, hx, hy, HS, { ...A.emote(tau > 0.85 && tau < 2.3 ? 'wide' : 'dot'), ...(tau < 0.85 || tau > 2.3 ? A.cycle('run', tau) : {}), fright: sm(1.15, 1.3, tau) * (1 - sm(2.0, 2.3, tau)) }));
     const kids = [P(-9, 1, (d) => ground(d, gy), { still: true })];
     if (tau > 2.3) kids.push(H);   // he runs round the back of it
     kids.push(photo(pl));
@@ -693,8 +731,9 @@ export function looksBack(o = {}) {
 export function getaway(o = {}) {
   const {
     name = 'getaway', dur = 2.5, photo: ph, x0 = 120, speed = 560, ground: gy = 930, h = 610, pivot = [0.5, 1], seat = [0.1, 0.4],
-    k: night = 0.88, who = hog, runner = spark, word = 'clop clop', whip: wh = false, seed = 0,
+    k: night = 0.88, runner = spark, word = 'clop clop', whip: wh = false, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 2.5, anchor = photoAnchor(ph), HS = 70, SS = 34;
   return shot(name, dur, (c) => {
@@ -724,7 +763,7 @@ export function getaway(o = {}) {
       d.fill(blob(hd), { base: 'fills.4', tint: 0.4 }).line(hd, { close: true, w: 3.6 });
       dot(d, hx + 128, yy - 8, 4);
       d.lines([[[hx + 86, yy - 32], [hx + 78, yy - 56]], [[hx + 100, yy - 30], [hx + 98, yy - 56]]], { w: 3 });
-      who(d, hx, yy - 16, HS, { eye: 'dot', rot: -0.08, hand: [hx + 78, yy + 4] });
+      A.put(d, hx, yy - 16, HS, { ...A.idle(tau), ...A.emote('dot'), rot: -0.08, hand: [hx + 78, yy + 4] });
     }));
     kids.push(P(-9, 9, (d) => runner(d, S[0] + 6, S[1] - 44, SS, { mood: 'happy', lean: 0.35 })));
     kids.push(trail((u) => { const s0 = on(poseAt(u), ...seat); return [s0[0] + 6, s0[1] - 44]; }, tau, { n: 10, step: 0.04 }));
@@ -741,8 +780,9 @@ export function getaway(o = {}) {
 export function caughtLetGo(o = {}) {
   const {
     name = 'caughtLetGo', dur = 3.5, photo: ph, x = 477, ground: gy = 930, h = 700, pivot = [0.15, 1], flame = [0.52, 0.63],
-    lid = [0.1, 0.34], push: tilt = 0.07, k: night = 0.86, who = hog, runner = spark, words = ['gotcha', 'go on'], dawn: withDawn = true, seed = 0,
+    lid = [0.1, 0.34], push: tilt = 0.07, k: night = 0.86, runner = spark, words = ['gotcha', 'go on'], dawn: withDawn = true, actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3.5, anchor = photoAnchor(ph), HS = 70, HY = 62, SS = 34, [wCatch, wGo] = words ?? [];
   return shot(name, dur, (c) => {
@@ -758,7 +798,7 @@ export function caughtLetGo(o = {}) {
     if (free) kids.push(trail(path, tau, { n: 14, step: 0.035 }));
     if (tau > 1.2 && !free) { const ty = F[1] + 14 + ((tau - 1.2) % 0.7) * 60; kids.push(fill(ellipse(F[0] + 12, ty, 4, 6, 12), 'fills.1', { name: 'tear' })); }
     const hand = tau > 2.15 && tau < 2.7 ? on(pl, ...lid) : tau > 2.9 ? [290, gy - 170 + Math.sin(tau * 14) * 14] : null;
-    kids.push(P(-9, 7, (d) => who(d, 215, gy - HY, HS, { eye: tau < 0.9 || free ? 'happy' : 'dot', hand, rot: tau > 1.2 && tau < 2.1 ? 0.06 : 0 })));
+    kids.push(P(-9, 7, (d) => A.put(d, 215, gy - HY, HS, { ...A.idle(tau), ...A.emote(tau < 0.9 || free ? 'happy' : 'dot'), hand, rot: tau > 1.2 && tau < 2.1 ? 0.06 : 0 })));
     if (wCatch && tau < 1.1) kids.push(P(0.2, 21, (d) => d.text(wCatch, 110, gy - 190, { size: 68, w: 4.8 })));
     if (tau > 1.4 && tau < 2.3) kids.push(P(1.4, 23, (d) => { for (let n = 0; n < 3; n++) dot(d, 190 + n * 34, gy - 200, 6); }, { gap: 0.2 }));
     if (wGo && tau > 2.95) kids.push(P(2.95, 25, (d) => d.text(wGo, 130, gy - 230, { size: 68, w: 4.8 })));
@@ -775,8 +815,9 @@ export function caughtLetGo(o = {}) {
 export function sunrise(o = {}) {
   const {
     name = 'sunrise', dur = 3, photo: ph, x = 540, from = 1180, rise: riseBy = 470, h = 500, hub = [0.5, 0.97], hill = 800,
-    rays = 13, k: night = 0.66, who = hog, runner = spark, word = 'morning', seed = 0,
+    rays = 13, k: night = 0.66, runner = spark, word = 'morning', actor, who, seed = 0,
   } = o;
+  const A = actorFor({ actor, who });
   need(ph, name);
   const D0 = 3, anchor = photoAnchor(ph), SS = 34;
   return shot(name, dur, (c) => {
@@ -799,7 +840,7 @@ export function sunrise(o = {}) {
         d.lines([[[gx, gy], [gx - 8, gy - 28]], [[gx + 12, gy], [gx + 14, gy - 36]], [[gx + 24, gy], [gx + 34, gy - 24]]], { w: 3, role: 'accents.3' });
       });
     }, { still: true }));
-    kids.push(P(-9, 7, (d) => who(d, 240, hill - 58, 50, { eye: 'happy', hand: [300, hill - 160 + Math.sin(tau * 12) * 14] })));
+    kids.push(P(-9, 7, (d) => A.put(d, 240, hill - 58, 50, { ...A.idle(tau), ...A.emote('happy'), hand: [300, hill - 160 + Math.sin(tau * 12) * 14] })));
     if (sp) kids.push(P(-9, 9, (d) => runner(d, sp[0], sp[1], SS, { lean: 0 })), trail(path, tau, { n: 12, step: 0.04 }));
     [[760, 300, 1.3], [850, 250, 1.45], [900, 330, 1.6]].forEach(([bx, by, t0], n) => kids.push(P(t0, 51 + n, (d) => {
       const f = Math.sin(tau * 10 + n) * 6, ox = tau * 20;

@@ -73,7 +73,7 @@ test('the fox in the store: painter order survives the nesting, every part turns
   assert.equal(puppet('fox'), fox, 'built once per payload: the ops are deserialised one time');
   assert.deepEqual(fox.parts, ['tail', 'arm-l', 'leg-l', 'leg-r', 'body', 'head', 'eye', 'mouth', 'arm-r']);
   assert.deepEqual(fox.poses, ['rest', 'wave', 'asleep']);
-  assert.deepEqual(fox.cycles, ['walk']);
+  assert.deepEqual(fox.cycles, ['walk', 'run']);
   assert.deepEqual(fox.cel.inputs.eye, ['open', 'happy', 'sleep', 'wide']);
   assert.deepEqual(fox.cel.inputs.mouth, [0, 3, 1]);
   assert.deepEqual(fox.cel.inputs['arm-l'], JOINT);

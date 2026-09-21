@@ -4,7 +4,7 @@
   "units": 300,
   "box": [-126, -314, 236, 324],
   "ground": [0, 0],
-  "desc": "the cast fox: nine parts, four eyes, four mouths, three poses and a walk",
+  "desc": "the cast fox: nine parts, four eyes, four mouths, three poses, a walk and a run",
   "parts": {
     "tail": {
       "parent": "body",
@@ -611,6 +611,66 @@
           "arm-r": 8,
           "tail": 6,
           "head": -2
+        }
+      ]
+    },
+    "run": {
+      "fps": 12,
+      "n": 6,
+      "frames": [
+        {
+          "leg-l": 30,
+          "leg-r": -30,
+          "arm-l": -24,
+          "arm-r": 24,
+          "body": 4,
+          "head": -4,
+          "tail": 16
+        },
+        {
+          "leg-l": 16,
+          "leg-r": -16,
+          "arm-l": -12,
+          "arm-r": 12,
+          "body": 4,
+          "head": -6,
+          "tail": 22
+        },
+        {
+          "leg-l": -8,
+          "leg-r": 8,
+          "arm-l": 6,
+          "arm-r": -6,
+          "body": 4,
+          "head": -6,
+          "tail": 16
+        },
+        {
+          "leg-l": -30,
+          "leg-r": 30,
+          "arm-l": 24,
+          "arm-r": -24,
+          "body": 4,
+          "head": -4,
+          "tail": 22
+        },
+        {
+          "leg-l": -14,
+          "leg-r": 14,
+          "arm-l": 12,
+          "arm-r": -12,
+          "body": 4,
+          "head": -6,
+          "tail": 16
+        },
+        {
+          "leg-l": 8,
+          "leg-r": -8,
+          "arm-l": -6,
+          "arm-r": 6,
+          "body": 4,
+          "head": -6,
+          "tail": 22
         }
       ]
     }

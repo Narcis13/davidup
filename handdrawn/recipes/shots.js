@@ -7,6 +7,9 @@
 //   R.layer(ctx, opts) => the drawing alone, for composing several recipes in one shot
 // ctx is a shot's draw context ({ t, k, i, T, seed, W, H, CX, CY, look }). Subjects are passed as
 // functions (ctx, mode) => node, so the same recipe carries any puppet; `mode` is 'ink' or 'blueprint'.
+// A recipe with a subject or a figure (A, G, M, U, W, X, Z) also takes actor: a cast member (core/actor.js)
+// stands in the subject's place, idling on the twos (walking, for G's traveller), fitted to the boat's height.
+// An actor draws in its own roles whatever the mode.
 // Coordinates are v1's: laid out for 1080 x 1080 around (540, 540).
 import {
   FPS, paper, night, fill, stroke, dots, group, clip, fx, meta, circle, ellipse, rect, poly, line, spline, xf,
@@ -35,7 +38,7 @@ export function bez([p0, p1, p2, p3], u) {
 //   anchor   meta data, a list of them, or (o) => either
 function recipe(letter, name, defaults, layer, { ground = 'paper', anchor, crop = false, camera } = {}) {
   const R = (opts = {}) => {
-    const o = { ...defaults, ...opts };
+    const o = cast({ ...defaults, ...opts });
     const anchors = [typeof (o.anchor ?? anchor) === 'function' ? (o.anchor ?? anchor)(o) : (o.anchor ?? anchor)].flat().filter(Boolean);
     return shot(o.name ?? name, o.dur, (ctx) => [
       ground === 'paper' ? paper() : ground === 'night' ? night() : null,
@@ -44,7 +47,7 @@ function recipe(letter, name, defaults, layer, { ground = 'paper', anchor, crop 
       (o.crop ?? crop) && meta('intent', 'crop'),
     ], { recipe: letter, camera: o.camera ?? camera, fit: o.fit, look: o.look });
   };
-  R.layer = (ctx, opts = {}) => layer(ctx, { ...defaults, ...opts });
+  R.layer = (ctx, opts = {}) => layer(ctx, cast({ ...defaults, ...opts }));
   R.recipe = letter;
   R.defaults = defaults;
   return Object.freeze(R);
@@ -69,6 +72,27 @@ export const boat = cel('boat', ({ mode = 'ink', note = 0 }) => {
 }, { box: [-82, -90, 164, 138], inputs: { note: [0, 1, 1] }, desc: 'a paper boat; mode ink | blueprint' });
 
 const boatSubject = (ctx, mode) => boat({ mode, note: 1 });
+
+// An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for
+// dir -1. Scaled, so it draws direct.
+export function actorFigure(actor, state = {}, h = 140) {
+  const [bx, by, bw, bh] = actor.box, k = h / (bh || 1), dir = state.dir < 0 ? -1 : 1;
+  return group({ name: 'actor', xf: mmul(scale(k * dir, k), translate(-(bx + bw / 2), -(by + bh / 2))), cache: 'never' }, [actor(state)]);
+}
+// opts with an actor in them: the subject or figure becomes the actor. G's subject is handed a pose and is
+// turned to head up the path, so the actor there is turned back upright, faces the way it travels and walks.
+function cast(o) {
+  const A = o.actor;
+  if (!A) return o;
+  const out = { ...o };
+  if ('figure' in o) out.figure = (ctx) => actorFigure(A, A.idle(ctx.t, o.seed));
+  if ('subject' in o) {
+    out.subject = (a, b) => (a && a.dir !== undefined && a.x !== undefined
+      ? place(0, 0, { rot: -(a.dir + Math.PI / 2) }, actorFigure(A, { ...A.cycle('walk', a.t), ...A.look(Math.cos(a.dir)) }))
+      : actorFigure(A, A.idle(a.t, o.seed)));
+  }
+  return out;
+}
 
 // ---------- ink look (A to M) ----------
 
@@ -336,8 +360,8 @@ export const coda = recipe('M', 'coda', {
 }, (ctx, o) => [
   ...o.sparks.map(([x, y], j) => aster(x, y, 6, 14, `accents.${j}`, o.seed + j, 1)),
   place(o.x, o.y, { scale: o.scale }, group({ name: 'coda', alpha: 1 - ramp(o.fade[0], o.fade[1], ctx.t) }, [
-    fill(BOAT.sail, { base: 'night', tint: 0.12 }, { finish: { kind: 'hatch', role: 'chalkDim' } }),
-    fill(BOAT.hull, { base: 'night', tint: 0.12 }, { finish: { kind: 'hatch', role: 'chalkDim' } }),
+    !o.actor && fill(BOAT.sail, { base: 'night', tint: 0.12 }, { finish: { kind: 'hatch', role: 'chalkDim' } }),
+    !o.actor && fill(BOAT.hull, { base: 'night', tint: 0.12 }, { finish: { kind: 'hatch', role: 'chalkDim' } }),
     o.subject(ctx, 'blueprint'),
   ])),
 ], { ground: 'night', anchor: { name: 'coda' } });

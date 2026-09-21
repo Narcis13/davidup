@@ -85,6 +85,11 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `JOINT` A joint input: degrees on a 2 degree step, so a pose blend and a cycle land on the same quantised values.
 - `puppet(idOrData)` puppet(id) => the cel of the puppet that id names in the registry; puppet(data) builds one from a payload in hand (a test, or `hdf sheet store <id>` reading the blob itself).
 
+### core/actor.js
+
+- `actorOf(src, spec = {})` actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.
+- `EMOTES` Emotes as joint and variant changes, for a puppet with no pose of that name.
+
 ### core/fit.js
 
 - `FORMATS` Aspect ratio -> [W, H] in logical units.
@@ -282,27 +287,29 @@ Every recipe `R(opts)` returns a shot; `R.layer(ctx, opts)` returns its drawing 
 
 Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
-- `alongTheEdge(o = {})` AH. Along the edge. Both runners take the photo's real top edge (its silhouette, whatever the rotation) with a delay between them, a note pops where each step lands, the camera follows the midpoint. Options: name, dur, photo, x, y, h, rot, delay, notes, trestles, k, who, runner, whip, seed.
-- `becomesVehicle(o = {})` AA. The object becomes a vehicle. It floats (shadow 0), drifts and bobs; mast, sail and a sailor are attached to the photo so they bob with it; the sea is drawn over the hull, foam along the waterline; gag: a far lighthouse lights up ... Options: name, dur, photo, x, y, h, rot, drift, bob, mastAt, mast, flag, who, sailor, word, lighthouse, seed.
-- `caughtLetGo(o = {})` AL. Caught, then let go. The light dims in the jar (r shrinks), a held beat, the lid tips (pivot, rot), it shoots up and night (k) starts to lift. Options: name, dur, photo, x, ground, h, pivot, flame, lid, push, k, who, runner, words, dawn, seed.
-- `doesItsJob(o = {})` AC. The object does its job, at last: it tips over its base (pivot, rot) and pours from its spout into drawn cups; a bird on a string does the lifting; steam and a heart, one character waits. Options: name, dur, photo, x, ground, h, pivot, spout, handle, tip, cups, who, word, stream, seed.
-- `getaway(o = {})` AK. Getaway. The photo itself gallops (x from tau, bounce from |sin|) with the rider on it, dust puffs and speed lines behind, the view travels with it and drawn milestones pass by; the follower rides a hobby horse. Options: name, dur, photo, x0, speed, ground, h, pivot, seat, k, who, runner, word, whip, seed.
-- `insideTheTube(o = {})` AI. Inside the tube. The runner hops into the mouth and disappears; only its light travels along the object (mouth to bell in photo units), then it bursts out of the far end with a recoil of the photo, rings, a big word and a zoom kick. Options: name, dur, photo, x, y, h, rot, mouth, bell, k, who, runner, word, trestles, whip, seed.
-- `lightEscapes(o = {})` AG. The light escapes. nightShot with one light on the runaway: a match lights it, it hops out of the lamp (hop), the pool goes with it and the lamp goes dark behind it; the keeper jumps and gives chase. Options: name, dur, photo, x, ground, h, pivot, flame, match, land, k, who, runner, word, title, whip, seed.
-- `livesInside(o = {})` AB. Someone lives inside. The cast is drawn after the photo, then photoFront lays the front wall back over them below the lip; they rise into view (y + (1 - up) * 70). Options: name, dur, photo, x, ground, h, pivot, lip, lipDrop, at, size, who, scarves, word, perch, withBird, seed.
-- `looksBack(o = {})` AJ. The object looks back. Two small red lights behind its eye and jaw, a roar (shake, zigzags, the camera punches in), the follower's quills stand up and he jumps, then the runaway pops out laughing. Options: name, dur, photo, x, ground, h, pivot, flip, eye, jaw, crown, k, who, runner, roar, laugh, whip, seed.
-- `nightFalls(o = {})` AE. Night falls. The sheet goes to night (nightShot k rises), a match lights the flame (a light), stars and a moon arrive in chalk, then a second character walks in already drawn. Options: name, dur, photo, x, ground, h, pivot, flame, match, k, who, friend, word, moon, seed.
-- `printsOnALine(o = {})` AF. Prints on a line: the last frame of every scene hung as small prints on a drawn string, then the sign-off and the cast. Options: name, dur, prints, a, b, size, who, scarves, cast, sheet, seed.
-- `sunrise(o = {})` AM. Sunrise. A semicircular object rises behind a drawn hill that is painted over it, rays draw on, the runaway light arrives at its hub, night (k) goes to 0. Options: name, dur, photo, x, from, rise, h, hub, hill, rays, k, who, runner, word, seed.
-- `timeOnIt(o = {})` AD. Time passes on it. A drawn hand sweeps the real dial from its hub (angle from tau), a drawn sun crosses the sky with it, the character on top falls asleep at the end. Options: name, dur, photo, x, y, h, hub, hand, turns, who, words, seed.
+- `alongTheEdge(o = {})` AH. Along the edge. Both runners take the photo's real top edge (its silhouette, whatever the rotation) with a delay between them, a note pops where each step lands, the camera follows the midpoint. Options: name, dur, photo, x, y, h, rot, delay, notes, trestles, k, runner, whip, actor, who, seed.
+- `becomesVehicle(o = {})` AA. The object becomes a vehicle. It floats (shadow 0), drifts and bobs; mast, sail and a sailor are attached to the photo so they bob with it; the sea is drawn over the hull, foam along the waterline; gag: a far lighthouse lights up ... Options: name, dur, photo, x, y, h, rot, drift, bob, mastAt, mast, flag, sailor, word, lighthouse, actor, who, seed.
+- `caughtLetGo(o = {})` AL. Caught, then let go. The light dims in the jar (r shrinks), a held beat, the lid tips (pivot, rot), it shoots up and night (k) starts to lift. Options: name, dur, photo, x, ground, h, pivot, flame, lid, push, k, runner, words, dawn, actor, who, seed.
+- `doesItsJob(o = {})` AC. The object does its job, at last: it tips over its base (pivot, rot) and pours from its spout into drawn cups; a bird on a string does the lifting; steam and a heart, one character waits. Options: name, dur, photo, x, ground, h, pivot, spout, handle, tip, cups, word, stream, actor, who, seed.
+- `getaway(o = {})` AK. Getaway. The photo itself gallops (x from tau, bounce from |sin|) with the rider on it, dust puffs and speed lines behind, the view travels with it and drawn milestones pass by; the follower rides a hobby horse. Options: name, dur, photo, x0, speed, ground, h, pivot, seat, k, runner, word, whip, actor, who, seed.
+- `insideTheTube(o = {})` AI. Inside the tube. The runner hops into the mouth and disappears; only its light travels along the object (mouth to bell in photo units), then it bursts out of the far end with a recoil of the photo, rings, a big word and a zoom kick. Options: name, dur, photo, x, y, h, rot, mouth, bell, k, runner, word, trestles, whip, actor, who, seed.
+- `lightEscapes(o = {})` AG. The light escapes. nightShot with one light on the runaway: a match lights it, it hops out of the lamp (hop), the pool goes with it and the lamp goes dark behind it; the keeper jumps and gives chase. Options: name, dur, photo, x, ground, h, pivot, flame, match, land, k, runner, word, title, whip, actor, who, seed.
+- `livesInside(o = {})` AB. Someone lives inside. The cast is drawn after the photo, then photoFront lays the front wall back over them below the lip; they rise into view (y + (1 - up) * 70). Options: name, dur, photo, x, ground, h, pivot, lip, lipDrop, at, size, scarves, word, perch, withBird, actor, who, seed.
+- `looksBack(o = {})` AJ. The object looks back. Two small red lights behind its eye and jaw, a roar (shake, zigzags, the camera punches in), the follower's quills stand up and he jumps, then the runaway pops out laughing. Options: name, dur, photo, x, ground, h, pivot, flip, eye, jaw, crown, k, runner, roar, laugh, whip, actor, who, seed.
+- `nightFalls(o = {})` AE. Night falls. The sheet goes to night (nightShot k rises), a match lights the flame (a light), stars and a moon arrive in chalk, then a second character walks in already drawn. Options: name, dur, photo, x, ground, h, pivot, flame, match, k, friend, word, moon, actor, who, seed.
+- `printsOnALine(o = {})` AF. Prints on a line: the last frame of every scene hung as small prints on a drawn string, then the sign-off and the cast. Options: name, dur, prints, a, b, size, scarves, cast, sheet, actor, who, seed.
+- `sunrise(o = {})` AM. Sunrise. A semicircular object rises behind a drawn hill that is painted over it, rays draw on, the runaway light arrives at its hub, night (k) goes to 0. Options: name, dur, photo, x, from, rise, h, hub, hill, rays, k, runner, word, actor, who, seed.
+- `timeOnIt(o = {})` AD. Time passes on it. A drawn hand sweeps the real dial from its hub (angle from tau), a drawn sun crosses the sky with it, the character on top falls asleep at the end. Options: name, dur, photo, x, y, h, hub, hand, turns, words, actor, who, seed.
 
 ### Helpers
 
 - `BOAT` the boat's hull and sail paths <sub>recipes/shots.js</sub>
 - `CARDS` Three sample riso cards (sun over the sea, a big moon, stripes under a disc), the default for recipes that take cards (O, P, Q), so each renders with no arguments; N's iris takes one (`iris: { card: CARDS[0] }`). <sub>recipes/shots.js</sub>
-- `CAST` the doodle characters by name <sub>recipes/doodle.js</sub>
+- `CAST` The doodle characters by name. FOX is the store's puppet as an actor, built the first time it is asked for, and only once the film has read it (fromStore(['fox'])); undefined before that. <sub>recipes/doodle.js</sub>
 - `DOODLE` The set by v1 letter, so scenes.md stays a lookup. <sub>recipes/doodle.js</sub>
+- `HOG` The hedgehog as an actor: states are hog's own options (dir, eye, run phase), put() is hog itself. <sub>recipes/doodle.js</sub>
 - `ROLES` Roles the doodle cast and props share (quills, tea, star, ...), as role objects. <sub>recipes/doodle.js</sub>
+- `actorFigure(actor, state = {}, h = 140)` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/shots.js</sub>
 - `bez([p0, p1, p2, p3], u)` A point on a cubic Bezier [p0, c0, c1, p1] at u. <sub>recipes/shots.js</sub>
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>

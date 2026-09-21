@@ -1,0 +1,210 @@
+// The actor contract (plan 1.3): a cast member any recipe can direct, whether its drawing is data (a
+// puppet), a cel written in code, or a doodle builder who(d, x, y, s, o) of the v1 cast. The recipe asks
+// for states and merges them; the actor turns the merged state into a drawing.
+//
+//   const FOX = actorOf(puppet('fox'));
+//   FOX.put(d, x, y, 70, { ...FOX.idle(tau), ...FOX.look(-1), ...FOX.emote('happy'), ...FOX.cycle('run', tau) })
+//
+//   actor.name, actor.box, actor.ground, actor.inputs     as a cel
+//   actor(inputs)                   the cel call (keys that are not inputs are dropped)
+//   actor.idle(t, seed)             breathing, a blink, a tail, on the twos grid        -> state
+//   actor.look(dir)                 -1 | 0 | 1: facing and head turn                     -> state
+//   actor.emote(name)               'happy' | 'sleep' | 'wide' | 'sad' | 'dot' (none)    -> state
+//   actor.cycle(name, t)            any declared cycle, else a two-pose bob, recorded   -> state
+//   actor.reveal(tau, state)        itself in stroke order, 0..1                        -> list
+//   actor.place(x, y, s, o)         the state drawn on the doodle stage                 -> group
+//   actor.put(d, x, y, s, o)        the same, added to a doodle d as a mark the pen reveals
+//
+// A state is a plain object of inputs, so states merge with spread and the later one wins: a recipe writes
+// idle first and a cycle last. Stage conventions are the v1 cast's (recipes/doodle.js): centred at (x, y),
+// feet at y + .86 s, about 2 s tall; o also takes rot (about x, y) and hand ([x, y] in stage units: an arm
+// reaches for it), and a code builder reads whatever else it knows (scarf, fright, w).
+//
+// A puppet derives everything from its payload: poses named like an emote win over the house table, cycles
+// are its own, and the conventional parts (head, eye, mouth, tail, body, arm-l / arm-r) are what idle,
+// look, emote and hand move; unknown parts stay still. A cycle it lacks falls back to a bob between rest and
+// a lifted rest; the drawing then carries meta('actor-cycle') so lint can say when it is on screen too long,
+// and actor.fallbacks lists the cycles asked for and missing.
+import { FPS } from './curves.js';
+import { pen } from './doodle.js';
+import { group, meta, mmul, rotate, scale, translate } from './list.js';
+import { reveal as revealList } from './tools.js';
+import { cel } from './tree.js';
+
+const RAD = Math.PI / 180;
+const TWOS = FPS / 2;                     // drawn twos: 6 states a second
+const sign = (v) => (v < 0 ? -1 : 1);
+const wrap180 = (a) => ((a + 540) % 360) - 180;
+
+// Emotes as joint and variant changes, for a puppet with no pose of that name. Variant picks that the
+// puppet lacks are dropped; 'top' and 'mid' mean its last and middle mouth.
+export const EMOTES = Object.freeze({
+  happy: { eye: 'happy', mouth: 'top', tail: 12, head: -4 },
+  sleep: { eye: 'sleep', mouth: 0, head: 14, tail: -16 },
+  wide: { eye: 'wide', mouth: 'mid', 'arm-l': 24, 'arm-r': -24, tail: 20 },
+  sad: { eye: 'sleep', mouth: 0, head: 10, tail: -24 },
+});
+
+// actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.
+// spec overrides any method and sets the stage fit: { name, height: 2, feet: .86 } for a puppet or a cel;
+// { name, box, inputs, desc, size: 60, defaults } for a builder (they make its cel, drawn complete).
+export function actorOf(src, spec = {}) {
+  if (typeof src !== 'function') throw new TypeError('actorOf: expected a puppet, a cel or a doodle builder who(d, x, y, s, o)');
+  const base = src.puppet ? fromPuppet(src, spec) : src.cel ? fromCel(src, spec) : fromBuilder(src, spec);
+  const call = (inputs = {}) => base.make(inputs);
+  const fallbacks = new Set();
+  const bob = (name, t) => {
+    fallbacks.add(name);
+    const up = Math.floor(t * FPS / 3 + 1e-9) % 2;
+    return { lift: up, fallback: name, ...(base.has('head') ? { head: up ? 4 : 0 } : {}) };
+  };
+  Object.defineProperty(call, 'name', { value: spec.name ?? base.name });   // a function's name is read-only
+  const actor = Object.assign(call, {
+    box: base.box,
+    ground: base.ground,
+    inputs: base.inputs,
+    fallbacks,
+    idle: spec.idle ?? base.idle ?? (() => ({})),
+    look: spec.look ?? base.look ?? ((dir) => ({ dir: sign(dir) })),
+    emote: spec.emote ?? base.emote ?? (() => ({})),
+    cycle: spec.cycle ?? ((name, t) => base.cycle?.(name, t) ?? bob(name, t)),
+    reveal: spec.reveal ?? ((tau, state = {}) => revealList(tau, call(state))),
+    place: spec.place ?? base.place,
+    put: spec.put ?? base.put ?? ((d, x, y, s, o = {}) => d.mark((k) => revealList(k, actor.place(x, y, s, o)), spec.dur ?? 0.5)),
+  });
+  if (!actor.place) actor.place = () => { throw new Error(`actor ${actor.name}: a doodle builder has put(), not place()`); };
+  return actor;
+}
+
+// ---------- the stage fit shared by puppets and cels ----------
+
+// A drawing with a box and a ground point, fitted to the v1 stage: height s units tall, feet at y + feet s,
+// mirrored for dir -1, turned by rot about (x, y), lifted a little for a bob.
+function stager(name, box, ground, spec) {
+  const H = spec.height ?? 2, FEET = spec.feet ?? 0.86, units = box[3] || 1;
+  const xfOf = (x, y, s, { dir = 1, rot = 0, lift = 0 } = {}) => {
+    const k = H * s / units;
+    let m = translate(x, y);
+    if (rot) m = mmul(m, rotate(rot));
+    return mmul(mmul(mmul(m, translate(0, FEET * s - lift * 0.04 * H * s)), scale(k * sign(dir), k)), translate(-ground[0], -ground[1]));
+  };
+  // A stage point in the drawing's own units (to aim an arm at it).
+  const local = (x, y, s, o, [px, py]) => {
+    const [a, b, c, d, e, f] = xfOf(x, y, s, o), det = a * d - b * c;
+    return [(d * (px - e) - c * (py - f)) / det, (-b * (px - e) + a * (py - f)) / det];
+  };
+  const wrapPlaced = (x, y, s, o, kids) => group({ name: `actor:${name}`, xf: xfOf(x, y, s, o), cache: 'never' }, [
+    ...kids,
+    o.fallback ? meta('actor-cycle', { actor: name, cycle: o.fallback }) : null,
+  ]);
+  return { xfOf, local, wrapPlaced };
+}
+
+const pick = (inputs, o) => {
+  const q = {};
+  for (const k of Object.keys(o)) if (inputs[k] !== undefined) q[k] = o[k];
+  return q;
+};
+
+// ---------- puppets ----------
+
+function fromPuppet(p, spec) {
+  const d = p.puppet, name = p.cel.name, inputs = p.cel.inputs, parts = new Set(p.parts);
+  const has = (n) => parts.has(n);
+  const variants = (n) => Object.keys(d.parts[n]?.variants ?? {});
+  const make = (o) => p(pick(inputs, o));
+  const st = stager(name, p.cel.box, p.ground, spec);
+
+  // A variant key the puppet has, or nothing; 'top' / 'mid' index its keys.
+  const variant = (n, want) => {
+    const ks = variants(n);
+    const key = want === 'top' ? ks[ks.length - 1] : want === 'mid' ? ks[Math.floor(ks.length / 2)] : String(want);
+    if (!ks.includes(key)) return undefined;
+    return typeof p.rest[n] === 'number' ? +key : key;   // a numbered variant (mouth 0..3) stays a number
+  };
+  const known = (state) => {
+    const out = {};
+    for (const [k, v] of Object.entries(state)) {
+      if (!has(k)) continue;
+      if (variants(k).length) { const got = variant(k, v); if (got !== undefined) out[k] = got; } else out[k] = v;
+    }
+    return out;
+  };
+  const blinkKey = ['sleep', 'shut', 'closed'].find((k) => variants('eye').includes(k));
+
+  return {
+    name, box: p.cel.box, ground: p.ground, inputs, make, has,
+    idle(t, seed = 0) {
+      const j = Math.floor(t * TWOS + 1e-9), u = j / TWOS, ph = seed * 1.7;
+      const out = {};
+      if (has('body')) out.body = Math.round(Math.sin(u * 2.4 + ph) * 1) * 2;
+      if (has('head')) out.head = Math.round(Math.sin(u * 1.3 + ph) * 1.5) * 2;
+      if (has('tail')) out.tail = Math.round(Math.sin(u * 3.1 + ph) * 3) * 2;
+      if (blinkKey && (j + seed * 7) % 17 === 0) out.eye = blinkKey;
+      return out;
+    },
+    look(dir) {
+      const out = { dir: dir === 0 ? 1 : sign(dir) };
+      if (has('head')) out.head = dir === 0 ? -6 : 0;   // 0: facing us, chin up
+      return out;
+    },
+    emote(what) {
+      if (d.poses?.[what]) return known(d.poses[what]);
+      return EMOTES[what] ? known(EMOTES[what]) : {};
+    },
+    cycle(what, t) {
+      const c = d.cycles?.[what];
+      if (!c?.frames?.length) return undefined;
+      const n = c.frames.length, j = ((Math.floor(t * (c.fps ?? FPS) + 1e-9) % n) + n) % n;
+      return { ...c.frames[j] };
+    },
+    place(x, y, s, o = {}) {
+      const q = { ...o };
+      if (o.fright && (has('arm-l') || has('arm-r'))) {
+        if (has('arm-l')) q['arm-l'] = (q['arm-l'] ?? p.rest['arm-l'] ?? 0) + 40 * o.fright;
+        if (has('arm-r')) q['arm-r'] = (q['arm-r'] ?? p.rest['arm-r'] ?? 0) - 40 * o.fright;
+      }
+      if (o.hand) {
+        // The arm on the hand's side turns so it points at it (arms hang down, +y, at 0 degrees).
+        const [hx, hy] = st.local(x, y, s, o, o.hand), arm = hx >= 0 ? 'arm-r' : 'arm-l';
+        const piv = d.parts[arm]?.pivot;
+        if (piv) q[arm] = wrap180(Math.atan2(-(hx - piv[0]), hy - piv[1]) / RAD);
+      }
+      return st.wrapPlaced(x, y, s, o, [make(q)]);
+    },
+  };
+}
+
+// ---------- cels written in code ----------
+
+// A code cel: the film supplies idle / look / emote / cycle in spec (the cel knows nothing of them); dir,
+// rot and lift are the stage's, the rest go to the cel as inputs it declares.
+function fromCel(c, spec) {
+  const { name, box, inputs } = c.cel, st = stager(name, box ?? [-50, -100, 100, 100], spec.ground ?? [0, 0], spec);
+  return {
+    name, box, ground: spec.ground ?? [0, 0], inputs, has: () => false,
+    make: (o) => c(pick(inputs, o)),
+    place: (x, y, s, o = {}) => st.wrapPlaced(x, y, s, o, [c(pick(inputs, o))]),
+  };
+}
+
+// ---------- doodle builders (the v1 cast: hog, spark, bird) ----------
+
+// A builder draws itself into the recipe's doodle, so put() is the builder, and the states are its own
+// options: dir, eye (the emote's name) and a run phase. Its cel is the builder drawn complete by one pen.
+function fromBuilder(fn, spec) {
+  const name = spec.name ?? fn.name ?? 'cast', size = spec.size ?? 60, defaults = spec.defaults ?? {};
+  const box = spec.box ?? [-2.4 * size / 2, -1.3 * size, 2.4 * size, 2.2 * size], inputs = spec.inputs ?? {};
+  let made = null;
+  const theCel = () => (made ??= cel(name, (q) => [
+    pen(99, 0, -9, 3, (d) => fn(d, 0, 0, size, { ...defaults, ...q }), { still: true }),
+  ], { box, inputs, desc: spec.desc }));
+  return {
+    name, box, ground: [0, 0.86 * size], inputs, has: () => false,
+    make: (o) => theCel()(o),
+    emote: (what) => ({ eye: what === 'sad' ? 'sleep' : what }),
+    // A run is its run phase; a walk is the recipe's own bob and sway (v1), so it asks nothing of the builder.
+    cycle: (what, t) => (what === 'run' ? { run: t * 15 } : what === 'walk' ? {} : undefined),
+    put: fn,
+  };
+}
