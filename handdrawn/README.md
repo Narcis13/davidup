@@ -527,6 +527,26 @@ parent's. Joints are degrees on a 2 degree step, so two frames of a cycle that
 land on the same angles are one group object, hash the same and dedup. A part
 with `variants` takes a key instead of an angle (`eye: 'sleep'`, `mouth: 2`).
 
+Parts also slide and scale (4.0 K1). `slide: { x: [-4, 4, 1], y: [-3, 3, 1] }`
+declares inputs `pupil.x` and `pupil.y` (units, in the parent's frame);
+`scale: { y: [0.8, 1.2, 0.05], keepArea: true }` declares `body.sy`, and with
+`keepArea` the other axis is its inverse (a squash is a stretch). A part's `xf`
+is `translate(pivot) . translate(dx, dy) . rotate(a) . scale(sx, sy)`; at rest
+it is what it was without the inputs, so a puppet that declares none draws and
+hashes as before. `when: { eye: ['open'] }` draws a part only while the named
+variant input holds one of the values, so the fox's pupil hides behind a happy
+or sleeping eye:
+
+```js
+FOX({ 'pupil.x': 4, 'brow-l': -12 })        // looks across and frets: brow-l turns, the pupil slides
+FOX({ 'brow-l.y': -5, 'brow-r.y': -5 })     // both brows up (y up is negative)
+```
+
+The fox has `pupil` (slides), `brow-l` and `brow-r` (turn and slide); `EMOTES`
+use them (`worried` is new), and lint's `puppet-joint` checks every move a pose
+or cycle sets against its range and step. `cel-box` and the sheets see every
+move at its min and max.
+
 ```bash
 hdf import assets/src/fox.puppet.json --kind puppet --name fox --licence own
 hdf sheet store fox --cycle walk    # every look x every pose and variant x 3 scales, the walk as a strip
@@ -547,6 +567,9 @@ are the rig:
   part's g, gives the parent;
 - `<g id="eye" data-variants>` takes its child g ids as variants; sibling ids
   `mouth-0`, `mouth-1`, ... become one stepped part `mouth`;
+- `data-slide="x:-4..4:1,y:-3..3:1"` and `data-scale="y:0.8..1.2:0.05,keep-area"`
+  on a part's g declare its moves (min..max:step, the slide in the file's
+  units); `data-when="eye:open|wide"` shows it only with those variants;
 - `<g id="pose:wave" data-joints="arm-l:112,head:-6,eye:happy"/>` is a pose and
   `<g id="cycle:walk" data-fps="12">` a cycle, one `<g data-joints="...">` per
   frame; neither draws. A top-level `<circle id="ground">` is the ground point;

@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The cast fox, drawn as an SVG the way Figma exports one: every part a <g id>, its pivot a
-     <circle id="pivot">, the eye a data-variants group, the mouth four steps, poses and cycles as
+     <circle id="pivot">, the eye a data-variants group, the pupil a part that
+     slides and shows with the open eye, brows that turn and slide, the mouth four steps, poses and cycles as
      data-joints groups that do not draw. Three views (view:side, view:three-quarter, view:front) make
      it turn; a part a view leaves out is drawn as in the side view. Import: hdf svg assets/src/fox.svg
      --name fox --licence own --roles assets/src/fox.roles.json -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: nine parts, three views, four eyes, four mouths, three poses, a walk and a run">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: twelve parts, three views, four eyes, four mouths, three poses, a walk and a run">
   <g id="view:side">
     <g id="tail" data-parent="body">
       <circle id="pivot" cx="-34" cy="-128" r="3" fill="#00a0ff"/>
@@ -47,12 +48,7 @@
       <polygon points="65,-218 71,-221 76,-216 77,-210 72,-206 65,-208 61,-213" fill="#2b2b2b"/>
     </g>
     <g id="eye" data-parent="head" data-variants>
-      <g id="open">
-        <path d="M5.5 -248L4.8 -245.3L2.8 -243.2L0 -242.5L-2.7 -243.2L-4.8 -245.3L-5.5 -248L-4.8 -250.8L-2.8 -252.8L0 -253.5L2.8 -252.8L4.8 -250.8Z" fill="#2b2b2b"/>
-        <path d="M42 -242L40.9 -238L38 -235.1L34 -234L30 -235.1L27.1 -238L26 -242L27.1 -246L30 -248.9L34 -250L38 -248.9L40.9 -246Z" fill="#2b2b2b"/>
-        <polygon points="3.8,-250.5 3.3,-249.2 2,-248.7 0.7,-249.2 0.2,-250.5 0.7,-251.8 2,-252.3 3.3,-251.8" fill="#fff1d6"/>
-        <polygon points="39,-245 38.3,-243.2 36.5,-242.5 34.7,-243.2 34,-245 34.7,-246.8 36.5,-247.5 38.3,-246.8" fill="#fff1d6"/>
-      </g>
+      <g id="open"/>
       <g id="happy">
         <polyline points="-6,-245 -2,-252 4,-252 7,-245" fill="none" stroke="#2b2b2b"/>
         <polyline points="26,-238 30,-247 38,-247 43,-239" fill="none" stroke="#2b2b2b"/>
@@ -69,6 +65,20 @@
         <path d="M46 -242L44.4 -236L40 -231.6L34 -230L28 -231.6L23.6 -236L22 -242L23.6 -248L28 -252.4L34 -254L40 -252.4L44.4 -248Z" fill="none" stroke="#2b2b2b"/>
         <path d="M39.5 -242L38.8 -239.3L36.8 -237.2L34 -236.5L31.3 -237.2L29.2 -239.3L28.5 -242L29.2 -244.8L31.2 -246.8L34 -247.5L36.8 -246.8L38.8 -244.8Z" fill="#2b2b2b"/>
       </g>
+    </g>
+    <g id="pupil" data-parent="head" data-when="eye:open" data-slide="x:-4..4:1,y:-3..3:1">
+      <path d="M5.5 -248L4.8 -245.3L2.8 -243.2L0 -242.5L-2.7 -243.2L-4.8 -245.3L-5.5 -248L-4.8 -250.8L-2.8 -252.8L0 -253.5L2.8 -252.8L4.8 -250.8Z" fill="#2b2b2b"/>
+      <path d="M42 -242L40.9 -238L38 -235.1L34 -234L30 -235.1L27.1 -238L26 -242L27.1 -246L30 -248.9L34 -250L38 -248.9L40.9 -246Z" fill="#2b2b2b"/>
+      <polygon points="3.8,-250.5 3.3,-249.2 2,-248.7 0.7,-249.2 0.2,-250.5 0.7,-251.8 2,-252.3 3.3,-251.8" fill="#fff1d6"/>
+      <polygon points="39,-245 38.3,-243.2 36.5,-242.5 34.7,-243.2 34,-245 34.7,-246.8 36.5,-247.5 38.3,-246.8" fill="#fff1d6"/>
+    </g>
+    <g id="brow-l" data-parent="head" data-slide="y:-6..3:1">
+      <circle id="pivot" cx="0" cy="-258" r="2" fill="#00a0ff"/>
+      <polyline points="-6,-257 0,-259 6,-257" fill="none" stroke="#2b2b2b"/>
+    </g>
+    <g id="brow-r" data-parent="head" data-slide="y:-6..3:1">
+      <circle id="pivot" cx="34" cy="-254" r="2" fill="#00a0ff"/>
+      <polyline points="27,-253 34,-255.5 41,-253" fill="none" stroke="#2b2b2b"/>
     </g>
     <g id="mouth-0" data-parent="head">
       <polyline points="48,-198 56,-194 64,-196 70,-202" fill="none" stroke="#2b2b2b"/>
@@ -111,12 +121,7 @@
       <polygon points="62,-226 70,-227 74,-222 71,-217 64,-218 60,-222" fill="#2b2b2b"/>
     </g>
     <g id="eye" data-parent="head" data-variants>
-      <g id="open">
-        <circle cx="0" cy="-244" r="5.5" fill="#2b2b2b"/>
-        <circle cx="30" cy="-244" r="5" fill="#2b2b2b"/>
-        <circle cx="2" cy="-246" r="2" fill="#fff1d6"/>
-        <circle cx="32" cy="-246" r="1.8" fill="#fff1d6"/>
-      </g>
+      <g id="open"/>
       <g id="happy">
         <polyline points="-6,-241 -3,-248 3,-248 6,-241" fill="none" stroke="#2b2b2b"/>
         <polyline points="24,-241 27,-248 33,-248 36,-241" fill="none" stroke="#2b2b2b"/>
@@ -133,6 +138,20 @@
         <circle cx="30" cy="-244" r="7.5" fill="none" stroke="#2b2b2b"/>
         <circle cx="31" cy="-244" r="3.5" fill="#2b2b2b"/>
       </g>
+    </g>
+    <g id="pupil" data-parent="head" data-when="eye:open" data-slide="x:-4..4:1,y:-3..3:1">
+      <circle cx="0" cy="-244" r="5.5" fill="#2b2b2b"/>
+      <circle cx="30" cy="-244" r="5" fill="#2b2b2b"/>
+      <circle cx="2" cy="-246" r="2" fill="#fff1d6"/>
+      <circle cx="32" cy="-246" r="1.8" fill="#fff1d6"/>
+    </g>
+    <g id="brow-l" data-parent="head" data-slide="y:-6..3:1">
+      <circle id="pivot" cx="0" cy="-254" r="2" fill="#00a0ff"/>
+      <polyline points="-6,-253 0,-255 6,-253" fill="none" stroke="#2b2b2b"/>
+    </g>
+    <g id="brow-r" data-parent="head" data-slide="y:-6..3:1">
+      <circle id="pivot" cx="30" cy="-254" r="2" fill="#00a0ff"/>
+      <polyline points="24,-253 30,-255 36,-253" fill="none" stroke="#2b2b2b"/>
     </g>
     <g id="mouth-0" data-parent="head">
       <polyline points="38,-210 46,-206 54,-208 60,-213" fill="none" stroke="#2b2b2b"/>
@@ -186,12 +205,7 @@
       <polygon points="-7,-222 7,-222 8,-217 0,-212 -8,-217" fill="#2b2b2b"/>
     </g>
     <g id="eye" data-parent="head" data-variants>
-      <g id="open">
-        <circle cx="-18" cy="-242" r="5.5" fill="#2b2b2b"/>
-        <circle cx="18" cy="-242" r="5.5" fill="#2b2b2b"/>
-        <circle cx="-16" cy="-244" r="2" fill="#fff1d6"/>
-        <circle cx="20" cy="-244" r="2" fill="#fff1d6"/>
-      </g>
+      <g id="open"/>
       <g id="happy">
         <polyline points="-24,-239 -21,-246 -15,-246 -12,-239" fill="none" stroke="#2b2b2b"/>
         <polyline points="12,-239 15,-246 21,-246 24,-239" fill="none" stroke="#2b2b2b"/>
@@ -208,6 +222,20 @@
         <circle cx="18" cy="-242" r="8.0" fill="none" stroke="#2b2b2b"/>
         <circle cx="19" cy="-242" r="3.5" fill="#2b2b2b"/>
       </g>
+    </g>
+    <g id="pupil" data-parent="head" data-when="eye:open" data-slide="x:-4..4:1,y:-3..3:1">
+      <circle cx="-18" cy="-242" r="5.5" fill="#2b2b2b"/>
+      <circle cx="18" cy="-242" r="5.5" fill="#2b2b2b"/>
+      <circle cx="-16" cy="-244" r="2" fill="#fff1d6"/>
+      <circle cx="20" cy="-244" r="2" fill="#fff1d6"/>
+    </g>
+    <g id="brow-l" data-parent="head" data-slide="y:-6..3:1">
+      <circle id="pivot" cx="-18" cy="-252" r="2" fill="#00a0ff"/>
+      <polyline points="-24,-251 -18,-253 -12,-251" fill="none" stroke="#2b2b2b"/>
+    </g>
+    <g id="brow-r" data-parent="head" data-slide="y:-6..3:1">
+      <circle id="pivot" cx="18" cy="-252" r="2" fill="#00a0ff"/>
+      <polyline points="12,-251 18,-253 24,-251" fill="none" stroke="#2b2b2b"/>
     </g>
     <g id="mouth-0" data-parent="head">
       <polyline points="-10,-208 -4,-204 0,-208 4,-204 10,-208" fill="none" stroke="#2b2b2b"/>

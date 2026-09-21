@@ -54,12 +54,15 @@ const sign = (v) => (v < 0 ? -1 : 1);
 const wrap180 = (a) => ((a + 540) % 360) - 180;
 
 // Emotes as joint and variant changes, for a puppet with no pose of that name. Variant picks that the
-// puppet lacks are dropped; 'top' and 'mid' mean its last and middle mouth.
+// puppet lacks are dropped; 'top' and 'mid' mean its last and middle mouth. Brows (4.0 K1) are the standard
+// biped names: brow-l on the left of the drawing, so a negative brow-l and a positive brow-r lift the inner
+// ends (worried); `.y` slides them, up negative. A puppet without brows or a pupil takes the rest.
 export const EMOTES = Object.freeze({
-  happy: { eye: 'happy', mouth: 'top', tail: 12, head: -4 },
-  sleep: { eye: 'sleep', mouth: 0, head: 14, tail: -16 },
-  wide: { eye: 'wide', mouth: 'mid', 'arm-l': 24, 'arm-r': -24, tail: 20 },
-  sad: { eye: 'sleep', mouth: 0, head: 10, tail: -24 },
+  happy: { eye: 'happy', mouth: 'top', tail: 12, head: -4, 'brow-l.y': -2, 'brow-r.y': -2 },
+  sleep: { eye: 'sleep', mouth: 0, head: 14, tail: -16, 'brow-l.y': 2, 'brow-r.y': 2 },
+  wide: { eye: 'wide', mouth: 'mid', 'arm-l': 24, 'arm-r': -24, tail: 20, 'brow-l.y': -5, 'brow-r.y': -5 },
+  sad: { eye: 'sleep', mouth: 0, head: 10, tail: -24, 'brow-l': -14, 'brow-r': 14, 'brow-l.y': -1, 'brow-r.y': -1 },
+  worried: { eye: 'open', mouth: 0, head: 6, 'brow-l': -12, 'brow-r': 12, 'brow-l.y': -2, 'brow-r.y': -2, 'pupil.y': 1 },
 });
 
 // actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.
@@ -153,7 +156,7 @@ function fromPuppet(p, spec) {
   const known = (state) => {
     const out = {};
     for (const [k, v] of Object.entries(state)) {
-      if (!has(k)) continue;
+      if (!has(k) && p.moves?.[k] === undefined) continue;   // a part, or a part's slide or scale (pupil.x)
       if (variants(k).length) { const got = variant(k, v); if (got !== undefined) out[k] = got; } else out[k] = v;
     }
     return out;

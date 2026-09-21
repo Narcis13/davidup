@@ -6,7 +6,7 @@ import { FPS } from './curves.js';
 import { bounds, mmul, norm } from './list.js';
 import { fallbacks, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
-import { JOINT, VIEW_DIRS, puppet } from './puppet.js';
+import { JOINT, VIEW_DIRS, movesOf, puppet } from './puppet.js';
 import { cues, evalShot, frame } from './tree.js';
 
 export const RULES = Object.freeze({
@@ -25,7 +25,7 @@ export const RULES = Object.freeze({
   'subject-size': 'the anchor subject is under the readability floor at 240 px',
   'subject-crop': "the anchor subject is cut by the frame edge without meta('intent', 'crop')",
   grid: 'a cue off the 1/12 s grid',
-  'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint off the 2 degree grid or out of range',
+  'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint (or a slide or scale) off its grid or out of range',
   'roles-raw': 'a raw colour in a puppet part, where a palette role belongs',
   'actor-cycle': 'an actor lacks a cycle a recipe asked for, and its fallback bob is on screen over 1 s in a shot',
   'pack-mirror': "a pack cel's store mirror is missing, or its sha no longer matches what the cel draws",
@@ -341,9 +341,9 @@ function rawRoles(list) {
 }
 
 // lintPuppet(payload) => findings over a puppet before it is written to the store (`hdf import --kind puppet`
-// runs it): `puppet-joint` over every pose and cycle frame, `roles-raw` over every part's ops and variants,
+// runs it): `puppet-joint` over every pose and cycle frame and every slide and scale spec, `roles-raw` over every part's ops and variants,
 // and `cel-box` over the drawing of the rest pose, every view both ways round, every named pose, every
-// variant and every cycle frame -- the box in the payload is what `cel()` hands lint and the sheet, so it
+// variant, every slide and scale at its extremes and every cycle frame -- the box in the payload is what `cel()` hands lint and the sheet, so it
 // has to hold all of them.
 export function lintPuppet(data, name = data?.name ?? 'puppet') {
   const F = finder();
@@ -351,8 +351,19 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
   const parts = data?.parts && typeof data.parts === 'object' ? data.parts : {};
   const declared = data?.inputs && typeof data.inputs === 'object' ? data.inputs : {};
   const joints = new Set(Object.keys(parts).filter((n) => !parts[n]?.variants));
+  // Slide and scale inputs (4.0 K1): '<part>.x' -> [min, max, step]; a malformed spec is a finding here.
+  const moves = {};
+  for (const [pn, p] of Object.entries(parts)) {
+    try { Object.assign(moves, movesOf(p, pn, name)?.specs); } catch (e) { add('puppet-joint', e.message.replace(/^puppet [^:]*: /, ''), `move|${pn}`); }
+  }
 
   const joint = (where, key, v) => {
+    const mv = moves[key];
+    if (mv) {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < mv[0] - 1e-9 || v > mv[1] + 1e-9) add('puppet-joint', `${where} sets '${key}' to ${JSON.stringify(v)}, outside ${mv[0]}..${mv[1]}`, `${where}|${key}`);
+      else if (Math.abs((v - mv[0]) / mv[2] - Math.round((v - mv[0]) / mv[2])) > 1e-6) add('puppet-joint', `${where} sets '${key}' to ${v}, off its ${mv[2]} step`, `${where}|${key}`);
+      return;
+    }
     if (!parts[key] && declared[key] === undefined) { add('puppet-joint', `${where} names '${key}', which is not a part or a declared input`, `${where}|${key}`); return; }
     if (!joints.has(key) || typeof v !== 'number') return;   // a variant pick reads as its key, not an angle
     if (!Number.isFinite(v) || v < JOINT[0] || v > JOINT[1]) add('puppet-joint', `${where} sets '${key}' to ${v} degrees, outside ${JOINT[0]}..${JOINT[1]}`, `${where}|${key}`);
@@ -392,7 +403,8 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
 }
 
 // Every drawing a puppet's box has to hold, as [label, inputs]: the rest pose, every view both ways round
-// (the turnaround), every named pose, every variant (a pack mirror: every input set) and every cycle frame.
+// (the turnaround), every named pose, every variant (a pack mirror: every input set), every slide and scale
+// input at its min and max, and every cycle frame.
 export function puppetCases(make, data) {
   const parts = data?.parts && typeof data.parts === 'object' ? data.parts : {};
   const cases = [['rest', make.rest]];
@@ -400,6 +412,7 @@ export function puppetCases(make, data) {
   for (const pn of make.poses) cases.push([`pose '${pn}'`, make.poseOf(pn, 1)]);
   if (make.mirror) for (const [k, q] of Object.entries(make.states())) cases.push([k || 'no inputs', q]);
   else for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
+  for (const [k, [lo, hi]] of Object.entries(make.moves ?? {})) for (const v of [lo, hi]) cases.push([`${k} = ${v}`, { ...make.rest, [k]: v }]);
   for (const [cn, c] of Object.entries(data?.cycles ?? {})) (c?.frames ?? []).forEach((_, j) => cases.push([`cycle '${cn}' frame ${j}`, make.frameOf(cn, j / (c.fps ?? FPS))]));
   return cases;
 }

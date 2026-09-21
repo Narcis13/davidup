@@ -17,6 +17,16 @@
 // two frames of a cycle that quantise the same are one group object and dedup. A part with `variants` takes
 // its variant's key as its input instead of an angle.
 //
+// Slide and scale (4.0 K1): a part may also move without turning. `slide: { x: [min, max, step], y: [...] }`
+// declares inputs `<part>.x` and `<part>.y` (logical units, in the parent's frame before the part turns: a
+// pupil that looks, a brow that rises); `scale: { x: [...], y: [...] }` declares `<part>.sx` and `<part>.sy`
+// (about the pivot: a body that squashes). With `keepArea: true` a scale names one axis and the other is its
+// inverse, so a squash is a stretch the other way. A part's xf is translate(pivot) . translate(dx, dy) .
+// rotate(a) . scale(sx, sy); at rest (0, 0, 1, 1) it is exactly what it was without the inputs, so a puppet
+// that declares none draws and hashes as before. The inputs are quantised on their step like joints.
+// `when: { eye: ['open'] }` draws a part only while each named input holds one of the listed values (the
+// pupil shows with the open eye, not the happy one).
+//
 // Turnarounds: a puppet may declare `views: ['side', 'three-quarter', 'front']` and key any part's `ops`, any
 // variant and any `pivot` by view ({ side: [...], front: [...] }). A part with no drawing of its own in a view
 // uses the first declared view's (and that view's pivot), so only what changes needs drawing again; a pivot
@@ -64,6 +74,45 @@ const keyed = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const unite = (a, b) => (!a ? b : !b ? a : [Math.min(a[0], b[0]), Math.min(a[1], b[1]),
   Math.max(a[0] + a[2], b[0] + b[2]) - Math.min(a[0], b[0]), Math.max(a[1] + a[3], b[1] + b[3]) - Math.min(a[1], b[1])]);
 
+// A move spec [min, max, step] and the rest it must hold (0 for a slide, 1 for a scale), checked.
+const spec3 = (name, n, key, v, rest) => {
+  const ok = Array.isArray(v) && v.length === 3 && v.every(Number.isFinite) && v[0] < v[1] && v[2] > 0;
+  if (!ok) throw new Error(`puppet ${name}: part '${n}' ${key} takes [min, max, step] with min < max and step > 0, got ${JSON.stringify(v)}`);
+  if (rest === 1 && v[0] <= 0) throw new Error(`puppet ${name}: part '${n}' ${key} scales from ${v[0]}; a scale stays above 0`);
+  const off = (rest - v[0]) / v[2];
+  if (rest < v[0] || rest > v[1] || Math.abs(off - Math.round(off)) > 1e-3) {
+    throw new Error(`puppet ${name}: part '${n}' ${key} ${JSON.stringify(v)} does not hold its rest ${rest} on its grid`);
+  }
+  return Object.freeze(v.slice());
+};
+
+// A part's slide and scale inputs: { x, y, sx, sy } input keys (or undefined), keep (sx = 1 / sy or the
+// reverse), and the specs as { key: [min, max, step] }. null when the part declares neither.
+export function movesOf(p, n, name = 'puppet') {
+  if (!p?.slide && !p?.scale) return null;
+  const out = { specs: {} };
+  const axes = (field, v, keys, rest) => {
+    if (typeof v !== 'object' || Array.isArray(v)) throw new Error(`puppet ${name}: part '${n}' ${field} is { x: [min, max, step], y: [...] }`);
+    for (const k of Object.keys(v)) if (!['x', 'y', ...(field === 'scale' ? ['keepArea'] : [])].includes(k)) throw new Error(`puppet ${name}: part '${n}' ${field} has '${k}' (takes x, y${field === 'scale' ? ', keepArea' : ''})`);
+    for (const a of ['x', 'y']) {
+      if (v[a] === undefined) continue;
+      const key = `${n}.${keys[a]}`;
+      out[keys[a]] = key;
+      out.specs[key] = spec3(name, n, `${field}.${a}`, v[a], rest);
+    }
+  };
+  if (p.slide) axes('slide', p.slide, { x: 'x', y: 'y' }, 0);
+  if (p.scale) {
+    axes('scale', p.scale, { x: 'sx', y: 'sy' }, 1);
+    if (p.scale.keepArea) {
+      if (!!out.sx === !!out.sy) throw new Error(`puppet ${name}: part '${n}' scale keeps its area with one axis; it names ${out.sx ? 'both' : 'neither'}`);
+      out.keep = true;
+    }
+  }
+  if (!Object.keys(out.specs).length) throw new Error(`puppet ${name}: part '${n}' declares a slide or scale with no axis`);
+  return out;
+}
+
 const built = new WeakMap();
 const CUT = new Map();   // cel name -> { units, ground, kinds }: what the cut-out look needs of a puppet
 
@@ -102,6 +151,19 @@ function build(d, id) {
       if (!keyed(v)) continue;
       if (!views) throw new Error(`puppet ${name}: part '${n}' ${what} is keyed by view, but the puppet declares no views`);
       for (const k of Object.keys(v)) if (!views.includes(k)) throw new Error(`puppet ${name}: part '${n}' ${what} names view '${k}' (views: ${views.join(', ')})`);
+    }
+  }
+  const moves = {};
+  for (const n of names) { const m = movesOf(d.parts[n], n, name); if (m) moves[n] = m; }
+  for (const n of names) {
+    const w = d.parts[n].when;
+    if (w === undefined) continue;
+    if (!w || typeof w !== 'object' || Array.isArray(w)) throw new Error(`puppet ${name}: part '${n}' when is { input: [values] }`);
+    for (const [k, vs] of Object.entries(w)) {
+      const keys = d.parts[k]?.variants ? Object.keys(d.parts[k].variants) : null;
+      if (!keys) throw new Error(`puppet ${name}: part '${n}' shows when '${k}' ..., but '${k}' is not a part with variants`);
+      if (!Array.isArray(vs) || !vs.length) throw new Error(`puppet ${name}: part '${n}' when.${k} lists no values`);
+      for (const v of vs) if (!keys.includes(String(v))) throw new Error(`puppet ${name}: part '${n}' shows when ${k} is '${v}', which '${k}' has no variant for (has ${keys.join(', ')})`);
     }
   }
   for (const n of names) {
@@ -156,6 +218,7 @@ function build(d, id) {
   const declared = d.inputs ?? {};
   const inputs = {};
   for (const n of names) inputs[n] = variantKeys[n] ?? JOINT;
+  for (const m of Object.values(moves)) Object.assign(inputs, m.specs);
   if (views) inputs.dir = DIR;
   for (const [k, v] of Object.entries(declared)) inputs[k] = v;
 
@@ -165,6 +228,7 @@ function build(d, id) {
   };
   const rest = Object.freeze({
     ...Object.fromEntries(names.map((n) => [n, variantKeys[n] ? variantDefault(n) : 0])),
+    ...Object.fromEntries(Object.values(moves).flatMap((m) => Object.keys(m.specs).map((k) => [k, /\.s[xy]$/.test(k) ? 1 : 0]))),
     ...(views ? { dir: 1 } : {}),
     ...(d.poses?.rest ?? {}),
   });
@@ -189,21 +253,41 @@ function build(d, id) {
     if (!v) throw new Error(`puppet ${name}: part '${n}' has no variant '${key}' (has ${variantKeys[n].join(', ')})`);
     return [...out, ...v];
   };
-  // A turned part draws direct, as place() does for a rotation; a part at rest stays a cacheable layer.
+  const amount = (key, q) => {
+    const v = q[key] ?? rest[key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new TypeError(`puppet ${name}: '${key}' takes a number, got ${JSON.stringify(v)}`);
+    return v;
+  };
+  const shown = (n, q) => {
+    const w = d.parts[n].when;
+    return !w || Object.entries(w).every(([k, vs]) => vs.map(String).includes(String(q[k] ?? rest[k])));
+  };
+  // A turned or scaled part draws direct, as place() does; a part at rest or slid stays a cacheable layer.
   const partGroup = (n, q, R) => {
     const ang = variantKeys[n] ? 0 : angleOf(n, q);
     const [px, py] = R.pivot[n], [qx, qy] = parent[n] === undefined ? [0, 0] : R.pivot[parent[n]];
-    let m = translate(px - qx, py - qy);
+    let m = translate(px - qx, py - qy), scaled = false;
+    const mv = moves[n];
+    if (mv) {
+      const dx = mv.x ? amount(mv.x, q) : 0, dy = mv.y ? amount(mv.y, q) : 0;
+      if (dx || dy) m = mmul(m, translate(dx, dy));
+    }
     if (ang) m = mmul(m, rotate(ang * RAD));
-    const kids = kidOrder[n].map((s) => (s.kid === undefined ? ownOps(n, q, R) : partGroup(s.kid, q, R)));
-    return group({ name: n, xf: m, ...(ang ? { cache: 'never' } : {}) }, kids);
+    if (mv && (mv.sx || mv.sy)) {
+      let sx = mv.sx ? amount(mv.sx, q) : 1, sy = mv.sy ? amount(mv.sy, q) : 1;
+      if (mv.keep) { if (mv.sx) sy = 1 / sx; else sx = 1 / sy; }
+      if (sx !== 1 || sy !== 1) { m = mmul(m, scale(sx, sy)); scaled = true; }
+    }
+    const kids = kidOrder[n].filter((s) => s.kid === undefined || shown(s.kid, q))
+      .map((s) => (s.kid === undefined ? ownOps(n, q, R) : partGroup(s.kid, q, R)));
+    return group({ name: n, xf: m, ...(ang || scaled ? { cache: 'never' } : {}) }, kids);
   };
 
   const ground = d.ground ?? [0, 0];
   // A negative dir mirrors the whole drawing about the ground point (an x-flip stays cacheable).
   const draw = (q) => {
     const dir = q.dir ?? rest.dir, R = rig.get(viewOf(dir));
-    const kids = roots.map((n) => partGroup(n, q, R));
+    const kids = roots.filter((n) => shown(n, q)).map((n) => partGroup(n, q, R));
     return views && dir < 0 ? [group({ name: 'mirror', xf: [-1, 0, 0, 1, 2 * ground[0], 0] }, kids)] : kids;
   };
   // A puppet with views turns both ways, so its box holds the drawing and its mirror.
@@ -212,7 +296,8 @@ function build(d, id) {
   const make = cel(name, draw, { box, inputs, desc: d.desc });
   CUT.set(name, Object.freeze({
     units: d.units ?? 300, ground,
-    kinds: Object.fromEntries(names.map((n) => [n, d.parts[n].pivot === undefined ? 'print' : parent[n] === undefined ? 'card' : 'joint'])),
+    // A part that slides (a pupil, a brow) is printed on its parent's card, whatever its pivot.
+    kinds: Object.fromEntries(names.map((n) => [n, d.parts[n].pivot === undefined || d.parts[n].slide ? 'print' : parent[n] === undefined ? 'card' : 'joint'])),
   }));
 
   // Poses and cycles hand the cel a full input set (every joint, every variant), so two states that draw the
@@ -248,6 +333,8 @@ function build(d, id) {
   make.pivotAt = (n, V = viewOf(rest.dir)) => (rig.get(V) ?? rig.get(VIEWS[0])).pivot[n];
   make.rest = rest;
   make.parts = Object.freeze(names.slice());
+  // Every slide and scale input: { '<part>.x': [min, max, step], ... } (4.0 K1).
+  make.moves = Object.freeze(Object.assign({}, ...Object.values(moves).map((m) => m.specs)));
   make.poses = Object.freeze(Object.keys(d.poses ?? {}));
   make.cycles = Object.freeze(Object.keys(d.cycles ?? {}));
   make.poseOf = poseOf;
@@ -309,6 +396,7 @@ function mirror(d, id) {
   make.pivotAt = () => [0, 0];
   make.rest = Object.freeze({ ...defaults });
   make.parts = Object.freeze([part]);
+  make.moves = Object.freeze({});
   make.poses = Object.freeze([]);
   make.cycles = Object.freeze([]);
   make.poseOf = none('poses');

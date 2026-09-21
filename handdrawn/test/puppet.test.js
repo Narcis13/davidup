@@ -73,7 +73,7 @@ test('the fox in the store: painter order survives the nesting, every part turns
   fromStore(['fox']);
   const fox = puppet('fox');
   assert.equal(puppet('fox'), fox, 'built once per payload: the ops are deserialised one time');
-  assert.deepEqual(fox.parts, ['tail', 'arm-l', 'leg-l', 'leg-r', 'body', 'head', 'eye', 'mouth', 'arm-r']);
+  assert.deepEqual(fox.parts, ['tail', 'arm-l', 'leg-l', 'leg-r', 'body', 'head', 'eye', 'pupil', 'brow-l', 'brow-r', 'mouth', 'arm-r']);
   assert.deepEqual(fox.poses, ['rest', 'wave', 'asleep']);
   assert.deepEqual(fox.cycles, ['walk', 'run', 'gallop']);
   assert.deepEqual(fox.cel.inputs.eye, ['open', 'happy', 'sleep', 'wide']);
@@ -85,7 +85,7 @@ test('the fox in the store: painter order survives the nesting, every part turns
   assert.deepEqual(g.kids.map((k) => k.name), ['body']);
   const order = [];
   walk(g.kids, (op) => { if (op.op === 'group' && op.name) order.push(op.name); });
-  assert.deepEqual(order, ['body', 'tail', 'arm-l', 'leg-l', 'leg-r', 'head', 'eye', 'mouth', 'arm-r']);
+  assert.deepEqual(order, ['body', 'tail', 'arm-l', 'leg-l', 'leg-r', 'head', 'eye', 'pupil', 'brow-l', 'brow-r', 'mouth', 'arm-r']);
 
   const head = g.kids[0].kids.find((k) => k.name === 'head');
   assert.deepEqual(head.xf, translate(0, -76), "a part's xf is its pivot taken relative to its parent's");

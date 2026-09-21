@@ -166,7 +166,10 @@ subject nobody can draw for you becomes a code cel.
 112, dir: 0.5 })`, `FOX.pose('wave', k)`, `FOX.cycle('walk', t)`. Parts turn
 about pivots in painter order; joints are degrees on a 2° step; `eye` and
 `mouth` are variants; `dir` picks the view (`1` side, `0.5` three-quarter,
-`0` front, negative mirrored) when the puppet has views.
+`0` front, negative mirrored) when the puppet has views. Parts may also slide
+and scale: `FOX({ 'pupil.x': 4, 'brow-l': -12, 'brow-r.y': -3 })` looks across
+and frets (`<part>.x/.y` slide in units, `<part>.sx/.sy` scale; the payload's
+`slide`/`scale`, or `data-slide`/`data-scale` in the SVG, give the ranges).
 
 `actorOf(puppet | cel | builder, spec)` makes a **cast member** every recipe
 can direct. `CAST.FOX` and `CAST.HOG` (the hedgehog) are ready; a new puppet
@@ -176,7 +179,7 @@ plain input objects a recipe merges and draws:
 ```js
 A.idle(t, seed)            // breathing, a blink, a tail, on the twos
 A.look(dir)                // -1 .. 1: facing, the view, the head turn
-A.emote('happy')           // happy | sleep | wide | sad | dot; a puppet's own pose of that name wins
+A.emote('happy')           // happy | sleep | wide | sad | worried; brows and pupil when it has them; its own pose of that name wins
 A.cycle('run', t)          // a declared cycle; a missing one is a two-pose bob that lint reports over 1 s
 A.say('hello there', t0)   // a fragment: mouth per syllable, letters in a bubble, a pluck per syllable
 A.place(x, y, s, state)    // the merged state on the doodle stage (centre x, y; feet at y + .86 s)

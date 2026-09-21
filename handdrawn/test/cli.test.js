@@ -70,9 +70,9 @@ test('model sheet: the fox brief is one list that hashes the same every run, a r
   assert.equal(hashList(a.list), hashList(b.list));
   assert.equal(a.H, b.H);
   const fox = puppet(st.json(entry));
-  // title, turnaround, expressions, hands and feet, poses, a strip per cycle, credits.
-  assert.equal(a.rows.length, 1 + 1 + 1 + 1 + 1 + fox.cycles.length + 1);
-  assert.deepEqual(a.rows, ['title', 'turnaround', 'expressions', 'hands and feet', 'poses', 'cycle walk', 'cycle run', 'cycle gallop', 'credits']);
+  // title, turnaround, expressions, slides, hands and feet, poses, a strip per cycle, credits.
+  assert.equal(a.rows.length, 1 + 1 + 1 + 1 + 1 + 1 + fox.cycles.length + 1);
+  assert.deepEqual(a.rows, ['title', 'turnaround', 'expressions', 'slides', 'hands and feet', 'poses', 'cycle walk', 'cycle run', 'cycle gallop', 'credits']);
   assert.deepEqual(lintList(a.list, look), [], 'role and cel-box hold over the page');
 });
 
@@ -141,7 +141,7 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     assert.equal(code, 0, out);
     assert.match(out, /^#fff1d6\s+19439\s+light\s+map$/m);
     assert.match(out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
-    assert.match(out, /fox\.jpg {2}7 looks x 16 states x 3 scales \+ 8 frames of walk$/m);
+    assert.match(out, /fox\.jpg {2}7 looks x 24 states x 3 scales \+ 8 frames of walk$/m);
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
     // The house fox is the SVG plus the gallop `hdf retarget` wrote into the store; the SVG alone is the rest.

@@ -101,6 +101,7 @@ export async function storeSheet(id, flags) {
   const cases = [...turn, ...poses.map((p) => [`pose ${p}`, make.poseOf(p, 1)])];
   if (!cases.length) cases.push(['rest', make.rest]);
   for (const [pn, part] of Object.entries(d.parts)) for (const k of Object.keys(part.variants ?? {})) cases.push([`${pn}=${k}`, { ...make.rest, [pn]: k }]);
+  for (const [k, [lo, hi]] of Object.entries(make.moves)) for (const v of [lo, hi]) cases.push([`${k}=${v}`, { ...make.rest, [k]: v }]);
 
   const cyc = flags.cycle === true ? make.cycles[0] : flags.cycle ? String(flags.cycle) : null;
   const c = cyc ? d.cycles?.[cyc] : null;
@@ -235,6 +236,15 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
   const faces = once([['neutral', face], ...Object.keys(EMOTES).map((e) => [e, { ...face, ...A.emote(e) }])]
     .map(([label, q]) => (heads ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q))));
   if (faces.length > 1) row('expressions', heads ? 'expressions, 2x' : 'expressions', faces, heads ? [] : lines);
+
+  // Slides and scales (4.0 K1): every such input at its min and its max, on the expression face; the head
+  // alone at 2x when the part is on the head.
+  const onHead = (n) => { for (let c = make.puppet.parts[n]?.parent; c !== undefined; c = make.puppet.parts[c]?.parent) if (c === 'head') return true; return n === 'head'; };
+  const moves = Object.entries(make.moves).flatMap(([k, [lo, hi]]) => [lo, hi].map((v) => {
+    const label = `${k} ${v}`, q = { ...face, [k]: v }, part = k.slice(0, k.lastIndexOf('.'));
+    return heads && onHead(part) ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q);
+  }));
+  row('slides', 'slides and scales', moves, heads ? [] : lines);
 
   // Hands and feet at 2x: every limb in every view it has a drawing of its own in.
   const limbs = make.parts.filter((n) => EXTREMITY.test(n)), seen = new Set(), ext = [];
