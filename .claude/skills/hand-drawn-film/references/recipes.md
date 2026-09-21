@@ -22,6 +22,13 @@ const open = establishing({ name: 'open', dur: 2, subject: () => gpu({ spin: 0 }
   establishing.layer(ctx, { mode }) })`).
 - Subjects are functions, so any cel rides any recipe:
   `subject: (ctx, mode) => node`. `mode` is `'ink'` or `'blueprint'`.
+- **`actor:`** a cast member (`core/actor.js`: `CAST.FOX`, `CAST.HOG`, or
+  `actorOf(puppet('owl'))`) takes the place of the recipe's subject or figure
+  in A, G, M, U, W, X and Z, drawn in its own roles whatever the mode; in G
+  it faces the way it travels and walks. Every doodle recipe AA to AM takes
+  it (default `HOG`); AC also takes `say:` (a fragment from
+  `actor.say(text, t0)`; the actor's mouth, the letters in the bubble and the
+  plucks come from one timing). `book3` pieces take `{ base, h, actor, state }`.
 - Coordinates inside recipes are v1's: a 1080 square around (540, 540).
   Other formats are handled by the shot's `fit` (default `anchor`).
 - `R.defaults` lists every option with its value; api.md lists the names.
@@ -151,18 +158,21 @@ a thin `figure`, then the paper dims to chalk (`dim`).
 
 ## Doodle look (cut-out photos)
 
-Every doodle recipe takes `photo` (a cutout from `hdf photo`, see
-engines.md) plus placement in photo units (`pivot`, `spout`, `hub`, `flame`:
-`[u, v]` read off the photo's check sheet), `who` (the character, `hog` by
-default), words, and `look` (the paper sheet). Each is 1.5 to 4 s: the object
-alone for a few frames, drawings arrive from several pens, a gag in the last
-third.
+Every doodle recipe takes `photo` (a cutout from the store, `PHOTOS.teapot`
+after `fromStore`; see assets.md) plus placement in photo units (`pivot`,
+`spout`, `hub`, `flame`: `[u, v]` read off the photo's check sheet), `actor`
+(the cast member, `HOG` by default; `who: builder` still works), words
+(`word: null` drops a caption), `paper` (a pastel sheet name, or `null` to
+keep the film's stock, as the cut-out look needs) and `look`. Each is 1.5 to
+4 s: the object alone for a few frames, drawings arrive from several pens,
+a gag in the last third. `fox-and-teapot.js` runs AC, AJ, AK and AF with the
+fox; `held-once.js` runs AA to AF with the hedgehog.
 
 | | function | what happens |
 |---|---|---|
 | AA | `becomesVehicle` | the object floats (`rot` to lay it down), mast, sail and sailor attached with `on(pl, u, v)` so they bob with it, water drawn over the hull, a far lighthouse |
 | AB | `livesInside` | characters drawn after the photo, then the front wall (`lip`) laid back over them; they rise into view |
-| AC | `doesItsJob` | it tips over its base (`pivot`) and pours from `spout` into drawn cups; steam turns into a heart |
+| AC | `doesItsJob` | it tips over its base (`pivot`) and pours from `spout` into drawn cups; steam turns into a heart; `say:` lets the actor greet it |
 | AD | `timeOnIt` | a drawn hand sweeps the real dial from `hub`, a sun crosses with it, the character falls asleep |
 | AE | `nightFalls` | the sheet goes to night (`k`), a match lights the `flame`, chalk stars and moon, a friend walks in |
 | AF | `printsOnALine` | the last frame of every scene (`lastFrame(shot)`) hung as prints on a string, then the sign-off (`a`, `b`) |
@@ -213,6 +223,7 @@ step)` gives a pentatonic pitch. Motifs (`handdrawn`, from
 | impact | `impact(t)`: a noise burst plus a 55 Hz sine |
 | gallery, sign-off | `dyad(t0, dur)`: a long sine dyad with a 1 s release |
 | sand | `bed.hiss()`: every gesture hisses for as long as it lasts |
+| speech | `line.events(t0)` from `actor.say()`: one pluck per syllable (`pluckPerSyllable(text, t0)` bare) |
 
 ```js
 score: ({ shots, end }) => {

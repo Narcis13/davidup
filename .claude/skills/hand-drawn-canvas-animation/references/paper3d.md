@@ -94,6 +94,36 @@ const g = shadowsBegin(); g.setTransform(c.getTransform()); shadow3(g, sheet, Q,
 quad3(c, sheet, Q, { n: 8, dark: shadeOf(Q) * .8 });
 ```
 
+## Unfolding a figure
+
+A page opening and a figure unfolding are separate actions. Revealing an
+already spread, full-size drawing in a single frame often makes it appear to
+pop into existence. Design a compact folded silhouette first and give the
+opening enough screen time to read.
+
+Animate the base rise, left hinge, right hinge and tail/fan with separate
+overlapping timing windows. A slight delay between sides can clarify the folds.
+Keep the attachment in page coordinates. Extend the silhouette above that
+attachment instead of scaling the entire drawing around its centre. Include
+a visible folded tab when transparent texture margins would leave a gap.
+
+Use `sheet.redraw(draw)` when the painted silhouette changes. It increments the
+sheet version so its cached shadow is regenerated. A wider figure needs a wider
+shadow; a static shadow under unfolding wings breaks the paper illusion. Update
+`piece.lean` from absolute time when its hinge rises, so backward seeking gives
+the same geometry. Reset every animated value on each evaluation.
+
+In [Becoming](../examples/becoming-phoenix/phoenix.html), `unfoldPhoenix` redraws
+the cut-out at 24 Hz. The two wings rotate in projection about authored shoulder
+hinges; the tail fans later. Its bottom remains fixed while its width and height
+increase. `paperScene` finishes the page turn early enough to leave time for
+these actions before the next material arrives. This is a projected illustration
+of folding, not a physical origami constraint solver.
+
+Inspect a consecutive strip of the opening and the normal-speed scene. Check
+the first visible size, order of folds, base contact, shadow growth, occlusion
+by the turning page and time to read the fully opened pose.
+
 ## Defects specific to this method
 
 - a sheet with no shading, or a piece with no shadow on its page;
@@ -105,3 +135,16 @@ quad3(c, sheet, Q, { n: 8, dark: shadeOf(Q) * .8 });
 - a camera that orbits continuously (it turns a book into a screensaver);
 - text drawn in the room instead of on a sheet, which breaks the illusion that
   everything in shot is paper.
+
+## Curved pages and limits
+
+quad3 accepts deform(worldPoint,u,v) and shadeMesh:true (for opaque sheets). The turning book leaf
+uses a restrained procedural curl, with the same deformation projected into its
+shadow. Cut-out attachment points follow the curved moving leaf. This is an illustration of flexible paper, not an inextensible sheet
+solver or a physically foldable pop-up mechanism. shadow3 accepts an optional
+final {deform,n} argument to keep the shadow consistent with a custom surface.
+
+Cut-outs are sorted by mean camera depth. This helps camera movement but cannot
+resolve intersecting sheets or cyclic overlap like a depth buffer. Stage these
+shots with non-intersecting layers and inspect occlusions. Supersample or refine
+the mesh when seams show. WebGL is optional future work, not required here.

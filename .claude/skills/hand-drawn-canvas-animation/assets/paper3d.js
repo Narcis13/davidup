@@ -29,13 +29,14 @@ function _tri(c, img, u0, v0, u1, v1, u2, v2, x0, y0, x1, y1, x2, y2) { const de
   const mx = (x0 + x1 + x2) / 3, my = (y0 + y1 + y2) / 3, g = (x, y) => { const dx = x - mx, dy = y - my, l = Math.hypot(dx, dy) || 1, k = (l + .9) / l; return [mx + dx * k, my + dy * k]; }, A = g(x0, y0), B = g(x1, y1), C = g(x2, y2);
   c.save(); c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.lineTo(C[0], C[1]); c.closePath(); c.clip(); c.transform(a, b, cc, d, e, f); c.drawImage(img, 0, 0); c.restore(); }
 // quad3: a sheet in space. opts: n = mesh density, al = opacity, dark = 0..1 shading, back = the sheet seen from behind, img = draw this canvas instead (shadows)
-function quad3(c, sheet, P, o = {}) { const { n = 10, al = 1, dark = 0, back = null, img = null } = o, S4 = P.map(proj3); if (S4.every(s => s[2] < 40)) return false;
+function quad3(c, sheet, P, o = {}) { const { n = 10, al = 1, dark = 0, back = null, img = null, deform = p => p, shadeMesh = false } = o, S4 = P.map(proj3); if (S4.every(s => s[2] < 40)) return false;
   const ctr = V3.mul(V3.add(V3.add(P[0], P[1]), V3.add(P[2], P[3])), .25), facing = V3.dot(V3.cross(V3.sub(P[1], P[0]), V3.sub(P[3], P[0])), V3.sub(CAM3.eye, ctr)) < 0, sh = facing || !back ? sheet : back; let src = img || sh.cv;
   if (!img && dark > .01) { _shadeCv.width = sh.cv.width; _shadeCv.height = sh.cv.height; const g = _shadeCv.getContext('2d'); g.drawImage(sh.cv, 0, 0); g.globalCompositeOperation = 'source-atop'; g.fillStyle = `rgba(24,14,30,${Math.min(.85, dark)})`; g.fillRect(0, 0, _shadeCv.width, _shadeCv.height); src = _shadeCv; }
-  const tw = src.width, th = src.height, grid = []; for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) { const u = i / n, v = j / n, top = V3.lerp(P[0], P[1], u), bot = V3.lerp(P[3], P[2], u); grid.push(proj3(V3.lerp(top, bot, v))); }
+  const tw = src.width, th = src.height, grid = [], worldGrid = []; for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) { const u = i / n, v = j / n, top = V3.lerp(P[0], P[1], u), bot = V3.lerp(P[3], P[2], u); const wp = deform(V3.lerp(top, bot, v), u, v); worldGrid.push(wp); grid.push(proj3(wp)); }
   c.save(); c.globalAlpha *= al; const flipU = !facing && back; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const p00 = grid[j * (n + 1) + i], p10 = grid[j * (n + 1) + i + 1], p01 = grid[(j + 1) * (n + 1) + i], p11 = grid[(j + 1) * (n + 1) + i + 1]; if (p00[2] < 40 || p10[2] < 40 || p01[2] < 40 || p11[2] < 40) continue;      // a cell behind the camera
       let u0 = i / n * tw, u1 = (i + 1) / n * tw; const v0 = j / n * th, v1 = (j + 1) / n * th; if (flipU) { u0 = tw - u0; u1 = tw - u1; }
-      _tri(c, src, u0, v0, u1, v0, u0, v1, p00[0], p00[1], p10[0], p10[1], p01[0], p01[1]); _tri(c, src, u1, v0, u1, v1, u0, v1, p10[0], p10[1], p11[0], p11[1], p01[0], p01[1]); }
+      _tri(c, src, u0, v0, u1, v0, u0, v1, p00[0], p00[1], p10[0], p10[1], p01[0], p01[1]); _tri(c, src, u1, v0, u1, v1, u0, v1, p10[0], p10[1], p11[0], p11[1], p01[0], p01[1]);
+      if (shadeMesh && !img) { const k = j * (n + 1) + i, amount = shadeOf([worldGrid[k], worldGrid[k + 1], worldGrid[k + n + 2], worldGrid[k + n + 1]]) * .55; c.save(); c.globalAlpha *= amount; c.fillStyle = '#21192a'; c.beginPath(); [p00,p10,p11,p01].forEach((p,i) => i ? c.lineTo(p[0],p[1]) : c.moveTo(p[0],p[1])); c.closePath(); c.fill(); c.restore(); } }
   c.restore(); return true; }
 const quadNormal = P => V3.norm(V3.cross(V3.sub(P[1], P[0]), V3.sub(P[3], P[0])));
 const shadeOf = P => { const k = Math.abs(V3.dot(quadNormal(P), LIGHT3)); return .46 * (1 - k); };                     // how much to darken a sheet at this angle to the lamp
@@ -44,8 +45,8 @@ const shadeOf = P => { const k = Math.abs(V3.dot(quadNormal(P), LIGHT3)); return
 let _shLayer = null;
 function shadowsBegin() { if (!_shLayer || _shLayer.width !== OUT_W || _shLayer.height !== OUT_H) { _shLayer = document.createElement('canvas'); _shLayer.width = OUT_W; _shLayer.height = OUT_H; } const g = _shLayer.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, OUT_W, OUT_H); return g; }
 function shadowsEnd(c, al = .32) { c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = al; c.drawImage(_shLayer, 0, 0); c.restore(); }
-function shadow3(c, sheet, P, r0, nrm, clipPoly, al = .34) { const dn = V3.dot(LIGHT3, nrm); if (Math.abs(dn) < .05) return; const Q = P.map(p => V3.add(V3.sub(p, V3.mul(LIGHT3, V3.dot(V3.sub(p, r0), nrm) / dn)), V3.mul(nrm, .6)));
-  c.save(); if (clipPoly) { c.beginPath(); clipPoly.map(proj3).forEach((s, i) => i ? c.lineTo(s[0], s[1]) : c.moveTo(s[0], s[1])); c.closePath(); c.clip(); } quad3(c, sheet, Q, { n: 6, al, img: _sil(sheet) }); c.restore(); }
+function shadow3(c, sheet, P, r0, nrm, clipPoly, al = .34, options = {}) { const dn = V3.dot(LIGHT3, nrm); if (Math.abs(dn) < .05) return; const Q = P.map(p => V3.add(V3.sub(p, V3.mul(LIGHT3, V3.dot(V3.sub(p, r0), nrm) / dn)), V3.mul(nrm, .6)));
+  c.save(); if (clipPoly) { c.beginPath(); clipPoly.map(proj3).forEach((s, i) => i ? c.lineTo(s[0], s[1]) : c.moveTo(s[0], s[1])); c.closePath(); c.clip(); } const deform = options.deform ? (p, u, v) => { const original = V3.lerp(V3.lerp(P[0], P[1], u), V3.lerp(P[3], P[2], u), v), bent = options.deform(original, u, v); return V3.add(V3.sub(bent, V3.mul(LIGHT3, V3.dot(V3.sub(bent, r0), nrm) / dn)), V3.mul(nrm, .6)); } : p => p; quad3(c, sheet, Q, { n: options.n || 6, al, img: _sil(sheet), deform }); c.restore(); }
 
 // ---------- the book ----------
 // A book is a cover and leaves hinged on the spine. state.turn counts the leaves that lie on the left: 0 = shut, 1 = the cover is open and
@@ -66,8 +67,19 @@ function book3({ PW = 460, PD = 620, spreads, cover, board = '#27335c', edge = '
   function collectAcross(pieces, angL, angR, open, yL, yR) { const fL = frame('L', angL), fR = frame('R', angR), e = easeOut(clamp((open - .1) / .85, 0, 1)), out = [];
     for (const p of pieces) { if (p.base[0][0] * p.base[1][0] >= 0) continue; const b0 = V3.add([0, yL, p.base[0][1]], V3.mul(fL.U, Math.abs(p.base[0][0]))), b1 = V3.add([0, yR, p.base[1][1]], V3.mul(fR.U, Math.abs(p.base[1][0]))), N = V3.norm(V3.add(fL.N, fR.N)), dir = V3.norm(V3.sub(b1, b0)), flat = V3.norm(V3.cross(N, dir)),
         th = (p.lean ?? 90) * Math.PI / 180 * clamp(e * (p.rise ?? 1), 0, 1), upv = V3.add(V3.mul(flat, Math.cos(th)), V3.mul(N, Math.sin(th))); out.push({ p, e, Q: [V3.add(b0, V3.mul(upv, p.h)), V3.add(b1, V3.mul(upv, p.h)), b1, b0], zc: (p.base[0][1] + p.base[1][1]) / 2, r0: [0, Math.max(yL, yR), 0], N: [0, 1, 0] }); } return out; }
-  function drawQuads(c, quads, clip) { quads.sort((a, b) => a.zc - b.zc); const casters = quads.filter(q => q.e > .03 && q.p.shadow !== false); if (casters.length) { const g = shadowsBegin(); g.setTransform(c.getTransform()); for (const q of casters) shadow3(g, q.p.sheet, q.Q, q.r0, q.N, clip, Math.min(1, q.e * 1.5)); shadowsEnd(c, .34); }
+  function drawQuads(c, quads, clip) { const depth = q => q.Q.reduce((v,p) => v + proj3(p)[2], 0) / 4; quads.sort((a, b) => depth(b) - depth(a)); const casters = quads.filter(q => q.e > .03 && q.p.shadow !== false); if (casters.length) { const g = shadowsBegin(); g.setTransform(c.getTransform()); for (const q of casters) shadow3(g, q.p.sheet, q.Q, q.r0, q.N, clip, Math.min(1, q.e * 1.5)); shadowsEnd(c, .34); }
     for (const q of quads) { if (q.e <= .015) continue; quad3(c, q.p.sheet, q.Q, { n: q.p.mesh ?? 8, dark: shadeOf(q.Q) * .85 + (1 - q.e) * .22, back: q.p.back || q.p.sheet, al: Math.min(1, q.e * 5) }); if (q.p.after) q.p.after(c, q.Q, q.e); } }
+  // Carry each cut-out foot with the curved leaf; the upper edge follows the
+  // same displacement. This is an artistic hinge, not a folding-constraint solve.
+  function attachToLeaf(quads, side, deform) {
+    for (const q of quads) for (let j = 0; j < 2; j++) {
+      const [x,z] = q.p.base[j]; if ((x < 0) !== (side === 'L')) continue;
+      const u = side === 'R' ? Math.abs(x) / PW : 1 - Math.abs(x) / PW;
+      const b = 3 - j, moved = deform(q.Q[b], u, (z + PD / 2) / PD), delta = V3.sub(moved, q.Q[b]);
+      q.Q[b] = moved; q.Q[j] = V3.add(q.Q[j], delta);
+    }
+    return quads;
+  }
   book.draw = (c, { turn }) => { const t = clamp(turn, 0, nS), k = Math.min(Math.floor(t + 1e-9), nS), fr = k >= nS ? 0 : t - k, yL = k * LEAF + 3, yR = (nS - k) * LEAF + 3, top = Math.max(yL, yR);
     // boards, then the two blocks of leaves
     { const QL = pageQuad('L', 0, 0, 10), QR = pageQuad('R', 0, 0, 10); if (k > 0 || fr > 0) quad3(c, boardSheet, QL, { n: 4, dark: shadeOf(QL) + .1 }); quad3(c, boardSheet, QR, { n: 4, dark: shadeOf(QR) + .1 }); }
@@ -80,6 +92,7 @@ function book3({ PW = 460, PD = 620, spreads, cover, board = '#27335c', edge = '
     if (shut) { const QL = pageQuad('L', 0, yL); quad3(c, shut.left, QL, { n: 12, dark: shadeOf(QL) + .12 * Math.sin(phi) * (phi > Math.PI / 2 ? 1 : 0) }); drawQuads(c, collect(shut.pieces, 'L', 0, 1 - openA, yL), QL); }
     { const QR = pageQuad('R', 0, yRu); quad3(c, opening.right, QR, { n: 12, dark: shadeOf(QR) + .12 * Math.sin(phi) * (phi < Math.PI / 2 ? 1 : 0) }); drawQuads(c, collect(opening.pieces, 'R', 0, openA, yRu), QR); }
     const side = phi <= Math.PI / 2 ? 'R' : 'L', lift = side === 'R' ? phi : Math.PI - phi, Q = pageQuad(side, lift, top, k === 0 ? 8 : 0), showing = side === 'R' ? (k === 0 ? cover : shut.right) : opening.left, under = pageQuad(side, 0, side === 'R' ? yRu : yL);
-    { const g = shadowsBegin(); g.setTransform(c.getTransform()); shadow3(g, showing, Q, [0, side === 'R' ? yRu : yL, 0], [0, 1, 0], under, 1); shadowsEnd(c, .24); } quad3(c, showing, Q, { n: 14, dark: shadeOf(Q) * 1.15 });
-    if (side === 'R' && shut) drawQuads(c, [...collect(shut.pieces, 'R', lift, 1 - openA, top), ...collectAcross(shut.pieces, 0, lift, 1 - openA, yL, top)], null); if (side === 'L') drawQuads(c, [...collect(opening.pieces, 'L', lift, openA, top), ...collectAcross(opening.pieces, lift, 0, openA, top, yRu)], null); };
+    const normal = V3.mul(quadNormal(Q), side === 'L' ? -1 : 1), curl = PW * .11 * Math.sin(phi), deform = (p, u) => V3.add(p, V3.mul(normal, curl * Math.sin(Math.PI * u)));
+    { const g = shadowsBegin(); g.setTransform(c.getTransform()); shadow3(g, showing, Q, [0, side === 'R' ? yRu : yL, 0], [0, 1, 0], under, 1, { deform, n: 14 }); shadowsEnd(c, .24); } quad3(c, showing, Q, { n: 18, dark: shadeOf(Q) * .65, deform, shadeMesh: true });
+    if (side === 'R' && shut) drawQuads(c, attachToLeaf([...collect(shut.pieces, 'R', lift, 1 - openA, top), ...collectAcross(shut.pieces, 0, lift, 1 - openA, yL, top)], side, deform), null); if (side === 'L') drawQuads(c, attachToLeaf([...collect(opening.pieces, 'L', lift, openA, top), ...collectAcross(opening.pieces, lift, 0, openA, top, yRu)], side, deform), null); };
   book.pageQuad = pageQuad; return book; }

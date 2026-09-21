@@ -526,6 +526,19 @@ a sprite renders with `davidup render`.)
 Done when: a fresh session given only the skill can put the fox through a
 doodle recipe in the user's hand without reading the source.
 
+(Built: SKILL.md is rewritten for 3.0 around the two rules (`hdf find` before drawing anything, an SVG before
+polylines) with sections for the store, the cast (puppets, actors, `say()`, turnarounds, the model sheet), the
+seven looks and the modifiers, hands end to end (template, the user's instructions, `hdf hand`, `~hand:`),
+retargeting and the phone, the davidup bridge, a seven-step procedure with the cast step, the 3.0 lint rules,
+a review list for cast, speech, cut-out and hand, and the 3.0 pitfalls. `references/assets.md` is new: store
+layout, one table of the kinds, the puppet and hand JSON, the SVG and Figma conventions on one page, the hand
+sheet and what to tell the user, clips, rigs, maps and the pose pipeline, pack mirrors. looks.md, recipes.md,
+engines.md and the brief template gained the cutout look, the modifiers, `actor:` and `say:`, store clips and
+photos, actor pieces on `book3` and cast / hand / store lines in the brief. `references/api.md` regenerated
+(unchanged), the v1 skill synced to upstream dc0083c. Checked the done-when by hand from the skill alone: a
+work film with `fromStore(['teapot', 'fox', 'test'])`, `doesItsJob({ actor: CAST.FOX, say: FOX.say(...) })`
+and `look: 'doodlePastel~hand:test'` lints clean and renders the fox greeting the teapot in the test hand.)
+
 ---
 
 ## Order and progress
@@ -548,7 +561,7 @@ doodle recipe in the user's hand without reading the source.
 | S14 | Skeletons + retarget | S4 | (prereq) | [x] |
 | S15 | Motion from your phone | S14 | motion from your phone | [x] |
 | S16 | Store ↔ davidup | S2 | davidup asset source | [x] |
-| S17 | The 3.0 skill | all | — | [ ] |
+| S17 | The 3.0 skill | all | — | [x] |
 
 S9, S10, S11, S13 and S16 only need what is listed and can be pulled forward
 whenever a session ahead of them is blocked.

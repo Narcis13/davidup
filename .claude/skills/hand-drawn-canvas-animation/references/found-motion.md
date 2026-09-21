@@ -63,7 +63,7 @@ another clip rather than fighting it.
 ## Drawing with a clip
 
 ```js
-roto(c, 'horse', i, { x: 540, y: 800, h: 470, wash: '#b98457', seed: 5 });
+rotoAt(c, 'horse', tau, { x: CX, y: CY + 260, h: 470, wash: PAL.fills[0], seed: 5 });
 ```
 
 | call | what it does |
@@ -74,9 +74,10 @@ roto(c, 'horse', i, { x: 540, y: 800, h: 470, wash: '#b98457', seed: 5 });
 | `rotoAirborne(name)` | the pose that is highest off the ground |
 | `rotoPose(name, k)` | the raw `{ outer, lines }` of a pose, for feeding another engine (the sand film runs the horse's silhouette through `sandLive`) |
 
-- **One pose per drawn frame.** `roto(c, 'horse', i, ...)` with the global drawn
-  frame `i` gives the cadence the source was shot at. Half speed is
-  `Math.floor(i / 2)`, and a held pose is a number.
+- **Time-based playback.** rotoAt(c,name,seconds,{speed,offset,loop,...})
+  samples using the clip's source fps. offset is seconds, speed defaults to 1,
+  loop defaults to true. Use loop:false to clamp at the ends. roto(c,name,k)
+  still takes a pose index; passing legacy i assumes the clip is 12 fps.
 - **The clip keeps its own ground.** `y` is where the feet touch; a pose in the
   air lifts itself. Never re-centre a pose by hand.
 - **It is a drawing, not a cut-out.** Give it a `wash` in the film's palette,
@@ -103,8 +104,18 @@ own motion: an elephant's walk, a bird's wingbeat, a child's run, a dancer.
 ## Defects specific to this method
 
 - a pose re-centred by hand, so the figure bobs on a flat ground;
-- a clip drawn at 24 poses a second (it reads as video, not as drawing);
+- source cadence accidentally doubled or halved; choose exposure deliberately;
 - silhouettes with no `wash` or `fill` over a busy background;
 - a source with no recorded licence, or a Wikimedia fetch that hammers the API;
 - a check sheet never looked at: the commonest failure is two figures merged
   into one and nobody noticed.
+
+## Tracing limits
+
+Dark/light threshold tracing produces external silhouettes, not reconstructed
+facial features or anatomy. roto now outlines these silhouettes when no internal
+lines are present. Disc mode retains traced internal strokes. Neither mode
+provides semantic tracking or automatically corresponding strokes across frames.
+Inspect topology changes and occlusions; redraw key views when tracing fails.
+Do not interpolate unrelated contour vertices. Source motion is useful timing
+reference, not a guarantee of good character design.

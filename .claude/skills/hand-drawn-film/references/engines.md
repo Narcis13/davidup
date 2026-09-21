@@ -21,13 +21,16 @@ user's video (`ffmpeg -i clip.mp4 -vf fps=12 frames/%03d.png`). Fetch from
 Wikimedia one file at a time with a real User-Agent; stop on a 429. Record
 file page and licence.
 
-**Tracing.** `roto.py` is v1's, copied unchanged; `hdf clip` converts:
+**Tracing.** `roto.py` is v1's, copied unchanged; `hdf clip` converts and
+`hdf import --v2` puts the clip in the store (the store already holds
+`horse`, `elephant`, `kangaroo`, `pigeons`: `hdf find --kind clip`):
 
 ```bash
 ffmpeg -v error -i horse.gif -vsync 0 work/horse/%03d.png
 python3 cli/roto.py work/horse --name horse --kind disc --drop-last --js work/clips.js \
   --credit "Eadweard Muybridge, Descriptive Zoopraxography (1893), public domain" --source https://commons.wikimedia.org/wiki/File:...
-node cli/hdf.mjs clip work/clips.js --js work/<film>/clips.js
+node cli/hdf.mjs clip work/clips.js --js work/<film>/clips.js --rig quadruped     # --rig: a skeleton per frame
+node cli/hdf.mjs import --v2 work/<film>/clips.js --licence PD
 ```
 
 Look at roto.py's check sheet: every pose one clean figure standing on the
@@ -39,8 +42,8 @@ card, pick another clip rather than fighting it.
 **Drawing.**
 
 ```js
-import CLIPS from './clips.js';
-registerClips(CLIPS);                                              // at module top: every worker imports it
+fromStore(['horse']);                                              // at module top: every worker imports it
+clipFromStore('horse');                                            // hands the record to the engine (registerClips(CLIPS) for inline 2.0 data)
 traced('horse', i, { x: CX, y: GY, h: 470, wash: 'fills.0', seed: 5 + boil(i, 2) })   // pose i, feet at (x, y)
 meta('anchor', { name: 'traced:horse' })
 ```
@@ -60,6 +63,19 @@ ground, `airborne(name)` the pose highest off it, `pose(name, k)` the raw
 - Stories that come with their motion: Muybridge's question (do all four
   hooves leave the ground?) answered by the airborne pose; 12 poses tiled as a
   disc that spins one pose per drawn frame so the figures run on the spot.
+
+**Retargeting (3.0).** The motion can leave the traced drawing and drive a
+puppet: `hdf clip --store horse --rig quadruped` labels a skeleton per frame,
+`hdf retarget --clip horse --to fox --map horse-fox.json --name gallop` turns
+the chain directions into the fox's joints (2° steps) with a `lift` per frame,
+and `FOX.cycle('gallop', t)` is the horse's gallop on the fox
+(`fox-and-teapot.js`, the chase). The user's own movement goes the same way:
+`ffmpeg -i me.mov -vf fps=30 work/me/%04d.png`, `hdf clip --kind pose work/me
+--name me` (MediaPipe, python) and `hdf retarget --clip me --to fox --map
+biped-fox.json --name walk`. Maps, rigs and the pose pipeline: `assets.md`,
+"Clips, skeletons, retargeting, the phone". Check the strip (`hdf sheet
+store fox --cycle gallop`) before the film: it must read as the source's
+verb.
 
 ## Sand (`engines/sim.js`, example `one-year.js`)
 
@@ -150,7 +166,11 @@ stage3d({ cam, look: ctx.look }, sheet3(moon, [TL, TR, BR, BL]))                
   A piece `{ base: [[x0, z0], [x1, z1]], h, card, lean, rise, back, mesh }`
   lies flat while its spread is shut and stands as it opens; `x` is distance
   from the spine (negative on the left page), a base across the spine folds
-  with both pages.
+  with both pages. A piece may stand an actor instead of a card: `{ base, h,
+  actor, state, face }`. It turns with the page (front flat, three-quarter as
+  it lifts, side upright, as far as the puppet has the views) and stays
+  upright; `state` is its inputs or `u => inputs` with `u` the page lift
+  (`fox-and-teapot.js`, the turn shot).
 - Cut-outs are the whole trick: one silhouette per piece, no modelling. Shade
   by angle always (a sheet with no shading reads as a sticker), shadows on the
   page as well as the table.
@@ -169,21 +189,26 @@ recorded source and licence (museum open-access collections are the usual
 source: The Met, Rijksmuseum, Smithsonian, CC0).
 
 ```bash
+node cli/hdf.mjs find --kind cutout                # seven Met objects are in the store already
 node cli/hdf.mjs photo teapot.jpg --name teapot --credit "Teapot, ca. 1755, The Met, CC0" \
   --source https://www.metmuseum.org/... --js work/<film>/photos.js
+node cli/hdf.mjs import --v2 work/<film>/photos.js --licence CC0
 ```
 
 It cuts the object out (`rembg` if on PATH, else a colour flood: `--flood`,
 `--keep` for a file with alpha, `--punch u,v` to clear an enclosed hole),
-traces its silhouette, writes the cutout into the photos module, and writes
-`out/photo-<name>.jpg`: the cutout on magenta (halos show) with the traced
-silhouette, and on paper with a u,v grid every 0.1. **Look at it**: read the
-anchor points (spout, hub, lip) off that grid for the doodle recipes.
+traces its silhouette and colours, writes the cutout into the photos module
+(which `import --v2` moves into the store), and writes `out/photo-<name>.jpg`:
+the cutout on magenta (halos show) with the traced silhouette, and on paper
+with a u,v grid every 0.1. **Look at it**: read the anchor points (spout,
+hub, lip) off that grid for the doodle recipes.
 
 ```js
-import PHOTOS from './photos.js';
-const tea = doesItsJob({ name: 'tea', photo: PHOTOS.teapot, spout: [0.005, 0.27], handle: [0.86, 0.1] });
-export default film({ name, look: LOOKS.doodlePastel, timeline: seq(tea, ...), assets: PHOTOS });
+import { fromStore } from 'handdrawn/core/assets.js';
+const IDS = ['teapot', 'fox'];
+const PHOTOS = fromStore(IDS);
+const tea = doesItsJob({ name: 'tea', photo: PHOTOS.teapot, spout: [0.005, 0.27], handle: [0.86, 0.1], actor: CAST.FOX });
+export default film({ name, look: LOOKS.doodlePastel, timeline: seq(tea, ...), assets: IDS });
 ```
 
 By hand: `pin(photo, { x, y, h, rot, flip, pivot })` places it, `photo(pl)`

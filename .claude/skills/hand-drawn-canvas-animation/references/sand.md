@@ -131,7 +131,20 @@ where the hand stops.
 - a hand that teleports between gestures, or a gesture with the hand still in
   the way of the payoff;
 - the table swept clean without `keep`, leaving black bars;
-- a camera that never moves, when the world is bigger than the frame;
+- camera motion that weakens readability or exposes insufficient material detail;
 - letters poured with a wide `r` (they close up and turn into blobs);
-- a bed rebuilt from zero every frame by seeking backwards in a loop: only ever
-  ask for time going forwards.
+- repeated unnecessary backward seeking during sequential rendering. The engine
+  retains up to 12 two-second state checkpoints to make interactive seeking cheaper.
+
+## Material and verification
+
+The output cadence defaults to 24 fps while simulation stays at fixed 1/48 s.
+Grain is sampled in table coordinates, so a camera move no longer leaves a
+screen-fixed grain overlay behind. It is a procedural microstructure, not a
+tracked simulation of individual grains under wind. Wipe redistribution is
+normalised; keep controls the fraction retained, with material carried off at
+table boundaries when there is no receiving region. Check mass away from edges.
+
+sandLive is an artistic overlay that does not move the bed. Use it for a magical
+transformation, not as evidence of physical grain transport. Test close-up pour,
+wipe, residue and camera movement before expanding a continuous story.

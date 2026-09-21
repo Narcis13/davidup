@@ -42,7 +42,7 @@
 // 35.4  pours two words                                  one seed
 // ============================================================
 const HANDLE = '@superalesha', WORLD = 3000, GY = 1850, TX = 1150, SX = 2180;
-const key = (t, K) => { let v = K[0].slice(1); for (let k = 0; k + 1 < K.length; k++) if (t >= K[k][0]) { const u = easeIO(clamp((t - K[k][0]) / (K[k + 1][0] - K[k][0]), 0, 1)); v = K[k].slice(1).map((a, n) => lerp(a, K[k + 1][n + 1], u)); } return v; };
+// key(t, K) comes from core.js: keyframes [[t, ...values]], eased per segment
 const row = (y, x0, x1, n, wob = 20) => Array.from({ length: n }, (_, k) => [lerp(x0, x1, k / (n - 1)), y + Math.sin(k * 1.3) * wob]);
 const P = (t0, t1, pts, o = {}, hand) => Object.assign(G.pour(t0, t1, pts, o), hand === undefined ? {} : { hand });
 const SP = (t0, t1, pts, o = {}, hand) => Object.assign(G.sprinkle(t0, t1, pts, o), hand === undefined ? {} : { hand });

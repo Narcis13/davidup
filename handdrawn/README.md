@@ -745,7 +745,8 @@ before the first full render.
 | `references/api.md` | every export, one line each, generated from the source comments by `node cli/apidoc.mjs` (a test fails if it is stale) |
 | `references/recipes.md` | every recipe with timing, plus editing rules and the score motifs |
 | `references/looks.md` | roles, presets, deriving palettes, finishes, riso plates |
-| `references/engines.md` | found motion, sand, paper in space and photos, condensed |
+| `references/engines.md` | found motion (and retargeting), sand, paper in space and photos, condensed |
+| `references/assets.md` | the store: every schema, the importers, the SVG and Figma conventions, the hand sheet, rigs and retarget maps, the davidup bridge |
 | `references/brief-template.md` | the brief |
 | `examples/` | a link to `handdrawn/films/` |
 

@@ -8,8 +8,9 @@ on warm paper, riso dots, a screen print or graphite by changing one name, and
 why `hdf sheet` can show every cel in every look.
 
 `tools` holds each tool's defaults (the pen is 2.6 wide, 1.6 in
-`pencilMinimal`, 4 in `doodlePastel`); a stroke without its own `w` or
-`wobble` takes them. `edition` (0 in every preset) reseeds every shot drawn in
+`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`); a stroke without its
+own `w` or `wobble` takes them, and under a look with a `hand` the hand's pen
+profile comes first (see Modifiers below). `edition` (0 in every preset) reseeds every shot drawn in
 the look: `withLook('risoPop', { edition: 2 })` is a second print of the same
 film, with other hatching, grain, wobble and dot jitter. Ops with an explicit
 `seed` keep it.
@@ -45,6 +46,7 @@ never a new hue for depth.
 | `pencilMinimal` | cream and charcoal, pale sections, thin graphite (the website) | `#f4efe4` / `#27251f` | graphite | cream |
 | `blueprintNight` | chalk on navy only | `#0b0d1f` / `#0b0d1f` | hatch | night |
 | `doodlePastel` | pastel paper, brush-pen ink, watercolour fills (the doodle film) | `#efd2d1` / `#2c2f5e` | wash | pastel |
+| `cutout` | printed card on a table: rust, teal, mustard, olive; a thin steady pen (Gilliam) | `#e6dcc4` / `#1e1b26` | flat | card |
 
 The flipbook is 45% cream paper, then navy, tan, teal and plum, a third of
 pixels saturated; the boat film is 41% blues; the website 92% cream and
@@ -68,13 +70,14 @@ look: withLook('pencilMinimal', { words: 3 })                           // allow
 - `derive(look, { hue, sat, light })` rotates hue (degrees), multiplies
   saturation, adds lightness across fills, accents, inks, shade and blush;
   paper, ink, night and light stay. A cool or warm variant without repainting.
-- `derive(look, { from })` takes `from` a cutout record (`hdf photo` writes its
-  `colours` table; `hdf photo --refresh <photos.js>` adds one to an older
-  module): `fills` become its colours biggest area first, `accents` its four
-  most saturated at mid lightness, `inks` end on its darkest saturated colour,
-  `shade` on its darkest and `blush` on its warmest. The sheet does not move.
-  On the command line it is `--look 'doodlePastel~from:teapot'`, which reaches
-  the looks a film pins shot by shot too, each keeping its own paper.
+- `derive(look, { from })` takes `from` a cutout record from the store
+  (`PHOTOS.teapot` after `fromStore`; every cutout carries a `colours` table,
+  `hdf photo --refresh <photos.js>` adds one to a 2.0 module): `fills`
+  become its colours biggest area first, `accents` its four most saturated at
+  mid lightness, `inks` end on its darkest saturated colour, `shade` on its
+  darkest and `blush` on its warmest. The sheet does not move. On the command
+  line it is `--look 'doodlePastel~from:teapot'`, which reaches the looks a
+  film pins shot by shot too, each keeping its own paper.
 - `duotone(look, a, b)`: one or two shots in two inks inside a colour film is
   a strong beat (recipe Q, `duotoneBeat`).
 - `pastel(look, sheet)`: `rose mint butter sky cream peach lilac sand night`,
@@ -83,6 +86,35 @@ look: withLook('pencilMinimal', { words: 3 })                           // allow
 - A look changes only on a cut: give the shot `{ look }`, or wrap a subtree
   in `lookOn`. Lint fails a look op inside a shot (except a print's
   thumbnail marked `inset: true`).
+
+## Modifiers: `~hand:` and `~from:`
+
+A preset name may carry modifiers, applied in this order and folded into the
+look's name (so caches never collide): `'risoPop~hand:narcis'`,
+`'doodlePastel~from:teapot'`, `'paperInk~hand:test~from:violin'`.
+
+- `~hand:<id>`: `look.hand` becomes that store hand (`assets.md`, "Hands").
+  Every `handText`, sign-off, doodle reveal and pen stroke of the film is
+  lettered and drawn in it; a stroke with `wobble: 0` (hatching, rules) is
+  not. Absent, the house hand: byte-identical to 2.0.
+- `~from:<id>`: `derive(look, { from })` with that cutout's colours table.
+- They work in `film({ look })` and a shot's `look` (name the id in
+  `assets:`), and as `--look` on any command (found in the store by itself),
+  where they also reach the looks shots pin, each keeping its own paper.
+- `withLook(base, { hand: record })` pins a hand record directly.
+
+## The cut-out look
+
+`cutout` is a look, not an engine: `finish: 'flat'` (no hatch, no dots), the
+`card` stock, and a `cutout` field only the finish pass reads. Under it every
+**puppet** on screen is rebuilt as card on a table: each part with a pivot of
+its own becomes a piece with a soft shadow down-right, a light paper edge
+up-left and a brass fastener (`accents.2`) at its pivot; pivotless parts (an
+eye, a mouth) are printed on their piece; the whole puppet is squashed a
+touch (`tilt`) as if the camera sat above the table. Code cels and photos are
+drawn as usual. The film changes nothing but `look: LOOKS.cutout` (and
+`paper: null` on doodle recipes so the card shows); `cutout-fox.js` is
+`fox-and-teapot.js` under it. It allows 3 words a shot, like doodle.
 
 ## Finishes
 
