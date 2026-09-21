@@ -5,7 +5,7 @@ import { cel, place, shot, seq, par, hold, cut, lookOn, film } from '../core/tre
 import { paper, night, fill, stroke, text, fx, lookNode, meta, circle, rect } from '../core/list.js';
 import { ramp } from '../core/curves.js';
 import { signOff } from '../core/text.js';
-import { lint, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
+import { lint, lintList, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
 import { actorOf } from '../core/actor.js';
 import { puppet } from '../core/puppet.js';
 import mini from '../films/mini.js';
@@ -178,4 +178,12 @@ test('inspect summarises shots for the board; hold and par plays are covered', (
     ['a', 0, 12, 'paperInk', true], ['b', 0, 12, 'risoPop', true], ['a', 12, 1, 'paperInk', true], ['end', 18, 24, 'paperInk', true],
   ]);
   assert.ok(Object.keys(RULES).length >= 16);
+});
+
+test('lintList: role and cel-box over a list that is not a shot (a model sheet)', () => {
+  const big = cel('big', () => [fill(circle(0, 0, 90), 'fills.0')], { box: [-10, -10, 20, 20] });
+  assert.deepEqual(lintList([paper(), place(100, 100, dot())], 'paperInk'), []);
+  const f = lintList([paper(), place(100, 100, big()), fill(circle(0, 0, 5), '#ff0000')], 'paperInk', 'page');
+  assert.deepEqual(f.map((x) => x.rule).sort(), ['cel-box', 'role']);
+  assert.equal(f[0].shot, 'page');
 });

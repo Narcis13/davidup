@@ -267,6 +267,14 @@ function gridRule(film, F) {
   for (const t of c.cuts) if (off(t)) F.add('grid', null, Math.round(t * FPS), `cut at ${t} s is off the 1/${FPS} s grid`, `cut${t}`);
 }
 
+// lintList(list, look, name) => findings over a display list that is not a shot (a model sheet): the
+// per-frame checks that make sense of any drawing, `role` and `cel-box`.
+export function lintList(list, look, name = 'list') {
+  const F = finder();
+  scan(norm(list), look, (rule, detail, key) => { if (rule === 'role' || rule === 'cel-box') F.add(rule, name, null, detail, key); });
+  return F.list;
+}
+
 // ---------- puppets ----------
 
 // Every op field that holds a role, so a hex that came in from a drawing program is found wherever it sits.

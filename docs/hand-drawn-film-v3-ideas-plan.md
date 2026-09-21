@@ -441,7 +441,7 @@ doodle recipe in the user's hand without reading the source.
 | S5 | Actor contract | S4 | (prereq) | [x] |
 | S6 | SVG import | S4 | (prereq) | [x] |
 | S7 | Turnarounds | S5, S6 | turnarounds | [x] |
-| S8 | Pose sheets as briefs | S7 | pose sheets | [ ] |
+| S8 | Pose sheets as briefs | S7 | pose sheets | [x] |
 | S9 | Speech scribbles | S5 | speech scribbles | [ ] |
 | S10 | Cut-out look | S4 | cut-out look | [ ] |
 | S11 | Hands part 1 | S2 | same film, two hands | [ ] |

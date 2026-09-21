@@ -44,6 +44,26 @@ test('board, sheet and changed write their images', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('model sheet: the fox brief is one list that hashes the same every run, a row for each thing it has', async () => {
+  const { modelSheet } = await import('../cli/sheet.mjs');
+  const { readCatalogue, ASSET_ROOT } = await import('../core/assets.js');
+  const { puppet } = await import('../core/puppet.js');
+  const { hashList } = await import('../core/list.js');
+  const { lintList } = await import('../core/lint.js');
+  const { resolveLook } = await import('../core/looks.js');
+  const st = readCatalogue(ASSET_ROOT), entry = st.entry('fox'), look = resolveLook('risoPop');
+  // Two runs from two separately read payloads (nothing memoised between them).
+  const run = () => modelSheet(puppet({ ...JSON.parse(JSON.stringify(st.json(entry))), name: 'fox' }), { entry, look });
+  const a = run(), b = run();
+  assert.equal(hashList(a.list), hashList(b.list));
+  assert.equal(a.H, b.H);
+  const fox = puppet(st.json(entry));
+  // title, turnaround, expressions, hands and feet, poses, a strip per cycle, credits.
+  assert.equal(a.rows.length, 1 + 1 + 1 + 1 + 1 + fox.cycles.length + 1);
+  assert.deepEqual(a.rows, ['title', 'turnaround', 'expressions', 'hands and feet', 'poses', 'cycle walk', 'cycle run', 'credits']);
+  assert.deepEqual(lintList(a.list, look), [], 'role and cel-box hold over the page');
+});
+
 test('sheet store: a puppet in the store gets the check sheet hdf find points at', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'hdf-puppet-'));
   try {
@@ -58,6 +78,11 @@ test('sheet store: a puppet in the store gets the check sheet hdf find points at
     assert.equal(code, 0, out);
     assert.match(out, /blob\.jpg {2}6 looks x 1 state x 3 scales \+ 2 frames of bob$/m);
     assert.ok(existsSync(join(root, 'sheets', 'blob.jpg')));
+    // The model sheet of a puppet with no views, head, limbs or poses: what it has, and nothing empty.
+    const model = await hdf('sheet', 'store', 'blob', '--poses', '--look', 'risoPop', '--root', root);
+    assert.equal(model.code, 0, model.out);
+    assert.match(model.out, /blob-model\.jpg {2}model sheet in risoPop, 4 rows: title, turnaround, cycle bob, credits/);
+    assert.ok(existsSync(join(root, 'sheets', 'blob-model.jpg')));
     assert.match((await hdf('find', 'blob', '--root', root)).out, /sheets.blob\.jpg/, 'hdf find sends you to the sheet it just wrote');
     assert.equal((await hdf('sheet', 'store', 'nope', '--root', root)).code, 1);
     assert.equal((await hdf('sheet', 'store', 'blob', '--cycle', 'trot', '--root', root)).code, 2);

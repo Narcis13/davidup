@@ -10,16 +10,26 @@
 // every variant of every part; a puppet with views (a turnaround) gets a column for every view each way round
 // first; `--cycle` adds the cycle's frames as a strip along the bottom. It writes
 // assets/sheets/<id>.jpg, which is what `hdf find` points at.
+//
+// hdf sheet store <id> --poses [--look risoPop]: the model sheet, the brief you hand a client before a frame
+// is rendered. One page in one look (default doodlePastel), top to bottom: a title card in hand lettering,
+// the turnaround (every view each way round, on construction lines), the expressions (neutral and every
+// emote name, the head at 2x), hands and feet at 2x (every limb in every view it is drawn in), every named
+// pose, every cycle as a strip, and a credits line. The page is one display list, so it hashes, and lint's
+// `role` and `cel-box` run over it before any pixel does. It writes assets/sheets/<id>-model.jpg.
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
-import { fill, group, hashList, paper, rect, stroke, walk, xf } from '../core/list.js';
+import { actorOf, EMOTES } from '../core/actor.js';
+import { bounds, fill, group, hashList, line, paper, rect, stroke, walk, xf } from '../core/list.js';
+import { formatFinding, lintList } from '../core/lint.js';
 import { LOOKS, resolveLook } from '../core/looks.js';
 import { VIEW_DIRS, puppet } from '../core/puppet.js';
 import { hash32 } from '../core/rand.js';
+import { handText, measure } from '../core/text.js';
 import { frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
 import { imagesOf, UsageError } from './load.mjs';
@@ -76,6 +86,7 @@ export async function storeSheet(id, flags) {
   const e = st.entry(id);
   if (e.kind !== 'puppet') throw new UsageError(`sheet: '${id}' is a ${e.kind}; hdf sheet store draws a puppet (hdf sheet <film.js> <cel> for a cel)`);
   const d = st.json(e), make = puppet({ ...d, name: id });
+  if (flags.poses) return modelSheetFile(make, e, st, flags);
 
   const poses = flags.pose ? [String(flags.pose)] : make.poses;
   // The turnaround: side, three-quarter, front, three-quarter mirrored, side mirrored.
@@ -131,4 +142,140 @@ export async function celSheet(make, meta, { look: filmLook, format: fmt, images
   }
   await tileSheet(tiles, { cols, label: 18 }).toFile(file, { quality });
   return { looks: Object.keys(LOOKS).length, variants: vs.length };
+}
+
+// ---------- the model sheet ----------
+
+const PAGE = 1760, MARGIN = 64, GAP = 24, FIG = [180, 230], LABEL = 36;   // logical units; FIG: a figure's most
+const EXTREMITY = /^(arm|hand|paw|leg|foot|feet)\b/;                        // width and height on the sheet
+
+// Words the hand lettering can draw: accents dropped, anything it has no glyph for a space.
+const lettered = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^0-9A-Za-z.,:'\-!?& ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+// The part named n lifted out of a drawing with its parent's matrix: { g, own } (own: its drawing alone,
+// so the same limb drawn again in another view dedups), or null.
+function partOf(list, n) {
+  let hit = null;
+  walk(list, (op, m) => {
+    if (hit) return false;
+    if (op.op === 'group' && op.name === n) { hit = { g: group({ name: `part:${n}`, xf: m }, [op]), own: op.kids }; return false; }
+  });
+  return hit;
+}
+
+// modelSheet(make, { entry, look }) => { list, W, H, rows }: the model sheet of a puppet as one display
+// list on a PAGE-wide page, and the names of its rows. make is a puppet (puppet(id)), entry its catalogue
+// record (credits), look the look it is drawn in (its name goes in the credits).
+export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {}) {
+  const id = entry.name ?? make.cel.name, A = actorOf(make), [bx, by, bw, bh] = make.cel.box;
+  const S = Math.min(FIG[0] / bw, FIG[1] / bh);   // every figure on the sheet at the one scale
+  const views = make.views ?? [];
+
+  // A cell: { key, label, w, h, at(x, y) => op drawn in the box [x, y, w, h] }.
+  const figure = (label, inputs) => {
+    const g = make(inputs);
+    return { key: hashList([g]), label, w: bw * S, h: bh * S, at: (x, y) => place(x - bx * S, y - by * S, { scale: S }, g) };
+  };
+  const lifted = (label, { g, own }, k, key = hashList([g])) => {
+    const [x0, y0, w, h] = bounds([g]);
+    return { key, own, label, w: w * k, h: h * k, at: (x, y) => place(x - x0 * k, y - y0 * k, { scale: k }, g) };
+  };
+  const once = (cells) => { const seen = new Set(); return cells.filter((c) => !seen.has(c.key) && seen.add(c.key)); };
+  const rows = [];
+  // guides: construction lines across the row, at these heights in the puppet's units (figure rows only).
+  const row = (name, heading, cells, guides = []) => { if (cells.length) rows.push({ name, heading, cells, guides }); };
+  const ground = make.ground[1], lines = [ground];
+
+  // The turnaround: side, three-quarter, front, three-quarter mirrored, side mirrored, on lines at the top of
+  // the box, the neck and the ground.
+  if (views.length) {
+    const dirs = [...new Set(views.map((v) => VIEW_DIRS[v] ?? 1))].sort((a, b) => b - a);
+    const turn = [...dirs, ...dirs.filter((v) => v > 0).reverse().map((v) => -v)];
+    const neck = make.parts.includes('head') ? [make.pivotAt('head', views[0])[1]] : [];
+    row('turnaround', 'turnaround', once(turn.map((dir) => figure(`${make.viewOf(dir)}${dir < 0 ? ', mirrored' : ''}`, { ...make.rest, dir }))), [by, ...neck, ground]);
+  } else row('turnaround', 'rest', [figure('rest', make.rest)], lines);
+
+  // Expressions: neutral and every emote, turned three-quarter when the puppet has that view; the head
+  // alone at 2x when it has a head.
+  const face = views.includes('three-quarter') ? { ...make.rest, ...A.look(0.5) } : make.rest;
+  const heads = make.parts.includes('head');
+  const faces = once([['neutral', face], ...Object.keys(EMOTES).map((e) => [e, { ...face, ...A.emote(e) }])]
+    .map(([label, q]) => (heads ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q))));
+  if (faces.length > 1) row('expressions', heads ? 'expressions, 2x' : 'expressions', faces, heads ? [] : lines);
+
+  // Hands and feet at 2x: every limb in every view it has a drawing of its own in.
+  const limbs = make.parts.filter((n) => EXTREMITY.test(n)), seen = new Set(), ext = [];
+  for (const V of views.length ? views : [null]) {
+    const list = [make(V ? { ...make.rest, dir: VIEW_DIRS[V] ?? 1 } : make.rest)];
+    for (const n of limbs) {
+      const p = partOf(list, n), key = p && hashList(p.own);
+      if (!p || seen.has(key)) continue;
+      seen.add(key);
+      ext.push(lifted(views.length > 1 ? `${n}, ${V}` : n, p, 2 * S, key));
+    }
+  }
+  row('hands and feet', 'hands and feet, 2x', ext);
+
+  row('poses', 'poses', make.poses.filter((p) => p !== 'rest').map((p) => figure(p, make.poseOf(p, 1))), lines);
+  const cycles = make.puppet.cycles ?? {};
+  for (const cyc of make.cycles) {
+    const c = cycles[cyc], fps = c.fps ?? FPS;
+    row(`cycle ${cyc}`, `${cyc}, ${c.frames.length} frames at ${fps} fps`, c.frames.map((_, j) => figure(String(j), make.frameOf(cyc, j / fps))), lines);
+  }
+
+  // Top to bottom: the title card, the rows, the credits.
+  const list = [paper()], right = PAGE - MARGIN;
+  let y = MARGIN;
+  const nViews = Math.max(1, views.length), nPoses = make.poses.filter((p) => p !== 'rest').length;
+  list.push(
+    handText(lettered(id), MARGIN, y + 96, { size: 112 }),
+    handText('model sheet', right, y + 60, { size: 44, align: 'right' }),
+    handText(`${nViews} view${nViews > 1 ? 's' : ''}, ${nPoses} pose${nPoses === 1 ? '' : 's'}, ${make.cycles.length} cycle${make.cycles.length === 1 ? '' : 's'}`, right, y + 108, { size: 24, align: 'right', ink2: null }),
+  );
+  y += 140;
+  const desc = lettered(make.puppet.desc);
+  if (desc) { list.push(handText(desc, MARGIN, y + 8, { size: 26, ink2: null })); y += 40; }
+  list.push(stroke(line(MARGIN, y, right, y), 'ink', { w: 2.4 }));
+  y += 28;
+
+  for (const r of rows) {
+    list.push(handText(r.heading, MARGIN, y + 34, { size: 34 }));
+    y += 60;
+    const cw = Math.max(...r.cells.map((c) => Math.max(c.w, measure(lettered(c.label), 20) + 8))), ch = Math.max(...r.cells.map((c) => c.h));
+    const per = Math.max(1, Math.floor((right - MARGIN + GAP) / (cw + GAP)));
+    for (let j0 = 0; j0 < r.cells.length; j0 += per) {
+      const n = Math.min(per, r.cells.length - j0);
+      for (const gy of r.guides) { const ly = y + (gy - by) * S; list.push(stroke(line(MARGIN - 8, ly, MARGIN + n * (cw + GAP) - GAP + 8, ly), 'guide', { w: 1, wobble: 0 })); }
+      r.cells.slice(j0, j0 + n).forEach((c, j) => {
+        const x = MARGIN + j * (cw + GAP);
+        list.push(c.at(x + (cw - c.w) / 2, y + (ch - c.h)), handText(lettered(c.label), x + cw / 2, y + ch + 26, { size: 20, align: 'center', ink2: null }));
+      });
+      y += ch + LABEL + GAP;
+    }
+    y += 12;
+  }
+
+  list.push(stroke(line(MARGIN, y, right, y), 'ink', { w: 1.6 }));
+  const credits = [id, entry.licence && `licence ${entry.licence}`, entry.credit || (entry.licence === 'own' ? 'own drawing' : ''),
+    entry.sha && `sha ${entry.sha.slice(0, 8)}`, `drawn in ${look.name}`].filter(Boolean).map(lettered).join(', ');
+  list.push(handText(credits, MARGIN, y + 40, { size: 22, ink2: null }));
+  y += 40 + MARGIN;
+  return { list, W: PAGE, H: Math.ceil(y), rows: ['title', ...rows.map((r) => r.name), 'credits'] };
+}
+
+// The model sheet written to assets/sheets/<id>-model.jpg; lint findings on the page stop it.
+async function modelSheetFile(make, entry, st, flags) {
+  const look = flags.look ? resolveLook(String(flags.look)) : LOOKS.doodlePastel;
+  const { list, W, H, rows } = modelSheet(make, { entry, look });
+  const found = lintList(list, look, `${entry.name}-model`);
+  if (found.length) {
+    for (const f of found) process.stderr.write(`${formatFinding(f, 'sheet')}\n`);
+    return 1;
+  }
+  const file = st.sheetPath(`${entry.name}-model`);
+  mkdirSync(dirname(file), { recursive: true });
+  await paint(list, { look, W, H, width: Math.round(W * 1.5), seed: hash32('model', entry.name) }).toFile(file, { quality: 0.92 });
+  process.stdout.write(`${file}  model sheet in ${look.name}, ${rows.length} rows: ${rows.join(', ')}  (list ${hashList(list).slice(0, 12)})\n`);
+  return 0;
 }
