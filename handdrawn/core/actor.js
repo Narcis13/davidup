@@ -8,7 +8,7 @@
 //   actor.name, actor.box, actor.ground, actor.inputs     as a cel
 //   actor(inputs)                   the cel call (keys that are not inputs are dropped)
 //   actor.idle(t, seed)             breathing, a blink, a tail, on the twos grid        -> state
-//   actor.look(dir)                 -1 | 0 | 1: facing and head turn                     -> state
+//   actor.look(dir)                 -1 .. 1: facing, the view, the head turn             -> state
 //   actor.emote(name)               'happy' | 'sleep' | 'wide' | 'sad' | 'dot' (none)    -> state
 //   actor.cycle(name, t)            any declared cycle, else a two-pose bob, recorded   -> state
 //   actor.reveal(tau, state)        itself in stroke order, 0..1                        -> list
@@ -23,7 +23,9 @@
 // A puppet derives everything from its payload: poses named like an emote win over the house table, cycles
 // are its own, and the conventional parts (head, eye, mouth, tail, body, arm-l / arm-r) are what idle,
 // look, emote and hand move; unknown parts stay still. A cycle it lacks falls back to a bob between rest and
-// a lifted rest; the drawing then carries meta('actor-cycle') so lint can say when it is on screen too long,
+// a lifted rest; a puppet with views (a turnaround) turns with look: -1 and 1 its side view, +-0.5 its
+// three-quarter view and 0 its front when it has them (the side, or facing us chin up, when not), and it
+// mirrors itself, so the stage does not. The drawing of a missing cycle carries meta('actor-cycle') so lint can say when it is on screen too long,
 // and actor.fallbacks lists the cycles asked for and missing.
 import { FPS } from './curves.js';
 import { pen } from './doodle.js';
@@ -80,13 +82,14 @@ export function actorOf(src, spec = {}) {
 
 // A drawing with a box and a ground point, fitted to the v1 stage: height s units tall, feet at y + feet s,
 // mirrored for dir -1, turned by rot about (x, y), lifted a little for a bob.
-function stager(name, box, ground, spec) {
+// selfFlip: the drawing mirrors itself for a negative dir (a puppet with views), so the stage does not.
+function stager(name, box, ground, spec, selfFlip = false) {
   const H = spec.height ?? 2, FEET = spec.feet ?? 0.86, units = box[3] || 1;
   const xfOf = (x, y, s, { dir = 1, rot = 0, lift = 0 } = {}) => {
     const k = H * s / units;
     let m = translate(x, y);
     if (rot) m = mmul(m, rotate(rot));
-    return mmul(mmul(mmul(m, translate(0, FEET * s - lift * 0.04 * H * s)), scale(k * sign(dir), k)), translate(-ground[0], -ground[1]));
+    return mmul(mmul(mmul(m, translate(0, FEET * s - lift * 0.04 * H * s)), scale(selfFlip ? k : k * sign(dir), k)), translate(-ground[0], -ground[1]));
   };
   // A stage point in the drawing's own units (to aim an arm at it).
   const local = (x, y, s, o, [px, py]) => {
@@ -113,7 +116,7 @@ function fromPuppet(p, spec) {
   const has = (n) => parts.has(n);
   const variants = (n) => Object.keys(d.parts[n]?.variants ?? {});
   const make = (o) => p(pick(inputs, o));
-  const st = stager(name, p.cel.box, p.ground, spec);
+  const views = p.views, st = stager(name, p.cel.box, p.ground, spec, !!views);
 
   // A variant key the puppet has, or nothing; 'top' / 'mid' index its keys.
   const variant = (n, want) => {
@@ -144,6 +147,13 @@ function fromPuppet(p, spec) {
       return out;
     },
     look(dir) {
+      if (views) {
+        // Snapped to the views on a half step; a view the puppet lacks gives way to the side.
+        const want = Math.round(Math.max(-1, Math.min(1, dir)) * 2) / 2, s = sign(want);
+        if (want === 0 && p.viewOf(0) === 'front') return { dir: 0, ...(has('head') ? { head: 0 } : {}) };
+        if (Math.abs(want) === 0.5 && p.viewOf(0.5) === 'three-quarter') return { dir: want, ...(has('head') ? { head: 0 } : {}) };
+        if (want !== 0) return { dir: s, ...(has('head') ? { head: 0 } : {}) };
+      }
       const out = { dir: dir === 0 ? 1 : sign(dir) };
       if (has('head')) out.head = dir === 0 ? -6 : 0;   // 0: facing us, chin up
       return out;
@@ -166,8 +176,11 @@ function fromPuppet(p, spec) {
       }
       if (o.hand) {
         // The arm on the hand's side turns so it points at it (arms hang down, +y, at 0 degrees).
-        const [hx, hy] = st.local(x, y, s, o, o.hand), arm = hx >= 0 ? 'arm-r' : 'arm-l';
-        const piv = d.parts[arm]?.pivot;
+        // A puppet that mirrors itself is aimed in its own, unmirrored, drawing.
+        let [hx, hy] = st.local(x, y, s, o, o.hand);
+        if (views && (o.dir ?? p.rest.dir) < 0) hx = 2 * p.ground[0] - hx;
+        const arm = hx >= 0 ? 'arm-r' : 'arm-l';
+        const piv = has(arm) && (views ? p.pivotAt(arm, p.viewOf(o.dir ?? p.rest.dir)) : d.parts[arm].pivot);
         if (piv) q[arm] = wrap180(Math.atan2(-(hx - piv[0]), hy - piv[1]) / RAD);
       }
       return st.wrapPlaced(x, y, s, o, [make(q)]);

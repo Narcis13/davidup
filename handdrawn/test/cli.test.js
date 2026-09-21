@@ -95,16 +95,16 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
 
     const ask = await hdf('svg', file, '--name', 'fox', '--roles', 'ask', '--root', root);
     assert.equal(ask.code, 0, ask.out);
-    assert.match(ask.out, /^#e8734a\s+29946\s+fills\.0\s+auto$/m);
+    assert.match(ask.out, /^#e8734a\s+75242\s+fills\.0\s+auto$/m);
     const table = JSON.parse(readFileSync(join(dir, 'fox.roles.json'), 'utf8'));
     assert.deepEqual(Object.keys(table), ['#e8734a', '#fff1d6', '#2b2b2b', '#5a3a28', '#c8473f'], 'largest area first');
     assert.ok(!existsSync(join(root, 'catalogue.json')), 'ask stops before the store');
 
     const { code, out } = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root);
     assert.equal(code, 0, out);
-    assert.match(out, /^#fff1d6\s+4885\s+light\s+map$/m);
+    assert.match(out, /^#fff1d6\s+19439\s+light\s+map$/m);
     assert.match(out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
-    assert.match(out, /fox\.jpg {2}6 looks x 11 states x 3 scales \+ 8 frames of walk$/m);
+    assert.match(out, /fox\.jpg {2}6 looks x 16 states x 3 scales \+ 8 frames of walk$/m);
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
     assert.equal(cat.fox.sha, JSON.parse(readFileSync('assets/catalogue.json', 'utf8')).fox.sha, 'the same payload as the fox in the house store');

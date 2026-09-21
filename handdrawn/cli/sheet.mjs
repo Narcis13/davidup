@@ -7,7 +7,8 @@
 //
 // hdf sheet store <id> [--pose wave] [--cycle walk]: the same sheet for a puppet in the asset store
 // (`store` in place of a film says look in the catalogue). Its columns are the puppet's poses and then
-// every variant of every part; `--cycle` adds the cycle's frames as a strip along the bottom. It writes
+// every variant of every part; a puppet with views (a turnaround) gets a column for every view each way round
+// first; `--cycle` adds the cycle's frames as a strip along the bottom. It writes
 // assets/sheets/<id>.jpg, which is what `hdf find` points at.
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -17,7 +18,7 @@ import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
 import { fill, group, hashList, paper, rect, stroke, walk, xf } from '../core/list.js';
 import { LOOKS, resolveLook } from '../core/looks.js';
-import { puppet } from '../core/puppet.js';
+import { VIEW_DIRS, puppet } from '../core/puppet.js';
 import { hash32 } from '../core/rand.js';
 import { frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
@@ -77,7 +78,10 @@ export async function storeSheet(id, flags) {
   const d = st.json(e), make = puppet({ ...d, name: id });
 
   const poses = flags.pose ? [String(flags.pose)] : make.poses;
-  const cases = poses.map((p) => [`pose ${p}`, make.poseOf(p, 1)]);
+  // The turnaround: side, three-quarter, front, three-quarter mirrored, side mirrored.
+  const dirs = [...new Set((make.views ?? []).map((v) => VIEW_DIRS[v] ?? 1))].sort((a, b) => b - a);
+  const turn = [...dirs, ...dirs.filter((v) => v > 0).reverse().map((v) => -v)].map((dir) => [`view ${make.viewOf(dir)}${dir < 0 ? ' <' : ''}`, { ...make.rest, dir }]);
+  const cases = [...turn, ...poses.map((p) => [`pose ${p}`, make.poseOf(p, 1)])];
   if (!cases.length) cases.push(['rest', make.rest]);
   for (const [pn, part] of Object.entries(d.parts)) for (const k of Object.keys(part.variants ?? {})) cases.push([`${pn}=${k}`, { ...make.rest, [pn]: k }]);
 

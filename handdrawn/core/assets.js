@@ -122,10 +122,17 @@ function checkPuppet(d) {
   if (!posNum.ok(d.units)) bad.push('units: the tallest pose in logical units, > 0');
   const parts = d.parts && typeof d.parts === 'object' ? d.parts : null;
   if (!parts || !Object.keys(parts).length) return [...bad, 'parts: a non-empty object, in painter order'];
+  // Turnarounds: with views, ops, each variant and a pivot may be keyed by view name.
+  const views = d.views === undefined ? null : Array.isArray(d.views) && d.views.length && d.views.every((v) => typeof v === 'string' && v) ? d.views : undefined;
+  if (views === undefined) bad.push("views: view names, the first the one a part falls back to (['side', 'three-quarter', 'front'])");
+  const byView = (v, ok) => (ok(v) || (!!views && v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0
+    && Object.entries(v).every(([k, x]) => views.includes(k) && ok(x))));
+  const isOps = (v) => Array.isArray(v), isPt = (v) => Array.isArray(v) && v.length === 2 && v.every(isNum);
   for (const [name, p] of Object.entries(parts)) {
     if (!p || typeof p !== 'object') { bad.push(`parts.${name}: not an object`); continue; }
-    if (!Array.isArray(p.ops) && !(p.variants && typeof p.variants === 'object' && Object.keys(p.variants).length)) bad.push(`parts.${name}: needs ops or variants`);
-    if (p.pivot !== undefined && !(Array.isArray(p.pivot) && p.pivot.length === 2 && p.pivot.every(isNum))) bad.push(`parts.${name}.pivot: [x, y]`);
+    if (!byView(p.ops, isOps) && !(p.variants && typeof p.variants === 'object' && Object.keys(p.variants).length)) bad.push(`parts.${name}: needs ops or variants${views ? ' (either may be keyed by view)' : ''}`);
+    for (const [k, v] of Object.entries(p.variants ?? {})) if (!byView(v, isOps)) bad.push(`parts.${name}.variants.${k}: an op list${views ? ', or op lists keyed by view' : ''}`);
+    if (p.pivot !== undefined && !byView(p.pivot, isPt)) bad.push(`parts.${name}.pivot: [x, y]${views ? ', or [x, y] keyed by view' : ''}`);
     if (p.parent !== undefined && !parts[p.parent]) bad.push(`parts.${name}.parent: no part '${p.parent}'`);
   }
   return bad;

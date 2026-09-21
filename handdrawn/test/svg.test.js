@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { hashList } from '../core/list.js';
+import { hashList, walk } from '../core/list.js';
 import { lintPuppet } from '../core/lint.js';
 import { puppet } from '../core/puppet.js';
 import { SvgError, autoRoles, flattenD, parseTransform, parseXml, svgColours, svgMotif, svgPuppet } from '../core/svg.js';
@@ -169,12 +169,75 @@ test('rig errors name the part', () => {
   for (const [src, re] of bad) assert.throws(() => svgPuppet(src), re);
 });
 
-test('the SVG fox is the S4 JSON fox: same parts, same boxes, the same list in every state', () => {
+// A puppet with views as the one view it draws: every keyed ops, variant and pivot picked for that view.
+function oneView(d, view) {
+  const pick = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v[view] ?? v[d.views[0]] : v);
+  const parts = Object.fromEntries(Object.entries(d.parts).map(([n, p]) => [n, {
+    ...p, ...(p.ops ? { ops: pick(p.ops) } : {}), ...(p.pivot ? { pivot: pick(p.pivot) } : {}),
+    ...(p.variants ? { variants: Object.fromEntries(Object.entries(p.variants).map(([k, v]) => [k, pick(v)])) } : {}),
+  }]));
+  const { views, ...rest } = d;
+  return { ...rest, parts };
+}
+
+const TURN = svg(`
+  <g id="view:side">
+    <g id="body"><circle id="pivot" cx="50" cy="60" r="2" fill="#00a0ff"/><rect x="30" y="40" width="40" height="40" fill="#e8734a"/></g>
+    <g id="head" data-parent="body"><circle id="pivot" cx="50" cy="40" r="2" fill="#00a0ff"/><rect x="50" y="20" width="30" height="20" fill="#e8734a"/>
+      <g id="eye" data-variants><g id="open"><circle cx="70" cy="28" r="2" fill="#101010"/></g><g id="shut"><line x1="68" y1="28" x2="72" y2="28" stroke="#101010"/></g></g></g>
+    <g id="tail" data-parent="body"><rect x="10" y="50" width="20" height="6" fill="#e8734a"/></g>
+  </g>
+  <g id="view:front">
+    <g id="body"><circle id="pivot" cx="50" cy="60" r="2" fill="#00a0ff"/><rect x="30" y="40" width="40" height="40" fill="#e8734a"/></g>
+    <g id="head" data-parent="body"><circle id="pivot" cx="50" cy="42" r="2" fill="#00a0ff"/><rect x="35" y="20" width="30" height="22" fill="#e8734a"/>
+      <g id="eye" data-variants><g id="open"><circle cx="44" cy="28" r="2" fill="#101010"/><circle cx="56" cy="28" r="2" fill="#101010"/></g>
+        <g id="shut"><line x1="42" y1="28" x2="58" y2="28" stroke="#101010"/></g></g></g>
+  </g>
+  <g id="pose:wink" data-joints="eye:shut,head:4"/>
+  <circle id="ground" cx="50" cy="80" r="2" fill="#00a0ff"/>`, 'viewBox="0 0 100 90"');
+
+test('views: a <g id="view:..."> per view, keyed ops and variants, pivots only where they move, the rest shared', () => {
+  const { payload: p } = svgPuppet(TURN, { name: 'turn' });
+  assert.deepEqual(p.views, ['side', 'front']);
+  assert.deepEqual(Object.keys(p.parts), ['body', 'head', 'eye', 'tail'], 'painter order is the first view\'s');
+  assert.deepEqual(Object.keys(p.parts.body.ops), ['side', 'front']);
+  assert.deepEqual(p.parts.body.pivot, [50, 60], 'the same pivot in every view stays one [x, y]');
+  assert.deepEqual(p.parts.head.pivot, { side: [50, 40], front: [50, 42] });
+  assert.deepEqual(Object.keys(p.parts.eye.variants), ['open', 'shut']);
+  assert.deepEqual(Object.keys(p.parts.eye.variants.open), ['side', 'front']);
+  assert.ok(Array.isArray(p.parts.tail.ops), 'drawn in the first view only: one op list, the same in every view');
+  assert.deepEqual([p.poses, p.ground, p.inputs], [{ wink: { eye: 'shut', head: 4 } }, [50, 80], { eye: ['open', 'shut'] }]);
+  assert.deepEqual(lintPuppet(p), []);
+  // Each view is the rig its group alone would give.
+  const alone = (id) => svg(TURN.match(new RegExp(`<g id="view:${id}">([\\s\\S]*?)\\n  </g>`))[1] + '<circle id="ground" cx="50" cy="80" r="2" fill="#00a0ff"/>', 'viewBox="0 0 100 90"');
+  const turn = puppet(p), front = puppet(svgPuppet(alone('front'), { name: 'turn' }).payload);
+  const part = (g, name) => { let hit = null; walk([g], (op) => { if (!hit && op.op === 'group' && op.name === name) hit = op; }); return hit; };
+  assert.equal(hashList([part(turn({ dir: 0 }), 'head')]), hashList([part(front({}), 'head')]));
+  assert.equal(hashList([part(turn({ dir: 0, eye: 'shut' }), 'head')]), hashList([part(front({ eye: 'shut' }), 'head')]));
+  assert.equal(hashList([part(turn({ dir: 0 }), 'tail')]), hashList([part(turn({ dir: 1 }), 'tail')]), 'the tail falls back to the side view');
+  assert.equal(hashList(turn({ dir: 1 }).kids), hashList(puppet(oneView(p, 'side'))({}).kids));
+});
+
+test('view errors name the part and the view', () => {
+  const two = (a, b) => svg(`<g id="view:side">${a}</g><g id="view:front">${b}</g>`);
+  const bad = [
+    [svg('<g id="view:side"><g id="a"><rect width="5" height="5"/></g></g><g id="view:side"><g id="a"><rect width="5" height="5"/></g></g>'), /view 'side' appears twice/],
+    [two('<g id="a"><rect width="5" height="5"/></g><g id="b" data-parent="a"><rect width="5" height="5"/></g>', '<g id="a"><rect width="5" height="5"/></g><g id="b"><rect width="5" height="5"/></g>'), /'b' has parent 'none' in view front and 'a' in view side/],
+    [two('<g id="e" data-variants><g id="x"><rect width="5" height="5"/></g></g>', '<g id="e" data-variants><g id="y"><rect width="5" height="5"/></g></g>'), /'e' has variants y in view front and x in view side/],
+    [svg('<g id="view:side"><g id="a"><rect width="5" height="5"/></g></g><g id="view:front"/>'), /id="view:front".*draws no parts/],
+  ];
+  for (const [src, re] of bad) assert.throws(() => svgPuppet(src), re);
+});
+
+test('the SVG fox is the S4 JSON fox from the side: same parts, same boxes, the same list in every state', () => {
   const json = JSON.parse(readFileSync(new URL('../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
-  const { payload, table } = svgPuppet(readFileSync(new URL('../assets/src/fox.svg', import.meta.url), 'utf8'), {
+  const { payload: turned, table } = svgPuppet(readFileSync(new URL('../assets/src/fox.svg', import.meta.url), 'utf8'), {
     name: 'fox', roles: JSON.parse(readFileSync(new URL('../assets/src/fox.roles.json', import.meta.url), 'utf8')),
   });
   assert.ok(table.every((r) => r.how === 'map'), 'the checked-in roles table covers every colour');
+  assert.deepEqual(turned.views, ['side', 'three-quarter', 'front']);
+  assert.deepEqual(lintPuppet(turned), [], 'every view, both ways round, inside the box');
+  const payload = oneView(turned, 'side');
   const a = puppet(json), b = puppet(payload);
   assert.deepEqual(b.parts, a.parts);
   assert.deepEqual(b.cel.box, a.cel.box);

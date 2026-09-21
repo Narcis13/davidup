@@ -16,6 +16,14 @@
 // two frames of a cycle that quantise the same are one group object and dedup. A part with `variants` takes
 // its variant's key as its input instead of an angle.
 //
+// Turnarounds: a puppet may declare `views: ['side', 'three-quarter', 'front']` and key any part's `ops`, any
+// variant and any `pivot` by view ({ side: [...], front: [...] }). A part with no drawing of its own in a view
+// uses the first declared view's (and that view's pivot), so only what changes needs drawing again; a pivot
+// keyed by view moves a part whose drawing is shared. Such a puppet takes a `dir`
+// input [-1, 1, 0.5]: |dir| 1 draws `side`, 0.5 `three-quarter`, 0 `front` (the first declared view when that
+// one is missing), and a negative dir mirrors the drawing about the ground point, so the puppet turns itself
+// and a stage does not flip it again. Painter order is the key order in every view.
+//
 // Browser-safe: the payload comes from the registry (core/store.js), which `fromStore` fills in node and
 // `hdf dev` / `hdf bundle` fill from `window.HDF.assets`.
 import { FPS } from './curves.js';
@@ -26,10 +34,19 @@ import { cel } from './tree.js';
 // A joint input: degrees on a 2 degree step, so a pose blend and a cycle land on the same quantised values.
 export const JOINT = Object.freeze([-180, 180, 2]);
 
+// The dir input of a puppet with views: -1 .. 1 on a half step, the sign its facing, |dir| its view.
+export const DIR = Object.freeze([-1, 1, 0.5]);
+// The |dir| each view is drawn at: side 1, three-quarter 0.5, front 0.
+export const VIEW_DIRS = Object.freeze({ side: 1, 'three-quarter': 0.5, front: 0 });
+
 const RAD = Math.PI / 180;
 const lerp = (a, b, t) => a + (b - a) * t;
 const wrap = (i, n) => ((i % n) + n) % n;
 const revive = (list) => parse(serialise(list));   // ops as data ($p paths) -> frozen ops with real paths
+// A value keyed by view ({ side: [...] }) rather than one for every view (an op list, a pivot [x, y]).
+const keyed = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const unite = (a, b) => (!a ? b : !b ? a : [Math.min(a[0], b[0]), Math.min(a[1], b[1]),
+  Math.max(a[0] + a[2], b[0] + b[2]) - Math.min(a[0], b[0]), Math.max(a[1] + a[3], b[1] + b[3]) - Math.min(a[1], b[1])]);
 
 const built = new WeakMap();
 
@@ -50,12 +67,18 @@ function build(d, id) {
   const name = d.name ?? id ?? 'puppet';
   const names = Object.keys(d.parts);
   const at = new Map(names.map((n, j) => [n, j]));
-  const parent = {}, pivot = {}, ops = {}, variants = {};
+  const views = Array.isArray(d.views) && d.views.length ? Object.freeze(d.views.map(String)) : null;
+  const parent = {};
 
   for (const n of names) {
     const p = d.parts[n];
     if (p.parent !== undefined && !d.parts[p.parent]) throw new Error(`puppet ${name}: part '${n}' names parent '${p.parent}', which is not a part`);
     parent[n] = p.parent;
+    for (const [what, v] of [['ops', p.ops], ['pivot', p.pivot], ...Object.entries(p.variants ?? {}).map(([k, vv]) => [`variant '${k}'`, vv])]) {
+      if (!keyed(v)) continue;
+      if (!views) throw new Error(`puppet ${name}: part '${n}' ${what} is keyed by view, but the puppet declares no views`);
+      for (const k of Object.keys(v)) if (!views.includes(k)) throw new Error(`puppet ${name}: part '${n}' ${what} names view '${k}' (views: ${views.join(', ')})`);
+    }
   }
   for (const n of names) {
     const seen = [];
@@ -64,16 +87,40 @@ function build(d, id) {
       seen.push(c);
     }
   }
-  // A part without a pivot turns about its parent's: an eye rides the head, it does not turn on its own.
-  const pivotOf = (n) => {
-    for (let c = n; c !== undefined; c = parent[c]) if (Array.isArray(d.parts[c].pivot)) return [d.parts[c].pivot[0], d.parts[c].pivot[1]];
-    return [0, 0];
+
+  // The view a part draws from in view V: V when it has a drawing of its own there, else the first view.
+  const drawnIn = (n, V) => {
+    const p = d.parts[n];
+    return (keyed(p.ops) && p.ops[V] !== undefined) || Object.values(p.variants ?? {}).some((v) => keyed(v) && v[V] !== undefined);
   };
-  for (const n of names) {
-    pivot[n] = pivotOf(n);
-    ops[n] = d.parts[n].ops ? revive(d.parts[n].ops) : null;
-    if (d.parts[n].variants) variants[n] = Object.fromEntries(Object.entries(d.parts[n].variants).map(([k, v]) => [k, revive(v)]));
+  const viewFor = (n, V) => (!views || drawnIn(n, V) ? V : views[0]);
+  const inView = (v, V) => (keyed(v) ? v[V] ?? v[views[0]] : v);
+  // A part without a pivot turns about its parent's: an eye rides the head, it does not turn on its own. A
+  // pivot keyed by view moves the part in that view (its ops shared or its own); a part drawn in a view with
+  // no pivot there rides its parent; a part that falls back to the first view keeps that view's pivot.
+  const ownPivot = (n, V) => {
+    const pv = d.parts[n].pivot;
+    const at = !keyed(pv) ? pv : pv[V] !== undefined || (views && drawnIn(n, V)) ? pv[V] : pv[views[0]];
+    return Array.isArray(at) ? [at[0], at[1]] : undefined;
+  };
+  const pivotIn = (n, V) => ownPivot(n, V) ?? (parent[n] === undefined ? [0, 0] : pivotIn(parent[n], V));
+  const revived = new Map();   // one deserialisation per op list, shared by the views that fall back to it
+  const reviveOnce = (list) => { let r = revived.get(list); if (!r) revived.set(list, (r = revive(list))); return r; };
+
+  // Per view: every part's pivot, own ops and variants (a puppet without views has one, keyed null).
+  const VIEWS = views ?? [null], rig = new Map();
+  for (const V of VIEWS) {
+    const pivot = {}, ops = {}, variants = {};
+    for (const n of names) {
+      const p = d.parts[n], W = viewFor(n, V);
+      pivot[n] = pivotIn(n, V);
+      const own = inView(p.ops, W);
+      ops[n] = own ? reviveOnce(own) : null;
+      if (p.variants) variants[n] = Object.fromEntries(Object.entries(p.variants).map(([k, v]) => [k, reviveOnce(inView(v, W) ?? [])]));
+    }
+    rig.set(V, { pivot, ops, variants });
   }
+  const variantKeys = Object.fromEntries(names.filter((n) => d.parts[n].variants).map((n) => [n, Object.keys(d.parts[n].variants)]));
 
   // A part's kids: its child parts and its own ops, merged back into the global key order, so painter order
   // survives the nesting. `{ i }` without `kid` is the part itself.
@@ -84,43 +131,60 @@ function build(d, id) {
   // Declared inputs win, so a puppet may narrow a joint's range or add one of its own (plan 1.2 `dir`).
   const declared = d.inputs ?? {};
   const inputs = {};
-  for (const n of names) inputs[n] = variants[n] ? Object.keys(variants[n]) : JOINT;
+  for (const n of names) inputs[n] = variantKeys[n] ?? JOINT;
+  if (views) inputs.dir = DIR;
   for (const [k, v] of Object.entries(declared)) inputs[k] = v;
 
   const variantDefault = (n) => {
     const first = Array.isArray(declared[n]) ? declared[n][0] : undefined;
-    return variants[n][String(first)] !== undefined ? first : Object.keys(variants[n])[0];
+    return variantKeys[n].includes(String(first)) ? first : variantKeys[n][0];
   };
   const rest = Object.freeze({
-    ...Object.fromEntries(names.map((n) => [n, variants[n] ? variantDefault(n) : 0])),
+    ...Object.fromEntries(names.map((n) => [n, variantKeys[n] ? variantDefault(n) : 0])),
+    ...(views ? { dir: 1 } : {}),
     ...(d.poses?.rest ?? {}),
   });
 
+  // |dir| to a view: 1 side, 0.5 three-quarter, 0 front, each only when declared.
+  const viewOf = (dir = 1) => {
+    if (!views) return null;
+    const a = Math.abs(typeof dir === 'number' && Number.isFinite(dir) ? dir : 1);
+    const want = a >= 0.75 ? 'side' : a >= 0.25 ? 'three-quarter' : 'front';
+    return views.includes(want) ? want : views[0];
+  };
   const angleOf = (n, q) => {
     const v = q[n] ?? rest[n] ?? 0;
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new TypeError(`puppet ${name}: joint '${n}' takes degrees, got ${JSON.stringify(v)}`);
     return v;
   };
-  const ownOps = (n, q) => {
-    const out = ops[n] ? [...ops[n]] : [];
-    if (!variants[n]) return out;
+  const ownOps = (n, q, R) => {
+    const out = R.ops[n] ? [...R.ops[n]] : [];
+    if (!variantKeys[n]) return out;
     const key = String(q[n] ?? rest[n]);
-    const v = variants[n][key];
-    if (!v) throw new Error(`puppet ${name}: part '${n}' has no variant '${key}' (has ${Object.keys(variants[n]).join(', ')})`);
+    const v = R.variants[n][key];
+    if (!v) throw new Error(`puppet ${name}: part '${n}' has no variant '${key}' (has ${variantKeys[n].join(', ')})`);
     return [...out, ...v];
   };
   // A turned part draws direct, as place() does for a rotation; a part at rest stays a cacheable layer.
-  const partGroup = (n, q) => {
-    const ang = variants[n] ? 0 : angleOf(n, q);
-    const [px, py] = pivot[n], [qx, qy] = parent[n] === undefined ? [0, 0] : pivot[parent[n]];
+  const partGroup = (n, q, R) => {
+    const ang = variantKeys[n] ? 0 : angleOf(n, q);
+    const [px, py] = R.pivot[n], [qx, qy] = parent[n] === undefined ? [0, 0] : R.pivot[parent[n]];
     let m = translate(px - qx, py - qy);
     if (ang) m = mmul(m, rotate(ang * RAD));
-    const kids = kidOrder[n].map((s) => (s.kid === undefined ? ownOps(n, q) : partGroup(s.kid, q)));
+    const kids = kidOrder[n].map((s) => (s.kid === undefined ? ownOps(n, q, R) : partGroup(s.kid, q, R)));
     return group({ name: n, xf: m, ...(ang ? { cache: 'never' } : {}) }, kids);
   };
 
-  const draw = (q) => roots.map((n) => partGroup(n, q));
-  const box = d.box ?? bounds(norm(draw(rest))) ?? [0, 0, 0, 0];
+  const ground = d.ground ?? [0, 0];
+  // A negative dir mirrors the whole drawing about the ground point (an x-flip stays cacheable).
+  const draw = (q) => {
+    const dir = q.dir ?? rest.dir, R = rig.get(viewOf(dir));
+    const kids = roots.map((n) => partGroup(n, q, R));
+    return views && dir < 0 ? [group({ name: 'mirror', xf: [-1, 0, 0, 1, 2 * ground[0], 0] }, kids)] : kids;
+  };
+  // A puppet with views turns both ways, so its box holds the drawing and its mirror.
+  let box = d.box ?? (views ? views.reduce((b, V) => unite(b, bounds(norm(draw({ ...rest, dir: VIEW_DIRS[V] ?? 1 })))), null) : bounds(norm(draw(rest)))) ?? [0, 0, 0, 0];
+  if (views) box = unite(box, [2 * ground[0] - box[0] - box[2], box[1], box[2], box[3]]);
   const make = cel(name, draw, { box, inputs, desc: d.desc });
 
   // Poses and cycles hand the cel a full input set (every joint, every variant), so two states that draw the
@@ -142,7 +206,10 @@ function build(d, id) {
 
   make.puppet = d;
   make.units = d.units;
-  make.ground = d.ground ?? [0, 0];
+  make.ground = ground;
+  make.views = views;
+  make.viewOf = viewOf;
+  make.pivotAt = (n, V = viewOf(rest.dir)) => (rig.get(V) ?? rig.get(VIEWS[0])).pivot[n];
   make.rest = rest;
   make.parts = Object.freeze(names.slice());
   make.poses = Object.freeze(Object.keys(d.poses ?? {}));

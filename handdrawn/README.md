@@ -115,7 +115,7 @@ The eight example films in `films/` are the worked examples:
 | `one-year.js` | 39.5 s | sand | a tree goes through a year in one take, poured, swept and combed |
 | `moon-book.js` | 29 s | paper in space | *The hedgehog and the moon*, a pop-up book on a table: the cover opens, pieces rise, a lamp lights the page |
 | `held-once.js` | 22.75 s | doodle | five museum objects (The Met, CC0) and a hedgehog who uses them anyway |
-| `fox-and-teapot.js` | 13.5 s | doodle + a puppet | the store's fox through three hedgehog recipes by `actor: CAST.FOX`: tea, a helmet that roars, a teapot that bolts |
+| `fox-and-teapot.js` | 17 s | doodle + a puppet | the store's fox through three hedgehog recipes by `actor: CAST.FOX`: tea, a helmet that roars, a teapot that bolts; then a pop-up book where it turns around with the page |
 
 ---
 
@@ -486,7 +486,8 @@ hdf sheet store fox --cycle walk    # every look x every pose and variant x 3 sc
 
 A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported
 with `hdf svg` (`core/svg.js`). The fox in the store comes from
-`assets/src/fox.svg`, which draws exactly what the JSON above draws. The ids
+`assets/src/fox.svg`, whose side view draws exactly what the JSON above draws
+(its other views are under Turnarounds). The ids
 are the rig:
 
 - a `<g id="arm-l">` is a part, and document order is painter order (and reveal
@@ -516,6 +517,32 @@ hdf svg assets/src/fox.svg --name fox --roles ask       # fox.roles.json: edit, 
 hdf svg assets/src/fox.svg --name fox --licence own --roles assets/src/fox.roles.json
 ```
 
+### Turnarounds
+
+A puppet can be drawn from more than one side. `views: ['side',
+'three-quarter', 'front']` in the payload, and any part's `ops`, any variant
+and any `pivot` may be keyed by view (`{ side: [...], front: [...] }`). A part
+with nothing of its own in a view is drawn as in the first view, so only what
+changes needs drawing again: the fox redraws its head, eyes, mouths and bib for
+three-quarter and front, and its arms and feet for front, and keeps one tail.
+Such a puppet takes a `dir` input (-1 .. 1 on a half step): |dir| 1 is the
+side, 0.5 three-quarter, 0 front, and a negative dir mirrors the drawing about
+the ground point. In an SVG, each view is a top-level `<g id="view:side">` with
+the same part ids inside; poses, cycles and the ground stay outside the views.
+`hdf sheet store fox` starts with the turnaround: side, three-quarter, front,
+and the two turned back.
+
+```js
+FOX({ dir: 0 })                 // the front
+FOX.look(0.5)                   // an actor: { dir: 0.5 }, three-quarter, or the side if it has none
+```
+
+`book3` spreads take an actor as a piece, `{ base, h, actor, state }`: it
+stands on its page and turns as the page does -- the front while the page
+lies flat, three-quarter as it lifts, the side upright -- staying upright
+itself, as a figure in a paper theatre does. The turn shot of
+`films/fox-and-teapot.js` is the worked example.
+
 ### Actors
 
 An actor is a cast member a recipe can direct (`core/actor.js`). `actorOf`
@@ -530,7 +557,8 @@ doesItsJob({ photo: PHOTOS.teapot, actor: CAST.FOX })   // the fox waits by the 
 A.put(d, x, y, s, { ...A.idle(tau), ...A.look(-1), ...A.emote('happy'), ...A.cycle('run', tau) })
 ```
 
-`idle(t, seed)` breathes and blinks on the twos, `look(dir)` faces, `emote(name)`
+`idle(t, seed)` breathes and blinks on the twos, `look(dir)` faces (and turns
+a puppet with views to the view `dir` stands for), `emote(name)`
 is `happy | sleep | wide | sad` (a puppet's own pose of that name wins),
 `cycle(name, t)` is a declared cycle, `reveal(tau)` draws it in stroke order.
 For a puppet they come from its poses, cycles and the conventional part names

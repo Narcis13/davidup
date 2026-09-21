@@ -18,7 +18,11 @@
 // collapse into one stepped variant part `mouth` (inputs [0, n, 1]). `<g id="pose:wave"
 // data-joints="arm-l:-70,head:8,eye:happy">` declares a pose and `<g id="cycle:walk" data-fps="12">` a cycle,
 // one child `<g data-joints="...">` per frame; neither draws. A top-level `<circle id="ground">` is the
-// ground point. On the root: viewBox is the box, `data-units` the logical units the file is drawn in
+// ground point. Turnarounds: top-level `<g id="view:side">`, `<g id="view:front">`, ... each wrap a whole
+// view, with the same part ids inside every one; the payload gets `views` in document order and a part drawn
+// in more than one view has its ops, variants (and pivot, where it moves) keyed by view. A part drawn only in
+// the first view is the same in all of them. Poses, cycles and the ground stay outside the views. The first
+// view's document order is painter order; a part a later view adds goes after. On the root: viewBox is the box, `data-units` the logical units the file is drawn in
 // (default: the viewBox height), `data-desc` the description; `units` rescales the file to that many units.
 //
 // Colour to role: every fill and stroke colour is listed with its area. By default the darkest is ink, the
@@ -534,10 +538,73 @@ const pt2 = (el, v) => { const p = nums(v); if (p.length !== 2) fail(el, `data-p
 // src => { payload, table }: the puppet (plan 1.2) the file's ids describe. See the header for the rules.
 export function svgPuppet(src, opts = {}) {
   const d = drawing(src, opts);
+  const table = colourTable(d.shapes.filter((s) => !isMarker(s)), opts.roles), role = roleLookup(table);
+  const viewGs = d.root.kids.filter((el) => el.name === 'g' && /^view:/.test(el.attrs.id ?? ''));
+  const head = {
+    kind: 'puppet', name: opts.name ?? d.root.attrs.id ?? 'puppet', units: d.units, box: d.box,
+    ...(d.desc ? { desc: d.desc } : {}),
+  };
+  const tail = (r) => ({
+    ...(Object.keys(r.inputs).length ? { inputs: r.inputs } : {}),
+    ...(Object.keys(r.poses).length ? { poses: r.poses } : {}),
+    ...(Object.keys(r.cycles).length ? { cycles: r.cycles } : {}),
+    roles: Object.fromEntries(table.map((row) => [row.hex, row.role])),
+  });
+  if (!viewGs.length) {
+    const r = rigOf(d.root, d.shapes, d.k, role);
+    return { payload: { ...head, ground: r.ground, parts: r.parts, ...tail(r) }, table };
+  }
+
+  // One rig per view, over the view's own groups and the shared poses, cycles and ground.
+  const shared = d.root.kids.filter((el) => !viewGs.includes(el));
+  const views = [], rigs = [];
+  for (const g of viewGs) {
+    const v = g.attrs.id.slice(5);
+    if (!v) fail(g, 'a view needs a name: view:side, view:three-quarter, view:front');
+    if (views.includes(v)) fail(g, `view '${v}' appears twice`);
+    views.push(v);
+    const root = { ...d.root, kids: [...g.kids, ...shared] };
+    const shapes = d.shapes.filter((s) => s.chain[0] === g || !viewGs.includes(s.chain[0])).map((s) => (s.chain[0] === g ? { ...s, chain: s.chain.slice(1) } : s));
+    rigs.push(rigOf(root, shapes, d.k, role, g));
+  }
+  const first = rigs[0], names = [...new Set(rigs.flatMap((r) => Object.keys(r.parts)))];
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const parts = {}, inputs = { ...first.inputs };
+  for (const n of names) {
+    const has = rigs.map((r, j) => [views[j], r.parts[n], r]).filter(([, p]) => p);
+    const [v0, p0, r0] = has[0];
+    for (const [v, p, r] of has.slice(1)) {
+      if (p.parent !== p0.parent) fail(r.els[n], `'${n}' has parent '${p.parent ?? 'none'}' in view ${v} and '${p0.parent ?? 'none'}' in view ${v0}`);
+      const k0 = Object.keys(p0.variants ?? {}), k = Object.keys(p.variants ?? {});
+      if (!same(k, k0)) fail(r.els[n], `'${n}' has variants ${k.join(', ') || 'none'} in view ${v} and ${k0.join(', ') || 'none'} in view ${v0}`);
+    }
+    for (const [, p] of has) if (!p0.variants && p.variants) fail(r0.els[n], `'${n}' has variants in one view only`);
+    if (!inputs[n] && has.some(([, , r]) => r.inputs[n])) inputs[n] = has.find(([, , r]) => r.inputs[n])[2].inputs[n];
+    const entry = {};
+    if (p0.parent !== undefined) entry.parent = p0.parent;
+    // Drawn in the first view only: the same in every view, as a part without views is.
+    if (has.length === 1 && v0 === views[0]) {
+      Object.assign(entry, p0);
+    } else {
+      const pivots = has.map(([v, p]) => [v, p.pivot]);
+      if (pivots.every(([, pv]) => pv && same(pv, pivots[0][1])) && has.length === views.length) entry.pivot = pivots[0][1];
+      else if (pivots.some(([, pv]) => pv)) entry.pivot = Object.fromEntries(pivots.filter(([, pv]) => pv));
+      if (has.some(([, p]) => p.ops)) entry.ops = Object.fromEntries(has.map(([v, p]) => [v, p.ops ?? []]));
+      if (p0.variants) entry.variants = Object.fromEntries(Object.keys(p0.variants).map((k) => [k, Object.fromEntries(has.map(([v, p]) => [v, p.variants[k]]))]));
+    }
+    parts[n] = entry;
+  }
+  return { payload: { ...head, views, ground: first.ground, parts, ...tail({ ...first, inputs }) }, table };
+}
+
+// One rig (a view, or the whole file): the parts the ids under `root` describe, from `shapes` (chains
+// relative to root). k is the drawing's scale, role the colour lookup; `where` names the view in errors.
+function rigOf(rootEl, shapes, k, role, where = null) {
+  const d = { root: rootEl, shapes, k };
   // Stepped variants: sibling ids base-0, base-1, ... (a base-0 and at least one more).
   const ids = [];
   const collect = (el) => { if (el.attrs.id) ids.push(el.attrs.id); el.kids.forEach(collect); };
-  collect(d.root);
+  rootEl.kids.forEach(collect);
   const stepped = new Set();
   for (const id of ids) {
     const m = /^(.+)-0$/.exec(id);
@@ -630,13 +697,15 @@ export function svgPuppet(src, opts = {}) {
     if (!target) fail(s.el, 'drawn outside any part: put it inside a <g id="..."> (the part it belongs to)');
     target.p.shapes.push({ s, v: target.v });
   }
-  if (!parts.size) throw new SvgError('no parts: a puppet is made of <g id="..."> groups (see hdf svg in the usage)');
+  if (!parts.size) {
+    if (where) fail(where, 'draws no parts: a view holds the <g id="..."> parts of the puppet as seen from there');
+    throw new SvgError('no parts: a puppet is made of <g id="..."> groups (see hdf svg in the usage)');
+  }
   for (const p of parts.values()) {
     if (p.parent !== undefined && !parts.has(p.parent)) fail(p.el, `data-parent="${p.parent}" names no part`);
     if (p.variants && !p.variants.size) fail(p.el, 'data-variants, but no child <g id="..."> to be the variants');
   }
 
-  const table = colourTable(d.shapes.filter((s) => !isMarker(s)), opts.roles), role = roleLookup(table);
   const pivotOf = (n) => { for (let c = n; c !== undefined; c = parts.get(c).parent) if (parts.get(c).pivot) return parts.get(c).pivot; return [0, 0]; };
   const out = {}, inputs = {};
   for (const p of parts.values()) {
@@ -658,16 +727,7 @@ export function svgPuppet(src, opts = {}) {
     }
     out[p.name] = entry;
   }
-  const payload = {
-    kind: 'puppet', name: opts.name ?? d.root.attrs.id ?? 'puppet', units: d.units, box: d.box, ground: ground.map(q3),
-    ...(d.desc ? { desc: d.desc } : {}),
-    parts: out,
-    ...(Object.keys(inputs).length ? { inputs } : {}),
-    ...(Object.keys(poses).length ? { poses } : {}),
-    ...(Object.keys(cycles).length ? { cycles } : {}),
-    roles: Object.fromEntries(table.map((r) => [r.hex, r.role])),
-  };
-  return { payload, table };
+  return { parts: out, inputs, poses, cycles, ground: ground.map(q3), els: Object.fromEntries([...parts.values()].map((p) => [p.name, p.el])) };
 }
 
 // The centre of a marker shape (a pivot or ground circle), in logical units.

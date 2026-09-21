@@ -13,13 +13,38 @@
 // distance from the spine (negative on the left page), z runs along the spine (negative away from the reader),
 // the first point its left end. lean (degrees, 90 upright), rise (scales when it stands), back (card seen from
 // behind), shadow: false, mesh (image density), after(Q, e) => ops drawn over it once placed.
+// A piece may stand an actor (core/actor.js) on the page instead of a card: { base, h, actor, state, face }.
+// Its card is drawn afresh at every angle of its page and the actor turns with the page: front while the page
+// lies flat, three-quarter as it lifts, side at the edge (upright), each as far as the actor has the view
+// (actor.look). face: the way it turns, -1 (the default, the way a leaf turns: to the left) or 1; state: its
+// inputs ({ ...A.idle(t), ...A.emote('happy') }), or u => inputs with u the page lift 0..1. The actor stays
+// upright while its page swings it round, as a figure in a paper theatre does (upright: false tips it with
+// the page, as a card would), and its shadow fades as the page lifts, where an upright figure would throw
+// one far across the table.
 // board, edge: roles of the boards and of the leaves' cut edge.
 // Axes: x right, y up, z towards the reader; the spine lies along z through the origin, the table is y = 0.
 import { ease } from '../core/curves.js';
-import { fill, group, rect, stroke, mkPath } from '../core/list.js';
+import { fill, group, mkPath, mmul, rect, rotate, stroke, translate } from '../core/list.js';
 import { V3, card3, project, shadeOf, shadows } from '../engines/stage3d.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+// The card of an actor piece at page angle ang: the actor standing on its bottom edge, as tall as the card
+// (or as wide), looking the way the page has turned it. An actor that mirrors itself takes dir as an input.
+function actorCard(p, w, ang, roll = 0) {
+  const A = p.actor, u = clamp(ang / (Math.PI / 2), 0, 1);
+  const state = { ...(typeof p.state === 'function' ? p.state(u) : p.state), ...A.look((p.face ?? -1) * u) };
+  const [bx, by, bw] = A.box, [gx, gy] = A.ground, h = p.h;
+  const k = Math.min(0.97 * h / Math.max(1, gy - by), 0.97 * w / Math.max(1, 2 * Math.max(gx - bx, bx + bw - gx)));
+  const fl = A.inputs?.dir === undefined && (state.dir ?? 1) < 0 ? -1 : 1;
+  const r = p.upright === false ? 0 : roll;
+  let m = [k * fl, 0, 0, k, w / 2 - gx * k * fl, h - gy * k];
+  if (r) m = mmul(mmul(translate(w / 2, h), rotate(r)), mmul(translate(-w / 2, -h), m));
+  return card3(w, h, [group({ name: `actor:${A.name}`, xf: m, ...(r ? { cache: 'never' } : {}) }, [A(state)])], { name: `actor:${A.name}` });
+}
+const baseLength = (p) => Math.hypot(p.base[1][0] - p.base[0][0], p.base[1][1] - p.base[0][1]);
+// roll: how far the page has tipped the card in its own plane, which an upright actor turns back.
+const cardOf = (p, ang, roll) => (p.actor ? actorCard(p, baseLength(p), ang, roll) : p.card);
 
 // A pop-up book (see above): { draw({ turn, cam, look }) => a group of ops }.
 export function book3({ PW = 460, PD = 620, spreads, cover, board = { base: 'accents.1', shade: 0.5 }, edge = { base: 'paper', tint: 0.3 }, leaf = 5 }) {
@@ -58,7 +83,7 @@ export function book3({ PW = 460, PD = 620, spreads, cover, board = { base: 'acc
           const onLeft = (p.base[0][0] + p.base[1][0]) / 2 < 0;
           if (onLeft !== (side === 'L')) continue;
           const b0 = at(...p.base[0]), b1 = at(...p.base[1]), up = upOf(p, e, fr.N, V3.norm(V3.sub(b1, b0)));
-          res.push({ p, e, Q: [V3.add(b0, V3.mul(up, p.h)), V3.add(b1, V3.mul(up, p.h)), b1, b0], zc: (p.base[0][1] + p.base[1][1]) / 2, r0: at(0, 0), N: fr.N });
+          res.push({ p, card: cardOf(p, ang, side === 'R' ? ang : -ang), ...(p.actor ? { fade: clamp(1 - 1.4 * ang / (Math.PI / 2), 0, 1) } : {}), e, Q: [V3.add(b0, V3.mul(up, p.h)), V3.add(b1, V3.mul(up, p.h)), b1, b0], zc: (p.base[0][1] + p.base[1][1]) / 2, r0: at(0, 0), N: fr.N });
         }
         return res;
       }
@@ -69,17 +94,17 @@ export function book3({ PW = 460, PD = 620, spreads, cover, board = { base: 'acc
           if (p.base[0][0] * p.base[1][0] >= 0) continue;
           const b0 = V3.add([0, yL, p.base[0][1]], V3.mul(fL.U, Math.abs(p.base[0][0]))), b1 = V3.add([0, yR, p.base[1][1]], V3.mul(fR.U, Math.abs(p.base[1][0])));
           const N = V3.norm(V3.add(fL.N, fR.N)), up = upOf(p, e, N, V3.norm(V3.sub(b1, b0)));
-          res.push({ p, e, Q: [V3.add(b0, V3.mul(up, p.h)), V3.add(b1, V3.mul(up, p.h)), b1, b0], zc: (p.base[0][1] + p.base[1][1]) / 2, r0: [0, Math.max(yL, yR), 0], N: [0, 1, 0] });
+          res.push({ p, card: cardOf(p, Math.max(angL, angR)), e, Q: [V3.add(b0, V3.mul(up, p.h)), V3.add(b1, V3.mul(up, p.h)), b1, b0], zc: (p.base[0][1] + p.base[1][1]) / 2, r0: [0, Math.max(yL, yR), 0], N: [0, 1, 0] });
         }
         return res;
       }
       function drawQuads(quads, clip) {
         quads.sort((a, b) => a.zc - b.zc);
-        const casters = quads.filter((q) => q.e > 0.03 && q.p.shadow !== false).map((q) => ({ card: q.p.card, P: q.Q, r0: q.r0, n: q.N, alpha: Math.min(1, q.e * 1.5) }));
+        const casters = quads.filter((q) => q.e > 0.03 && q.p.shadow !== false).map((q) => ({ card: q.card, P: q.Q, r0: q.r0, n: q.N, alpha: Math.min(1, q.e * 1.5) * (q.fade ?? 1) }));
         if (casters.length) shade(casters, clip, 0.34);
         for (const q of quads) {
           if (q.e <= 0.015) continue;
-          quad(q.p.card, q.Q, { n: q.p.mesh ?? 8, dark: shadeOf(q.Q) * 0.85 + (1 - q.e) * 0.22, back: q.p.back || q.p.card, alpha: Math.min(1, q.e * 5), name: q.p.name });
+          quad(q.card, q.Q, { n: q.p.mesh ?? 8, dark: shadeOf(q.Q) * 0.85 + (1 - q.e) * 0.22, back: q.p.back || q.card, alpha: Math.min(1, q.e * 5), name: q.p.name });
           if (q.p.after) { const a = q.p.after(q.Q, q.e); if (a) out.push(a); }
         }
       }

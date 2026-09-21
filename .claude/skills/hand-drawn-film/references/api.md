@@ -82,7 +82,9 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/puppet.js
 
+- `DIR` The dir input of a puppet with views: -1 .. 1 on a half step, the sign its facing, |dir| its view.
 - `JOINT` A joint input: degrees on a 2 degree step, so a pose blend and a cycle land on the same quantised values.
+- `VIEW_DIRS` The |dir| each view is drawn at: side 1, three-quarter 0.5, front 0.
 - `puppet(idOrData)` puppet(id) => the cel of the puppet that id names in the registry; puppet(data) builds one from a payload in hand (a test, or `hdf sheet store <id>` reading the blob itself).
 
 ### core/actor.js

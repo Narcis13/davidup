@@ -115,7 +115,8 @@ function clipBox(d) {
 function puppetBox(d) {
   let b = null;
   for (const p of Object.values(d.parts)) {
-    for (const ops of [p.ops, ...Object.values(p.variants ?? {})]) {
+    const lists = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.values(v) : [v]);   // keyed by view, or not
+    for (const ops of [...lists(p.ops), ...Object.values(p.variants ?? {}).flatMap(lists)]) {
       if (!Array.isArray(ops) || !ops.length) continue;
       let ob = null;
       try { ob = bounds(parse(JSON.stringify(ops))); } catch { ob = null; }

@@ -5,7 +5,7 @@
 import { FPS } from './curves.js';
 import { bounds, mmul, norm } from './list.js';
 import { resolveLook, resolveRole } from './looks.js';
-import { JOINT, puppet } from './puppet.js';
+import { JOINT, VIEW_DIRS, puppet } from './puppet.js';
 import { cues, evalShot, frame } from './tree.js';
 
 export const RULES = Object.freeze({
@@ -284,8 +284,9 @@ function rawRoles(list) {
 
 // lintPuppet(payload) => findings over a puppet before it is written to the store (`hdf import --kind puppet`
 // runs it): `puppet-joint` over every pose and cycle frame, `roles-raw` over every part's ops and variants,
-// and `cel-box` over the drawing of the rest pose, every named pose, every variant and every cycle frame --
-// the box in the payload is what `cel()` hands lint and the sheet, so it has to hold all of them.
+// and `cel-box` over the drawing of the rest pose, every view both ways round, every named pose, every
+// variant and every cycle frame -- the box in the payload is what `cel()` hands lint and the sheet, so it
+// has to hold all of them.
 export function lintPuppet(data, name = data?.name ?? 'puppet') {
   const F = finder();
   const add = (rule, detail, key = detail) => F.add(rule, name, null, detail, key);
@@ -305,8 +306,10 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
     if (c?.n !== undefined && c.n !== frames.length) add('puppet-joint', `cycle '${cn}' says n ${c.n} and carries ${frames.length} frames`, `cycle|${cn}`);
     frames.forEach((fr, j) => { for (const [k, v] of Object.entries(fr ?? {})) joint(`cycle '${cn}' frame ${j}`, k, v); });
   }
+  // An op list, or op lists keyed by view: [label, list] for each.
+  const lists = (label, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([view, l]) => [`${label} in view ${view}`, l]) : [[label, v]]);
   for (const [pn, p] of Object.entries(parts)) {
-    for (const [label, list] of [['ops', p?.ops], ...Object.entries(p?.variants ?? {}).map(([k, v]) => [`variant '${k}'`, v])]) {
+    for (const [label, list] of [...lists('ops', p?.ops), ...Object.entries(p?.variants ?? {}).flatMap(([k, v]) => lists(`variant '${k}'`, v))]) {
       for (const r of rawRoles(list)) add('roles-raw', `part '${pn}' ${label} paints ${r}; name a palette role (ink, fills.0, light, ...)`, `${pn}|${r}`);
     }
   }
@@ -315,6 +318,8 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
   try { make = puppet({ ...data, name }); } catch (e) { add('draw', `the puppet does not build: ${e.message}`, 'build'); return F.list; }
   const cases = [['rest', make.rest]];
   try {
+    // Every view, both ways round: the box holds the turnaround too.
+    for (const v of make.views ?? []) for (const dir of [1, -1]) cases.push([`view ${v}${dir < 0 ? ' mirrored' : ''}`, { ...make.rest, dir: dir * (VIEW_DIRS[v] ?? 1) }]);
     for (const pn of make.poses) cases.push([`pose '${pn}'`, make.poseOf(pn, 1)]);
     for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
     for (const [cn, c] of Object.entries(data?.cycles ?? {})) (c?.frames ?? []).forEach((_, j) => cases.push([`cycle '${cn}' frame ${j}`, make.frameOf(cn, j / (c.fps ?? FPS))]));

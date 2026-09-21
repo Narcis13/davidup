@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fromStore } from '../core/assets.js';
-import { circle, fill, group, hashList, hashOp, serialise, stroke, translate, walk } from '../core/list.js';
+import { fromStore, validatePayload } from '../core/assets.js';
+import { circle, fill, group, hashList, hashOp, parse, serialise, stroke, translate, walk } from '../core/list.js';
 import { lintPuppet } from '../core/lint.js';
-import { JOINT, puppet } from '../core/puppet.js';
+import { DIR, JOINT, puppet } from '../core/puppet.js';
 import { cel } from '../core/tree.js';
 
 // Ops as a payload carries them: plain data, paths as { $p }.
@@ -105,4 +105,74 @@ test('a puppet says what it cannot do', () => {
   assert.throws(() => puppet({ name: 'x', parts: { a: { parent: 'b', ops: [] }, b: { parent: 'a', ops: [] } } }), /parent each other in a loop/);
   assert.throws(() => puppet(POSED)({ eye: 'wink' }), /part 'eye' has no variant 'wink'/);
   assert.throws(() => puppet(ONE)({ body: 'up' }), /joint 'body' takes degrees/);
+});
+
+// ---------- turnarounds ----------
+
+// Two views of a head on a body: the side has a nose to the right, the front two eyes; the body is shared.
+const HEAD_SIDE = ops([fill(circle(8, 0, 10), 'fills.0', { finish: true }), fill(circle(18, 0, 2), 'ink')]);
+const HEAD_FRONT = ops([fill(circle(0, 0, 10), 'fills.0', { finish: true }), fill(circle(-4, -2, 1.5), 'ink'), fill(circle(4, -2, 1.5), 'ink')]);
+const TURN = {
+  name: 'turner', units: 100, box: [-40, -100, 80, 100], ground: [0, 0], views: ['side', 'three-quarter', 'front'],
+  parts: {
+    body: { pivot: [0, -40], ops: ops(BLOB) },
+    head: { parent: 'body', pivot: { side: [6, -86], front: [0, -84] }, ops: { side: HEAD_SIDE, front: HEAD_FRONT } },
+    eye: { parent: 'head', variants: { open: { side: ops([fill(circle(10, -3, 2), 'ink')]), front: [] }, shut: [] } },
+  },
+};
+
+test('views: dir picks the view, a missing view falls back to the first, a negative dir mirrors about the ground', () => {
+  const p = puppet(TURN);
+  assert.deepEqual(p.views, ['side', 'three-quarter', 'front']);
+  assert.deepEqual(p.cel.inputs.dir, DIR);
+  assert.equal(p.rest.dir, 1, 'at rest a turnaround shows its side, facing right');
+  assert.deepEqual([1, 0.5, 0, -0.5, -1, 0.3, 0.2].map((d) => p.viewOf(d)), ['side', 'three-quarter', 'front', 'three-quarter', 'side', 'three-quarter', 'front']);
+  const headOf = (g) => { let hit = null; walk([g], (op) => { if (!hit && op.op === 'group' && op.name === 'head') hit = op; }); return hit; };
+  const side = p({ dir: 1 }), front = p({ dir: 0 }), tq = p({ dir: 0.5 });
+  assert.equal(hashList(headOf(front).kids.slice(0, 3)), hashList(parse(JSON.stringify(HEAD_FRONT))));
+  assert.notEqual(hashOp(side), hashOp(front));
+  // three-quarter is declared but draws nothing of its own: every part falls back to the side.
+  assert.equal(hashList(tq.kids), hashList(side.kids));
+  // The pivot follows the view: the front head sits at (0, -84) relative to the body's (0, -40).
+  assert.deepEqual([headOf(side).xf[4], headOf(side).xf[5]], [6, -46]);
+  assert.deepEqual([headOf(front).xf[4], headOf(front).xf[5]], [0, -44]);
+  // Mirrored: one cacheable group that flips about the ground point, the side drawing inside it.
+  const back = p({ dir: -1 });
+  assert.equal(back.kids.length, 1);
+  assert.deepEqual([back.kids[0].name, back.kids[0].xf, back.kids[0].cache], ['mirror', [-1, 0, 0, 1, 0, 0], undefined]);
+  assert.equal(hashList(back.kids[0].kids), hashList(side.kids));
+  assert.equal(p({ dir: 0.9 }), p({ dir: 1 }), 'dir quantises to the half step');
+  // The box holds the drawing both ways round.
+  assert.deepEqual(p.cel.box, [-40, -100, 80, 100]);
+  assert.deepEqual(puppet({ ...TURN, box: [-30, -100, 90, 100] }).cel.box, [-60, -100, 120, 100]);
+  assert.deepEqual(lintPuppet(TURN), []);
+  assert.deepEqual(validatePayload('puppet', TURN), []);
+});
+
+test('views: keyed data without views, or naming a view that is not declared, is refused', () => {
+  const { views, ...flat } = TURN;
+  assert.throws(() => puppet(flat), /part 'head' ops is keyed by view, but the puppet declares no views/);
+  assert.throws(() => puppet({ ...TURN, views: ['side'] }), /part 'head' ops names view 'front' \(views: side\)/);
+  assert.deepEqual(validatePayload('puppet', { ...flat, units: 100 }).filter((b) => /head/.test(b)), ['parts.head: needs ops or variants', 'parts.head.pivot: [x, y]']);
+  assert.equal(validatePayload('puppet', { ...TURN, views: [] })[0], "views: view names, the first the one a part falls back to (['side', 'three-quarter', 'front'])");
+  // roles-raw looks inside every view.
+  const raw = { ...TURN, parts: { ...TURN.parts, head: { ...TURN.parts.head, ops: { ...TURN.parts.head.ops, front: ops([fill(circle(0, 0, 10), '#ff0000')]) } } } };
+  assert.deepEqual(lintPuppet(raw).map((f) => f.detail), ["part 'head' ops in view front paints #ff0000; name a palette role (ink, fills.0, light, ...)"]);
+});
+
+test('the fox in the store turns: three views, and every one both ways round inside its box', () => {
+  fromStore(['fox']);
+  const fox = puppet('fox');
+  assert.deepEqual(fox.views, ['side', 'three-quarter', 'front']);
+  const hashes = [1, 0.5, 0, -0.5, -1].map((dir) => hashOp(fox({ dir })));
+  assert.equal(new Set(hashes).size, 5, 'five different drawings');
+  assert.deepEqual(fox.cel.box, [-126, -314, 252, 324]);
+});
+
+test('lint: cel-box looks at every view both ways round', () => {
+  // A front head drawn far to the right, past the box: only the front view shows it.
+  const wide = { ...TURN, parts: { ...TURN.parts, head: { ...TURN.parts.head, ops: { ...TURN.parts.head.ops, front: ops([fill(circle(60, 0, 10), 'fills.0')]) } } } };
+  const found = lintPuppet(wide).filter((f) => f.rule === 'cel-box');
+  assert.equal(found.length, 1);
+  assert.match(found[0].detail, /^view front draws .* outside the declared box/);
 });

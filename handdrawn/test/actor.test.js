@@ -77,6 +77,41 @@ test('a puppet actor on the stage: mirrored, turned, reaching, and a missing cyc
   assert.notEqual(A.cycle('hop', 0).lift, A.cycle('hop', 0.25).lift, 'two poses');
 });
 
+// KIT with a turnaround: the head and eyes drawn again from the front; three-quarter left to the side view.
+const KIT3 = {
+  ...KIT, name: 'kit3', views: ['side', 'front'],
+  parts: {
+    ...KIT.parts,
+    'arm-r': { parent: 'body', pivot: { side: [20, -50], front: [40, -20] }, ops: disc(10, 5) },
+    head: { parent: 'body', pivot: [0, -75], ops: { side: disc(0, 18), front: disc(0, 20) } },
+  },
+};
+
+test('a turnaround actor: look picks the view, the puppet mirrors itself, a hand aims in its own drawing', () => {
+  const A = actorOf(puppet(KIT3));
+  assert.deepEqual(A.look(1), { dir: 1, head: 0 });
+  assert.deepEqual(A.look(-0.8), { dir: -1, head: 0 });
+  assert.deepEqual(A.look(0), { dir: 0, head: 0 }, 'it has a front: it turns to us, no chin-up');
+  assert.deepEqual(A.look(0.5), { dir: 1, head: 0 }, 'no three-quarter: the side');
+  assert.deepEqual(A.look(-0.4), { dir: -1, head: 0 });
+  const B = actorOf(puppet({ ...KIT, name: 'kit3b', views: ['side', 'three-quarter'] }));
+  assert.deepEqual(B.look(-0.5), { dir: -0.5, head: 0 });
+  assert.deepEqual(B.look(0), { dir: 1, head: -6 }, 'no front: facing us is the old chin-up');
+  // The stage does not flip what the puppet already mirrors.
+  const g = A.place(500, 500, 50, A.look(-1));
+  assert.ok(g.xf[0] > 0, 'the stage keeps its scale positive');
+  assert.equal(g.kids[0], A({ dir: -1, head: 0 }));
+  assert.equal(g.kids[0].kids[0].name, 'mirror');
+  // A hand to the left of a fox facing left is in front of it: its right arm reaches, turned in its own frame.
+  const reach = A.place(500, 500, 50, { dir: -1, hand: [400, 400] });
+  const arm = reach.kids[0].inputs['arm-r'];
+  assert.ok(arm < -90 && arm > -180, `arm-r ${arm}`);
+  // From the front the right arm turns about the front pivot, lower down, so it reaches higher for the same hand.
+  const side = A.place(500, 500, 50, { dir: 1, hand: [600, 400] }).kids[0].inputs['arm-r'];
+  const front = A.place(500, 500, 50, { dir: 0, hand: [600, 400] }).kids[0].inputs['arm-r'];
+  assert.ok(front < side, `front ${front}, side ${side}`);
+});
+
 test('a code cel as an actor: the film supplies the methods', () => {
   const ball = puppet({ ...KIT, name: 'ball' });   // any cel will do; this one has a box and inputs
   const plain = Object.assign((q) => ball(q), { cel: ball.cel });

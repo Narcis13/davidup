@@ -210,9 +210,10 @@ with a one-line note if the SVG fox is intentionally nicer.
 
 - Puppet JSON: optional `views: ['front', 'three-quarter', 'side']`; a part's
   `ops` (or each variant) may be an object keyed by view. Missing view falls
-  back to the first declared. `dir` input `[-1, 1, 2]` picks `side` (flipped
-  for -1), `0` picks `front`; `three-quarter` is chosen by `actor.look(±0.5)`
-  when present.
+  back to the first declared. `dir` input `[-1, 1, 0.5]` (a half step, so 0
+  and ±0.5 exist) picks `side` (flipped for -1), `0` picks `front`;
+  `three-quarter` is chosen by `actor.look(±0.5)` when present. (Built: a
+  `pivot` may be keyed by view too, and actors on a turning page stay upright.)
 - `core/svg.js`: a top-level `<g id="view:side">` wraps a whole view; parts
   inside keep their ids. The fox SVG gains three views.
 - `core/actor.js`: `look(dir)` picks the view, then head turn and eye variant
@@ -439,7 +440,7 @@ doodle recipe in the user's hand without reading the source.
 | S4 | Puppets | S2 | (prereq) | [x] |
 | S5 | Actor contract | S4 | (prereq) | [x] |
 | S6 | SVG import | S4 | (prereq) | [x] |
-| S7 | Turnarounds | S5, S6 | turnarounds | [ ] |
+| S7 | Turnarounds | S5, S6 | turnarounds | [x] |
 | S8 | Pose sheets as briefs | S7 | pose sheets | [ ] |
 | S9 | Speech scribbles | S5 | speech scribbles | [ ] |
 | S10 | Cut-out look | S4 | cut-out look | [ ] |

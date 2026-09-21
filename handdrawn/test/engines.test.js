@@ -189,6 +189,30 @@ test('book3: shut, opening, open, turning and open again all draw', () => {
   }
 });
 
+test('book3: an actor piece turns with its page, front at rest, three-quarter lifting, side upright', () => {
+  const page = H.card3(460, 620, [fill(rect(0, 0, 460, 620), 'paper')]);
+  const disc = (r, x = 0) => JSON.parse(H.serialise([fill(circle(x, 0, r), 'fills.0')]));
+  const who = H.actorOf(H.puppet({
+    name: 'turny', units: 100, box: [-40, -100, 80, 100], views: ['side', 'three-quarter', 'front'],
+    parts: { body: { pivot: [0, -50], ops: { side: disc(30, 10), 'three-quarter': disc(30, 5), front: disc(30) } } },
+  }));
+  const seen = [];
+  const spy = Object.defineProperty(Object.assign((q) => { seen.push(q.dir); return who(q); }, who), 'name', { value: 'turny' });
+  const book = H.book3({ cover: page, spreads: [
+    { left: page, right: page, pieces: [{ base: [[100, 0], [300, 0]], h: 250, actor: spy, state: { body: 0 } }] },
+    { left: page, right: page, pieces: [] },
+  ] });
+  const c = H.camera3({ eye: [0, 1000, 1300], target: [0, 100, 0] });
+  const drawn = (turn) => { seen.length = 0; const g = book.draw({ turn, cam: c, look: 'doodlePastel' }); return [g, seen.slice()]; };
+  assert.deepEqual(drawn(1)[1], [0], 'the page lies flat: the front');
+  assert.ok(drawn(1.3)[1].every((d) => d === -0.5), 'lifting: three-quarter, turning the way the leaf goes');
+  assert.ok(drawn(1.5)[1].every((d) => d === -1), 'upright: the side');
+  const [g] = drawn(1);
+  const cels = [];
+  walk([g], (op) => { if (op.op === 'group' && op.name === 'actor:turny') cels.push(op); });
+  assert.ok(cels.length >= 1, 'the actor is drawn on its card');
+});
+
 // ---------- the films ----------
 
 test('a frame does not depend on what the renderer drew before it (scratch canvases are sized exactly)', async () => {
