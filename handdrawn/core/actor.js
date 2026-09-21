@@ -49,6 +49,10 @@
 // 1080 stage; `at` puts the bubble's centre at a stage point instead), and events(t) the plucks, one per
 // syllable, for a score that places the shot at t. An actor without a mouth part gets a three-stroke mouth
 // drawn over it at spec.mouthAt ([x, y] in s units from its centre, as it faces right) while it speaks.
+// With { voice: <sample id> } (4.0 V2) the line is that recording from t0: its letters, syllables and mouth
+// follow the sample's word timing (core/align.js alignOf, the copy `text` or, when text is empty, the
+// alignment's own), and events(t) is the voice itself, not plucks. The timing is read on first use, so a
+// line built at a film's top level waits for the player to fetch its wav.
 import { FPS } from './curves.js';
 import { pen } from './doodle.js';
 import { celOverflow } from './lint.js';
@@ -60,7 +64,8 @@ import { reveal as revealList } from './tools.js';
 import { VIEW_DIRS } from './puppet.js';
 import { cel } from './tree.js';
 import BIPED from '../packs/poses/biped.json' with { type: 'json' };
-import { pluckPerSyllable } from '../recipes/score.js';
+import { pluckPerSyllable, voice as voiceEvent } from '../recipes/score.js';
+import { alignOf, alignSpan, spokenOf } from './align.js';
 
 const RAD = Math.PI / 180;
 const TWOS = FPS / 2;                     // drawn twos: 6 states a second
@@ -369,23 +374,45 @@ const MARGIN = 24, STAGE = 1080;
 const clampTo = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.max(lo, Math.min(hi, v)));
 
 function speak(actor, base, spec, text, t0, o = {}) {
-  text = String(text);
-  const { at = null, size = 48, bubble = true, hold = 0.75, seed = hash32('say', actor.name, text) } = o;
+  const vid = o.voice ?? null;
+  text = vid && (text === null || text === undefined || text === '') ? null : String(text);
   if (!Number.isFinite(t0)) throw new TypeError(`actor ${actor.name}: say('${text}', t0) needs a start time`);
-  const sp = speech(text, t0), until = sp.end + hold, talks = base.has('mouth');
-  const mouth = (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : sp.steps[Math.floor((t - t0) * FPS + 1e-9)] ?? 0);
-  const tw = measure(text, size), bw = tw + size * 1.2, bh = size * 1.9;
-  const words = handText(text, 0, 0, { size, align: 'center', role: 'ink', ink2: null, w: size * 0.07, seed });
-  const glyphOf = (op) => parseInt(op.name.slice(1), 10);
-
+  if (vid !== null && (typeof vid !== 'string' || !vid)) throw new TypeError(`actor ${actor.name}: say voice must be a sample id, got ${JSON.stringify(vid)}`);
+  // Everything that reads the timing, made once: at once for a synth line (as it always was), on first use
+  // for a voiced one (its alignment may need a wav the player has not fetched yet).
+  let L = null;
+  const line = () => L ??= lineOf(actor, base, spec, text, t0, o, vid);
+  if (!vid) line();
+  const talks = base.has('mouth');
   return Object.freeze({
-    kind: 'say', actor: actor.name, text, t0, end: sp.end, until, syllables: sp.syllables, mouth,
+    kind: 'say', actor: actor.name, t0, ...(vid ? { voice: vid } : {}),
+    get text() { return line().text; },
+    get end() { return line().sp.end; },
+    get until() { return line().until; },
+    get syllables() { return line().sp.syllables; },
+    mouth: (t) => line().mouth(t),
     state(t) {
-      const v = mouth(t);
+      const v = line().mouth(t);
       if (v === null || !talks) return {};
       const m = base.mouthOf?.(v);
       return m === undefined ? {} : { mouth: m };
     },
+    draw: (t, x, y, s, q) => line().draw(t, x, y, s, q),
+    events: (t = 0, e = {}) => line().events(t, e),
+  });
+}
+
+function lineOf(actor, base, spec, text, t0, o, vid) {
+  const A = vid ? alignOf(vid, text === null ? {} : { text }) : null;
+  if (A) text = A.text;
+  const { at = null, size = 48, bubble = true, hold = 0.75, seed = hash32('say', actor.name, text) } = o;
+  const sp = A ? spokenOf(A, t0) : speech(text, t0), until = sp.end + hold, talks = base.has('mouth');
+  const mouth = A ? sp.mouth : (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : sp.steps[Math.floor((t - t0) * FPS + 1e-9)] ?? 0);
+  const tw = measure(text, size), bw = tw + size * 1.2, bh = size * 1.9;
+  const words = handText(text, 0, 0, { size, align: 'center', role: 'ink', ink2: null, w: size * 0.07, seed });
+  const glyphOf = (op) => parseInt(op.name.slice(1), 10);
+  return {
+    text, sp, until, mouth,
     draw(t, x, y, s, q = {}) {
       if (t < t0 - 1e-9 || t >= until - 1e-9) return null;
       const dir = (q.dir ?? 1) < 0 ? -1 : 1, head = [x + dir * 0.15 * s, y + base.top * s], tip = [head[0], head[1] - 0.14 * s];
@@ -399,11 +426,12 @@ function speak(actor, base, spec, text, t0, o = {}) {
       const letters = group({ name: `text:${text}`, xf: translate(cx, cy + size * 0.36) }, words.kids.filter((op) => glyphOf(op) < shown));
       const v = mouth(t), mx = spec.mouthAt;
       return group({ name: `say:${actor.name}`, cache: 'never' }, [
+        A && meta('captions', { id: vid, by: A.by, span: alignSpan(A) }),
         bubble && bubbleMark(box, inBox ? null : tip, { seed, w: Math.max(2, size * 0.07) }),
         letters,
         !talks && mx && v !== null ? mouthMark(x + mx[0] * s * dir, y + mx[1] * s, s, v, dir) : null,
       ]);
     },
-    events: (t = 0, e = {}) => pluckPerSyllable(text, t + t0, { seed, ...e }),
-  });
+    events: (t, e) => (A ? [voiceEvent(vid, t + t0, e.gain === undefined ? {} : { gain: e.gain })] : pluckPerSyllable(text, t + t0, { seed, ...e })),
+  };
 }

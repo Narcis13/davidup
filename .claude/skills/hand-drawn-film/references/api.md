@@ -241,6 +241,18 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `decodeWav(bytes, { sr = SR } = {})` Mono samples at sr (channels averaged, resampled): what the synth mixes.
 - `voicedSpan(x, sr = SR, { floor = 0.01, win = 0.02 } = {})` The voiced region: 20 ms windows whose RMS is above `floor` (-40 dBFS by default), first to last.
 
+### core/align.js
+
+- `alignOf(id, { text } = {})` alignOf(id, { text }) => { text, by, words: [{ text, t0, t1 }] } for the store's sample `id`, in the sample's seconds.
+- `estimateAlign(text, x, sr = SR)` estimateAlign(text, samples, sr) => { text, by: 'estimate', words }: the grid stretched linearly over the voiced part, then each pause in the copy that lands near a silence in the recording pinned to it (a monotone match, cheapest total ...
+- `fitWords(text, got, by = 'json')` fitWords(text, [{ text, t0, t1 }], by) => { text, by, words }: a transcriber's words (its own spelling, punctuation and splits) laid onto the copy's words by a word-level edit distance: a word both have (or one spelt differently in the ...
+- `wordsOf(text)` The copy's words, split on white space; punctuation stays on the word it touches ("light." is one word).
+- `spokenOf(A, t0 = 0)` spokenOf(A, t0) => text.js speech()'s shape for a recorded line starting at t0: { syllables: [{ text, from, to, t, dur }], letters (a time per char), dur, end } and mouth(t), the viseme at shot time t (null outside the line).
+
+### core/captions.js
+
+- `captions(src, o = {})` captions(id | alignment, { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand }) => a strip that letters a recorded line as it is spoken, the spoken word underlined; draw(t, { W, H }) in the clock of t0.
+
 ### recipes/score.js
 
 - `note(t, hz, dur, type = 'triangle', gain = 0.25)` One enveloped oscillator (v1 note).

@@ -38,7 +38,9 @@ export const RULES = Object.freeze({
 // Warnings: worth saying, not worth failing a film for. `hdf lint` prints them and still exits 0.
 export const WARNINGS = Object.freeze({
   'inline-asset': 'an asset carried in the film as a data URL instead of named in the store',
+  'caption-sync': 'captions (or a voiced line) timed by the estimate over more than 3 s: hdf align <id> refines it',
 });
+export const SYNC_MAX = 3;         // s of estimated word timing before caption-sync warns
 
 // Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins.
 export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3 });
@@ -108,7 +110,7 @@ export function celOverflow(op) {
 
 // One evaluated shot frame: roles, looks, finishes, scribbles, cels, words, anchors and crop intent.
 function scan(list, look, report) {
-  const got = { looks: 0, finishes: new Set(), scribbles: 0, words: new Set(), anchors: [], crop: false, bobs: new Set() };
+  const got = { looks: 0, finishes: new Set(), scribbles: 0, words: new Set(), anchors: [], crop: false, bobs: new Set(), captions: [] };
   const role = (r, lk, where) => {
     if (r === null || r === undefined) return;
     try { resolveRole(r, lk); } catch (e) { report('role', `${where}: ${e.message}`, `${JSON.stringify(r)}@${lookName(lk)}`); }
@@ -129,13 +131,15 @@ function scan(list, look, report) {
           if (op.tag === 'anchor') got.anchors.push(op.data ?? {});
           if (isCrop(op)) got.crop = true;
           if (op.tag === 'actor-cycle') got.bobs.add(`${op.data?.actor}|${op.data?.cycle}`);   // core/actor.js fallback
+          if (op.tag === 'captions') got.captions.push(op.data ?? {});   // core/captions.js, a voiced say (4.0 V2)
           break;
         case 'group': {
           if (op.cel && op.box) {
             const b = celOverflow(op);
             if (b) report('cel-box', `cel '${op.cel}' draws ${fmtBox(b)} outside its box ${fmtBox(op.box)}`, op.cel);
           }
-          const sign = inSignOff || op.name === 'signOff';
+          // The sign-off's words and a voice's captions (4.0 V2) are not the shot's words.
+          const sign = inSignOff || op.name === 'signOff' || (typeof op.name === 'string' && op.name.startsWith('captions:'));
           if (!sign && typeof op.name === 'string' && op.name.startsWith('text:')) got.words.add(op.name.slice(5));
           visit(op.kids, lk, sign);
           continue;
@@ -170,7 +174,7 @@ const anchorLabel = (d) => (d.cel !== undefined ? `cel '${d.cel}'` : d.name !== 
 // inspect(film) => { findings, shots } where shots summarise each play for `hdf board`:
 // { name, f0, n, dur, look, anchor, recipe, camera, finishes, words }.
 export function inspect(film) {
-  const F = finder(), shots = [];
+  const F = finder(), W = finder(), shots = [];
   for (const p of plays(film)) {
     const { node } = p, name = node.name;
     const s = { name, f0: p.f0, n: p.ks.length === 1 ? 1 : node.n, dur: node.dur, look: null, anchor: true, recipe: node.recipe, camera: node.camera, finishes: new Set(), words: new Set() };
@@ -194,6 +198,9 @@ export function inspect(film) {
       got.finishes.forEach((x) => s.finishes.add(x));
       got.words.forEach((w) => s.words.add(w));
       got.bobs.forEach((b) => { const e = bobs.get(b); if (e) e.n++; else bobs.set(b, { n: 1, i }); });
+      for (const c of got.captions) {
+        if (c.by === 'estimate' && c.span > SYNC_MAX) W.add('caption-sync', name, i, `'${c.id}' is captioned from an estimate of its word timing over ${(+c.span).toFixed(1)} s (at most ${SYNC_MAX} s): hdf align ${c.id} --text "..." times it from the recording`, c.id);
+      }
       if (got.scribbles > MAX_SCRIBBLES) report('scribble', `${got.scribbles} scribbled parts in one frame (at most ${MAX_SCRIBBLES})`, 'scribble');
       if (!got.anchors.length) { s.anchor = false; report('anchor', "no meta('anchor', ...) in the shot", 'anchor'); return; }
       // Several anchors are alternatives (a seed dot, and the ripples it makes): one of them must be drawn.
@@ -225,7 +232,7 @@ export function inspect(film) {
   gridRule(film, F);
   voiceRule(film, F);
   const findings = F.list.sort((a, b) => (a.frame ?? -1) - (b.frame ?? -1));
-  return { findings, shots };
+  return { findings, shots, warnings: W.list.map((f) => ({ ...f, warn: true })) };
 }
 
 // The shot a node shows first or last (through seq, look and hold); a cut's own end shots count as its ends.
@@ -501,7 +508,14 @@ export function warnAssets(film) {
 
 // lint(film, { source }) => findings [{ rule, shot, frame, line?, detail }], source rules first.
 export function lint(film, { source } = {}) {
-  return [...(source ? lintSource(source) : []), ...inspect(film).findings];
+  return lintAll(film, { source }).findings;
+}
+
+// Findings and warnings in one pass over the film: { findings, warnings } (warnings: inline assets, and
+// caption-sync from the frames).
+export function lintAll(film, { source } = {}) {
+  const got = inspect(film);
+  return { findings: [...(source ? lintSource(source) : []), ...got.findings], warnings: [...warnAssets(film), ...got.warnings] };
 }
 
 // `file:shot:frame  rule  detail` (source findings put the line in the frame slot as L<n>; a warning says so).

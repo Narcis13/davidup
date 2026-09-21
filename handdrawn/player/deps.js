@@ -9,3 +9,4 @@ export { SR, filmAudio, scoreEvents, setPcm, voiceIds } from '../core/synth.js';
 export { bounds, group, paper, stroke, rect, walk, hashList, withProps } from '../core/list.js';
 export { withHand } from '../core/glyphs.js';
 export { handOf, hashLook, resolveLook } from '../core/looks.js';
+export { register, stored } from '../core/store.js';

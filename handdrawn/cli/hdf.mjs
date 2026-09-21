@@ -48,6 +48,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--no-face] [--root dir] [--no-sheet]   a stick puppet: joints and bones compiled
                                     to parts in three views, a face, standard biped names; writes src/<id>.stick.json
                                     and imports it (then hdf retarget --clip me --to <id> --name walk, no map)
+  align   <id> [--text "..."] [--json words.json] [--estimate] [--show] [--model base] [--lang en] [--root dir]
+                                    word timing for a sample, stored on its entry: a transcriber (faster-whisper or
+                                    whisper-timestamped under $HDF_PYTHON) laid onto the copy, any tool's words
+                                    (--json), or the estimate; captions(id) and say(..., { voice: id }) read it
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
                                     --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record
@@ -76,7 +80,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };
 

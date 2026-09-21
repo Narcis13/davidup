@@ -26,6 +26,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 |---|---|---|
 | `mini.js` | paperInk | the smallest complete film: a cel, a shot, a sign-off, a score |
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
+| `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
 | `four-looks.js` | riso, screen, pencil, ink | recipes N O P U W A S, riso cards as plates, a look per shot |
@@ -217,6 +218,15 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   line.wav --kind sample --name <id> --licence own`; name `<id>` in `assets`
   and add `voice('<id>', t)` to the score. The package never synthesises
   speech. The score ducks 9 dB under it; lint fails a line past the end.
+- **Captions and voiced lines.** Put the copy on the sample (`--desc "..."`
+  on import), then run `hdf align <id>`: it uses faster-whisper under
+  `$HDF_PYTHON` if that is installed, and otherwise stores an estimate.
+  `captions(id, { t0 })` letters the words as they are spoken, underlines
+  the spoken word, and is drawn with `CAPS.draw(t, { W, H })` in the shot.
+  `FOX.say(null, t0, { voice: id })` speaks the recording: its letters and
+  mouth follow the timing, and `line.events(t)` is the voice itself.
+  Captions do not count as words. Lint warns `caption-sync` on an estimate
+  over 3 s.
 - **Turnarounds.** A puppet with `views` turns through `look(dir)` and on a
   `book3` page as the leaf lifts (`fox-and-teapot.js`, the turn shot). `hdf
   sheet store fox` opens on the turnaround.

@@ -776,6 +776,47 @@ inlines the wav, `hdf dev` serves its blob. Name the id in the film's
 `say`, piper, edge-tts or a phone recording (converted with `ffmpeg -i in.m4a
 line.wav`) all make one. `films/mini-voice.js` is `mini` with one line.
 
+### Word timing and captions
+
+Captions follow the voice (4.0 V2). `alignOf(id)` gives each word of a sample
+its `t0` and `t1` in the sample's seconds. When nothing is stored, the timing
+is an estimate made from the wav at render time: `speech()`'s syllable grid is
+stretched over the voiced part, and each comma or full stop in the copy is
+pinned to the silence in the recording that falls near it. The copy is the
+entry's `desc` (`hdf import ... --desc "..."`) or `--text`. `hdf align`
+stores a better timing on the entry, so a render needs nothing installed:
+
+```bash
+hdf align moon-para --text "The moon does not make its own light. ..."   # faster-whisper or whisper-timestamped under $HDF_PYTHON
+hdf align moon-para --json words.json      # any tool's [{ text, t0, t1 }]
+hdf align moon-para --estimate             # store the estimate as it is
+hdf align moon-para --show                 # what a render would use; writes nothing
+```
+
+The transcriber's words go onto the copy through a word-level edit distance,
+so its spelling and punctuation never reach the screen. With no transcriber
+installed, `hdf align` stores the estimate and says so. On `moon-para`
+(18 s, `say`), the estimate's word starts are 0.16 s from whisper's on
+average (0.45 s at worst).
+
+```js
+const CAPS = captions('moon-para', { t0: 0.5 });   // the recording starts 0.5 s into the shot
+shot('moon', 19.75, ({ t, W, H }) => [paper(), ..., CAPS.draw(t, { W, H })]);
+const line = FOX.say(null, 1, { voice: 'moon-1' });  // letters, syllables, mouth from the timing; events() is the voice
+```
+
+`captions(id | alignment, { t0, size = 44, lines = 2, box, hold = 0.8,
+reveal: 'word' | 'page', role, mark = 'accents.0', sheet = 'paper', hand })`
+letters the copy in a strip at the bottom of the frame, in pages of `lines`
+lines. The last row of a page ends at a full stop when it can, and never
+leaves one or two words of a sentence for the next page. Each word appears as
+it is spoken, and the word being said is underlined as it starts. Captions
+are the voice's words, so they do not count against the look's allowance.
+Lint warns `caption-sync` when a line longer than 3 s is captioned from the
+estimate. The timing is read on first use, so captions built at a film's top
+level wait for the player to fetch the wav. `films/narrated.js` is an 18 s
+paragraph under a moon that changes phase as the voice says so.
+
 ---
 
 ## 9. The CLI
@@ -947,8 +988,10 @@ came in from a drawing program where a role belongs) and `cel-box` over the
 rest pose, every named pose, every variant and every cycle frame.
 
 It warns, without failing, on an asset the film carries as a data URL instead
-of naming in the store (`hdf import --v2`). A film built in memory -- a test, a
-sketch -- is welcome to keep its pixels.
+of naming in the store (`hdf import --v2`); a film built in memory (a test, a
+sketch) is welcome to keep its pixels. It also warns (`caption-sync`) on
+captions or a voiced `say` timed by the estimate over more than 3 s: `hdf
+align <id>` fixes that.
 
 Each finding names the shot, frame, rule and fix. Taste (one idea per shot,
 composition, timing, cuts, riso density) is the review list in `SKILL.md`.

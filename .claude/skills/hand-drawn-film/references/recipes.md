@@ -234,6 +234,7 @@ step)` gives a pentatonic pitch. Motifs (`handdrawn`, from
 | sand | `bed.hiss()`: every gesture hisses for as long as it lasts |
 | speech | `line.events(t0)` from `actor.say()`: one pluck per syllable (`pluckPerSyllable(text, t0)` bare) |
 | narration | `voice(id, t, { gain, dur })`: a recorded line from the store (`--kind sample`); the rest ducks 9 dB under it |
+| voiced speech | `line.events(t0)` from `actor.say(text, t0, { voice: id })`: the recording itself, in place of plucks |
 
 ```js
 score: ({ shots, end }) => {
@@ -252,3 +253,5 @@ import line.wav --kind sample --name <id> --licence own`, name the id in the
 film's `assets` and put `voice('<id>', t)` in the score. Lint rule `voice`
 fails a missing sample or a line that runs past the end (cut it with `{ dur
 }`). The contact sheet shows it as an orange bar under the tiles.
+`captions(id, { t0 })` letters its words as they are spoken, from the timing
+`hdf align <id>` stores (4.0 V2).

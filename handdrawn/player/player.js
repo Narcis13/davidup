@@ -54,6 +54,11 @@ async function load(gen) {
     if (typeof s !== 'string' || !/^data:image\/|\.(png|jpe?g|webp|gif)$/i.test(s)) continue;
     images.set(id, await decode(at(s)));
   }
+  // Every record on the page that the film did not read itself goes in the registry, so a voice's word timing
+  // (4.0 V2: captions, a voiced say) is found by id, as the store finds it in Node; one the film read with
+  // fromStore stays as it was.
+  const have = new Set(D.stored());
+  D.register(Object.fromEntries([...Object.entries(cfg.catalogue ?? {}), ...named].filter(([id, a]) => id && a && !have.has(id))));
   // Voices (4.0 V1): each sample's wav fetched and decoded before the score is mixed, which is synchronous.
   for (const id of D.voiceIds(D.scoreEvents(film)?.events ?? [])) {
     const s = cfg.assets?.[id] ?? named.find(([k]) => k === id)?.[1]?.src;

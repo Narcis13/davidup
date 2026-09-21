@@ -7,14 +7,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ASSET_ROOT, readCatalogue, sha } from '../core/assets.js';
-import { lint, lintPack, formatFinding, warnAssets } from '../core/lint.js';
+import { lintAll, lintPack, formatFinding } from '../core/lint.js';
 import { mirrorPayload, packCels, readManifest } from './donate.mjs';
 
 export async function run([path], flags, { loadFilm }) {
   if (path && isPack(resolve(path))) return lintPackFile(resolve(path), flags);
   const film = await loadFilm(path);
-  const findings = lint(film, { source: readFileSync(resolve(path), 'utf8') });
-  const warnings = warnAssets(film);
+  const { findings, warnings } = lintAll(film, { source: readFileSync(resolve(path), 'utf8') });
   const file = basename(path);
   for (const f of [...warnings, ...findings]) process.stdout.write(formatFinding(f, file) + '\n');
   const tail = warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '';
