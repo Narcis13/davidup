@@ -30,6 +30,15 @@
 // in code. Under a look with a `cutout` field the finish pass (core/finish.js) hands a cel that cutoutOf()
 // knows to asCutout(), which rebuilds it as card on a table: see there.
 //
+// Pack mirrors (3.0 S13): `hdf donate --manifest` writes every pack cel into the store as `pack:<name>`, a
+// puppet of one part whose variants are the cel drawn at each input combination (keyed 'lid=0,steam=1',
+// inputs sorted), with a `mirror` field: { pack, export, defaults, values, pool }. `values` are the inputs
+// each variant was drawn at (every step when the grid is small, else min, default and max), `defaults` what
+// the cel draws for an input it is not given, and `pool` every op once (its kids as indices into the pool);
+// a variant is the indices of its ops, so what two states share is stored once. The mirror is a cel with the code cel's name, box and inputs, and hands back the code
+// cel's ops, so `puppet('pack:boat')({ note: 1 })` hashes as `boat({ note: 1 })` does. An input between two
+// mirrored values draws the nearest one; an input the cel does not declare (boat's mode) needs the code cel.
+//
 // Browser-safe: the payload comes from the registry (core/store.js), which `fromStore` fills in node and
 // `hdf dev` / `hdf bundle` fill from `window.HDF.assets`.
 import { FPS } from './curves.js';
@@ -77,6 +86,7 @@ export function puppet(idOrData) {
 }
 
 function build(d, id) {
+  if (d.mirror) return mirror(d, id);
   const name = d.name ?? id ?? 'puppet';
   const names = Object.keys(d.parts);
   const at = new Map(names.map((n, j) => [n, j]));
@@ -235,6 +245,69 @@ function build(d, id) {
   make.frameOf = frameOf;
   make.pose = (pose, k = 1, extra) => make({ ...poseOf(pose, k), ...extra });
   make.cycle = (cycle, t, extra) => make({ ...frameOf(cycle, t), ...extra });
+  return make;
+}
+
+// ---------- pack mirrors (3.0 S13) ----------
+
+// The variant key of a full input set: 'k=v' pairs, keys sorted.
+export const mirrorKey = (q) => Object.keys(q).sort().map((k) => `${k}=${q[k]}`).join(',');
+
+function mirror(d, id) {
+  const m = d.mirror, name = d.name ?? id ?? 'puppet';
+  const [part] = Object.keys(d.parts), variants = d.parts[part].variants ?? {};
+  const values = m.values ?? {}, defaults = m.defaults ?? {}, pool = m.pool ?? [], keys = Object.keys(values).sort();
+  const where = `import { ${m.export ?? name} } from packs/${m.pack}.js`;
+  const snap = (k, v) => (typeof v !== 'number' ? v : values[k].reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a)));
+  // Pool entries revived once each, so an op two states share is one object (and one cache entry).
+  const ops = new Map();
+  const op = (i) => {
+    let o = ops.get(i);
+    if (o) return o;
+    const raw = pool[i];
+    if (!raw) throw new Error(`puppet ${name}: the mirror names op ${i}, which is not in its pool`);
+    o = parse(JSON.stringify(Array.isArray(raw.kids) ? { ...raw, kids: undefined } : raw));
+    if (Array.isArray(raw.kids)) o = withProps(o, { kids: raw.kids.map(op) });
+    ops.set(i, o);
+    return o;
+  };
+  const drawn = new Map();
+  const draw = (q) => {
+    for (const k of Object.keys(q)) {
+      if (!values[k]) throw new Error(`puppet ${name}: the pack mirror takes ${keys.join(', ') || 'no inputs'}; '${k}' needs the code cel (${where})`);
+    }
+    const full = {};
+    for (const k of keys) {
+      const v = q[k] ?? defaults[k];
+      if (v === undefined) throw new Error(`puppet ${name}: no default for '${k}' in the mirror; give it`);
+      full[k] = snap(k, v);
+    }
+    const key = mirrorKey(full);
+    if (!variants[key]) throw new Error(`puppet ${name}: the mirror has no drawing for ${key} (re-export it: hdf donate --manifest)`);
+    let r = drawn.get(key);
+    if (!r) drawn.set(key, (r = variants[key].map(op)));
+    return r;
+  };
+  const make = cel(name, draw, { box: d.box, inputs: d.inputs ?? {}, desc: d.desc });
+  const none = (what) => () => { throw new Error(`puppet ${name}: a pack mirror has no ${what}`); };
+  make.puppet = d;
+  make.mirror = m;
+  make.units = d.units;
+  make.ground = d.ground ?? [0, 0];
+  make.views = null;
+  make.viewOf = () => null;
+  make.pivotAt = () => [0, 0];
+  make.rest = Object.freeze({ ...defaults });
+  make.parts = Object.freeze([part]);
+  make.poses = Object.freeze([]);
+  make.cycles = Object.freeze([]);
+  make.poseOf = none('poses');
+  make.frameOf = none('cycles');
+  make.pose = none('poses');
+  make.cycle = none('cycles');
+  // Every mirrored input set, as { key: inputs }.
+  make.states = () => Object.fromEntries(Object.keys(variants)
+    .map((k) => [k, Object.fromEntries(k ? k.split(',').map((kv) => { const [a, b] = kv.split('='); return [a, isNaN(+b) ? b : +b]; }) : [])]));
   return make;
 }
 

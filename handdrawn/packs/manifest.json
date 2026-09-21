@@ -33,7 +33,11 @@
     ]
    },
    "desc": "a fruit fly; mode ink | blueprint",
-   "sheet": "sheets/fly.jpg"
+   "sheet": "sheets/fly.jpg",
+   "store": {
+    "id": "pack:fly",
+    "sha": "e7bdb50a18fe52fcd737c5ac67a7c20dfe48de7c"
+   }
   },
   {
    "name": "hedgehog",
@@ -58,7 +62,11 @@
     ]
    },
    "desc": "the doodle hedgehog with a scarf; eye dot | happy | sleep | wide",
-   "sheet": "sheets/hedgehog.jpg"
+   "sheet": "sheets/hedgehog.jpg",
+   "store": {
+    "id": "pack:hedgehog",
+    "sha": "05d5eab23a68709c074f36570d18b224b259800a"
+   }
   },
   {
    "name": "horse",
@@ -83,7 +91,11 @@
     ]
    },
    "desc": "a galloping horse: one of 12 Muybridge poses traced from film (found motion); feet at the origin",
-   "sheet": "sheets/horse.jpg"
+   "sheet": "sheets/horse.jpg",
+   "store": {
+    "id": "pack:horse",
+    "sha": "3258391809453929cd36c285543146a5173bdf84"
+   }
   },
   {
    "name": "boat",
@@ -103,7 +115,11 @@
     ]
    },
    "desc": "a paper boat; mode ink | blueprint",
-   "sheet": "sheets/boat.jpg"
+   "sheet": "sheets/boat.jpg",
+   "store": {
+    "id": "pack:boat",
+    "sha": "338d808b42a718d07348d0f364838c19f15053a3"
+   }
   },
   {
    "name": "book",
@@ -123,7 +139,11 @@
     ]
    },
    "desc": "a hardback book lying flat: shut, or open to a spread of scribbled text",
-   "sheet": "sheets/book.jpg"
+   "sheet": "sheets/book.jpg",
+   "store": {
+    "id": "pack:book",
+    "sha": "56f25a19fedf4a141fa7ad24f494975cbf1c2f3f"
+   }
   },
   {
    "name": "lamp",
@@ -143,7 +163,11 @@
     ]
    },
    "desc": "a desk lamp standing on y = 0, shade opening down and right; on lights a pool",
-   "sheet": "sheets/lamp.jpg"
+   "sheet": "sheets/lamp.jpg",
+   "store": {
+    "id": "pack:lamp",
+    "sha": "80f328e87d14223c92013659ea3f835b53a161cd"
+   }
   },
   {
    "name": "teapot",
@@ -151,9 +175,9 @@
    "export": "teapot",
    "box": [
     -128,
-    -214,
+    -240,
     244,
-    218
+    244
    ],
    "inputs": {
     "lid": [
@@ -168,7 +192,11 @@
     ]
    },
    "desc": "a round teapot on y = 0, spout left; lid lifts, steam on",
-   "sheet": "sheets/teapot.jpg"
+   "sheet": "sheets/teapot.jpg",
+   "store": {
+    "id": "pack:teapot",
+    "sha": "7b5fc6dcf2adcb154fc35a330aa64c34ed751e34"
+   }
   },
   {
    "name": "chip",
@@ -188,7 +216,11 @@
     ]
    },
    "desc": "a chip from above: package, pins on four sides, die; pulse lights its traces",
-   "sheet": "sheets/chip.jpg"
+   "sheet": "sheets/chip.jpg",
+   "store": {
+    "id": "pack:chip",
+    "sha": "58e9e145734798c1725df9cc33002ea5e750b5df"
+   }
   },
   {
    "name": "gpu",
@@ -213,7 +245,11 @@
     ]
    },
    "desc": "a graphics card: board, two fans, gold edge pins; spin turns the fans, hot adds heat lines",
-   "sheet": "sheets/gpu.jpg"
+   "sheet": "sheets/gpu.jpg",
+   "store": {
+    "id": "pack:gpu",
+    "sha": "bbd392a4f50457d23cdb954bdf2ceb8d697a99d6"
+   }
   },
   {
    "name": "server",
@@ -238,7 +274,11 @@
     ]
    },
    "desc": "a rack server of 1 to 6 units on y = 0, each with drive bays and a status light; load lights them",
-   "sheet": "sheets/server.jpg"
+   "sheet": "sheets/server.jpg",
+   "store": {
+    "id": "pack:server",
+    "sha": "227261fa7bc4f47302f152f19e1c11894a4a68c5"
+   }
   },
   {
    "name": "token",
@@ -263,7 +303,11 @@
     ]
    },
    "desc": "a token tile with a scribbled glyph; hue picks accents.0-3, glow marks it",
-   "sheet": "sheets/token.jpg"
+   "sheet": "sheets/token.jpg",
+   "store": {
+    "id": "pack:token",
+    "sha": "902e1d26c16f0376bd684f7af98a98d2501969fc"
+   }
   }
  ]
 }

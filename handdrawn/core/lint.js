@@ -27,6 +27,7 @@ export const RULES = Object.freeze({
   'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint off the 2 degree grid or out of range',
   'roles-raw': 'a raw colour in a puppet part, where a palette role belongs',
   'actor-cycle': 'an actor lacks a cycle a recipe asked for, and its fallback bob is on screen over 1 s in a shot',
+  'pack-mirror': "a pack cel's store mirror is missing, or its sha no longer matches what the cel draws",
   'hand-missing': 'the look names a hand the store lacks, or the sign-off falls back to the house hand for a glyph',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
 });
@@ -348,6 +349,9 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
     }
   }
 
+  // A pack mirror keeps its ops in a pool.
+  for (const r of rawRoles(data?.mirror?.pool)) add('roles-raw', `the mirror's pool paints ${r}; name a palette role (ink, fills.0, light, ...)`, `pool|${r}`);
+
   let make;
   try { make = puppet({ ...data, name }); } catch (e) { add('draw', `the puppet does not build: ${e.message}`, 'build'); return F.list; }
   const cases = [['rest', make.rest]];
@@ -355,13 +359,31 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
     // Every view, both ways round: the box holds the turnaround too.
     for (const v of make.views ?? []) for (const dir of [1, -1]) cases.push([`view ${v}${dir < 0 ? ' mirrored' : ''}`, { ...make.rest, dir: dir * (VIEW_DIRS[v] ?? 1) }]);
     for (const pn of make.poses) cases.push([`pose '${pn}'`, make.poseOf(pn, 1)]);
-    for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
+    // A pack mirror's variants are input sets of the cel it mirrors, not picks of a part.
+    if (make.mirror) for (const [k, q] of Object.entries(make.states())) cases.push([k || 'no inputs', q]);
+    else for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
     for (const [cn, c] of Object.entries(data?.cycles ?? {})) (c?.frames ?? []).forEach((_, j) => cases.push([`cycle '${cn}' frame ${j}`, make.frameOf(cn, j / (c.fps ?? FPS))]));
     for (const [label, inputs] of cases) {
       const g = make(inputs), b = celOverflow(g);
       if (b) add('cel-box', `${label} draws ${fmtBox(b)} outside the declared box ${fmtBox(g.box)}`, 'box');
     }
   } catch (e) { add('draw', `the puppet does not draw: ${e.message}`, 'draw'); }
+  return F.list;
+}
+
+// Findings on a pack (3.0 S13): each cel's mirror in the store against what the cel draws now. cels: the
+// pack's manifest entries ({ name, store: { id, sha } }); fresh(name): the sha the mirror would have if it
+// were exported now; stored(id): the catalogue entry's sha, or undefined. Node does the reading (cli/lint.mjs).
+export function lintPack(cels, { fresh, stored }, name = 'pack') {
+  const F = finder();
+  const add = (cel, detail) => F.add('pack-mirror', name, null, `${cel}: ${detail}; hdf donate --manifest`, cel);
+  for (const c of cels) {
+    if (!c.store) { add(c.name, 'no store mirror in the manifest'); continue; }
+    const now = fresh(c.name), have = stored(c.store.id);
+    if (have === undefined) add(c.name, `the store has no '${c.store.id}'`);
+    else if (have !== c.store.sha) add(c.name, `the store holds ${have.slice(0, 8)} for '${c.store.id}', the manifest says ${c.store.sha.slice(0, 8)}`);
+    else if (now !== c.store.sha) add(c.name, `the cel draws ${now.slice(0, 8)} now, its mirror is ${c.store.sha.slice(0, 8)} (stale)`);
+  }
   return F.list;
 }
 

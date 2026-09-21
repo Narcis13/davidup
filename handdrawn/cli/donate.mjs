@@ -1,6 +1,14 @@
 // hdf donate <module.js> <cel...> [--pack name] [--packs dir] [--no-sheets]: copy cels into a pack, then
 // regenerate packs/manifest.json and packs/sheets/<cel>.jpg.
 // hdf donate --manifest [--all-sheets]: only regenerate the manifest (and missing or, with --all-sheets, every sheet).
+// hdf donate --export [<cel...>]: write the store mirror of pack cels (all of them when none is named).
+//
+// Living packs (3.0 S13): every pack cel has a mirror in the asset store, `pack:<cel>`, a puppet of one part
+// whose variants are the cel drawn at each input combination (core/puppet.js, pack mirrors), so `hdf find`
+// sees the packs and a film draws `puppet('pack:teapot')` without importing packs/objects.js. The manifest
+// carries `store: { id, sha }` per cel; writing the manifest re-exports every mirror (a cel that draws the
+// same writes the same bytes, so the sha holds), and a sha that no longer matches the cel is the lint
+// finding `pack-mirror` (`hdf lint packs/<pack>.js`).
 //
 // The source is any module exporting cels (a film, a recipes module). A cel is copied as source text: its
 // statement plus every top-level declaration it reaches (helpers, constants), the top-level statements that
@@ -15,7 +23,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { hashList } from '../core/list.js';
+import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
+import { lintPuppet } from '../core/lint.js';
+import { hashList, serialise, withProps } from '../core/list.js';
+import { mirrorKey } from '../core/puppet.js';
 import { LOOKS } from '../core/looks.js';
 import { format } from '../core/fit.js';
 import { importText, statements } from './jsscan.mjs';
@@ -30,9 +41,26 @@ const BEGIN = /^\/\/ ---- donated: (\S+) from (\S+) ----$/, END = (name) => `// 
 
 export async function run(args, flags) {
   const dir = resolve(String(flags.packs ?? PACKS));
+  const store = flags.root ? resolve(String(flags.root)) : dir === resolve(PACKS) ? ASSET_ROOT : null;
   if (flags.manifest) {
-    const m = await writeManifest(dir, { sheets: flags.sheets !== false, all: !!flags.allSheets });
-    process.stdout.write(`${join(dir, 'manifest.json')}  ${m.cels.length} cels in ${new Set(m.cels.map((c) => c.pack)).size} packs\n`);
+    const m = await writeManifest(dir, { sheets: flags.sheets !== false, all: !!flags.allSheets, store });
+    process.stdout.write(`${join(dir, 'manifest.json')}  ${m.cels.length} cels in ${new Set(m.cels.map((c) => c.pack)).size} packs`
+      + `${store ? `, ${m.cels.filter((c) => c.store).length} mirrored in ${relative(process.cwd(), store) || '.'}` : ''}\n`);
+    return 0;
+  }
+  if (flags.export !== undefined) {
+    if (!store) throw new Error('donate --export: packs outside handdrawn/packs mirror into a store you name with --root <dir>');
+    const want = [...(typeof flags.export === 'string' ? [flags.export] : []), ...args];
+    const cels = await packCels(dir);
+    for (const w of want) if (!cels.some((c) => c.name === w)) throw new Error(`donate --export: no pack cel '${w}' (have ${cels.map((c) => c.name).join(', ')})`);
+    const m = readManifest(dir), st = readCatalogue(store);
+    for (const c of cels.filter((c) => !want.length || want.includes(c.name))) {
+      const r = exportMirror(c, st);
+      const at = m.cels.find((x) => x.name === c.name);
+      if (at) at.store = { id: r.entry.name, sha: r.entry.sha };
+      process.stdout.write(`${c.name} -> ${r.entry.name}  ${r.states} states, ${r.ops} ops, ${Math.round(r.bytes / 1024)} KB${r.changed ? '' : ' (unchanged)'}\n`);
+    }
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(m, null, 1) + '\n');
     return 0;
   }
   const [path, ...names] = args;
@@ -46,7 +74,7 @@ export async function run(args, flags) {
     process.stdout.write(`${name} -> ${relative(process.cwd(), r.file)}  (${r.helpers} helper${r.helpers === 1 ? '' : 's'}, ${r.imports} import${r.imports === 1 ? '' : 's'}, ${r.variants} variants hash-checked)\n`);
     done.push(name);
   }
-  const m = await writeManifest(dir, { sheets: flags.sheets !== false, redo: done });
+  const m = await writeManifest(dir, { sheets: flags.sheets !== false, redo: done, store });
   process.stdout.write(`${join(dir, 'manifest.json')}  ${m.cels.length} cels\n`);
   return 0;
 }
@@ -217,9 +245,17 @@ export async function packCels(dir = PACKS) {
   return out;
 }
 
-export async function writeManifest(dir = PACKS, { sheets = true, all = false, redo = [] } = {}) {
+// store: the asset store the mirrors go to (the package's for packs/, none for a pack directory elsewhere
+// unless named). Mirrors of cels no pack has any more are dropped from it.
+export async function writeManifest(dir = PACKS, { sheets = true, all = false, redo = [], store = resolve(dir) === resolve(PACKS) ? ASSET_ROOT : null } = {}) {
   const cels = await packCels(dir);
-  const manifest = { cels: cels.map(({ make, ...c }) => c) };
+  const mirrors = {};
+  if (store) {
+    const st = readCatalogue(store);
+    for (const c of cels) { const { entry } = exportMirror(c, st); mirrors[c.name] = { id: entry.name, sha: entry.sha }; }
+    for (const id of st.ids) if (id.startsWith(MIRROR) && !mirrors[id.slice(MIRROR.length)]) dropEntry(st, id);
+  }
+  const manifest = { cels: cels.map(({ make, ...c }) => (mirrors[c.name] ? { ...c, store: mirrors[c.name] } : c)) };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 1) + '\n');
   if (sheets) {
     mkdirSync(join(dir, 'sheets'), { recursive: true });
@@ -231,4 +267,97 @@ export async function writeManifest(dir = PACKS, { sheets = true, all = false, r
     }
   }
   return manifest;
+}
+
+// ---------- store mirrors (3.0 S13) ----------
+
+export const MIRROR = 'pack:';
+export const MIRROR_CAP = 64;   // input combinations mirrored step by step; above it, min, default and max
+
+// Every value on an input's grid [min, max, step] (the two ends when it has no step).
+export function gridOf([lo, hi, step]) {
+  if (!(step > 0)) return lo === hi ? [lo] : [lo, hi];
+  const n = Math.round((hi - lo) / step);
+  return Array.from({ length: n + 1 }, (_, i) => +(lo + i * step).toFixed(9));
+}
+
+// The mirror payload of a pack cel (a packCels() entry): the cel drawn at each input combination.
+export function mirrorPayload(c) {
+  const make = c.make, inputs = c.inputs ?? {}, keys = Object.keys(inputs).filter((k) => Array.isArray(inputs[k])).sort();
+  const at = (q) => hashList(make(q).kids);
+  // What the cel draws for an input it is not given: the value on the grid that draws as {} does, with the
+  // others left out and with each of the others at its ends (a cycle's 0 and 1 draw alike everywhere: 0).
+  const base = at({}), defaults = {};
+  for (const k of keys) {
+    let hits = gridOf(inputs[k]).filter((v) => at({ [k]: v }) === base);
+    if (!hits.length) throw new Error(`mirror ${c.name}: the default of '${k}' is not on its grid ${JSON.stringify(inputs[k])}; give the destructured default a value on the grid`);
+    for (const j of keys) {
+      if (j === k || hits.length < 2) continue;
+      for (const x of [inputs[j][0], inputs[j][1]]) { const ref = at({ [j]: x }); hits = hits.filter((v) => at({ [j]: x, [k]: v }) === ref); }
+    }
+    if (!hits.length) throw new Error(`mirror ${c.name}: no one value of '${k}' draws as its default does`);
+    defaults[k] = hits[0];
+  }
+  const grids = Object.fromEntries(keys.map((k) => [k, gridOf(inputs[k])]));
+  const whole = keys.reduce((n, k) => n * grids[k].length, 1) <= MIRROR_CAP;
+  const values = Object.fromEntries(keys.map((k) => {
+    const g = grids[k];
+    return [k, whole ? g : [...new Set([g[0], defaults[k], g.at(-1)])].sort((a, b) => a - b)];
+  }));
+  let combos = [{}];
+  for (const k of keys) combos = combos.flatMap((q) => values[k].map((v) => ({ ...q, [k]: v })));
+  // Every op once, in a pool: an op's kids are indices into it, a variant is the indices of its top ops.
+  const pool = [], index = new Map();
+  const intern = (op) => {
+    const plain = JSON.parse(serialise([Array.isArray(op.kids) ? withProps(op, { kids: [] }) : op]))[0];
+    if (Array.isArray(op.kids)) plain.kids = op.kids.map(intern);
+    const text = JSON.stringify(plain, shortNumbers);
+    let i = index.get(text);
+    if (i === undefined) { i = pool.length; pool.push(JSON.parse(text)); index.set(text, i); }
+    return i;
+  };
+  const variants = Object.fromEntries(combos.map((q) => [mirrorKey(q), make(q).kids.map(intern)]));
+  const box = c.box ?? make({}).box;
+  return {
+    name: c.name, units: Math.max(1, Math.round(box?.[3] ?? 100)), box, desc: c.desc ?? '', inputs,
+    mirror: { pack: c.pack, export: c.export, defaults, values, pool },
+    parts: { [c.name]: { variants } },
+  };
+}
+
+// A number as the shortest decimal the list hash reads the same (it hashes round(n * 1024)): the mirror
+// hashes as the cel does and moves nothing by more than 1/2048 of a unit.
+function shortNumbers(k, v) {
+  if (typeof v !== 'number' || Number.isInteger(v) || !Number.isFinite(v)) return v;
+  const q = Math.round(v * 1024);
+  for (let d = 0; d < 8; d++) { const s = +v.toFixed(d); if (Math.round(s * 1024) === q) return s; }
+  return v;
+}
+
+// Writes the mirror of a pack cel into the store st (a readCatalogue()); the blob it replaces goes when
+// nothing else names it. Returns { entry, changed, states, ops, bytes }.
+export function exportMirror(c, st) {
+  const data = mirrorPayload(c);
+  const found = lintPuppet(data, `${MIRROR}${c.name}`);
+  if (found.length) throw new Error(`mirror ${c.name}:\n  ${found.map((f) => `${f.rule}  ${f.detail}`).join('\n  ')}`);
+  const id = `${MIRROR}${c.name}`, bytes = Buffer.from(JSON.stringify(data));
+  const was = st.has(id) ? st.entry(id) : null;
+  const entry = {
+    kind: 'puppet', name: id, file: `packs/${c.pack}.js`, licence: 'own', credit: '', source: '',
+    tags: ['pack', c.pack], desc: data.desc, units: data.units, box: data.box,
+  };
+  const put = st.put(entry, bytes);
+  if (was && was.sha !== put.sha) dropBlob(st, was);
+  return { entry: put, changed: !was || was.sha !== put.sha, states: Object.keys(data.parts[c.name].variants).length, ops: data.mirror.pool.length, bytes: bytes.length };
+}
+
+function dropEntry(st, id) {
+  const e = st.entry(id);
+  st.entries.delete(id);
+  st.save();
+  dropBlob(st, e);
+}
+function dropBlob(st, e) {
+  if ([...st.entries.values()].some((x) => x.sha === e.sha)) return;
+  rmSync(st.payloadPath(e), { force: true });
 }

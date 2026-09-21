@@ -1,14 +1,17 @@
 // P8: packs (creatures, objects, tech), their manifest and sheets, and hdf donate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { hashList, walk } from '../core/list.js';
 import { LOOKS, resolveRole } from '../core/looks.js';
 import { celOverflow } from '../core/lint.js';
-import { PACKS, donate, inputVariants, packCels, readManifest, writeManifest } from '../cli/donate.mjs';
+import { PACKS, donate, exportMirror, gridOf, inputVariants, mirrorPayload, packCels, readManifest, writeManifest } from '../cli/donate.mjs';
+import { fromStore, readCatalogue, sha } from '../core/assets.js';
+import { lintPack } from '../core/lint.js';
+import { puppet } from '../core/puppet.js';
 import { statements, tokenize } from '../cli/jsscan.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,7 +23,7 @@ test('the three packs hold the planned cels, and the manifest and sheets match t
   assert.deepEqual(by('creatures'), ['fly', 'hedgehog', 'horse']);
   assert.deepEqual(by('objects'), ['boat', 'book', 'lamp', 'teapot']);
   assert.deepEqual(by('tech'), ['chip', 'gpu', 'server', 'token']);
-  assert.deepEqual(readManifest(), { cels: cels.map(({ make, ...c }) => c) }, 'manifest.json is stale: hdf donate --manifest');
+  assert.deepEqual(readManifest().cels.map(({ store, ...c }) => c), cels.map(({ make, ...c }) => c), 'manifest.json is stale: hdf donate --manifest');
   for (const c of cels) {
     assert.ok(c.box && c.desc, `${c.name}: box and desc`);
     assert.ok(existsSync(join(PACKS, c.sheet)), `${c.name}: no ${c.sheet}; hdf donate --manifest`);
@@ -96,4 +99,57 @@ test('jsscan: strings, templates, regexes and comments are not code; statements 
   assert.equal(st[2].lead, '// lead\n');
   assert.deepEqual([...st[3].decls].sort(), ['p', 'r']);
   assert.ok(tokenize('a = b / c / d').every((t) => t.t !== 'str'));
+});
+
+// ---------- living packs (3.0 S13) ----------
+
+test('every pack cel has a store mirror the manifest names, and the mirror is what the cel draws now', async () => {
+  const st = readCatalogue(), cels = await packCels(), m = readManifest();
+  assert.equal(m.cels.length, 11);
+  for (const c of m.cels) {
+    assert.deepEqual(c.store, { id: `pack:${c.name}`, sha: st.entry(`pack:${c.name}`).sha }, `${c.name}: hdf donate --manifest`);
+    assert.equal(st.entry(c.store.id).kind, 'puppet');
+  }
+  const code = new Map(cels.map((c) => [c.name, c]));
+  const found = lintPack(m.cels, { fresh: (n) => sha(JSON.stringify(mirrorPayload(code.get(n)))), stored: (id) => st.entry(id).sha });
+  assert.deepEqual(found, [], 'regenerating a mirror writes the same bytes');
+});
+
+test("puppet('pack:<cel>') hashes as the code cel at every input extreme and every mirrored state", async () => {
+  let n = 0;
+  for (const c of await packCels()) {
+    fromStore([`pack:${c.name}`]);
+    const m = puppet(`pack:${c.name}`);
+    assert.equal(m.cel.name, c.name);
+    for (const q of [...inputVariants(c.inputs), ...Object.values(m.states())]) {
+      assert.equal(hashList([m(q)]), hashList([c.make(q)]), `pack:${c.name} ${JSON.stringify(q)}`);
+      n++;
+    }
+  }
+  assert.ok(n > 150, `${n} input sets`);
+  const boat = puppet('pack:boat'), fly = puppet('pack:fly');
+  assert.equal(hashList([boat({ note: 1 })]), hashList([(await import('../packs/objects.js')).boat({ note: 1 })]));
+  // fly's grid is too big to mirror step by step: min, default and max, and the nearest of them between.
+  assert.deepEqual(fly.mirror.values.wing, [0, 0.55, 2]);
+  const code = (await packCels()).find((c) => c.name === 'fly').make;
+  assert.equal(hashList(fly({ wing: 0.4 }).kids), hashList(code({ wing: 0.55 }).kids));
+  assert.throws(() => boat({ mode: 'blueprint' }), /takes note; 'mode' needs the code cel \(import \{ boat \} from packs\/objects\.js\)/);
+});
+
+test('a mirror re-exports idempotently, and a changed cel replaces its blob', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-mirror-'));
+  try {
+    const st = readCatalogue(join(dir, 'store'));
+    const [teapot] = (await packCels()).filter((c) => c.name === 'teapot');
+    const a = exportMirror(teapot, st), b = exportMirror(teapot, st);
+    assert.equal(a.changed, true);
+    assert.equal(b.changed, false);
+    assert.equal(b.entry.sha, a.entry.sha);
+    assert.equal(a.states, gridOf([0, 1, 0.25]).length * 2);
+    const moved = { ...teapot, make: (q) => teapot.make({ ...q, lid: 1 }) };
+    const c = exportMirror(moved, st);
+    assert.notEqual(c.entry.sha, a.entry.sha);
+    assert.ok(!existsSync(st.payloadPath(a.entry)), 'the replaced blob goes');
+    assert.deepEqual(readCatalogue(join(dir, 'store')).ids, ['pack:teapot']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

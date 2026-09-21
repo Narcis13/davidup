@@ -48,7 +48,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg
-  donate  --manifest [--all-sheets] regenerate the manifest and missing (or all) sheets from packs/*.js
+  donate  --manifest [--all-sheets] regenerate the manifest and missing (or all) sheets from packs/*.js,
+                                    and every cel's mirror in the store (pack:<cel>, a puppet: puppet('pack:boat'))
+  donate  --export [<cel...>]       write the store mirror of the named pack cels (all when none is named)
+  lint    packs/<pack>.js           a pack: pack-mirror findings, one per cel whose mirror is missing or stale
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',

@@ -7,10 +7,12 @@
 //   hdf find teapot --root ../other      a store that is not handdrawn/assets
 //
 // One line per hit: id, kind, licence, what it takes (a puppet's inputs, a clip's poses, a cutout's pixels),
-// then its check sheet and credit indented under it.
+// then its check sheet and credit indented under it. The package's own store also lists the pack cels that
+// match (kind `cel`, from packs/manifest.json), next to their mirrors in the store (`pack:<cel>`, 3.0 S13).
 import { existsSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { ASSET_ROOT, KINDS, readCatalogue } from '../core/assets.js';
+import { PACKS, readManifest } from './donate.mjs';
 import { UsageError } from './load.mjs';
 
 export async function run(args, flags) {
@@ -20,20 +22,37 @@ export async function run(args, flags) {
 
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   const hits = st.search(args, { kind });
-  if (!hits.length) {
+  const cels = flags.root || kind ? [] : packHits(args);
+  if (!hits.length && !cels.length) {
     process.stdout.write(`no ${kind || 'asset'} in ${rel(st.root)} matches ${args.join(' ') || 'anything'}`
       + ` (${st.ids.length} in the store: ${st.ids.join(', ') || 'none'})\n`);
     return 1;
   }
-  for (const { id, entry } of hits) {
-    process.stdout.write(`${id.padEnd(16)} ${entry.kind.padEnd(7)} ${entry.licence.padEnd(9)} ${inputs(st, entry)}\n`);
-    const sheet = st.sheetPath(id);
-    const notes = [existsSync(sheet) ? rel(sheet) : `no sheet (hdf sheet store ${id})`, entry.credit, entry.source].filter(Boolean);
-    for (const n of notes) process.stdout.write(`                 ${n}\n`);
+  const line = (id, kind, licence, what, notes) => {
+    process.stdout.write(`${id.padEnd(16)} ${kind.padEnd(7)} ${licence.padEnd(9)} ${what}\n`);
+    for (const n of notes.filter(Boolean)) process.stdout.write(`                 ${n}\n`);
+  };
+  for (const c of cels) {
+    line(c.name, 'cel', 'own', `${spans(c.inputs)}, in packs/${c.pack}.js`,
+      [rel(join(PACKS, c.sheet)), `import { ${c.export} } from 'packs/${c.pack}.js'${c.store ? ` or puppet('${c.store.id}')` : ''}`]);
   }
-  process.stdout.write(`${hits.length} of ${st.ids.length} in ${rel(st.root)}\n`);
+  for (const { id, entry } of hits) {
+    const sheet = st.sheetPath(id), own = entry.kind === 'puppet' && id.startsWith('pack:') ? join(PACKS, 'sheets', `${entry.name.slice(5)}.jpg`) : null;
+    const where = existsSync(sheet) ? rel(sheet) : own && existsSync(own) ? rel(own) : `no sheet (hdf sheet store ${id})`;
+    line(id, entry.kind, entry.licence, inputs(st, entry), [where, entry.credit, entry.source]);
+  }
+  process.stdout.write(`${hits.length} of ${st.ids.length} in ${rel(st.root)}${cels.length ? `, ${cels.length} pack cel${cels.length > 1 ? 's' : ''}` : ''}\n`);
   return 0;
 }
+
+// Pack cels whose name, pack or description hold every word.
+function packHits(words) {
+  const terms = words.map((w) => String(w).toLowerCase());
+  return readManifest(PACKS).cels.filter((c) => terms.every((w) => `${c.name} ${c.pack} ${c.desc}`.toLowerCase().includes(w)));
+}
+
+// A cel's inputs as 'lid 0..1 step 0.25, steam 0..1'.
+const spans = (inputs = {}) => Object.entries(inputs).map(([k, [lo, hi, step]]) => `${k} ${lo}..${hi}${step && step !== hi - lo ? ` step ${step}` : ''}`).join(', ') || 'no inputs';
 
 const rel = (p) => { const r = relative(process.cwd(), p); return r && !r.startsWith('..') ? r : p; };
 
@@ -53,6 +72,7 @@ function inputs(st, e) {
 function puppet(st, e) {
   let d = null;
   try { d = st.json(e); } catch { return `units ${e.units} (blob missing)`; }
+  if (d.mirror) return `mirror of ${d.mirror.export} in packs/${d.mirror.pack}.js: ${spans(d.inputs)} (${Object.keys(d.parts[d.name]?.variants ?? {}).length} states)`;
   const ins = Object.entries(d.inputs ?? {}).map(([k, v]) => `${k}:${Array.isArray(v) ? v.join('|') : v}`);
   const parts = Object.keys(d.parts ?? {});
   return `units ${e.units}, ${parts.length} parts (${parts.slice(0, 6).join(' ')})`

@@ -24,7 +24,7 @@ export const teapot = cel('teapot', ({ lid = 0, steam = 0 }) => {
     fill(knob, 'fills.2'), stroke(knob, 'ink', { w: 2, wobble: 0.6 }),
     steam && stroke(union(...[-18, 6, 30].map((x, k) => spline([[x, -128 - up], [x - 10, -150 - up - k * 4], [x + 6, -172 - up - k * 6], [x - 4, -194 - up - k * 8]], { tension: 0.2 }))), 'shade', { w: 2.2, wobble: 1.4, alpha: 0.8, name: 'steam' }),
   ];
-}, { box: [-128, -214, 244, 218], inputs: { lid: [0, 1, 0.25], steam: [0, 1, 1] }, desc: 'a round teapot on y = 0, spout left; lid lifts, steam on' });
+}, { box: [-128, -240, 244, 244], inputs: { lid: [0, 1, 0.25], steam: [0, 1, 1] }, desc: 'a round teapot on y = 0, spout left; lid lifts, steam on' });
 
 // A desk lamp: a weighted base on y = 0, an arm up to a cone shade that opens down and to the right.
 // on: 0 | 1 (bulb lit, a pool of light and rays).

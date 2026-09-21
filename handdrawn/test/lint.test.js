@@ -5,7 +5,7 @@ import { cel, place, shot, seq, par, hold, cut, lookOn, film } from '../core/tre
 import { paper, night, fill, stroke, text, fx, lookNode, meta, circle, rect } from '../core/list.js';
 import { ramp } from '../core/curves.js';
 import { signOff } from '../core/text.js';
-import { lint, lintList, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
+import { lint, lintList, lintPack, lintSource, lintPuppet, inspect, formatFinding, warnAssets, RULES, WARNINGS } from '../core/lint.js';
 import { actorOf } from '../core/actor.js';
 import { puppet } from '../core/puppet.js';
 import { register } from '../core/store.js';
@@ -206,4 +206,21 @@ test('lintList: role and cel-box over a list that is not a shot (a model sheet)'
   const f = lintList([paper(), place(100, 100, big()), fill(circle(0, 0, 5), '#ff0000')], 'paperInk', 'page');
   assert.deepEqual(f.map((x) => x.rule).sort(), ['cel-box', 'role']);
   assert.equal(f[0].shot, 'page');
+});
+
+test('pack-mirror: a pack cel whose store mirror is missing, moved or stale', () => {
+  const cels = [
+    { name: 'ok', store: { id: 'pack:ok', sha: 'a'.repeat(40) } },
+    { name: 'none' },
+    { name: 'gone', store: { id: 'pack:gone', sha: 'b'.repeat(40) } },
+    { name: 'moved', store: { id: 'pack:moved', sha: 'c'.repeat(40) } },
+    { name: 'stale', store: { id: 'pack:stale', sha: 'd'.repeat(40) } },
+  ];
+  const stored = { 'pack:ok': 'a'.repeat(40), 'pack:moved': 'e'.repeat(40), 'pack:stale': 'd'.repeat(40) };
+  const fresh = { ok: 'a'.repeat(40), stale: 'f'.repeat(40) };
+  const found = lintPack(cels, { fresh: (n) => fresh[n] ?? 'x', stored: (id) => stored[id] }, 'objects');
+  assert.deepEqual(found.map((f) => [f.rule, f.shot, f.detail.split(':')[0]]), [
+    ['pack-mirror', 'objects', 'none'], ['pack-mirror', 'objects', 'gone'], ['pack-mirror', 'objects', 'moved'], ['pack-mirror', 'objects', 'stale'],
+  ]);
+  assert.match(found.at(-1).detail, /draws ffffffff now, its mirror is dddddddd \(stale\); hdf donate --manifest$/);
 });

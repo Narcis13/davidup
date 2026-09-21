@@ -201,3 +201,34 @@ test('hand: --template prints the sheet (PDF, or lettered by a stored hand), <sh
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+
+test("living packs: find lists a pack cel and its mirror, lint reads a pack, a film draws puppet('pack:teapot')", async () => {
+  const found = await hdf('find', 'boat');
+  assert.equal(found.code, 0, found.out);
+  assert.match(found.out, /^boat {13}cel {5}own {7}note 0\.\.1, in packs\/objects\.js$/m);
+  assert.match(found.out, /import \{ boat \} from 'packs\/objects\.js' or puppet\('pack:boat'\)/);
+  assert.match(found.out, /^pack:boat {8}puppet {2}own {7}mirror of boat in packs\/objects\.js: note 0\.\.1 \(2 states\)$/m);
+  assert.match((await hdf('find', '--kind', 'puppet')).out, /^12 of \d+ in assets$/m, 'the fox and eleven mirrors');
+  assert.match(await hdf('help').then((r) => r.out), /donate {2}--export \[<cel\.\.\.>\]/);
+  const lint = await hdf('lint', 'packs/objects.js');
+  assert.equal(lint.code, 0, lint.out);
+  assert.match(lint.out, /^objects: 4 cels, mirrors clean$/m);
+
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-pack-film-'));
+  try {
+    const core = (f) => new URL(`../core/${f}`, import.meta.url).href;
+    writeFileSync(join(dir, 'tea.js'), `import { film, shot, seq, place, paper, meta, puppet, signOff, ramp } from '${core('index.js')}';
+import { fromStore } from '${core('assets.js')}';
+fromStore(['pack:teapot']);
+const teapot = puppet('pack:teapot');
+const brew = shot('brew', 1, ({ k, CX, CY }) => [paper(), meta('anchor', { cel: 'teapot' }), place(CX, CY + 100, teapot({ lid: k, steam: k > 0.5 ? 1 : 0 }))]);
+const sign = shot('sign', 2.5, ({ t, CX, CY }) => [paper(), meta('anchor', { name: 'signOff' }), signOff('tea', 'time', { x: CX, y: CY, pA: ramp(0, 0.4, t), pB: ramp(0.4, 0.8, t) })]);
+export default film({ name: 'tea', look: 'paperInk', timeline: seq(brew, sign) });
+`);
+    const l = await hdf('lint', join(dir, 'tea.js'));
+    assert.equal(l.code, 0, l.out);
+    const r = await hdf('only', join(dir, 'tea.js'), '11', '--out', dir, '--width', '240');
+    assert.equal(r.code, 0, r.out);
+    assert.ok(existsSync(join(dir, 'tea-011.png')), r.out);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

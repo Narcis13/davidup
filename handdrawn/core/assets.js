@@ -5,6 +5,9 @@
 //   assets/blobs/<sha>.json      data payloads (clips, puppets, hands, motifs)
 //   assets/sheets/<id>.jpg       check sheets, regenerated, gitignored
 //
+// An id is lower-case letters, digits and dashes; `pack:<cel>` is the mirror of a pack cel (3.0 S13), which
+// `hdf donate --manifest` writes and nothing else should.
+//
 // `sha` is 40 hex over the payload bytes, so two imports of the same file are one blob. The entry is what a
 // film refers to, by id; the blob is what the loader decodes. Every kind has a schema below and a validator
 // `hdf import` runs before anything is written -- plain JS checks, no library.
@@ -72,7 +75,7 @@ export function imageType(bytes) {
 // Everything wrong with an entry, as sentences. An empty array is a valid entry.
 export function validate(id, entry) {
   const bad = [];
-  if (!id || typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]*$/i.test(id)) bad.push(`id '${id}': lower-case letters, digits and dashes`);
+  if (!id || typeof id !== 'string' || !/^(pack:)?[a-z0-9][a-z0-9-]*$/i.test(id)) bad.push(`id '${id}': lower-case letters, digits and dashes (a pack cel's mirror: pack:<cel>)`);
   if (!entry || typeof entry !== 'object') return [...bad, 'entry: not an object'];
   const s = SCHEMAS[entry.kind];
   if (!s) return [...bad, `kind '${entry.kind}': expected ${KINDS.join(' | ')}`];
@@ -187,7 +190,7 @@ export function readCatalogue(root = ASSET_ROOT) {
       return e;
     },
     payloadPath: (e) => join(dir, 'blobs', `${(typeof e === 'string' ? st.entry(e) : e).sha}.${(typeof e === 'string' ? st.entry(e) : e).ext}`),
-    sheetPath: (id) => join(dir, 'sheets', `${id}.jpg`),
+    sheetPath: (id) => join(dir, 'sheets', `${id.replace(':', '_')}.jpg`),   // pack:boat -> pack_boat.jpg
     payload(e) {
       const entry = typeof e === 'string' ? st.entry(e) : e, p = st.payloadPath(entry);
       if (!existsSync(p)) throw new Error(`asset '${entry.name}': blob ${entry.sha}.${entry.ext} is missing from ${join(dir, 'blobs')}`);

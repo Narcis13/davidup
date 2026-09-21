@@ -90,6 +90,7 @@ export async function storeSheet(id, flags) {
   if (e.kind === 'hand') return handSheetFile(id, flags);
   if (e.kind !== 'puppet') throw new UsageError(`sheet: '${id}' is a ${e.kind}; hdf sheet store draws a puppet (hdf sheet <film.js> <cel> for a cel)`);
   const d = st.json(e), make = puppet({ ...d, name: id });
+  if (d.mirror) return mirrorSheet(id, make, st, flags);
   if (flags.poses) return modelSheetFile(make, e, st, flags);
 
   const poses = flags.pose ? [String(flags.pose)] : make.poses;
@@ -112,6 +113,16 @@ export async function storeSheet(id, flags) {
   });
   process.stdout.write(`${file}  ${looks} looks x ${cases.length} state${cases.length > 1 ? 's' : ''} x ${SCALES.length} scales`
     + `${strip.length ? ` + ${strip.length} frames of ${cyc}` : ''}\n`);
+  return 0;
+}
+
+// A pack cel's mirror (3.0 S13): the sheet of the cel it mirrors, drawn from the store.
+async function mirrorSheet(id, make, st, flags) {
+  if (flags.poses || flags.pose || flags.cycle) throw new UsageError(`sheet: '${id}' mirrors a pack cel; it has inputs, not poses or cycles`);
+  const file = st.sheetPath(id);
+  mkdirSync(dirname(file), { recursive: true });
+  const { looks, variants: nv } = await celSheet(make, make.cel, { look: flags.look ? resolveLook(String(flags.look)) : LOOKS.paperInk, format: format('1:1'), file, cell: 120 });
+  process.stdout.write(`${file}  ${looks} looks x ${nv} variant${nv > 1 ? 's' : ''} x ${SCALES.length} scales\n`);
   return 0;
 }
 

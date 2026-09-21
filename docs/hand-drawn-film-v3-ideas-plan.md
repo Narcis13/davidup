@@ -405,6 +405,16 @@ film.js --look 'risoPop~hand:narcis'` letters and draws the film in it.
 Done when: `hdf find` sees all 11 pack cels as store entries and a film
 draws `puppet('pack:teapot')`.
 
+(Built: a mirror is a one-part puppet with a `mirror` field { pack, export, defaults, values, pool }. It
+covers every step of the input grid when that is 64 combinations or fewer, and otherwise each input's min,
+default and max; a value in between draws the nearest mirrored one. Every op is stored once in a pool, with
+numbers at the shortest decimal the list hash reads the same, so the 11 mirrors come to about 1.6 MB (1.3 MB
+of it the horse's 24 traced states). Defaults are probed from the cel. Inputs the cel does not declare (boat's
+`mode`, hedgehog's `eye`) need the code cel. `hdf donate --manifest` re-exports every mirror, drops the old
+blob and drops mirrors of removed cels; `hdf lint packs/<pack>.js` reports `pack-mirror`; `hdf find` lists
+pack cels (kind `cel`) next to their mirrors; `hdf sheet store pack:<cel>` works. Checking the full grid found
+a real box bug: the teapot's box did not hold lid-up-with-steam, and is now [-128, -240, 244, 244].)
+
 ### S14. Skeletons in clips and retargeting
 
 *Prerequisite for the phone idea. v3 plan Q5.*
@@ -497,7 +507,7 @@ doodle recipe in the user's hand without reading the source.
 | S10 | Cut-out look | S4 | cut-out look | [x] |
 | S11 | Hands part 1 | S2 | same film, two hands | [x] |
 | S12 | Hands part 2 | S11 | same film, two hands | [x] |
-| S13 | Living packs | S4 | living packs | [ ] |
+| S13 | Living packs | S4 | living packs | [x] |
 | S14 | Skeletons + retarget | S4 | (prereq) | [ ] |
 | S15 | Motion from your phone | S14 | motion from your phone | [ ] |
 | S16 | Store ↔ davidup | S2 | davidup asset source | [ ] |

@@ -347,7 +347,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `boat` (objects) box [-82, -90, 164, 138]; inputs: note 0..1 step 1. a paper boat; mode ink | blueprint
 - `book` (objects) box [-166, -126, 332, 252]; inputs: open 0..1 step 1. a hardback book lying flat: shut, or open to a spread of scribbled text
 - `lamp` (objects) box [-80, -224, 336, 290]; inputs: on 0..1 step 1. a desk lamp standing on y = 0, shade opening down and right; on lights a pool
-- `teapot` (objects) box [-128, -214, 244, 218]; inputs: lid 0..1 step 0.25, steam 0..1 step 1. a round teapot on y = 0, spout left; lid lifts, steam on
+- `teapot` (objects) box [-128, -240, 244, 244]; inputs: lid 0..1 step 0.25, steam 0..1 step 1. a round teapot on y = 0, spout left; lid lifts, steam on
 - `chip` (tech) box [-92, -92, 184, 184]; inputs: pulse 0..1 step 1. a chip from above: package, pins on four sides, die; pulse lights its traces
 - `gpu` (tech) box [-176, -140, 352, 220]; inputs: spin 0..1 step 0.125, hot 0..1 step 1. a graphics card: board, two fans, gold edge pins; spin turns the fans, hot adds heat lines
 - `server` (tech) box [-134, -282, 268, 286]; inputs: units 1..6 step 1, load 0..6 step 1. a rack server of 1 to 6 units on y = 0, each with drive bays and a status light; load lights them
