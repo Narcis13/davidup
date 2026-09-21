@@ -14,6 +14,7 @@
 //   actor.reveal(tau, state)        itself in stroke order, 0..1                        -> list
 //   actor.place(x, y, s, o)         the state drawn on the doodle stage                 -> group
 //   actor.put(d, x, y, s, o)        the same, added to a doodle d as a mark the pen reveals
+//   actor.say(text, t0, o)          a line of speech from t0 (shot seconds)               -> fragment
 //
 // A state is a plain object of inputs, so states merge with spread and the later one wins: a recipe writes
 // idle first and a cycle last. Stage conventions are the v1 cast's (recipes/doodle.js): centred at (x, y),
@@ -27,11 +28,23 @@
 // three-quarter view and 0 its front when it has them (the side, or facing us chin up, when not), and it
 // mirrors itself, so the stage does not. The drawing of a missing cycle carries meta('actor-cycle') so lint can say when it is on screen too long,
 // and actor.fallbacks lists the cycles asked for and missing.
+//
+// Speech (plan S9): say(text, t0, { at, size, bubble, hold, seed }) times the line on the 1/12 s grid (a
+// viseme cycle 0 -> 2 -> 3 -> 1 per syllable, core/text.js speech) and returns a fragment the recipe spreads
+// into its shot: state(t) is the mouth variant ({} when silent), draw(t, x, y, s, o) the bubble with the words
+// arriving letter by letter, drawn at the actor's own stage place (above the head, facing its way, kept on the
+// 1080 stage; `at` puts the bubble's centre at a stage point instead), and events(t) the plucks, one per
+// syllable, for a score that places the shot at t. An actor without a mouth part gets a three-stroke mouth
+// drawn over it at spec.mouthAt ([x, y] in s units from its centre, as it faces right) while it speaks.
 import { FPS } from './curves.js';
 import { pen } from './doodle.js';
-import { group, meta, mmul, rotate, scale, translate } from './list.js';
+import { group, meta, mmul, poly, rotate, scale, stroke, translate } from './list.js';
+import { bubble as bubbleMark } from './marks.js';
+import { hash32 } from './rand.js';
+import { handText, measure, speech } from './text.js';
 import { reveal as revealList } from './tools.js';
 import { cel } from './tree.js';
+import { pluckPerSyllable } from '../recipes/score.js';
 
 const RAD = Math.PI / 180;
 const TWOS = FPS / 2;                     // drawn twos: 6 states a second
@@ -73,6 +86,7 @@ export function actorOf(src, spec = {}) {
     reveal: spec.reveal ?? ((tau, state = {}) => revealList(tau, call(state))),
     place: spec.place ?? base.place,
     put: spec.put ?? base.put ?? ((d, x, y, s, o = {}) => d.mark((k) => revealList(k, actor.place(x, y, s, o)), spec.dur ?? 0.5)),
+    say: spec.say ?? ((text, t0, o) => speak(actor, base, spec, text, t0, o)),
   });
   if (!actor.place) actor.place = () => { throw new Error(`actor ${actor.name}: a doodle builder has put(), not place()`); };
   return actor;
@@ -100,7 +114,7 @@ function stager(name, box, ground, spec, selfFlip = false) {
     ...kids,
     o.fallback ? meta('actor-cycle', { actor: name, cycle: o.fallback }) : null,
   ]);
-  return { xfOf, local, wrapPlaced };
+  return { xfOf, local, wrapPlaced, top: FEET - H };
 }
 
 const pick = (inputs, o) => {
@@ -136,7 +150,12 @@ function fromPuppet(p, spec) {
   const blinkKey = ['sleep', 'shut', 'closed'].find((k) => variants('eye').includes(k));
 
   return {
-    name, box: p.cel.box, ground: p.ground, inputs, make, has,
+    name, box: p.cel.box, ground: p.ground, inputs, make, has, top: st.top,
+    // Viseme v as the puppet's mouth: its v-th variant, or its last when it has fewer.
+    mouthOf(v) {
+      const ks = variants('mouth');
+      return ks.length ? variant('mouth', ks[Math.min(v, ks.length - 1)]) : undefined;
+    },
     idle(t, seed = 0) {
       const j = Math.floor(t * TWOS + 1e-9), u = j / TWOS, ph = seed * 1.7;
       const out = {};
@@ -195,7 +214,7 @@ function fromPuppet(p, spec) {
 function fromCel(c, spec) {
   const { name, box, inputs } = c.cel, st = stager(name, box ?? [-50, -100, 100, 100], spec.ground ?? [0, 0], spec);
   return {
-    name, box, ground: spec.ground ?? [0, 0], inputs, has: () => false,
+    name, box, ground: spec.ground ?? [0, 0], inputs, has: () => false, top: st.top,
     make: (o) => c(pick(inputs, o)),
     place: (x, y, s, o = {}) => st.wrapPlaced(x, y, s, o, [c(pick(inputs, o))]),
   };
@@ -213,11 +232,69 @@ function fromBuilder(fn, spec) {
     pen(99, 0, -9, 3, (d) => fn(d, 0, 0, size, { ...defaults, ...q }), { still: true }),
   ], { box, inputs, desc: spec.desc }));
   return {
-    name, box, ground: [0, 0.86 * size], inputs, has: () => false,
+    name, box, ground: [0, 0.86 * size], inputs, has: () => false, top: box[1] / size,
     make: (o) => theCel()(o),
     emote: (what) => ({ eye: what === 'sad' ? 'sleep' : what }),
     // A run is its run phase; a walk is the recipe's own bob and sway (v1), so it asks nothing of the builder.
     cycle: (what, t) => (what === 'run' ? { run: t * 15 } : what === 'walk' ? {} : undefined),
     put: fn,
   };
+}
+
+// ---------- speech ----------
+
+// The three strokes of a drawn mouth for each viseme, in mouth widths (facing right, y down): upper lip,
+// lower lip, and a tongue, tooth line or dimple. 0 shut, 1 a little open, 2 wide, 3 a smile (the fox's four).
+const MOUTHS = [
+  [[[-0.5, 0], [0, 0.04], [0.5, 0]], [[-0.5, 0], [0, 0.06], [0.5, 0]], [[-0.12, 0.03], [0.12, 0.03]]],
+  [[[-0.32, 0], [0, -0.1], [0.32, 0]], [[-0.32, 0], [0, 0.24], [0.32, 0]], [[-0.1, 0.12], [0.1, 0.12]]],
+  [[[-0.45, 0], [0, -0.16], [0.45, 0]], [[-0.45, 0], [0, 0.48], [0.45, 0]], [[-0.18, 0.3], [0, 0.22], [0.18, 0.3]]],
+  [[[-0.5, -0.1], [0, 0.08], [0.5, -0.1]], [[-0.5, -0.1], [0, 0.22], [0.5, -0.1]], [[-0.6, -0.16], [-0.48, -0.04]]],
+];
+function mouthMark(x, y, s, v, dir) {
+  const W = 0.22 * s, w = Math.max(1.4, s * 0.055);
+  return group({ name: 'mouth' }, MOUTHS[v].map((pts, k) => stroke(poly(pts.map(([u, q]) => [x + u * W * dir, y + q * W]), false), 'ink', { w, wobble: 0, name: `m${k}` })));
+}
+
+const MARGIN = 24, STAGE = 1080;
+const clampTo = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.max(lo, Math.min(hi, v)));
+
+function speak(actor, base, spec, text, t0, o = {}) {
+  text = String(text);
+  const { at = null, size = 48, bubble = true, hold = 0.75, seed = hash32('say', actor.name, text) } = o;
+  if (!Number.isFinite(t0)) throw new TypeError(`actor ${actor.name}: say('${text}', t0) needs a start time`);
+  const sp = speech(text, t0), until = sp.end + hold, talks = base.has('mouth');
+  const mouth = (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : sp.steps[Math.floor((t - t0) * FPS + 1e-9)] ?? 0);
+  const tw = measure(text, size), bw = tw + size * 1.2, bh = size * 1.9;
+  const words = handText(text, 0, 0, { size, align: 'center', role: 'ink', ink2: null, w: size * 0.07, seed });
+  const glyphOf = (op) => parseInt(op.name.slice(1), 10);
+
+  return Object.freeze({
+    kind: 'say', actor: actor.name, text, t0, end: sp.end, until, syllables: sp.syllables, mouth,
+    state(t) {
+      const v = mouth(t);
+      if (v === null || !talks) return {};
+      const m = base.mouthOf?.(v);
+      return m === undefined ? {} : { mouth: m };
+    },
+    draw(t, x, y, s, q = {}) {
+      if (t < t0 - 1e-9 || t >= until - 1e-9) return null;
+      const dir = (q.dir ?? 1) < 0 ? -1 : 1, head = [x + dir * 0.15 * s, y + base.top * s], tip = [head[0], head[1] - 0.14 * s];
+      const [cx, cy] = at ?? [
+        clampTo(head[0] + dir * bw * 0.3, MARGIN + bw / 2, STAGE - MARGIN - bw / 2),
+        clampTo(tip[1] - 0.5 * s - bh / 2, MARGIN + bh / 2, STAGE - MARGIN - bh / 2),
+      ];
+      const box = [cx - bw / 2, cy - bh / 2, bw, bh];
+      const inBox = tip[0] > box[0] && tip[0] < box[0] + bw && tip[1] > box[1] && tip[1] < box[1] + bh;
+      const shown = sp.letters.filter((u) => u <= t + 1e-9).length;
+      const letters = group({ name: `text:${text}`, xf: translate(cx, cy + size * 0.36) }, words.kids.filter((op) => glyphOf(op) < shown));
+      const v = mouth(t), mx = spec.mouthAt;
+      return group({ name: `say:${actor.name}`, cache: 'never' }, [
+        bubble && bubbleMark(box, inBox ? null : tip, { seed, w: Math.max(2, size * 0.07) }),
+        letters,
+        !talks && mx && v !== null ? mouthMark(x + mx[0] * s * dir, y + mx[1] * s, s, v, dir) : null,
+      ]);
+    },
+    events: (t = 0, e = {}) => pluckPerSyllable(text, t + t0, { seed, ...e }),
+  });
 }

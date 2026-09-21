@@ -4,6 +4,8 @@ import { actorOf, EMOTES } from '../core/actor.js';
 import { fromStore } from '../core/assets.js';
 import { pen } from '../core/doodle.js';
 import { circle, fill, hashList, serialise, stroke, walk } from '../core/list.js';
+import { bubble } from '../core/marks.js';
+import { cel } from '../core/tree.js';
 import { puppet } from '../core/puppet.js';
 import { CAST, HOG, hog } from '../recipes/doodle.js';
 import { hedgehog } from '../packs/creatures.js';
@@ -144,4 +146,81 @@ test('recipes A to Z with a subject or a figure take actor: it stands where the 
     assert.deepEqual(cels(R({ actor: A })), ['kit'], R.recipe);
     assert.ok(cels(R({})).includes('boat'), `${R.recipe} still draws its boat by default`);
   }
+});
+
+// ---------- speech (S9) ----------
+
+const texts = (list) => { const out = []; walk(list, (op) => { if (typeof op.name === 'string' && op.name.startsWith('text:')) out.push(op); }); return out; };
+const strokesIn = (op) => { let n = 0; walk(op, (o) => { if (o.op === 'stroke') n++; }); return n; };
+
+test('say: the mouth runs 0 -> 2 -> 3 -> 1 per syllable on the grid, as the puppet\'s own variants', () => {
+  const a = actorOf(puppet(KIT)), line = a.say('hello there', 0.5);
+  const mouths = Array.from({ length: 20 }, (_, i) => line.mouth(i / 12));
+  assert.deepEqual(mouths, [null, null, null, null, null, null, 0, 2, 3, 1, 0, 2, 3, 1, 0, 0, 2, 3, 1, null]);
+  // KIT has three mouths: viseme 3 is its last.
+  assert.deepEqual(line.state(8 / 12), { mouth: 2 });
+  assert.deepEqual(line.state(7 / 12), { mouth: 2 });
+  assert.deepEqual(line.state(9 / 12), { mouth: 1 });
+  assert.deepEqual(line.state(0), {});
+  assert.deepEqual(line.syllables.map((s) => s.text), ['he', 'llo', 'there']);
+  // The state is a mouth the puppet draws.
+  assert.doesNotThrow(() => a.place(0, 0, 60, { ...a.emote('happy'), ...line.state(8 / 12) }));
+});
+
+test('say: the words arrive letter by letter in a bubble above the head, and hold', () => {
+  const a = actorOf(puppet(KIT)), line = a.say('hello there', 1, { hold: 0.5 });
+  assert.equal(line.draw(0.9, 300, 500, 60), null);
+  assert.equal(line.draw(line.until, 300, 500, 60), null);
+  const early = line.draw(1, 300, 500, 60), late = line.draw(line.end, 300, 500, 60);
+  assert.deepEqual(early.kids.map((k) => k.name), ['bubble', 'text:hello there']);
+  assert.ok(strokesIn(texts(early)[0]) < strokesIn(texts(late)[0]));
+  assert.equal(strokesIn(texts(late)[0]), strokesIn(texts(line.draw(line.until - 1 / 12, 300, 500, 60))[0]));
+  // Above the head (feet at y + .86 s, 2 s tall), and kept on the stage at its edge.
+  const b = early.kids[0].kids[0].path.box;
+  assert.ok(b[1] + b[3] < 500 + (0.86 - 2) * 60);
+  const edge = line.draw(1, 10, 500, 60).kids[0].kids[0].path.box;
+  assert.ok(edge[0] >= 10);
+  assert.ok(line.draw(1, 300, 500, 60, { dir: -1 }).kids[0].kids[0].path.box[0] < b[0], 'faces its way');
+  // at: the bubble centre at a stage point; bubble: false drops it.
+  const moved = a.say('hello there', 1, { at: [700, 200] }).draw(1, 300, 500, 60);
+  assert.equal(moved.kids[1].xf[4], 700);
+  assert.deepEqual(a.say('hi', 1, { bubble: false }).draw(1, 0, 0, 60).kids.map((k) => k.name), ['text:hi']);
+});
+
+test('say: deterministic per seed; score events on the syllables, placed with the shot', () => {
+  const a = actorOf(puppet(KIT));
+  const drawAll = (line) => hashList(Array.from({ length: 30 }, (_, i) => line.draw(i / 12, 300, 500, 60)).filter(Boolean));
+  assert.equal(drawAll(a.say('hello there', 0.5, { seed: 3 })), drawAll(a.say('hello there', 0.5, { seed: 3 })));
+  assert.notEqual(drawAll(a.say('hello there', 0.5, { seed: 3 })), drawAll(a.say('hello there', 0.5, { seed: 4 })));
+  const ev = a.say('hello there', 0.5).events(10);
+  assert.deepEqual(ev.map((e) => Math.round((e.t - 10.5) * 12)), [0, 4, 9]);
+  assert.throws(() => a.say('hi'), /start time/);
+});
+
+test('say: an actor with no mouth part gets a three-stroke mouth at spec.mouthAt while it speaks', () => {
+  const line = HOG.say('hi', 0);
+  const mouth = (t, o) => line.draw(t, 300, 500, 60, o)?.kids.find((k) => k.name === 'mouth');
+  const m = mouth(0);
+  assert.equal(m.kids.length, 3);
+  assert.ok(m.kids.every((k) => k.op === 'stroke'));
+  const x = (mm) => mm.kids[0].path.box[0] + mm.kids[0].path.box[2] / 2;
+  assert.ok(Math.abs(x(m) - (300 + 1.02 * 60)) < 1e-6);
+  assert.ok(Math.abs(x(mouth(0, { dir: -1 })) - (300 - 1.02 * 60)) < 1e-6);
+  assert.notEqual(hashList([mouth(0)]), hashList([mouth(1 / 12)]));
+  assert.equal(mouth(line.end), undefined, 'the bubble holds, the mouth is gone');
+  assert.deepEqual(line.state(0), {});
+  // A cel with no mouth and no mouthAt draws only the words.
+  const plain = actorOf(cel('blob', () => [fill(circle(0, -50, 40), 'fills.0')], { box: [-40, -90, 80, 80] }));
+  assert.deepEqual(plain.say('hi', 0).draw(0, 300, 500, 60).kids.map((k) => k.name), ['bubble', 'text:hi']);
+});
+
+test('bubble: a paper rounded rect with its tail out to the point', () => {
+  const b = bubble([100, 100, 200, 80], [130, 260], { seed: 2 });
+  assert.deepEqual(b.kids.map((k) => [k.op, k.role]), [['fill', 'paper'], ['stroke', 'ink']]);
+  const pts = b.kids[0].path.sub[0].pts, tip = [];
+  for (let i = 0; i < pts.length; i += 2) if (pts[i] === 130 && pts[i + 1] === 260) tip.push(i);
+  assert.equal(tip.length, 1);
+  assert.ok(b.kids[0].path.box[1] + b.kids[0].path.box[3] >= 260);
+  assert.ok(bubble([0, 0, 100, 50], null).kids[0].path.box[3] < 60);
+  assert.equal(hashList([b]), hashList([bubble([100, 100, 200, 80], [130, 260], { seed: 2 })]));
 });

@@ -13,18 +13,18 @@ export { actorOf, EMOTES } from './actor.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, mix, tint, shade, alpha } from './looks.js';
-export { handText, signOff, squiggleText, measure } from './text.js';
+export { handText, signOff, squiggleText, measure, syllablesOf, speech, VISEMES } from './text.js';
 export { reveal } from './tools.js';
 export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn } from './finish.js';
 export { FX, chalkLook } from './fx.js';
 export {
   cross, hex, hexCells, hexLattice, aster, dotBurst, speedLines, loops, construction,
-  seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, thread, cam, whip,
+  seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, bubble, thread, cam, whip,
 } from './marks.js';
 export { pin, on, onAll, silhouette, shadow, photo, photoFront, mask, rim, backdrop, nightfall, glow } from './photo.js';
 export { doodle, pen } from './doodle.js';
 export { pentHz, renderScore, toWav16 } from './synth.js';
-export { note, burst, plucks, swell, cueNotes, travel, sparse, impact, dyad } from '../recipes/score.js';
+export { note, burst, plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
 export { registerClip, registerClips, clipFromStore, clipOf, pose, traced, gap, airborne } from '../engines/traced.js';
 export { sim, G, cover, scanFill, circlePts, spiralPts, pathOf, pointAt } from '../engines/sim.js';
 export { registerSource } from './sources.js';

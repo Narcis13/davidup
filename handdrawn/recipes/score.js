@@ -3,7 +3,8 @@
 //   score: (c) => [plucks(0, c.shots[0].dur), dyad(c.end - 1, 1)]
 // Loops count steps rather than adding floats, so onsets land exactly on their grid.
 import { pentHz } from '../core/synth.js';
-import { rng } from '../core/rand.js';
+import { hash32, rng } from '../core/rand.js';
+import { speech } from '../core/text.js';
 
 export { pentHz };
 
@@ -58,3 +59,13 @@ export const dyad = (t0, dur = 1, { gain = 0.25, root = [-1, 0], third = [0, 2] 
   note(t0, pentHz(...root), dur, 'sine', gain),
   note(t0 + 0.1, pentHz(...third), Math.max(0.1, dur - 0.1), 'sine', gain * 0.6),
 ];
+
+// Speech (actor.say): one pluck on each syllable's onset, the step from the syllable's own letters, so a line
+// always plays the same tune; a line ending in '?' rises on its last syllable.
+export function pluckPerSyllable(text, t0, { oct = 1, type = 'triangle', gain = 0.14, len = 0.22, seed = 0 } = {}) {
+  const { syllables } = speech(text, t0), ask = /\?\s*$/.test(text);
+  return syllables.map((s, k) => {
+    const up = ask && k === syllables.length - 1;
+    return note(s.t, pentHz(oct + (up ? 1 : 0), up ? 2 : hash32('say', s.text.toLowerCase(), seed) % 5), len, type, gain);
+  });
+}

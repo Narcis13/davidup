@@ -1,5 +1,6 @@
 // Hand lettering as strokes: text ops become groups of pen strokes from glyphs.js, so text wobbles,
 // reveals in stroke order and hashes like any other drawing. No host fonts anywhere.
+import { FPS } from './curves.js';
 import { glyph, TRACK } from './glyphs.js';
 import { circle, fill, group, meta, mkPath, text, stroke } from './list.js';
 import { hash32, rng } from './rand.js';
@@ -81,4 +82,55 @@ export function squiggleText(box, lines, seed = 1, { role = 'ink', lineH, amp = 
     }
   }
   return stroke(mkPath(sub), role, { w, wobble: 0, name: 'squiggle' });
+}
+
+// ---------- speech (actor.say, plan S9) ----------
+
+const VOWELS = /[aeiouy]+/g;
+
+// A word's syllables as vowel groups: each ends where its vowel group does, the last takes the tail. A final
+// silent 'e' (not '-le') joins the group before it; a word with no vowel is one syllable.
+//   syllablesOf('hello') => ['he', 'llo']      syllablesOf('there') => ['there']
+export function syllablesOf(word) {
+  const low = word.toLowerCase(), ends = [...low.matchAll(VOWELS)].map((m) => m.index + m[0].length);
+  if (ends.length > 1 && /[^aeiouy]e$/.test(low) && !/[^aeiouy]le$/.test(low)) ends.pop();
+  if (!ends.length) return [word];
+  ends[ends.length - 1] = word.length;
+  return ends.map((e, k) => word.slice(k ? ends[k - 1] : 0, e));
+}
+
+// The mouth over one syllable, a step (1/12 s) each: shut, wide, smiling, a little open (a puppet's mouth
+// variants 0..3).
+export const VISEMES = Object.freeze([0, 2, 3, 1]);
+
+// A line of speech on the 1/12 s grid from t0: each syllable is one viseme cycle (VISEMES, a step each), a
+// space rests the mouth a step, a comma or a full stop two. The letters of a syllable arrive over its steps.
+//   => { syllables: [{ text, from, to, t, dur }], steps: [viseme per step], letters: [time per char], dur, end }
+// from / to index str; letters[j] is when character j appears (spaces and stops at their own rest).
+export function speech(str, t0 = 0) {
+  str = String(str);
+  const syllables = [], steps = [], letters = new Array(str.length).fill(0);
+  let step = 0, j = 0;
+  const at = () => t0 + step / FPS;
+  while (j < str.length) {
+    const word = /^[^\s,.;:!?]+/.exec(str.slice(j));
+    if (!word) {
+      const ch = str[j];
+      letters[j] = at();
+      const rest = /[,.;:!?]/.test(ch) ? 2 : /\s/.test(ch) ? 1 : 0;
+      for (let r = 0; r < rest; r++) steps.push(0);
+      step += rest;
+      j++;
+      continue;
+    }
+    for (const syl of syllablesOf(word[0])) {
+      const from = j, to = j + syl.length, t = at(), n = VISEMES.length;
+      syllables.push({ text: syl, from, to, t, dur: n / FPS });
+      for (let c = from; c < to; c++) letters[c] = t0 + (step + Math.floor((c - from) * n / syl.length)) / FPS;
+      steps.push(...VISEMES);
+      step += n;
+      j = to;
+    }
+  }
+  return { syllables, steps, letters, dur: step / FPS, end: t0 + step / FPS };
 }

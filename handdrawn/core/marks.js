@@ -1,7 +1,7 @@
 // Marks, lattices and motifs from v1 core.js, as functions returning ops (or lists). Recipes and films
 // place them; the look colours them through roles. Randomness comes from the `seed` argument, so a mark
 // only changes when its arguments do. Also the camera: cam() and whip() are list-level.
-import { circle, clip, ellipse, fill, group, line, mkPath, poly, rect, stroke, translate, mmul, rotate, scale, xf } from './list.js';
+import { circle, clip, ellipse, fill, group, line, mkPath, poly, rect, roundRect, stroke, translate, mmul, rotate, scale, xf } from './list.js';
 import { grain } from './finish.js';
 import { rng } from './rand.js';
 
@@ -175,6 +175,36 @@ export function stickyNote(x, y, s, seed, kids = []) {
     fill(rect(0, 0, s, s), { base: 'paper', tint: 0.5 }, { name: 'sheet' }),
     stroke(rect(0.5, 0.5, s - 1, s - 1), { base: 'ink', alpha: 0.25 }, { w: 1, wobble: 0, name: 'edge' }),
     ...[kids].flat(),
+  ]);
+}
+
+// A speech bubble: a wobbly rounded rect over box [x, y, w, h] with a tail out to the point tail ([x, y], or
+// null for none), filled paper and outlined in pen. The tail leaves the side nearest the point, a base
+// `base` wide; the wobble comes from seed, so a bubble only changes when its arguments do.
+export function bubble(box, tail, { seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {}) {
+  const [x, y, bw, bh] = box, r = rng(seed), cx = x + bw / 2, cy = y + bh / 2;
+  const ring = roundRect(x, y, bw, bh, Math.min(bw, bh) * 0.42, 5).sub[0].pts, pts = [];
+  for (let i = 0; i < ring.length; i += 2) pts.push([ring[i] + (r() - 0.5) * wobble * 2, ring[i + 1] + (r() - 0.5) * wobble * 2]);
+  let outline = pts;
+  if (tail) {
+    // The rim point facing the tip, and the points either side within half the base: they give way to it.
+    const half = (base ?? Math.min(bw, bh) * 0.36) / 2, dx = tail[0] - cx, dy = tail[1] - cy;
+    let best = 0, score = -Infinity;
+    pts.forEach(([px, py], k) => { const v = (px - cx) * dx + (py - cy) * dy; if (v / Math.hypot(px - cx, py - cy) > score) { score = v / Math.hypot(px - cx, py - cy); best = k; } });
+    const n = pts.length, near = (k) => Math.hypot(pts[k][0] - pts[best][0], pts[k][1] - pts[best][1]) <= half;
+    let a = best, b = best;
+    while (near((a - 1 + n) % n) && (a - 1 + n) % n !== b) a = (a - 1 + n) % n;
+    while (near((b + 1) % n) && (b + 1) % n !== a) b = (b + 1) % n;
+    outline = [];
+    for (let k = (b + 1) % n, c = 0; c < n; k = (k + 1) % n, c++) {
+      if (k === a) { outline.push(pts[a], tail, pts[b]); break; }
+      outline.push(pts[k]);
+    }
+  }
+  const path = poly(outline, true);
+  return group({ name: 'bubble', seed }, [
+    fill(path, paper, { name: 'sheet' }),
+    stroke(path, role, { w, wobble: w * 0.3, name: 'edge' }),
   ]);
 }
 

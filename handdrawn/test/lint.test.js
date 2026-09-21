@@ -82,6 +82,11 @@ test('words: text outside the sign-off, against the look allowance', () => {
   const doodle = (str) => make(lookOn('doodlePastel', scene('a', () => [text(str, 100, 100)])));
   assert.deepEqual(rules(doodle('hello there world')), []);
   one(doodle('hello there big world'), 'words');
+  // Spoken words count: a line from actor.say is words in the shot.
+  const talker = actorOf(cel('talker', () => [fill(circle(0, -50, 40), 'fills.0')], { box: [-40, -90, 80, 80] }));
+  const says = (line, extra = []) => make(lookOn('doodlePastel', scene('a', (c) => [line.draw(c.t, 540, 540, 60), ...extra])));
+  assert.deepEqual(rules(says(talker.say('hello there', 0), [text('world', 100, 100)])), []);
+  assert.match(one(says(talker.say('hello there', 0), [text('big world', 100, 100)]), 'words').detail, /hello there/);
 });
 
 test('cuts: longer than 1 s, and two in a row', () => {

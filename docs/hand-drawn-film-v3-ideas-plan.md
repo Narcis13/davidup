@@ -262,6 +262,12 @@ would hand to a client.
 - Tests: syllable split on a fixture list; viseme sequence on the grid;
   say() is deterministic per seed.
 
+(Built: the fragment is `{ state(t), draw(t, x, y, s, o), events(t), mouth(t), syllables }` in shot
+seconds; a recipe spreads `state` into the actor's state and draws `draw` at the actor's own stage place, and
+the doodle recipes take it as `say` (AC first). Visemes index the mouth variants (the fox's 0 shut, 1 open,
+2 wide, 3 smile). Syllable timing lives in `core/text.js speech()`, shared by the mouth, the letters and
+`pluckPerSyllable`. The greeting replaces the tea shot's caption, keeping it inside doodle's three words.)
+
 Done when: the shot plays with mouth, letters and plucks in sync.
 
 ### S10. Cut-out look
@@ -442,7 +448,7 @@ doodle recipe in the user's hand without reading the source.
 | S6 | SVG import | S4 | (prereq) | [x] |
 | S7 | Turnarounds | S5, S6 | turnarounds | [x] |
 | S8 | Pose sheets as briefs | S7 | pose sheets | [x] |
-| S9 | Speech scribbles | S5 | speech scribbles | [ ] |
+| S9 | Speech scribbles | S5 | speech scribbles | [x] |
 | S10 | Cut-out look | S4 | cut-out look | [ ] |
 | S11 | Hands part 1 | S2 | same film, two hands | [ ] |
 | S12 | Hands part 2 | S11 | same film, two hands | [ ] |

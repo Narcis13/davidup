@@ -121,6 +121,9 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `signOff(a, b, { x = 540, y = 540, size = 60, pA = 1, pB = 1, ink = 'ink', ink2 = 'accents.0' } = {})` The film's signature: two dots, then word a, then word b (smaller, below), each revealed in stroke order by pA and pB.
 - `squiggleText(box, lines, seed = 1, { role = 'ink', lineH, amp = 4, w = 1.3, gap = 0.4 } = {})` Illegible handwriting: rows of little arches filling box [x, y, w, h?] (v1 squiggleText).
 - `measure(str, size)` Advance width of a string at a size, in logical units.
+- `syllablesOf(word)` A word's syllables as vowel groups: each ends where its vowel group does, the last takes the tail.
+- `speech(str, t0 = 0)` A line of speech on the 1/12 s grid from t0: each syllable is one viseme cycle (VISEMES, a step each), a space rests the mouth a step, a comma or a full stop two.
+- `VISEMES` The mouth over one syllable, a step (1/12 s) each: shut, wide, smiling, a little open (a puppet's mouth variants 0..3).
 
 ### core/tools.js
 
@@ -164,6 +167,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `tornEdge(y, { amp = 9, seed = 1, freq = 60, W = 1080, H = 1080 } = {})` The frame below a torn paper line at height y (v1 tornEdge).
 - `section(y, role, seed = 1, { W = 1080, H = 1080 } = {})` A new paper colour from a torn edge downward, a soft shadow under the tear, grain (v1 section).
 - `stickyNote(x, y, s, seed, kids = [])` A paper square with a drawing inside, turned a little (v1 stickyNote).
+- `bubble(box, tail, { seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {})` A speech bubble: a wobbly rounded rect over box [x, y, w, h] with a tail out to the point tail ([x, y], or null for none), filled paper and outlined in pen.
 - `thread(x, seed, { role = 'accents.0', w = 1.2, H = 1080 } = {})` A thin line wandering down the frame (v1 thread).
 - `cam({ x, y, zoom = 1, rot = 0, W = 1080, H = 1080 }, kids)` A camera over kids: the point (x, y) lands at the frame centre, zoomed and turned (v1 cam).
 - `whip(t, dur, { inn = 0.17, out = 0.17, dist = 520 } = {})` A horizontal camera offset for motion-matched cuts: leaves right over the last `out` seconds, arrives from the left over the first `inn` (v1 whip).
@@ -205,6 +209,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `sparse(t0, dur, { seed = 13, gain = 0.12, every = 0.75 } = {})` Page, pencil: sparse sines an octave down, one per 0.75 s.
 - `impact(t, { gain = 0.3, seed = 1 } = {})` Impact: a noise burst plus a 55 Hz sine.
 - `dyad(t0, dur = 1, { gain = 0.25, root = [-1, 0], third = [0, 2] } = {})` Gallery, sign-off: a long sine dyad with a 1 s release.
+- `pluckPerSyllable(text, t0, { oct = 1, type = 'triangle', gain = 0.14, len = 0.22, seed = 0 } = {})` Speech (actor.say): one pluck on each syllable's onset, the step from the syllable's own letters, so a line always plays the same tune; a line ending in '?' rises on its last syllable.
 
 ### engines/traced.js
 
@@ -292,7 +297,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `alongTheEdge(o = {})` AH. Along the edge. Both runners take the photo's real top edge (its silhouette, whatever the rotation) with a delay between them, a note pops where each step lands, the camera follows the midpoint. Options: name, dur, photo, x, y, h, rot, delay, notes, trestles, k, runner, whip, actor, who, seed.
 - `becomesVehicle(o = {})` AA. The object becomes a vehicle. It floats (shadow 0), drifts and bobs; mast, sail and a sailor are attached to the photo so they bob with it; the sea is drawn over the hull, foam along the waterline; gag: a far lighthouse lights up ... Options: name, dur, photo, x, y, h, rot, drift, bob, mastAt, mast, flag, sailor, word, lighthouse, actor, who, seed.
 - `caughtLetGo(o = {})` AL. Caught, then let go. The light dims in the jar (r shrinks), a held beat, the lid tips (pivot, rot), it shoots up and night (k) starts to lift. Options: name, dur, photo, x, ground, h, pivot, flame, lid, push, k, runner, words, dawn, actor, who, seed.
-- `doesItsJob(o = {})` AC. The object does its job, at last: it tips over its base (pivot, rot) and pours from its spout into drawn cups; a bird on a string does the lifting; steam and a heart, one character waits. Options: name, dur, photo, x, ground, h, pivot, spout, handle, tip, cups, word, stream, actor, who, seed.
+- `doesItsJob(o = {})` AC. The object does its job, at last: it tips over its base (pivot, rot) and pours from its spout into drawn cups; a bird on a string does the lifting; steam and a heart, one character waits. Options: name, dur, photo, x, ground, h, pivot, spout, handle, tip, cups, word, stream, actor, who, seed, say.
 - `getaway(o = {})` AK. Getaway. The photo itself gallops (x from tau, bounce from |sin|) with the rider on it, dust puffs and speed lines behind, the view travels with it and drawn milestones pass by; the follower rides a hobby horse. Options: name, dur, photo, x0, speed, ground, h, pivot, seat, k, runner, word, whip, actor, who, seed.
 - `insideTheTube(o = {})` AI. Inside the tube. The runner hops into the mouth and disappears; only its light travels along the object (mouth to bell in photo units), then it bursts out of the far end with a recoil of the photo, rings, a big word and a zoom kick. Options: name, dur, photo, x, y, h, rot, mouth, bell, k, runner, word, trestles, whip, actor, who, seed.
 - `lightEscapes(o = {})` AG. The light escapes. nightShot with one light on the runaway: a match lights it, it hops out of the lamp (hop), the pool goes with it and the lamp goes dark behind it; the keeper jumps and gives chase. Options: name, dur, photo, x, ground, h, pivot, flame, match, land, k, runner, word, title, whip, actor, who, seed.

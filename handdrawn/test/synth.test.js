@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SR, event, pentHz, renderScore, toWav16, scoreEvents, filmAudio } from '../core/synth.js';
-import { plucks, swell, cueNotes, travel, sparse, impact, dyad } from '../recipes/score.js';
+import { plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
 import mini from '../films/mini.js';
 
 test('pentHz is v1: base 220, pentatonic steps, wrapping within the octave', () => {
@@ -81,4 +81,15 @@ test('a gain 0 note is silent and does not poison the mix with NaN', () => {
   const s = renderScore([{ t: 0, dur: 0.5, hz: 220, type: 'sine', gain: 0 }, { t: 0, dur: 0.5, hz: 330, type: 'sine', gain: 0.3 }], 1);
   assert.ok(s.every(Number.isFinite));
   assert.ok(s.some((v) => v !== 0));
+});
+
+test('pluckPerSyllable: one pentatonic note on each syllable onset, the same tune every time', () => {
+  const ev = pluckPerSyllable('hello there', 2);
+  assert.deepEqual(ev.map((e) => Math.round((e.t - 2) * 12)), [0, 4, 9]);
+  const pent = new Set([0, 1, 2, 3, 4].flatMap((st) => [pentHz(1, st), pentHz(2, st)]));
+  assert.ok(ev.every((e) => pent.has(e.hz)));
+  assert.deepEqual(pluckPerSyllable('hello there', 2), ev);
+  const ask = pluckPerSyllable('tea?', 0);
+  assert.equal(ask[0].hz, pentHz(2, 2));
+  assert.ok(renderScore(ev, 4).some((v) => v !== 0));
 });

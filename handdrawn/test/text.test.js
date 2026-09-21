@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GLYPHS, glyph } from '../core/glyphs.js';
-import { handText, signOff, measure } from '../core/text.js';
+import { handText, signOff, measure, syllablesOf, speech, VISEMES } from '../core/text.js';
 import { reveal, trim } from '../core/tools.js';
 import { group, stroke, line, hashList, walk } from '../core/list.js';
 
@@ -85,4 +85,26 @@ test('reveal reaches text ops: none at 0, a share as p between, the op itself at
   const full = expandOp(t, 'paperInk')[0], part = expandOp(half, 'paperInk')[0];
   assert.ok(total(part) > 0 && total(part) < total(full));
   assert.equal(strokes(full)[0].seed, strokes(part)[0].seed);   // same wobble as the finished word
+});
+
+test('syllablesOf: vowel groups, a silent final e joins the one before', () => {
+  const FIXTURE = {
+    hello: ['he', 'llo'], there: ['there'], tea: ['tea'], teapot: ['tea', 'pot'], banana: ['ba', 'na', 'na'],
+    little: ['li', 'ttle'], apple: ['a', 'pple'], cake: ['cake'], the: ['the'], hmm: ['hmm'], fox: ['fox'], Hello: ['He', 'llo'],
+  };
+  for (const [w, want] of Object.entries(FIXTURE)) assert.deepEqual(syllablesOf(w), want, w);
+});
+
+test('speech: one viseme cycle per syllable on the 1/12 s grid, rests for spaces and stops', () => {
+  const s = speech('hello there', 0.5);
+  assert.deepEqual(VISEMES, [0, 2, 3, 1]);
+  assert.deepEqual(s.syllables.map((x) => x.text), ['he', 'llo', 'there']);
+  assert.equal(s.steps.join(''), '0231' + '0231' + '0' + '0231');
+  assert.equal(s.dur * 12, 13);
+  for (const x of s.syllables) assert.ok(Math.abs(x.t * 12 - Math.round(x.t * 12)) < 1e-9, `${x.text} starts on the grid`);
+  assert.deepEqual(s.syllables.map((x) => Math.round((x.t - 0.5) * 12)), [0, 4, 9]);
+  // The letters of a syllable arrive over its steps, in order.
+  assert.ok(s.letters.every((t, j) => j === 0 || t >= s.letters[j - 1]));
+  assert.equal(s.letters[0], 0.5);
+  assert.equal(speech('hi, fox.').steps.join(''), '0231' + '00' + '0' + '0231' + '00');
 });

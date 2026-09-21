@@ -8,7 +8,7 @@
 // Common options: photo (a cutout, plan 1.6; register it in film({ assets })), name, dur (on the 1/12 s grid;
 // the recipe's timing stretches to it), paper (a PASTELS name, or null for the inherited look), look (base
 // look, default doodlePastel), actor (the cast member, default HOG), seed (added to every pen seed), word(s)
-// (null drops them).
+// (null drops them), say (a line from actor.say(text, t0): the cast member speaks it, in shot seconds; AC).
 // Everything is laid out on a 1080 square "stage" centred in the frame, so other formats keep the layout and
 // get more paper at the sides; ground lines and seas run well past the square.
 //
@@ -172,7 +172,7 @@ export function bird(d, x, y, s, o = {}) {
 
 // The hedgehog as an actor: states are hog's own options (dir, eye, run phase), put() is hog itself.
 export const HOG = actorOf(hog, {
-  name: 'hedgehog', size: 60, box: [-110, -100, 220, 156], inputs: { dir: [-1, 1, 2], fright: [0, 1, 0.25] },
+  name: 'hedgehog', size: 60, box: [-110, -100, 220, 156], inputs: { dir: [-1, 1, 2], fright: [0, 1, 0.25] }, mouthAt: [1.02, 0.14],
   defaults: { eye: 'happy', scarf: 'accents.0', w: 4.2 }, desc: 'the doodle hedgehog with a scarf; eye dot | happy | sleep | wide',
 });
 
@@ -375,7 +375,7 @@ export function livesInside(o = {}) {
 export function doesItsJob(o = {}) {
   const {
     name = 'doesItsJob', dur = 3.5, photo: ph, x = 690, ground: gy = 706, h = 320, pivot = [0.4, 1], spout = [0.02, 0.28],
-    handle = [0.86, 0.1], tip, cups = 2, word = 'for two', stream = ROLES.tea, actor, who, seed = 0,
+    handle = [0.86, 0.1], tip, cups = 2, word = 'for two', stream = ROLES.tea, actor, who, seed = 0, say = null,
   } = o;
   const A = actorFor({ actor, who });
   need(ph, name);
@@ -388,7 +388,9 @@ export function doesItsJob(o = {}) {
     const kids = [P(0.2, 1, (d) => ground(d, gy, 60, 1020), { speed: 2800, still: true }), photo(pl, { ground: gy })];
     kids.push(P(0.4, 40, (d) => { sun(d, side < 0 ? 930 : 150, 150, 48); cloud(d, 560, 130, 60); cloud(d, side < 0 ? 330 : 750, 215, 40); }));
     kids.push(P(0.5, 3, (d) => { for (let n = 0; n < cups; n++) teacup(d, cupX(n), gy - 42, 42, n % 2 ? 'fills.0' : 'fills.1'); }));
-    kids.push(P(0.9, 5, (d) => A.put(d, hx, gy - 62, 54, { ...A.idle(tau), ...A.look(-side), ...A.emote(tau > 2.6 ? 'happy' : 'dot'), w: 4.2 })));
+    const pose = { ...A.idle(tau), ...A.look(-side), ...A.emote(tau > 2.6 ? 'happy' : 'dot'), ...say?.state(c.t), w: 4.2 };
+    kids.push(P(0.9, 5, (d) => A.put(d, hx, gy - 62, 54, pose)));
+    if (say) kids.push(say.draw(c.t, hx, gy - 62, 54, pose));
     if (handle) {
       const h0 = on(pl, ...handle), flap = Math.sin(i * 2.4) * 10, by = h0[1] - 170 - k * 10;
       kids.push(P(1.3, 7, (d) => {
