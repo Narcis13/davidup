@@ -360,6 +360,22 @@ traced('cat', i, { x: CX, y: 900, h: 470, wash: 'fills.0', p: ramp(0, 1, t) })  
 gap('cat', k); airborne('cat');                                                   // height off the ground; the highest pose
 ```
 
+A clip can also drive a puppet. `--rig quadruped|biped` (on roto.py, `hdf clip`,
+or `hdf clip --store <id>` for a clip already in the store) labels a skeleton in
+every frame from its silhouette (`core/rig.js`: hooves, hip, shoulder, head, tail
+tip by position; out/clip-<id>-skel.jpg shows them), and `hdf retarget` turns
+the chain directions into a puppet cycle through a map in `assets/src/`:
+
+```bash
+hdf clip --store horse --rig quadruped
+hdf retarget --clip horse --to fox --map horse-fox.json --name gallop   # joints on 2 degrees, a lift per frame
+hdf sheet store fox --cycle gallop
+```
+
+`fox.cycle('gallop', t)` then draws Muybridge's horse on the fox
+(`fox-and-teapot.js`, the chase); the actor contract lifts the stage by each
+frame's `lift`, the moment in the air. Re-importing the fox's SVG keeps the cycle.
+
 ### Sand (`engines/sim.js`, see `one-year.js`)
 
 A height field of sand on a light table, stepped at 48 Hz and shaded as
@@ -628,7 +644,9 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf bundle <film> [--out dir]` | one self-contained HTML player |
 | `hdf photo <img> --name <id> [--credit] [--source] [--js photos.js] [--flood\|--keep] [--punch u,v]` | a cutout with its silhouette, colours table and check sheet |
 | `hdf photo --refresh <photos.js>` | add the colours table to a module written before it existed |
-| `hdf clip <roto.py output> [--js clips.js]` | a traced clip in the v2 format |
+| `hdf clip <roto.py output> [--js clips.js] [--rig quadruped\|biped]` | a traced clip in the v2 format, with a skeleton per frame when rigged |
+| `hdf clip --store <id> --rig <rig>` | a skeleton for a clip already in the store, in place |
+| `hdf retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]` | a clip's skeleton as a puppet cycle in the store |
 | `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
 | `hdf import --v2 <photos.js\|clips.js> [--licence] [--tags]` | a 2.0 data module into the store: one entry per record |
 | `hdf svg <file.svg> --name <id> [--kind puppet\|motif] [--roles map.json\|ask] [--flatten 0.6] [--units]` | an SVG into the store as a puppet (rigged from its ids) or a motif, with its colour table and check sheet |

@@ -185,7 +185,9 @@ function fromPuppet(p, spec) {
       const c = d.cycles?.[what];
       if (!c?.frames?.length) return undefined;
       const n = c.frames.length, j = ((Math.floor(t * (c.fps ?? FPS) + 1e-9) % n) + n) % n;
-      return { ...c.frames[j] };
+      // A frame's lift (a retargeted gallop, 3.0 S14) is in puppet units; the stage's lift is in 4% of its height.
+      const { lift, ...q } = c.frames[j];
+      return lift ? { ...q, lift: lift / (0.04 * (p.cel.box[3] || 1)) } : q;
     },
     place(x, y, s, o = {}) {
       const q = { ...o };

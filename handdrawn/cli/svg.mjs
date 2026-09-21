@@ -9,8 +9,11 @@
 // colour table is printed on every import, so what each source colour became is never a guess; `--roles ask`
 // writes it as JSON for the author to edit and pass back with `--roles <file>`. The payload then goes through
 // exactly what `hdf import` does (validation, puppet lint, the store) and a puppet gets `hdf sheet store <id>`.
+// A cycle `hdf retarget` wrote into the stored puppet (it carries `from`) is not in the SVG, so a re-import
+// keeps it, unless the SVG now draws a cycle of that name.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { SvgError, svgColours, svgMotif, svgPuppet } from '../core/svg.js';
 import { putPayload } from './import.mjs';
 import { UsageError } from './load.mjs';
@@ -39,6 +42,7 @@ export async function run([file], flags) {
     opts.roles = flags.roles ? readRoles(String(flags.roles)) : {};
     const { payload, table } = (kind === 'puppet' ? svgPuppet : svgMotif)(src, opts);
     process.stdout.write(tableText(table));
+    if (kind === 'puppet') keepRetargeted(payload, name, flags);
     await putPayload({ kind, name, bytes: Buffer.from(JSON.stringify(payload)), abs, flags });
     if (kind === 'puppet' && flags.sheet !== false) {
       await storeSheet(name, { root: flags.root, cycle: Object.keys(payload.cycles ?? {})[0] });
@@ -57,3 +61,13 @@ function readRoles(path) {
 
 // colour  area  role  (auto | map), one line each.
 const tableText = (table) => table.map((r) => `${r.hex}  ${String(r.area).padStart(7)}  ${r.role.padEnd(10)} ${r.how}\n`).join('');
+
+// The retargeted cycles of the puppet already in the store under this name, carried over to the new payload.
+function keepRetargeted(payload, name, flags) {
+  const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
+  if (!st.has(name) || st.entry(name).kind !== 'puppet') return;
+  const kept = Object.entries(st.json(name).cycles ?? {}).filter(([k, c]) => c?.from && !payload.cycles?.[k]);
+  if (!kept.length) return;
+  payload.cycles = { ...(payload.cycles ?? {}), ...Object.fromEntries(kept) };
+  process.stdout.write(`keeps ${kept.map(([k, c]) => `cycle ${k} (retargeted from ${c.from.clip})`).join(', ')}\n`);
+}

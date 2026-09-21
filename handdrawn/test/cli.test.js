@@ -60,7 +60,7 @@ test('model sheet: the fox brief is one list that hashes the same every run, a r
   const fox = puppet(st.json(entry));
   // title, turnaround, expressions, hands and feet, poses, a strip per cycle, credits.
   assert.equal(a.rows.length, 1 + 1 + 1 + 1 + 1 + fox.cycles.length + 1);
-  assert.deepEqual(a.rows, ['title', 'turnaround', 'expressions', 'hands and feet', 'poses', 'cycle walk', 'cycle run', 'credits']);
+  assert.deepEqual(a.rows, ['title', 'turnaround', 'expressions', 'hands and feet', 'poses', 'cycle walk', 'cycle run', 'cycle gallop', 'credits']);
   assert.deepEqual(lintList(a.list, look), [], 'role and cel-box hold over the page');
 });
 
@@ -132,7 +132,17 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     assert.match(out, /fox\.jpg {2}7 looks x 16 states x 3 scales \+ 8 frames of walk$/m);
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
-    assert.equal(cat.fox.sha, JSON.parse(readFileSync('assets/catalogue.json', 'utf8')).fox.sha, 'the same payload as the fox in the house store');
+    // The house fox is the SVG plus the gallop `hdf retarget` wrote into the store; the SVG alone is the rest.
+    const house = JSON.parse(readFileSync('assets/catalogue.json', 'utf8')).fox, housePath = join('assets/blobs', `${house.sha}.json`);
+    const { gallop, ...drawn } = JSON.parse(readFileSync(housePath, 'utf8')).cycles;
+    assert.ok(gallop?.from, 'the house fox has a retargeted gallop');
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'blobs', `${cat.fox.sha}.json`), 'utf8')), { ...JSON.parse(readFileSync(housePath, 'utf8')), cycles: drawn });
+    // Re-importing the SVG over a fox that has it keeps the retargeted cycle: the payload is the house one.
+    assert.equal((await hdf('import', housePath, '--kind', 'puppet', '--name', 'fox', '--licence', 'own', '--root', root)).code, 0);
+    const again = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root, '--no-sheet');
+    assert.equal(again.code, 0, again.out);
+    assert.match(again.out, /^keeps cycle gallop \(retargeted from horse\)$/m);
+    assert.equal(JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8')).fox.sha, house.sha, 'the same payload as the fox in the house store');
 
     // A refused element is a usage error that names it; nothing reaches the store.
     writeFileSync(file, '<svg viewBox="0 0 10 10"><g id="a"><text>hi</text></g></svg>');
@@ -230,5 +240,49 @@ export default film({ name: 'tea', look: 'paperInk', timeline: seq(brew, sign) }
     const r = await hdf('only', join(dir, 'tea.js'), '11', '--out', dir, '--width', '240');
     assert.equal(r.code, 0, r.out);
     assert.ok(existsSync(join(dir, 'tea-011.png')), r.out);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('skeletons and retargeting: clip --store rigs a stored clip in place, retarget writes a cycle into a puppet', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-rig-'));
+  try {
+    const root = join(dir, 'store'), house = JSON.parse(readFileSync('assets/catalogue.json', 'utf8'));
+    assert.match((await hdf('help')).out, /^ {2}retarget --clip <id> --to <puppet> --map <map\.json> --name <cycle>/m);
+    // The horse without its skeleton, as it was before S14, and the fox as its SVG draws it.
+    const bare = JSON.parse(readFileSync(join('assets/blobs', `${house.horse.sha}.json`), 'utf8'));
+    for (const f of bare.frames) delete f.skel;
+    delete bare.rig; delete bare.facing;
+    writeFileSync(join(dir, 'horse.json'), JSON.stringify(bare));
+    assert.equal((await hdf('import', join(dir, 'horse.json'), '--kind', 'clip', '--name', 'horse', '--licence', 'PD', '--root', root)).code, 0);
+    assert.equal((await hdf('svg', 'assets/src/fox.svg', '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root, '--no-sheet')).code, 0);
+
+    const early = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root);
+    assert.equal(early.code, 1);
+    assert.match(early.out, /no skeleton in every frame \(hdf clip --store <id> --rig quadruped\)/);
+    assert.equal((await hdf('clip', '--store', 'horse', '--root', root)).code, 2, 'which rig?');
+
+    const rig = await hdf('clip', '--store', 'horse', '--rig', 'quadruped', '--root', root, '--out', dir);
+    assert.equal(rig.code, 0, rig.out);
+    assert.match(rig.out, /^horse {2}clip {2}[0-9a-f]{40}\.json {2}quadruped skeleton, 12 frames {2}\(replaces [0-9a-f]{8}\)$/m);
+    assert.ok(existsSync(join(dir, 'clip-horse-skel.jpg')));
+    const cat = () => JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
+    assert.equal(cat().horse.sha, house.horse.sha, 'the same skeleton as the house horse');
+
+    const dry = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root, '--dry');
+    assert.equal(dry.code, 0, dry.out);
+    assert.match(dry.out, /^horse -> fox\.gallop: 12 frames at 12 fps, body head tail leg-l leg-r arm-l arm-r, lift x0\.\d+$/m);
+    assert.match(dry.out, /^ {2}11 {2}body -?\d+ {2}head/m);
+    const before = cat().fox.sha;
+    const run = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root);
+    assert.equal(run.code, 0, run.out);
+    assert.match(run.out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}cycles: walk, run, gallop {2}\(replaces [0-9a-f]{8}\)$/m);
+    assert.equal(cat().fox.sha, house.fox.sha, 'the same fox as the house store');
+    assert.ok(!existsSync(join(root, 'blobs', `${before}.json`)), 'the old blob is dropped');
+    const again = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root);
+    assert.match(again.out, /\(unchanged\)$/m);
+
+    const bad = await hdf('retarget', '--clip', 'fox', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'x', '--root', root);
+    assert.equal(bad.code, 2);
+    assert.match(bad.out, /--clip fox is a puppet, not a clip/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

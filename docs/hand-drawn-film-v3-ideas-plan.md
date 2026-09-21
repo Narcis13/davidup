@@ -437,6 +437,18 @@ a real box bug: the teapot's box did not hold lid-up-with-steam, and is now [-12
 Done when: `hdf sheet store fox --cycle gallop` shows a 12-frame gallop that
 is recognisably the horse's motion.
 
+(Built: the labelling lives in one place, `core/rig.js`, in JS: the silhouette is filled into a mask, thinned
+(core/skeleton.js), pruned, and its end points named by position. roto.py `--rig` only records the rig and
+`hdf clip` labels, so a clip already in the store gets the same skeleton from `hdf clip --store <id> --rig <rig>`;
+`work/horse` is not in the repo and this machine has no numpy, so the horse was migrated that way, from its
+traced outline. Pairs are numbered 1 (leading) and 2 (knee-h1, ankle-f2). Hip and shoulder sit at the clip's
+median place along the spine; frames 9 to 11, where the legs fold into the belly, and frame 3, where the rider's
+arm joins the head on, take those joints from their neighbours. Map zeros are "mean" (a horse's level spine is
+the upright fox's rest) or a direction; each frame also carries a `lift` in puppet units, so the fox's feet meet
+the ground where the hooves did and it leaves it when the horse does. `puppet.liftOf()` reads it, the actor stage
+rises by it, the sheet strip shows it. `hdf svg` keeps a retargeted cycle (it carries `from`) when the SVG is
+imported again. The chase is the fourth shot of fox-and-teapot.)
+
 ### S15. Motion from your phone
 
 *Idea: film yourself, the fox walks like you.*
@@ -508,7 +520,7 @@ doodle recipe in the user's hand without reading the source.
 | S11 | Hands part 1 | S2 | same film, two hands | [x] |
 | S12 | Hands part 2 | S11 | same film, two hands | [x] |
 | S13 | Living packs | S4 | living packs | [x] |
-| S14 | Skeletons + retarget | S4 | (prereq) | [ ] |
+| S14 | Skeletons + retarget | S4 | (prereq) | [x] |
 | S15 | Motion from your phone | S14 | motion from your phone | [ ] |
 | S16 | Store ↔ davidup | S2 | davidup asset source | [ ] |
 | S17 | The 3.0 skill | all | — | [ ] |

@@ -30,7 +30,12 @@ const USAGE = `usage: hdf <command> [args] [flags]
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet
                                     --v1 <photos.js> converts a v1 module; --refresh <photos.js> adds a colours table to an existing one
-  clip    <clips.js|clip.json> [--name id] [--js clips.js]   roto.py output -> a v2 clips module
+  clip    <clips.js|clip.json> [--name id] [--js clips.js] [--rig quadruped|biped] [--facing -1]
+                                    roto.py output -> a v2 clips module; a rig labels a skeleton per frame
+                                    (skel: joints, chains) and writes out/clip-<name>-skel.jpg
+  clip    --store <id> --rig quadruped|biped   the same for a clip in the asset store, in place
+  retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]   a clip's skeleton as a
+                                    puppet cycle in the store (maps in assets/src/): joints on 2 degrees, a lift
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
                                     --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record
@@ -55,7 +60,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'import', 'svg', 'hand', 'find', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'retarget', 'import', 'svg', 'hand', 'find', 'donate'];
 
 export { loadFilm, UsageError };
 

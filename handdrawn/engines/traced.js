@@ -9,9 +9,10 @@
 //   airborne('horse')    the pose highest off the ground
 //
 // A clip (plan 1.6): { n, fps, h, credit, source, frames: [{ outer: path, lines: [{ path, w }] }] }, in the
-// clip's own units with the ground at y = 0 (so a pose in the air lifts itself). registerClip also takes
-// the v1 shape (outer: [[[x, y], ...], ...], lines: [{ w, p: [[x, y], ...] }]), so a v1 clips.js converts
-// by import. Clips live in a module-level registry: the film module registers them at import, which
+// clip's own units with the ground at y = 0 (so a pose in the air lifts itself). A frame may carry a
+// skeleton (skel: { joints, chains }) and the clip its rig and facing (3.0 S14): hdf retarget reads them.
+// registerClip also takes the v1 shape (outer: [[[x, y], ...], ...], lines: [{ w, p: [[x, y], ...] }]), so a
+// v1 clips.js converts by import. Clips live in a module-level registry: the film module registers them at import, which
 // happens in every render worker and in the player alike.
 import { group, fill, mkPath, stroke, translate, isPath } from '../core/list.js';
 import { record } from '../core/store.js';
@@ -41,10 +42,11 @@ export function registerClip(name, data) {
       .map((l, j) => ({ ...l, len: polyLen(l.pts), j }))
       .sort((a, b) => b.len - a.len || a.j - b.j)
       .map(({ pts, w }) => Object.freeze({ path: mkPath([{ pts, closed: false }]), w }));
-    return Object.freeze({ outer: asOuter(fr.outer), lines: Object.freeze(lines) });
+    return Object.freeze({ outer: asOuter(fr.outer), lines: Object.freeze(lines), ...(fr.skel ? { skel: fr.skel } : {}) });
   });
   const clip = Object.freeze({
-    name, n: data.n ?? frames.length, fps: data.fps ?? 12, h: data.h, credit: data.credit ?? '', source: data.source ?? '', frames: Object.freeze(frames),
+    name, n: data.n ?? frames.length, fps: data.fps ?? 12, h: data.h, credit: data.credit ?? '', source: data.source ?? '',
+    ...(data.rig ? { rig: data.rig, facing: data.facing ?? 1 } : {}), frames: Object.freeze(frames),
   });
   if (!(clip.h > 0)) throw new TypeError(`registerClip ${name}: h (the tallest pose, in clip units) must be > 0`);
   CLIPS.set(name, clip);

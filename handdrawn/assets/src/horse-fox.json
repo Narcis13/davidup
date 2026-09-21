@@ -1,0 +1,15 @@
+{
+  "desc": "Muybridge's galloping horse on the fox: hind legs on its legs, forelegs on its arms, the spine's pitch on its body",
+  "rig": "quadruped",
+  "facing": 1,
+  "parts": {
+    "body": { "chain": ["hip", "shoulder"], "zero": "mean" },
+    "head": { "chain": ["shoulder", "head"], "zero": "mean", "gain": 0.6 },
+    "tail": { "chain": ["hip", "tail-tip"], "zero": "mean" },
+    "leg-l": { "chain": ["hip", "ankle-h2"], "zero": "mean" },
+    "leg-r": { "chain": ["hip", "ankle-h1"], "zero": "mean" },
+    "arm-l": { "chain": ["shoulder", "ankle-f2"], "zero": "mean" },
+    "arm-r": { "chain": ["shoulder", "ankle-f1"], "zero": "mean" }
+  },
+  "ground": ["leg-l", "leg-r"]
+}

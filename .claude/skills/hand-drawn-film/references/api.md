@@ -87,6 +87,16 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `VIEW_DIRS` The |dir| each view is drawn at: side 1, three-quarter 0.5, front 0.
 - `puppet(idOrData)` puppet(id) => the cel of the puppet that id names in the registry; puppet(data) builds one from a payload in hand (a test, or `hdf sheet store <id>` reading the blob itself).
 
+### core/rig.js
+
+- `RIGS` The rig templates: the joints each labels and the chains (joint paths, root first) a retarget can follow.
+- `rigClip(clip, rig, { facing = clip.facing ?? 1, force = false, ...o } = {})` A clip with a skeleton in every frame (a clip's frames that already carry one keep it unless force).
+- `skelOf(outer, rig, { h, facing = 1, s, whisker } = {})` One pose's joints: { joints: { name: [x, y] } } with the joints it found.
+
+### core/retarget.js
+
+- `retarget(clip, d, map)` The cycle a clip's skeleton drives on a puppet payload d through a map: { cycle: { fps, n, frames }, report: { parts, flip, scale, lift } }.
+
 ### core/actor.js
 
 - `actorOf(src, spec = {})` actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.

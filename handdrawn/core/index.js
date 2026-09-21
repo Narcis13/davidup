@@ -9,6 +9,8 @@ export {
 } from './curves.js';
 export { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues } from './tree.js';
 export { DIR, JOINT, VIEW_DIRS, puppet } from './puppet.js';
+export { RIGS, rigClip, skelOf } from './rig.js';
+export { retarget } from './retarget.js';
 export { actorOf, EMOTES } from './actor.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';

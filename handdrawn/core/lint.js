@@ -339,7 +339,12 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
   for (const [cn, c] of Object.entries(data?.cycles ?? {})) {
     const frames = Array.isArray(c?.frames) ? c.frames : [];
     if (c?.n !== undefined && c.n !== frames.length) add('puppet-joint', `cycle '${cn}' says n ${c.n} and carries ${frames.length} frames`, `cycle|${cn}`);
-    frames.forEach((fr, j) => { for (const [k, v] of Object.entries(fr ?? {})) joint(`cycle '${cn}' frame ${j}`, k, v); });
+    frames.forEach((fr, j) => {
+      for (const [k, v] of Object.entries(fr ?? {})) {
+        if (k !== 'lift') joint(`cycle '${cn}' frame ${j}`, k, v);
+        else if (!Number.isFinite(v)) add('puppet-joint', `cycle '${cn}' frame ${j} lifts by ${JSON.stringify(v)}; a lift is a number of puppet units`, `cycle|${cn}|${j}|lift`);
+      }
+    });
   }
   // An op list, or op lists keyed by view: [label, list] for each.
   const lists = (label, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([view, l]) => [`${label} in view ${view}`, l]) : [[label, v]]);

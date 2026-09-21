@@ -11,6 +11,11 @@ For every frame: `outer` = closed contours of the filled silhouette (draw with t
 `lines` = every pen stroke of the source, traced along its skeleton, with the width the pen had there. Coordinates are source pixels,
 x from the middle of the frame, y from the lowest point the figure reaches in the whole clip (the ground), y up is negative.
 
+Skeletons (3.0 S14): --rig quadruped|biped [--facing -1] records the rig on the clip, and `hdf clip` labels
+every frame's `skel: { joints: { name: [x, y] }, chains: [[...]] }` from the silhouette written here (core/rig.js:
+the skeleton's end points and junctions, named by the rig's template by position). The labelling lives in one
+place, in JS, so a clip already in the store gets the same skeleton from `hdf clip --store <id> --rig <rig>`.
+
 Needs numpy, scipy, scikit-image, pillow (the rembg virtualenv has them all).
 """
 import argparse, glob, json, os, sys
@@ -29,6 +34,7 @@ ap.add_argument('--tol', type=float, default=.9, help='polygon simplification to
 ap.add_argument('--maxlines', type=int, default=220); ap.add_argument('--minline', type=float, default=5)
 ap.add_argument('--fps', type=float, default=12); ap.add_argument('--js', default='clips.js'); ap.add_argument('--out', default='out')
 ap.add_argument('--verbose', action='store_true'); ap.add_argument('--no-ground', action='store_true', help='flying things: no ground stroke to register on'); ap.add_argument('--drop-last', action='store_true', help='the last frame repeats the first pose'); ap.add_argument('--credit', default=''); ap.add_argument('--source', default='')
+ap.add_argument('--rig', choices=['quadruped', 'biped'], help='label a skeleton per frame (hdf clip does it, core/rig.js)'); ap.add_argument('--facing', type=int, default=1, choices=[1, -1])
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 files = sorted(glob.glob(os.path.join(a.frames, '*.png')))
@@ -212,6 +218,7 @@ for (outer, lines), gy in zip(raw, gys):
     frames.append({'outer': [rel(p) for p in outer], 'lines': [{'w': w, 'p': rel(p)} for p, w in lines]})
 
 meta = {'n': len(frames), 'fps': a.fps, 'h': int(ground - top), 'credit': a.credit, 'source': a.source, 'frames': frames}
+if a.rig: meta.update({'rig': a.rig, 'facing': a.facing})
 line = 'registerClip(%s, %s);' % (json.dumps(a.name), json.dumps(meta, separators=(',', ':')))
 head = '// Found motion for roto.js, written by roto.py. One line per clip; load this file after roto.js.'
 old = [l for l in open(a.js).read().split('\n') if l.startswith('registerClip(')] if os.path.exists(a.js) else []

@@ -104,7 +104,7 @@ export async function storeSheet(id, flags) {
   const cyc = flags.cycle === true ? make.cycles[0] : flags.cycle ? String(flags.cycle) : null;
   const c = cyc ? d.cycles?.[cyc] : null;
   if (cyc && !c) throw new UsageError(`sheet: '${id}' has no cycle '${cyc}' (has ${make.cycles.join(', ') || 'none'})`);
-  const strip = c ? c.frames.map((_, j) => [`${cyc} ${j}`, make.frameOf(cyc, j / (c.fps ?? FPS))]) : [];
+  const strip = c ? c.frames.map((_, j) => [`${cyc} ${j}`, make.frameOf(cyc, j / (c.fps ?? FPS)), make.liftOf(cyc, j / (c.fps ?? FPS))]) : [];
 
   const file = st.sheetPath(id);
   mkdirSync(dirname(file), { recursive: true });
@@ -153,7 +153,11 @@ export async function celSheet(make, meta, { look: filmLook, format: fmt, images
   tiles.push({ canvas: paint([paper(), place(fw / 2 - bx - bw / 2, fh / 2 - by - bh / 2, base)], { look: filmLook, W: fw, H: fh, width: 240, seed, images }), label: '240 px' });
   if (strip.length) {
     while (tiles.length % cols) tiles.push({ canvas: skiaCanvas(1, 1) });   // the strip starts on a row of its own
-    for (const [label, inputs] of strip) tiles.push({ canvas: paint(cell(make(inputs), SCALES.at(-1)), { look: filmLook, W: C, H: C, width: CELL, seed, images }), label });
+    // A strip entry may carry a lift (a retargeted cycle, 3.0 S14): the figure rides that high over its box.
+    for (const [label, inputs, up = 0] of strip) {
+      const g = make(inputs);
+      tiles.push({ canvas: paint(cell(up ? place(0, -up, g) : g, SCALES.at(-1)), { look: filmLook, W: C, H: C, width: CELL, seed, images }), label: up ? `${label} +${up}` : label });
+    }
   }
   await tileSheet(tiles, { cols, label: 18 }).toFile(file, { quality });
   return { looks: Object.keys(LOOKS).length, variants: vs.length };
@@ -188,9 +192,10 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
   const views = make.views ?? [];
 
   // A cell: { key, label, w, h, at(x, y) => op drawn in the box [x, y, w, h] }.
-  const figure = (label, inputs) => {
+  // up: a retargeted cycle frame's lift (3.0 S14), in the puppet's units; the figure rides that high in its cell.
+  const figure = (label, inputs, up = 0) => {
     const g = make(inputs);
-    return { key: hashList([g]), label, w: bw * S, h: bh * S, at: (x, y) => place(x - bx * S, y - by * S, { scale: S }, g) };
+    return { key: hashList([g]) + (up ? `^${up}` : ''), label, w: bw * S, h: bh * S, at: (x, y) => place(x - bx * S, y - (by + up) * S, { scale: S }, g) };
   };
   const lifted = (label, { g, own }, k, key = hashList([g])) => {
     const [x0, y0, w, h] = bounds([g]);
@@ -236,7 +241,7 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
   const cycles = make.puppet.cycles ?? {};
   for (const cyc of make.cycles) {
     const c = cycles[cyc], fps = c.fps ?? FPS;
-    row(`cycle ${cyc}`, `${cyc}, ${c.frames.length} frames at ${fps} fps`, c.frames.map((_, j) => figure(String(j), make.frameOf(cyc, j / fps))), lines);
+    row(`cycle ${cyc}`, `${cyc}, ${c.frames.length} frames at ${fps} fps`, c.frames.map((_, j) => figure(String(j), make.frameOf(cyc, j / fps), make.liftOf(cyc, j / fps))), lines);
   }
 
   // Top to bottom: the title card, the rows, the credits.

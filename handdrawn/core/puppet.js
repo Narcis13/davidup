@@ -8,6 +8,7 @@
 //   fox({ 'arm-r': -110, eye: 'happy' })   // a group tagged `cel`, frozen, memoised, boxed
 //   fox.pose('wave', k)              // rest -> wave by k: joints lerp, variants switch at k >= 0.5
 //   fox.cycle('walk', t)             // the frame on the 1/12 s grid, wrapping
+//   fox.liftOf('gallop', t)          // how far that frame lifts the puppet (a retargeted cycle), up positive
 //
 // Parts are drawn in key order (painter's), each as a group whose `xf` turns it about its pivot: a part
 // nests inside its parent, but keeps its place in the global order, so a tail listed before the body is
@@ -228,7 +229,15 @@ function build(d, id) {
   const frameOf = (cycle, t) => {
     const c = d.cycles?.[cycle];
     if (!c || !Array.isArray(c.frames) || !c.frames.length) throw new Error(`puppet ${name}: no cycle '${cycle}' (has ${Object.keys(d.cycles ?? {}).join(', ') || 'none'})`);
-    return { ...rest, ...c.frames[wrap(Math.floor(t * (c.fps ?? FPS) + 1e-9), c.frames.length)] };
+    const { lift: _lift, ...q } = c.frames[wrap(Math.floor(t * (c.fps ?? FPS) + 1e-9), c.frames.length)];
+    return { ...rest, ...q };
+  };
+  // A retargeted cycle (3.0 S14) may lift the whole puppet off its ground point in a frame, in its own units,
+  // up positive: a gallop's moment in the air. The drawing does not move (its box stays put); a stage does.
+  const liftOf = (cycle, t) => {
+    const c = d.cycles?.[cycle];
+    if (!c?.frames?.length) return 0;
+    return c.frames[wrap(Math.floor(t * (c.fps ?? FPS) + 1e-9), c.frames.length)].lift ?? 0;
   };
 
   make.puppet = d;
@@ -243,6 +252,7 @@ function build(d, id) {
   make.cycles = Object.freeze(Object.keys(d.cycles ?? {}));
   make.poseOf = poseOf;
   make.frameOf = frameOf;
+  make.liftOf = liftOf;
   make.pose = (pose, k = 1, extra) => make({ ...poseOf(pose, k), ...extra });
   make.cycle = (cycle, t, extra) => make({ ...frameOf(cycle, t), ...extra });
   return make;
@@ -303,6 +313,7 @@ function mirror(d, id) {
   make.cycles = Object.freeze([]);
   make.poseOf = none('poses');
   make.frameOf = none('cycles');
+  make.liftOf = () => 0;
   make.pose = none('poses');
   make.cycle = none('cycles');
   // Every mirrored input set, as { key: inputs }.
