@@ -20,6 +20,7 @@ export const RULES = Object.freeze({
   words: "a shot's words exceed the look's allowance (the sign-off does not count)",
   'cut-long': 'a cut longer than 1 s',
   'cut-adjacent': 'two cuts in a row',
+  'cut-orphan': "a cut's outgoing or incoming shot never plays: cut(kind, dur, a, b) is only the transition, write seq(a, cut(kind, dur, a, b), b)",
   'sign-off': 'no sign-off, or it is still being written 1.5 s before the end',
   'subject-size': 'the anchor subject is under the readability floor at 240 px',
   'subject-crop': "the anchor subject is cut by the frame edge without meta('intent', 'crop')",
@@ -224,11 +225,26 @@ export function inspect(film) {
   return { findings, shots };
 }
 
-// cut-long and cut-adjacent, from the tree.
+// The shot a node shows first or last (through seq, look and hold); a cut's own end shots count as its ends.
+const endShot = (node, last) => {
+  switch (node.kind) {
+    case 'seq': return endShot(node.kids[last ? node.kids.length - 1 : 0], last);
+    case 'look': case 'hold': return endShot(node.child, last);
+    case 'cut': return endShot(last ? node.b : node.a, last);
+    default: return node;
+  }
+};
+
+// cut-long, cut-adjacent and cut-orphan, from the tree.
 function timelineRules(film, F) {
+  const played = new Set(), cuts = [];
   const visit = (node, f0) => {
+    if (node.kind !== 'cut') played.add(node);
     switch (node.kind) {
-      case 'cut': if (node.dur > MAX_CUT) F.add('cut-long', node.name, f0, `cut ${node.fx} lasts ${node.dur.toFixed(2)} s (at most ${MAX_CUT})`, 'long'); break;
+      case 'cut':
+        cuts.push([node, f0]);
+        if (node.dur > MAX_CUT) F.add('cut-long', node.name, f0, `cut ${node.fx} lasts ${node.dur.toFixed(2)} s (at most ${MAX_CUT})`, 'long');
+        break;
       case 'seq': {
         let at = f0;
         node.kids.forEach((c, j) => {
@@ -245,6 +261,13 @@ function timelineRules(film, F) {
     }
   };
   visit(film.timeline, 0);
+  // A cut shows a's last frame under b's first; neither plays unless the timeline has it too.
+  for (const [c, f0] of cuts) {
+    const gone = [['outgoing', endShot(c.a, true)], ['incoming', endShot(c.b, false)]].filter(([, s]) => !played.has(s));
+    if (gone.length) {
+      F.add('cut-orphan', c.name, f0, `the ${gone.map(([w, s]) => `${w} shot '${s.name ?? s.kind}'`).join(' and the ')} never ${gone.length > 1 ? 'play' : 'plays'} outside the cut; write seq(a, cut(...), b)`, 'orphan');
+    }
+  }
 }
 
 function signOffIn(list) {
@@ -359,21 +382,44 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
 
   let make;
   try { make = puppet({ ...data, name }); } catch (e) { add('draw', `the puppet does not build: ${e.message}`, 'build'); return F.list; }
-  const cases = [['rest', make.rest]];
   try {
-    // Every view, both ways round: the box holds the turnaround too.
-    for (const v of make.views ?? []) for (const dir of [1, -1]) cases.push([`view ${v}${dir < 0 ? ' mirrored' : ''}`, { ...make.rest, dir: dir * (VIEW_DIRS[v] ?? 1) }]);
-    for (const pn of make.poses) cases.push([`pose '${pn}'`, make.poseOf(pn, 1)]);
-    // A pack mirror's variants are input sets of the cel it mirrors, not picks of a part.
-    if (make.mirror) for (const [k, q] of Object.entries(make.states())) cases.push([k || 'no inputs', q]);
-    else for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
-    for (const [cn, c] of Object.entries(data?.cycles ?? {})) (c?.frames ?? []).forEach((_, j) => cases.push([`cycle '${cn}' frame ${j}`, make.frameOf(cn, j / (c.fps ?? FPS))]));
-    for (const [label, inputs] of cases) {
+    for (const [label, inputs] of puppetCases(make, data)) {
       const g = make(inputs), b = celOverflow(g);
       if (b) add('cel-box', `${label} draws ${fmtBox(b)} outside the declared box ${fmtBox(g.box)}`, 'box');
     }
   } catch (e) { add('draw', `the puppet does not draw: ${e.message}`, 'draw'); }
   return F.list;
+}
+
+// Every drawing a puppet's box has to hold, as [label, inputs]: the rest pose, every view both ways round
+// (the turnaround), every named pose, every variant (a pack mirror: every input set) and every cycle frame.
+export function puppetCases(make, data) {
+  const parts = data?.parts && typeof data.parts === 'object' ? data.parts : {};
+  const cases = [['rest', make.rest]];
+  for (const v of make.views ?? []) for (const dir of [1, -1]) cases.push([`view ${v}${dir < 0 ? ' mirrored' : ''}`, { ...make.rest, dir: dir * (VIEW_DIRS[v] ?? 1) }]);
+  for (const pn of make.poses) cases.push([`pose '${pn}'`, make.poseOf(pn, 1)]);
+  if (make.mirror) for (const [k, q] of Object.entries(make.states())) cases.push([k || 'no inputs', q]);
+  else for (const [pn, p] of Object.entries(parts)) for (const k of Object.keys(p?.variants ?? {})) cases.push([`${pn} = ${k}`, { ...make.rest, [pn]: k }]);
+  for (const [cn, c] of Object.entries(data?.cycles ?? {})) (c?.frames ?? []).forEach((_, j) => cases.push([`cycle '${cn}' frame ${j}`, make.frameOf(cn, j / (c.fps ?? FPS))]));
+  return cases;
+}
+
+// puppetReach(payload) => { box, by } : the union of what every case in puppetCases draws, and the label of
+// each case that reaches past the declared box (so `hdf svg` can widen the box once, at import, instead of
+// the author guessing a wider viewBox). null when the puppet does not build or draws nothing.
+export function puppetReach(data, name = data?.name ?? 'puppet') {
+  let make;
+  try { make = puppet({ ...data, name }); } catch { return null; }
+  let box = null;
+  const by = [];
+  for (const [label, inputs] of puppetCases(make, data)) {
+    const g = make(inputs), b = bounds(g.kids);
+    if (!b) continue;
+    box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.max(box[0] + box[2], b[0] + b[2]) - Math.min(box[0], b[0]),
+      Math.max(box[1] + box[3], b[1] + b[3]) - Math.min(box[1], b[1])] : b;
+    if (celOverflow(g)) by.push(label);
+  }
+  return box && { box, by };
 }
 
 // Findings on a pack (3.0 S13): each cel's mirror in the store against what the cel draws now. cels: the

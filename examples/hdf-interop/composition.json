@@ -1,0 +1,1015 @@
+{
+ "version": "0.1",
+ "composition": {
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "duration": 20,
+  "background": "#14110f"
+ },
+ "assets": [
+  {
+   "id": "font-display",
+   "type": "font",
+   "src": "../fonts/BebasNeue-Regular.ttf",
+   "family": "ShowDisplay"
+  },
+  {
+   "id": "font-mono",
+   "type": "font",
+   "src": "../fonts/JetBrainsMono-Bold.ttf",
+   "family": "ShowMono"
+  },
+  {
+   "id": "score",
+   "type": "audio",
+   "src": "assets/hdf/fox-and-teapot.wav"
+  },
+  {
+   "id": "hdf-fox-and-teapot",
+   "type": "video",
+   "src": "assets/hdf/hdf-fox-and-teapot.mp4",
+   "duration": 19.5,
+   "width": 1080,
+   "height": 1080,
+   "fps": 24,
+   "hasAlpha": false,
+   "codec": "h264",
+   "pixelFormat": "yuv420p",
+   "hasAudio": true
+  },
+  {
+   "id": "hdf-fox-model",
+   "type": "image",
+   "src": "assets/hdf/hdf-fox-model.jpg"
+  },
+  {
+   "id": "hdf-cutout-fox",
+   "type": "video",
+   "src": "assets/hdf/hdf-cutout-fox.mp4",
+   "duration": 13.5,
+   "width": 1080,
+   "height": 1080,
+   "fps": 24,
+   "hasAlpha": false,
+   "codec": "h264",
+   "pixelFormat": "yuv420p",
+   "hasAudio": true
+  }
+ ],
+ "layers": [
+  {
+   "id": "frames",
+   "z": 0,
+   "opacity": 1,
+   "blendMode": "normal",
+   "items": [
+    "frame-l",
+    "frame-r"
+   ]
+  },
+  {
+   "id": "video",
+   "z": 10,
+   "opacity": 1,
+   "blendMode": "normal",
+   "items": [
+    "film-l",
+    "film-r"
+   ]
+  },
+  {
+   "id": "sheet",
+   "z": 20,
+   "opacity": 1,
+   "blendMode": "normal",
+   "items": [
+    "sheet"
+   ]
+  },
+  {
+   "id": "fx",
+   "z": 30,
+   "opacity": 1,
+   "blendMode": "normal",
+   "items": [
+    "t-rule",
+    "cap-sheet-bg",
+    "o-cmd-bg"
+   ]
+  },
+  {
+   "id": "text",
+   "z": 40,
+   "opacity": 1,
+   "blendMode": "normal",
+   "items": [
+    "t-kicker",
+    "t-title",
+    "t-sub",
+    "h2",
+    "cap-l",
+    "cap-r",
+    "cap-sheet",
+    "cap-video",
+    "h3",
+    "o-title",
+    "o-cmd",
+    "o-sub"
+   ]
+  }
+ ],
+ "items": {
+  "t-kicker": {
+   "type": "text",
+   "text": "HAND-DRAWN FILM 3.0  →  DAVIDUP",
+   "font": "font-mono",
+   "fontSize": 26,
+   "color": "#ff8a3d",
+   "align": "center",
+   "letterSpacing": 4,
+   "transform": {
+    "x": 960,
+    "y": 400,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "t-title": {
+   "type": "text",
+   "text": "A FILM IS JUST ANOTHER CLIP",
+   "font": "font-display",
+   "fontSize": 150,
+   "color": "#f3ead8",
+   "align": "center",
+   "transform": {
+    "x": 960,
+    "y": 520,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "t-sub": {
+   "type": "text",
+   "text": "drawn on twos by the handdrawn package · composed by davidup",
+   "font": "font-mono",
+   "fontSize": 28,
+   "color": "#9a8f7c",
+   "align": "center",
+   "transform": {
+    "x": 960,
+    "y": 640,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "t-rule": {
+   "type": "shape",
+   "kind": "rect",
+   "width": 600,
+   "height": 4,
+   "fillColor": "#ff8a3d",
+   "cornerRadius": 0,
+   "transform": {
+    "x": 960,
+    "y": 590,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "h2": {
+   "type": "text",
+   "text": "ONE FILM MODULE · TWO LOOKS",
+   "font": "font-display",
+   "fontSize": 72,
+   "color": "#f3ead8",
+   "align": "center",
+   "transform": {
+    "x": 960,
+    "y": 90,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "frame-l": {
+   "type": "shape",
+   "kind": "rect",
+   "width": 736,
+   "height": 736,
+   "fillColor": "#ff6fae",
+   "cornerRadius": 10,
+   "transform": {
+    "x": 520,
+    "y": 520,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "film-l": {
+   "type": "video",
+   "asset": "hdf-fox-and-teapot",
+   "width": 720,
+   "height": 720,
+   "start": 3,
+   "end": 16.5,
+   "trimIn": 0,
+   "trimOut": 13.5,
+   "fit": "cover",
+   "loop": false,
+   "transform": {
+    "x": 520,
+    "y": 520,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "cap-l": {
+   "type": "text",
+   "text": "look: doodlePastel",
+   "font": "font-mono",
+   "fontSize": 30,
+   "color": "#ff6fae",
+   "align": "center",
+   "transform": {
+    "x": 520,
+    "y": 930,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "frame-r": {
+   "type": "shape",
+   "kind": "rect",
+   "width": 736,
+   "height": 736,
+   "fillColor": "#ff8a3d",
+   "cornerRadius": 10,
+   "transform": {
+    "x": 1400,
+    "y": 520,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "film-r": {
+   "type": "video",
+   "asset": "hdf-cutout-fox",
+   "width": 720,
+   "height": 720,
+   "start": 3,
+   "end": 11,
+   "trimIn": 0,
+   "trimOut": 8,
+   "fit": "cover",
+   "loop": false,
+   "transform": {
+    "x": 1400,
+    "y": 520,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "cap-r": {
+   "type": "text",
+   "text": "look: cutout",
+   "font": "font-mono",
+   "fontSize": 30,
+   "color": "#ff8a3d",
+   "align": "center",
+   "transform": {
+    "x": 1400,
+    "y": 930,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "sheet": {
+   "type": "sprite",
+   "asset": "hdf-fox-model",
+   "width": 760,
+   "height": 1321,
+   "transform": {
+    "x": 1380,
+    "y": 0,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0,
+    "opacity": 0
+   }
+  },
+  "cap-sheet": {
+   "type": "text",
+   "text": "hdf-fox-model · image asset",
+   "font": "font-mono",
+   "fontSize": 26,
+   "color": "#f3ead8",
+   "align": "center",
+   "transform": {
+    "x": 1380,
+    "y": 1030,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "cap-sheet-bg": {
+   "type": "shape",
+   "kind": "rect",
+   "width": 520,
+   "height": 50,
+   "fillColor": "#14110f",
+   "cornerRadius": 8,
+   "transform": {
+    "x": 1380,
+    "y": 1030,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "cap-video": {
+   "type": "text",
+   "text": "hdf-fox-and-teapot · video asset",
+   "font": "font-mono",
+   "fontSize": 30,
+   "color": "#ff6fae",
+   "align": "center",
+   "transform": {
+    "x": 600,
+    "y": 930,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "h3": {
+   "type": "text",
+   "text": "PUPPETS COME ALONG TOO",
+   "font": "font-display",
+   "fontSize": 72,
+   "color": "#f3ead8",
+   "align": "center",
+   "transform": {
+    "x": 600,
+    "y": 90,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "o-title": {
+   "type": "text",
+   "text": "HANDDRAWN × DAVIDUP",
+   "font": "font-display",
+   "fontSize": 140,
+   "color": "#f3ead8",
+   "align": "center",
+   "transform": {
+    "x": 960,
+    "y": 470,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "o-cmd-bg": {
+   "type": "shape",
+   "kind": "rect",
+   "width": 1500,
+   "height": 90,
+   "fillColor": "#221d19",
+   "cornerRadius": 12,
+   "transform": {
+    "x": 960,
+    "y": 620,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "o-cmd": {
+   "type": "text",
+   "text": "$ bun run scripts/hdf-to-davidup.ts fox-and-teapot --project my-video",
+   "font": "font-mono",
+   "fontSize": 30,
+   "color": "#ff8a3d",
+   "align": "center",
+   "transform": {
+    "x": 960,
+    "y": 620,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  },
+  "o-sub": {
+   "type": "text",
+   "text": "render · register · place — re-run replaces in place",
+   "font": "font-mono",
+   "fontSize": 26,
+   "color": "#9a8f7c",
+   "align": "center",
+   "transform": {
+    "x": 960,
+    "y": 720,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotation": 0,
+    "anchorX": 0.5,
+    "anchorY": 0.5,
+    "opacity": 0
+   }
+  }
+ },
+ "tweens": [
+  {
+   "id": "tw0",
+   "target": "t-kicker",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.2,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw1",
+   "target": "t-kicker",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw2",
+   "target": "t-title",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.4,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw3",
+   "target": "t-title",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw4",
+   "target": "t-sub",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.8,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw5",
+   "target": "t-sub",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw6",
+   "target": "t-title",
+   "property": "transform.y",
+   "from": 560,
+   "to": 520,
+   "start": 0.4,
+   "duration": 0.8,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw7",
+   "target": "t-rule",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 0.6,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw8",
+   "target": "t-rule",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 2.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw9",
+   "target": "t-rule",
+   "property": "transform.scaleX",
+   "from": 0,
+   "to": 1,
+   "start": 0.6,
+   "duration": 0.8,
+   "easing": "easeOutQuart"
+  },
+  {
+   "id": "tw10",
+   "target": "h2",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3.2,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw11",
+   "target": "h2",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 10.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw12",
+   "target": "frame-l",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3,
+   "duration": 0.4,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw13",
+   "target": "frame-l",
+   "property": "transform.y",
+   "from": 820,
+   "to": 520,
+   "start": 3,
+   "duration": 0.7,
+   "easing": "easeOutBack"
+  },
+  {
+   "id": "tw14",
+   "target": "film-l",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3,
+   "duration": 0.4,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw15",
+   "target": "film-l",
+   "property": "transform.y",
+   "from": 820,
+   "to": 520,
+   "start": 3,
+   "duration": 0.7,
+   "easing": "easeOutBack"
+  },
+  {
+   "id": "tw16",
+   "target": "cap-l",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3.5,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw17",
+   "target": "cap-l",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 10.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw18",
+   "target": "frame-r",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3.15,
+   "duration": 0.4,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw19",
+   "target": "frame-r",
+   "property": "transform.y",
+   "from": 820,
+   "to": 520,
+   "start": 3.15,
+   "duration": 0.7,
+   "easing": "easeOutBack"
+  },
+  {
+   "id": "tw20",
+   "target": "film-r",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3.15,
+   "duration": 0.4,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw21",
+   "target": "film-r",
+   "property": "transform.y",
+   "from": 820,
+   "to": 520,
+   "start": 3.15,
+   "duration": 0.7,
+   "easing": "easeOutBack"
+  },
+  {
+   "id": "tw22",
+   "target": "cap-r",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 3.65,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw23",
+   "target": "cap-r",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 10.5,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw24",
+   "target": "frame-r",
+   "property": "transform.x",
+   "from": 1400,
+   "to": 2420,
+   "start": 10.6,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw25",
+   "target": "film-r",
+   "property": "transform.x",
+   "from": 1400,
+   "to": 2420,
+   "start": 10.6,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw26",
+   "target": "frame-l",
+   "property": "transform.x",
+   "from": 520,
+   "to": 600,
+   "start": 11,
+   "duration": 0.8,
+   "easing": "easeInOutCubic"
+  },
+  {
+   "id": "tw27",
+   "target": "frame-l",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw28",
+   "target": "film-l",
+   "property": "transform.x",
+   "from": 520,
+   "to": 600,
+   "start": 11,
+   "duration": 0.8,
+   "easing": "easeInOutCubic"
+  },
+  {
+   "id": "tw29",
+   "target": "film-l",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw30",
+   "target": "sheet",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 11.2,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw31",
+   "target": "sheet",
+   "property": "transform.y",
+   "from": 0,
+   "to": -241,
+   "start": 11.4,
+   "duration": 4.8,
+   "easing": "easeInOutSine"
+  },
+  {
+   "id": "tw32",
+   "target": "sheet",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw33",
+   "target": "cap-sheet-bg",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 11.6,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw34",
+   "target": "cap-sheet-bg",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw35",
+   "target": "cap-sheet",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 11.6,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw36",
+   "target": "cap-sheet",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw37",
+   "target": "cap-video",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 11.6,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw38",
+   "target": "cap-video",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw39",
+   "target": "h3",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 11.4,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw40",
+   "target": "h3",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 16,
+   "duration": 0.5,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw41",
+   "target": "o-title",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 16.7,
+   "duration": 0.6,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw42",
+   "target": "o-title",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 19.4,
+   "duration": 0.6,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw43",
+   "target": "o-cmd-bg",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 17.1,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw44",
+   "target": "o-cmd-bg",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 19.4,
+   "duration": 0.6,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw45",
+   "target": "o-cmd",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 17.2,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw46",
+   "target": "o-cmd",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 19.4,
+   "duration": 0.6,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw47",
+   "target": "o-sub",
+   "property": "transform.opacity",
+   "from": 0,
+   "to": 1,
+   "start": 17.6,
+   "duration": 0.5,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw48",
+   "target": "o-sub",
+   "property": "transform.opacity",
+   "from": 1,
+   "to": 0,
+   "start": 19.4,
+   "duration": 0.6,
+   "easing": "easeInCubic"
+  },
+  {
+   "id": "tw49",
+   "target": "o-title",
+   "property": "transform.scaleX",
+   "from": 0.92,
+   "to": 1,
+   "start": 16.7,
+   "duration": 1.2,
+   "easing": "easeOutCubic"
+  },
+  {
+   "id": "tw50",
+   "target": "o-title",
+   "property": "transform.scaleY",
+   "from": 0.92,
+   "to": 1,
+   "start": 16.7,
+   "duration": 1.2,
+   "easing": "easeOutCubic"
+  }
+ ],
+ "audio": [
+  {
+   "id": "score",
+   "asset": "score",
+   "start": 3,
+   "end": 18.5,
+   "trimIn": 0,
+   "volume": 1,
+   "fadeIn": 0.2,
+   "fadeOut": 2
+  }
+ ]
+}

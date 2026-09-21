@@ -21,6 +21,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg)
   sheet   <film.js> <cel>           cel at 3 scales x input extremes x every look, silhouette, 240 px
   sheet   store <id> [--pose p] [--cycle c]   a puppet in the store: every pose, every variant, the cycle as a strip
+                                    (a motif: the drawing at 3 scales in every look)
   sheet   store <id> --poses [--look risoPop]  the model sheet: turnaround, expressions, hands and feet, poses,
                                     cycles, credits on one page (assets/sheets/<id>-model.jpg)
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
@@ -55,6 +56,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
   hand    --synth <id> [--root dir] a deterministic hand made from the house one, into the store
   sheet   --hand <id>               a hand's page beside the house's: every glyph (house fallbacks marked), pangrams, its pen
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
+  remove  <id...> [--root dir]      drop entries from the store, with their sheets and any blob no other entry shares
+  gc      [--dry] [--root dir]      delete the blobs no catalogue entry points at
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg
   donate  --manifest [--all-sheets] regenerate the manifest and missing (or all) sheets from packs/*.js,
@@ -64,7 +67,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'retarget', 'import', 'svg', 'hand', 'find', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'retarget', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };
 
@@ -92,12 +95,38 @@ export function parseArgs(argv) {
   return { args, flags };
 }
 
+// The USAGE lines of one command: its own lines and their indented continuations.
+export function usageOf(cmd) {
+  const out = [];
+  let mine = false;
+  for (const line of USAGE.split('\n')) {
+    const head = /^ {2}(\S+)/.exec(line);
+    if (head) mine = head[1] === cmd;
+    else if (!/^ {4,}\S/.test(line)) mine = false;
+    if (mine) out.push(line);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+// What a failed command prints: the whole USAGE only for an unknown command (main does that); a usage error
+// is its message and a pointer to the command's own lines, anything else its stack, so the line that matters
+// (a lint finding, a missing id) is the last thing on screen.
+export function failure(e, cmd) {
+  if (e instanceof UsageError) return `hdf: ${e.message}\n${COMMANDS.includes(cmd) ? `(hdf help ${cmd} for its usage)\n` : ''}`;
+  return `hdf: ${e?.stack ?? e}\n`;
+}
+
 const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 export async function main(argv = process.argv.slice(2)) {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
-    process.stdout.write(USAGE);
+    const only = cmd === 'help' && rest[0];
+    if (only && !COMMANDS.includes(only)) {
+      process.stderr.write(`hdf: unknown command '${only}'\n\n${USAGE}`);
+      return 2;
+    }
+    process.stdout.write(only ? usageOf(only) : USAGE);
     return 0;
   }
   if (!COMMANDS.includes(cmd)) {
@@ -120,7 +149,7 @@ export async function main(argv = process.argv.slice(2)) {
 const entry = process.argv[1] && existsSync(process.argv[1]) ? realpathSync(process.argv[1]) : '';
 if (isMainThread && entry === fileURLToPath(import.meta.url)) {
   main().then((code) => { process.exitCode = code; }, (e) => {
-    process.stderr.write(`hdf: ${e instanceof UsageError ? e.message + '\n\n' + USAGE : (e.stack ?? e)}\n`);
+    process.stderr.write(failure(e, process.argv[2]));
     process.exitCode = e instanceof UsageError ? 2 : 1;
   });
 }

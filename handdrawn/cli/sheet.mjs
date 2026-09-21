@@ -24,7 +24,7 @@ import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
 import { actorOf, EMOTES } from '../core/actor.js';
-import { bounds, fill, group, hashList, line, paper, poly, rect, stroke, walk, xf } from '../core/list.js';
+import { bounds, fill, group, hashList, line, paper, parse, poly, rect, stroke, walk, xf } from '../core/list.js';
 import { formatFinding, lintList } from '../core/lint.js';
 import { LOOKS, modifyLook, resolveLook } from '../core/looks.js';
 import { VIEW_DIRS, puppet } from '../core/puppet.js';
@@ -32,7 +32,7 @@ import { hash32 } from '../core/rand.js';
 import { handText, measure } from '../core/text.js';
 import { asHand, glyph, GLYPHS, houseHand } from '../core/glyphs.js';
 import { SHAPES, UNIT } from '../core/handsheet.js';
-import { frame, place } from '../core/tree.js';
+import { cel, frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
 import { imagesOf, UsageError } from './load.mjs';
 import { skiaCanvas } from './skia.mjs';
@@ -88,7 +88,8 @@ export async function storeSheet(id, flags) {
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   const e = st.entry(id);
   if (e.kind === 'hand') return handSheetFile(id, flags);
-  if (e.kind !== 'puppet') throw new UsageError(`sheet: '${id}' is a ${e.kind}; hdf sheet store draws a puppet (hdf sheet <film.js> <cel> for a cel)`);
+  if (e.kind === 'motif') return motifSheet(id, e, st, flags);
+  if (e.kind !== 'puppet') throw new UsageError(`sheet: '${id}' is a ${e.kind}; hdf sheet store draws a puppet, a motif or a hand (hdf sheet <film.js> <cel> for a cel)`);
   const d = st.json(e), make = puppet({ ...d, name: id });
   if (d.mirror) return mirrorSheet(id, make, st, flags);
   if (flags.poses) return modelSheetFile(make, e, st, flags);
@@ -113,6 +114,17 @@ export async function storeSheet(id, flags) {
   });
   process.stdout.write(`${file}  ${looks} looks x ${cases.length} state${cases.length > 1 ? 's' : ''} x ${SCALES.length} scales`
     + `${strip.length ? ` + ${strip.length} frames of ${cyc}` : ''}\n`);
+  return 0;
+}
+
+// A motif: its one op list as a cel over the entry's box, at three scales in every look.
+async function motifSheet(id, e, st, flags) {
+  if (flags.poses || flags.pose || flags.cycle) throw new UsageError(`sheet: '${id}' is a motif; it has no poses or cycles`);
+  const ops = parse(JSON.stringify(st.json(e))), make = cel(id, () => ops, { box: e.box });
+  const file = st.sheetPath(id);
+  mkdirSync(dirname(file), { recursive: true });
+  const { looks } = await celSheet(make, make.cel, { look: flags.look ? resolveLook(String(flags.look)) : LOOKS.paperInk, format: format('1:1'), file, cell: 160 });
+  process.stdout.write(`${file}  ${looks} looks x ${SCALES.length} scales\n`);
   return 0;
 }
 
@@ -237,7 +249,10 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
   }
   row('hands and feet', 'hands and feet, 2x', ext);
 
-  row('poses', 'poses', make.poses.filter((p) => p !== 'rest').map((p) => figure(p, make.poseOf(p, 1))), lines);
+  // The neutral pose first, so every other pose reads against it; it counts as one. A puppet with no named
+  // pose has no row (the turnaround already shows it at rest).
+  const named = make.poses.filter((p) => p !== 'rest'), rest = make.poses.includes('rest') ? make.poseOf('rest', 1) : make.rest;
+  row('poses', 'poses', named.length ? [figure('rest', rest), ...named.map((p) => figure(p, make.poseOf(p, 1)))] : [], lines);
   const cycles = make.puppet.cycles ?? {};
   for (const cyc of make.cycles) {
     const c = cycles[cyc], fps = c.fps ?? FPS;
@@ -247,7 +262,7 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
   // Top to bottom: the title card, the rows, the credits.
   const list = [paper()], right = PAGE - MARGIN;
   let y = MARGIN;
-  const nViews = Math.max(1, views.length), nPoses = make.poses.filter((p) => p !== 'rest').length;
+  const nViews = Math.max(1, views.length), nPoses = named.length ? named.length + 1 : 0;
   list.push(
     handText(lettered(id), MARGIN, y + 96, { size: 112 }),
     handText('model sheet', right, y + 60, { size: 44, align: 'right' }),
@@ -281,7 +296,7 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
     entry.sha && `sha ${entry.sha.slice(0, 8)}`, `drawn in ${look.name}`].filter(Boolean).map(lettered).join(', ');
   list.push(handText(credits, MARGIN, y + 40, { size: 22, ink2: null }));
   y += 40 + MARGIN;
-  return { list, W: PAGE, H: Math.ceil(y), rows: ['title', ...rows.map((r) => r.name), 'credits'] };
+  return { list, W: PAGE, H: Math.ceil(y), rows: ['title', ...rows.map((r) => r.name), 'credits'], labels: Object.fromEntries(rows.map((r) => [r.name, r.cells.map((c) => c.label)])) };
 }
 
 // The model sheet written to assets/sheets/<id>-model.jpg; lint findings on the page stop it.

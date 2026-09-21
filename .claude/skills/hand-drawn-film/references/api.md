@@ -73,7 +73,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `seq(...kids)` Children one after another; lasts the sum of their durations.
 - `par(...kids)` Stacked; lasts as long as the longest child, shorter children hold their last frame.
 - `hold(dur, child)` The child's last frame (T - 1/12) for `dur` seconds.
-- `cut(kind, dur, a, b)` A transition: `a` frozen at its last frame under `b` at its first, revealed by fx(kind, { p }).
+- `cut(kind, dur, a, b)` A transition between two shots the timeline also plays: seq(a, cut('iris', 0.5, a, b), b).
 - `lookOn(look, child)` A look for a subtree; the innermost look wins.
 - `film({ name, look, timeline, score, format: ar = '1:1', assets = {} } = {})` The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ...
 - `frame(f, i, { ar } = {})` frame(film, i, { ar }) => { list, look, shot, t, k } for drawn frame i (0 <= i < film.n).
@@ -338,7 +338,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `DOODLE` The set by v1 letter, so scenes.md stays a lookup. <sub>recipes/doodle.js</sub>
 - `HOG` The hedgehog as an actor: states are hog's own options (dir, eye, run phase), put() is hog itself. <sub>recipes/doodle.js</sub>
 - `ROLES` Roles the doodle cast and props share (quills, tea, star, ...), as role objects. <sub>recipes/doodle.js</sub>
-- `actorFigure(actor, state = {}, h = 140)` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/shots.js</sub>
+- `actorFigure(actor, state = {}, h = 140, fit = 'box')` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/shots.js</sub>
 - `bez([p0, p1, p2, p3], u)` A point on a cubic Bezier [p0, c0, c1, p1] at u. <sub>recipes/shots.js</sub>
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>

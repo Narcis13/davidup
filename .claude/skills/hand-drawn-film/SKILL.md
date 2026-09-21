@@ -101,7 +101,9 @@ export default film({
   `i` (global drawn frame). `pulse`, `boil`, `onTwos` quantise idle motion.
 - Timeline: `seq`, `par`, `hold(dur, node)`, `cut(kind, dur, a, b)` (a
   transition fx: `blot`, `iris`, `dissolve`, `wipe`, `flash`, ...),
-  `lookOn(look, node)`. A shot may also carry `{ look }` itself.
+  `lookOn(look, node)`. A shot may also carry `{ look }` itself. A cut is
+  only the transition between `a`'s last frame and `b`'s first; both shots
+  stay in the `seq`: `seq(a, cut('iris', .5, a, b), b)` (lint `cut-orphan`).
 - A look string may carry modifiers: `preset~hand:<id>` letters and draws in
   a stored hand, `preset~from:<id>` paints in a cutout's own colours. They
   work in `film({ look })`, in a shot's `look`, and as `--look` on any command.
@@ -178,13 +180,16 @@ A.emote('happy')           // happy | sleep | wide | sad | dot; a puppet's own p
 A.cycle('run', t)          // a declared cycle; a missing one is a two-pose bob that lint reports over 1 s
 A.say('hello there', t0)   // a fragment: mouth per syllable, letters in a bubble, a pluck per syllable
 A.place(x, y, s, state)    // the merged state on the doodle stage (centre x, y; feet at y + .86 s)
+A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its own floor
 ```
 
 - **`actor:` on every recipe.** Doodle recipes AA to AM take `actor:`
   (default `HOG`); A, G, M, U, W, X and Z take it where a subject or figure
   is on screen; `book3` pieces take `{ base, h, actor, state }` and the actor
   turns with the page. `becomesVehicle({ photo: PHOTOS.violin, actor: FOX })`
-  is the whole change from the hedgehog to the fox.
+  is the whole change from the hedgehog to the fox. On A, G, M, U, W, X, Z
+  `h` sets the actor's drawn height (`h: 300`); without it a puppet is fitted
+  by its rig box and reads small.
 - **Speech.** `const line = FOX.say('hello there', 1.25)` then `say: line`
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`
@@ -395,9 +400,16 @@ These need eyes, and they are the review list:
 
 - `CAST.FOX` is `undefined` until the film has called `fromStore(['fox'])`:
   read the store at the top of the module, then take the cast.
-- A look with `~hand:<id>` or `~from:<id>` pinned in `film({ look })` needs
-  that id in `assets:` too; `--look` on the command line finds it in the
-  store by itself.
+- `~hand:<id>` and `~from:<id>` resolve wherever a look is built (a
+  recipe's `look:`, `withLook(...)` at the top of the module, before or after
+  `fromStore`): the id is read from the registry, then the store. Still name
+  the id in `assets:` so the loader and lint see it.
+- Two actors in one shot: list order is paint order, so draw the one
+  further back first, higher up the frame and smaller, and give each
+  `place(x, y, s, { shadow: true })` (or a ground line of its own): without
+  a floor, the far actor hovers.
+- `cut(kind, dur, a, b)` is only the transition; the shots stay in the
+  timeline: `seq(a, cut('iris', .5, a, b), b)` (lint `cut-orphan`).
 - `say` is an option of AC only; elsewhere spread `state(t)` and draw
   `draw()` yourself. A spoken line plus a caption exceeds the doodle
   allowance: pass `word: null`.

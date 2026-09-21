@@ -8,12 +8,15 @@
 // The rules the file has to follow (ids, pivots, variants, poses, cycles, colours) are in core/svg.js. The
 // colour table is printed on every import, so what each source colour became is never a guess; `--roles ask`
 // writes it as JSON for the author to edit and pass back with `--roles <file>`. The payload then goes through
-// exactly what `hdf import` does (validation, puppet lint, the store) and a puppet gets `hdf sheet store <id>`.
+// exactly what `hdf import` does (validation, puppet lint, the store) and gets `hdf sheet store <id>` (a puppet
+// or a motif). A puppet's box is widened to hold every pose, view and cycle frame first (widen, below), so a
+// wave that swings past the viewBox is not a `cel-box` refusal and a second import.
 // A cycle `hdf retarget` wrote into the stored puppet (it carries `from`) is not in the SVG, so a re-import
 // keeps it, unless the SVG now draws a cycle of that name.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
+import { puppetReach } from '../core/lint.js';
 import { SvgError, svgColours, svgMotif, svgPuppet } from '../core/svg.js';
 import { putPayload } from './import.mjs';
 import { UsageError } from './load.mjs';
@@ -42,10 +45,10 @@ export async function run([file], flags) {
     opts.roles = flags.roles ? readRoles(String(flags.roles)) : {};
     const { payload, table } = (kind === 'puppet' ? svgPuppet : svgMotif)(src, opts);
     process.stdout.write(tableText(table));
-    if (kind === 'puppet') keepRetargeted(payload, name, flags);
+    if (kind === 'puppet') { keepRetargeted(payload, name, flags); widen(payload, name); }
     await putPayload({ kind, name, bytes: Buffer.from(JSON.stringify(payload)), abs, flags });
-    if (kind === 'puppet' && flags.sheet !== false) {
-      await storeSheet(name, { root: flags.root, cycle: Object.keys(payload.cycles ?? {})[0] });
+    if (flags.sheet !== false) {
+      await storeSheet(name, { root: flags.root, ...(kind === 'puppet' ? { cycle: Object.keys(payload.cycles ?? {})[0] } : {}) });
     }
     return 0;
   } catch (e) {
@@ -57,6 +60,22 @@ export async function run([file], flags) {
 function readRoles(path) {
   if (!existsSync(path)) throw new UsageError(`svg: --roles ${path}: no such file (--roles ask writes one)`);
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new UsageError(`svg: --roles ${path} is not JSON (${e.message})`); }
+}
+
+// A pose, view or cycle frame that swings a part past the viewBox would fail `cel-box` on import, so the box
+// is every drawing the puppet makes (the rest pose, views, poses, variants, cycle frames) together, padded
+// by 3% and rounded out to whole units. The viewBox stays in the payload as `frame`, the drawing's own frame.
+export function widen(payload, name) {
+  const reach = puppetReach(payload, name);
+  if (!reach?.by.length) return payload;
+  const [x, y, w, h] = payload.box, [rx, ry, rw, rh] = reach.box, pad = 0.03 * Math.max(w, h);
+  const x0 = Math.floor(Math.min(x, rx - pad)), y0 = Math.floor(Math.min(y, ry - pad));
+  const x1 = Math.ceil(Math.max(x + w, rx + rw + pad)), y1 = Math.ceil(Math.max(y + h, ry + rh + pad));
+  payload.frame = payload.box;
+  payload.box = [x0, y0, x1 - x0, y1 - y0];
+  const more = reach.by.length > 3 ? ` and ${reach.by.length - 3} more` : '';
+  process.stdout.write(`box ${payload.box.join(' ')} (the viewBox ${payload.frame.join(' ')} widened for ${reach.by.slice(0, 3).join(', ')}${more})\n`);
+  return payload;
 }
 
 // colour  area  role  (auto | map), one line each.

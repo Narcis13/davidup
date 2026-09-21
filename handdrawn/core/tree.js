@@ -108,7 +108,9 @@ export function hold(dur, child) {
   return Object.freeze({ kind: 'hold', dur, n: frames(dur, 'hold'), child });
 }
 
-// A transition: `a` frozen at its last frame under `b` at its first, revealed by fx(kind, { p }).
+// A transition between two shots the timeline also plays: seq(a, cut('iris', 0.5, a, b), b). The cut shows `a`
+// frozen at its last frame under `b` at its first, revealed by fx(kind, { p }); it does not play either shot, so
+// a timeline with only the cut drops them (lint rule cut-orphan).
 export function cut(kind, dur, a, b) {
   [a, b] = nodes([a, b], `cut ${kind}`);
   return Object.freeze({ kind: 'cut', fx: kind, name: `${kind}:${nameOf(a)}>${nameOf(b)}`, dur, n: frames(dur, `cut ${kind}`), a, b });

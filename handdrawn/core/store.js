@@ -7,6 +7,11 @@
 //   record('teapot')                               // the same record, anywhere downstream
 const RECORDS = new Map();
 
+// How a record the film did not name is read (node: core/assets.js installs the store next to the package;
+// the player installs none, its page registers every record up front).
+let READER = null;
+export function setReader(fn) { READER = fn; }
+
 // Registers { id: record } and returns it unchanged, so a film can write `const P = register(...)`.
 export function register(records) {
   for (const [id, r] of Object.entries(records)) RECORDS.set(id, r);
@@ -17,6 +22,17 @@ export function register(records) {
 export function record(id) {
   const r = RECORDS.get(id);
   if (!r) throw new Error(`asset '${id}' was not read from the store (name it in fromStore([...]) at the top of the film; have ${[...RECORDS.keys()].join(', ') || 'none'})`);
+  return r;
+}
+
+// The registered record, else the one the reader finds (registered from then on), else undefined. Looks use
+// this, so `'x~hand:<id>'` and `'x~from:<id>'` resolve wherever they are built -- at a module's top level
+// before its fromStore([...]) line, or in a recipe that resolves its look at load. Engines keep `record`.
+export function peek(id) {
+  if (RECORDS.has(id)) return RECORDS.get(id);
+  let r;
+  try { r = READER?.(id); } catch { r = undefined; }
+  if (r) RECORDS.set(id, r);
   return r;
 }
 

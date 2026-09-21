@@ -13,6 +13,8 @@
 //   actor.cycle(name, t)            any declared cycle, else a two-pose bob, recorded   -> state
 //   actor.reveal(tau, state)        itself in stroke order, 0..1                        -> list
 //   actor.place(x, y, s, o)         the state drawn on the doodle stage                 -> group
+//                                   (o.shadow: true or a strength: a contact shadow on its own floor, so an
+//                                   actor further back stands on something; paint the far one first)
 //   actor.put(d, x, y, s, o)        the same, added to a doodle d as a mark the pen reveals
 //   actor.say(text, t0, o)          a line of speech from t0 (shot seconds)               -> fragment
 //
@@ -38,7 +40,7 @@
 // drawn over it at spec.mouthAt ([x, y] in s units from its centre, as it faces right) while it speaks.
 import { FPS } from './curves.js';
 import { pen } from './doodle.js';
-import { group, meta, mmul, poly, rotate, scale, stroke, translate } from './list.js';
+import { ellipse, fill, group, meta, mmul, poly, rotate, scale, stroke, translate } from './list.js';
 import { bubble as bubbleMark } from './marks.js';
 import { hash32 } from './rand.js';
 import { handText, measure, speech } from './text.js';
@@ -110,10 +112,19 @@ function stager(name, box, ground, spec, selfFlip = false) {
     const [a, b, c, d, e, f] = xfOf(x, y, s, o), det = a * d - b * c;
     return [(d * (px - e) - c * (py - f)) / det, (-b * (px - e) + a * (py - f)) / det];
   };
-  const wrapPlaced = (x, y, s, o, kids) => group({ name: `actor:${name}`, xf: xfOf(x, y, s, o), cache: 'never' }, [
+  const placed = (x, y, s, o, kids) => group({ name: `actor:${name}`, xf: xfOf(x, y, s, o), cache: 'never' }, [
     ...kids,
     o.fallback ? meta('actor-cycle', { actor: name, cycle: o.fallback }) : null,
   ]);
+  // A flat ink ellipse on the floor under the feet (y + feet s), sized by the figure's height (a rig box can be
+  // far wider than the figure); it stays on the floor and shrinks as the actor lifts.
+  const floorShadow = (x, y, s, { shadow, lift = 0 }) => {
+    const k = shadow === true ? 0.22 : +shadow, rx = 0.28 * H * s / (1 + 0.1 * Math.max(0, lift));
+    return fill(ellipse(x, y + FEET * s, rx, Math.max(2, rx * 0.14)), 'ink', { alpha: k, name: 'shadow' });
+  };
+  const wrapPlaced = (x, y, s, o, kids) => (o.shadow
+    ? group({ name: `actor:${name}:grounded` }, [floorShadow(x, y, s, o), placed(x, y, s, o, kids)])
+    : placed(x, y, s, o, kids));
   return { xfOf, local, wrapPlaced, top: FEET - H };
 }
 
@@ -190,7 +201,7 @@ function fromPuppet(p, spec) {
       return lift ? { ...q, lift: lift / (0.04 * (p.cel.box[3] || 1)) } : q;
     },
     place(x, y, s, o = {}) {
-      const q = { ...o };
+      const { shadow: _s, ...q } = o;
       if (o.fright && (has('arm-l') || has('arm-r'))) {
         if (has('arm-l')) q['arm-l'] = (q['arm-l'] ?? p.rest['arm-l'] ?? 0) + 40 * o.fright;
         if (has('arm-r')) q['arm-r'] = (q['arm-r'] ?? p.rest['arm-r'] ?? 0) - 40 * o.fright;

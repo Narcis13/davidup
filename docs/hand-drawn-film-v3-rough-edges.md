@@ -20,6 +20,24 @@ film; each cost a detour.
 | RE-11 | chase-style shots with two actors | Nothing in the package says which actor draws over which beyond list order, and a puppet placed with `place()` at a higher `y` gets no ground of its own; the octopus "hovered" until a far floor line was drawn by hand. | A note in the skill: a second ground line for an actor further back; or `place(x, y, s, { shadow: true })`. |
 | RE-12 | goldens on this Mac | `npm test` fails `every film matches its golden` and `mini under --look 'paperInk~hand:test'` on a clean HEAD before any change (36/54 frames of mini differ under the test hand). Not a regression from this session. | Regenerate the darwin-arm64 goldens once, or key the hand goldens by platform like the text-v2 keys. |
 
+## Status (2026-09-21, fix session)
+
+All twelve are closed; `npm test` in `handdrawn/` is 221/221 (it was 219/221).
+
+| # | outcome |
+|---|---|
+| RE-1 | `cli/hdf.mjs`: a usage error prints `hdf: <message>` and `(hdf help <cmd> for its usage)`; any other error its stack; USAGE only for an unknown command. `hdf help <cmd>` prints that command's lines. |
+| RE-2 | `hdf svg` widens a puppet's box to every rest/view/pose/variant/cycle drawing (padded 3%, whole units), prints it with the poses that needed it, and keeps the viewBox as `frame` (`puppetCases` / `puppetReach` in `core/lint.js`, `widen` in `cli/svg.mjs`). |
+| RE-3, RE-4 | `core/store.js` `peek(id)`: the registry, then a reader `core/assets.js` installs (the store next to the package). `~from:` and `~hand:` resolve through it, so a recipe look or a top-level `withLook` works before `fromStore`. Engines keep the strict `record()`. |
+| RE-5 | Done earlier. |
+| RE-6 | Lint rule `cut-orphan` (a cut whose outgoing or incoming shot never plays outside it); `cut`'s comment, api.md, SKILL.md and recipes.md say `seq(a, cut(...), b)`. |
+| RE-7 | `hdf sheet store <motif>` draws the motif at 3 scales in every look; `hdf svg --kind motif` writes it. |
+| RE-8 | `hdf remove <id...>` (entry, sheets, unshared blob; `pack:` needs `--force`) and `hdf gc [--dry]`; the one-entry-per-line format is in assets.md. |
+| RE-9 | `h` on A, G, M, U, W, X, Z fits the actor by its rest pose's drawing (not the rig box) and boxes it by what it draws; recipe A's push stops short of cutting the subject unless `crop: true`. |
+| RE-10 | The model sheet's poses row starts with `rest`, and the header counts it. |
+| RE-11 | `actor.place(x, y, s, { shadow: true })` puts a contact shadow on the actor's floor; the skill's Pitfalls say paint the far actor first. |
+| RE-12 | Not environment after all: `films/goldens/{cutout-fox,fox-and-teapot,mini-paperInk~hand:test}.json` were committed stale (they fail at the commits that wrote them, on Node 20/24/25/26 alike, with 1 or 4 workers). The copies in the skill's `examples/goldens/` already matched the regenerated files byte for byte. Regenerated with `--workers 1`. |
+
 ## What worked without a detour
 
 - `hdf svg` rig conventions (parts, pivots, variants, `mouth-0..3`, `pose:`,

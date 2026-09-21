@@ -22,11 +22,11 @@
 // out of this module; `hdf bundle` and `hdf dev` serve core/assets.web.js in its place, so the same film
 // plays in the browser. `cli/load.mjs` resolves the film's `assets` list the same way, for the renderer.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkPath } from './list.js';
-import { register } from './store.js';
+import { register, setReader } from './store.js';
 
 // The store next to the package (handdrawn/assets) unless a command names another root.
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
@@ -209,6 +209,24 @@ export function readCatalogue(root = ASSET_ROOT) {
       st.save();
       return full;
     },
+    // Drops the entry, its sheets and its blob when no other entry shares it; saves. Returns the paths deleted.
+    remove(id) {
+      const e = st.entry(id), gone = [];
+      entries.delete(id);
+      st.save();
+      const p = st.payloadPath(e);
+      if (![...entries.values()].some((o) => o.sha === e.sha && o.ext === e.ext) && existsSync(p)) { rmSync(p); gone.push(p); }
+      for (const s of [st.sheetPath(id), st.sheetPath(id).replace(/\.jpg$/, '-model.jpg')]) if (existsSync(s)) { rmSync(s); gone.push(s); }
+      return gone;
+    },
+    // Blobs no entry points at (a replaced payload's old bytes, a removed entry's), as paths.
+    orphans() {
+      const bd = join(dir, 'blobs');
+      if (!existsSync(bd)) return [];
+      const used = new Set([...entries.values()].map((e) => `${e.sha}.${e.ext}`));
+      return readdirSync(bd).filter((f) => /^[0-9a-f]{40}\.\w+$/.test(f) && !used.has(f)).sort().map((f) => join(bd, f));
+    },
+    // One entry per line, ids sorted: a change to one asset is a one-line diff (keep it that way by hand too).
     save() {
       mkdirSync(dir, { recursive: true });
       const ids = st.ids;
@@ -251,6 +269,13 @@ export function recordOf(st, id) {
   if (s.payload === 'audio') return { ...prov, src: st.payloadPath(e), ...(e.sec ? { sec: e.sec } : {}) };
   return { ...prov, ...st.json(e) };
 }
+
+// A look that names an asset the film has not read yet (`'pencilMinimal~hand:test'` at a module's top level)
+// finds it here, in the store next to the package.
+setReader((id) => {
+  const st = readCatalogue(ASSET_ROOT);
+  return st.has(id) ? recordOf(st, id) : undefined;
+});
 
 // The records for the ids a film names, read from the store next to the package (or `from`, a directory
 // relative to the working directory). They go into the registry too (core/store.js), so an engine can read

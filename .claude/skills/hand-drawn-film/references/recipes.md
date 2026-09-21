@@ -29,6 +29,11 @@ const open = establishing({ name: 'open', dur: 2, subject: () => gpu({ spin: 0 }
   it (default `HOG`); AC also takes `say:` (a fragment from
   `actor.say(text, t0)`; the actor's mouth, the letters in the bubble and the
   plucks come from one timing). `book3` pieces take `{ base, h, actor, state }`.
+  Size an actor on A, G, M, U, W, X and Z with `h`, the rest pose's drawn
+  height in recipe units (`establishing({ actor: OCTO, h: 300 })`): without
+  it the actor's whole rig box is fitted to the boat's 140 units, and a
+  puppet whose poses swing wide reads small. A's push-in stops short of
+  cutting the subject (pass `crop: true` to cut it on purpose).
 - Coordinates inside recipes are v1's: a 1080 square around (540, 540).
   Other formats are handled by the shot's `fit` (default `anchor`).
 - `R.defaults` lists every option with its value; api.md lists the names.
@@ -196,6 +201,10 @@ The long method for finding the idea in an object is v1's
   frames; sign-off 2.5 s. Total 15 to 30 s.
 - Everything on the 1/12 s grid; `seq` throws otherwise. Cuts land on drawn
   frames by construction.
+- `cut(kind, dur, a, b)` does not wrap `a` and `b`: it is the transition
+  from `a`'s last frame to `b`'s first, and it adds `dur` of its own. Both
+  shots stay in the timeline: `seq(a, cut('iris', .5, a, b), b)`. A cut on
+  its own drops both shots (lint `cut-orphan`).
 - Camera eases (`ease.io`); particles move linearly; reveals `ease.out`;
   collapses `ease.in`. `ramp(a, b, t, e)` is 0..1 between two times.
 - A flash at most twice a film. Never two transition devices in a row (lint:

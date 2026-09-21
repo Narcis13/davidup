@@ -69,16 +69,31 @@ test('a cutout without colours names the command that adds them', () => {
   assert.throws(() => derive('doodlePastel', { from: [] }), /hdf photo --refresh/);
 });
 
-test("'preset~from:id' resolves against a film's assets, and only there", () => {
+test("'preset~from:id' resolves against a film's assets, or the store", () => {
   assert.deepEqual(parseLookName('doodlePastel~from:teapot'), { base: 'doodlePastel', mods: [['from', 'teapot']] });
   const l = resolveLook('doodlePastel~from:teapot', { teapot: TEAPOT });
   assert.equal(l.name, 'doodlePastel~from:teapot');
   assert.deepEqual(l.palette.fills, derive('doodlePastel', { from: TEAPOT }).palette.fills);
   assert.equal(hashLook(l), hashLook(resolveLook('doodlePastel~from:teapot', new Map([['teapot', TEAPOT]]))));
-  assert.throws(() => resolveLook('doodlePastel~from:teapot'), /needs the film's assets/);
+  assert.throws(() => resolveLook('doodlePastel~from:teapot'), /no asset 'teapot' in the store/);   // no store reader yet
   assert.throws(() => resolveLook('doodlePastel~from:cup', { teapot: TEAPOT }), /no asset 'cup'.*has teapot/);
   assert.throws(() => resolveLook('doodlePastel~nope:x', { teapot: TEAPOT }), /unknown modifier 'nope'/);
   assert.throws(() => resolveLook('nope~from:teapot', { teapot: TEAPOT }), /unknown look/);
+});
+
+// RE-3, RE-4: with the node store loaded, a modifier reads its asset by id wherever the look is built -- a
+// recipe resolving its look at module load, or withLook(...) above a film's fromStore([...]) line.
+test("'~from:' and '~hand:' read the store when the film has not named the asset yet", async () => {
+  await import('../core/assets.js');
+  const { withLook } = await import('../core/looks.js');
+  const { stored } = await import('../core/store.js');
+  const v = resolveLook('doodlePastel~from:violin');
+  assert.equal(v.name, 'doodlePastel~from:violin');
+  assert.ok(stored().includes('violin'), 'read once, then registered');
+  const h = withLook('pencilMinimal~hand:test', { words: 3 });
+  assert.equal(h.hand.name, 'test');
+  assert.throws(() => resolveLook('doodlePastel~from:nope'), /no asset 'nope' in the store/);
+  assert.throws(() => resolveLook('paperInk~hand:nope'), /no hand 'nope' in the store/);
 });
 
 test('cutout: flat fills on card stock; only it carries a cut-out, and the other six hash as before', async () => {

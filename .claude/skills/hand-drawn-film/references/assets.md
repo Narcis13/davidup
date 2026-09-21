@@ -17,6 +17,14 @@ handdrawn/assets/
   cel's mirror, which only `hdf donate --manifest` writes.
 - `sha` is 40 hex over the payload bytes: two imports of the same file are
   one blob; re-importing an id replaces its entry and drops nothing else.
+- `catalogue.json` is one entry per line, ids sorted, so a change to one
+  asset is a one-line diff. Never re-serialise it with a plain JSON writer
+  (a 2000-line diff); change it through the commands.
+- `hdf remove <id...>` drops entries (a trial import, a replaced puppet),
+  with their sheets and any blob no other entry shares; a `pack:` mirror
+  needs `--force` and comes back on the next `hdf donate --manifest`.
+  `hdf gc [--dry]` deletes blobs no entry points at (a replaced payload's
+  old bytes).
 - `licence` is closed: `CC0 | CC-BY | CC-BY-SA | PD | own | unknown`.
   `--licence` defaults to `unknown`. Record `credit` and `source` at import;
   `hdf find` prints them, and the film's delivery repeats them.
@@ -45,8 +53,10 @@ export default film({ ..., assets: IDS });      // the loader resolves the same 
 
 A cutout record is what `pin()`, `photo()`, `on()`, `rim()` and `derive({
 from })` take. A puppet payload is what `puppet('fox')` reads, by id, from the
-registry `fromStore` filled. A hand is found by the look (`~hand:narcis`) in
-the registry or the store; name it in `assets` when the film pins the look.
+registry `fromStore` filled. The look modifiers `~hand:<id>` and `~from:<id>`
+read the registry, then the store itself, so a look built anywhere (at a
+module's top level above the `fromStore` line, in a recipe's `look:`)
+resolves; still name the id in `assets` so the loader and lint see it.
 
 ```bash
 hdf find fox                          # every entry whose id, name, tags, desc, credit or source holds 'fox'
@@ -149,9 +159,13 @@ it), gradients and patterns (flat colour; the look finishes fills), `filter`,
 a cutout), CSS `<style>` (export with presentation attributes), `marker`,
 `switch`, nested `svg`, `a`.
 
-**Root.** `viewBox` is the box; `data-units` the logical units the file is
-drawn in (default the viewBox height; `--units` rescales); `data-desc` the
-description `hdf find` shows.
+**Root.** `viewBox` is the drawing's frame; `data-units` the logical units
+the file is drawn in (default the viewBox height; `--units` rescales);
+`data-desc` the description `hdf find` shows. The puppet's box is every pose,
+view, variant and cycle frame together: when one swings a part past the
+viewBox, the importer widens the box (padded 3%), prints it and the poses that
+needed it, and keeps the viewBox as `frame`. No second import for the box.
+A motif gets a sheet too: the drawing at three scales in every look.
 
 **Rig from ids.** Document order is painter order and reveal order (draw the
 outline last, it reveals last).

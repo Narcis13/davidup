@@ -8,8 +8,9 @@
 // ctx is a shot's draw context ({ t, k, i, T, seed, W, H, CX, CY, look }). Subjects are passed as
 // functions (ctx, mode) => node, so the same recipe carries any puppet; `mode` is 'ink' or 'blueprint'.
 // A recipe with a subject or a figure (A, G, M, U, W, X, Z) also takes actor: a cast member (core/actor.js)
-// stands in the subject's place, idling on the twos (walking, for G's traveller), fitted to the boat's height.
-// An actor draws in its own roles whatever the mode.
+// stands in the subject's place, idling on the twos (walking, for G's traveller), fitted to the boat's height
+// box (140 units) or, when opts carry `h`, with its rest pose drawn `h` units tall (the drawing, not the box). An actor draws in
+// its own roles whatever the mode.
 // Coordinates are v1's: laid out for 1080 x 1080 around (540, 540).
 import {
   FPS, paper, night, fill, stroke, dots, group, clip, fx, meta, circle, ellipse, rect, poly, line, spline, xf,
@@ -18,7 +19,7 @@ import {
   cross, hexLattice, aster, dotBurst, speedLines, loops, construction, seedDot, ripples, dashedRing, dottedArc,
   plant, section, stickyNote, thread, cam,
 } from '../core/index.js';
-import { norm } from '../core/list.js';
+import { bounds, norm } from '../core/list.js';
 
 const TAU = Math.PI * 2;
 const lerp = (a, b, u) => a + (b - a) * u;
@@ -74,10 +75,22 @@ export const boat = cel('boat', ({ mode = 'ink', note = 0 }) => {
 const boatSubject = (ctx, mode) => boat({ mode, note: 1 });
 
 // An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for
-// dir -1. Scaled, so it draws direct.
-export function actorFigure(actor, state = {}, h = 140) {
-  const [bx, by, bw, bh] = actor.box, k = h / (bh || 1), dir = state.dir < 0 ? -1 : 1;
-  return group({ name: 'actor', xf: mmul(scale(k * dir, k), translate(-(bx + bw / 2), -(by + bh / 2))), cache: 'never' }, [actor(state)]);
+// dir -1. Scaled, so it draws direct. fit 'drawn' (what a recipe's `h` asks for) measures the rest pose's
+// drawing instead of the box -- a rig box holds every swing of every pose, so a puppet fitted by it reads
+// small -- and boxes the figure by what this state draws, so the anchor, the push and lint see the drawing.
+export function actorFigure(actor, state = {}, h = 140, fit = 'box') {
+  const dir = state.dir < 0 ? -1 : 1;
+  if (fit !== 'drawn') {
+    const [bx, by, bw, bh] = actor.box, k = h / (bh || 1);
+    return group({ name: 'actor', xf: mmul(scale(k * dir, k), translate(-(bx + bw / 2), -(by + bh / 2))), cache: 'never' }, [actor(state)]);
+  }
+  const [rx, ry, rw, rh] = restBox(actor), k = h / (rh || 1), g = actor(state), d = bounds(g.kids) ?? g.box;
+  return group({ name: 'actor', xf: mmul(scale(k * dir, k), translate(-(rx + rw / 2), -(ry + rh / 2))), cache: 'never', box: d }, [g]);
+}
+const rests = new WeakMap();
+function restBox(actor) {
+  if (!rests.has(actor)) { const g = actor(actor.idle(0, 0)); rests.set(actor, bounds(g.kids) ?? actor.box); }
+  return rests.get(actor);
 }
 // opts with an actor in them: the subject or figure becomes the actor. G's subject is handed a pose and is
 // turned to head up the path, so the actor there is turned back upright, faces the way it travels and walks.
@@ -85,11 +98,12 @@ function cast(o) {
   const A = o.actor;
   if (!A) return o;
   const out = { ...o };
-  if ('figure' in o) out.figure = (ctx) => actorFigure(A, A.idle(ctx.t, o.seed));
+  const [h, fit] = Number.isFinite(o.h) && o.h > 0 ? [o.h, 'drawn'] : [140, 'box'];
+  if ('figure' in o) out.figure = (ctx) => actorFigure(A, A.idle(ctx.t, o.seed), h, fit);
   if ('subject' in o) {
     out.subject = (a, b) => (a && a.dir !== undefined && a.x !== undefined
-      ? place(0, 0, { rot: -(a.dir + Math.PI / 2) }, actorFigure(A, { ...A.cycle('walk', a.t), ...A.look(Math.cos(a.dir)) }))
-      : actorFigure(A, A.idle(a.t, o.seed)));
+      ? place(0, 0, { rot: -(a.dir + Math.PI / 2) }, actorFigure(A, { ...A.cycle('walk', a.t), ...A.look(Math.cos(a.dir)) }, h, fit))
+      : actorFigure(A, A.idle(a.t, o.seed), h, fit));
   }
   return out;
 }
@@ -98,7 +112,9 @@ function cast(o) {
 
 // A. Establishing shot on a textured surface (1.5 to 2.5 s). A huge ground circle below the frame with a
 // light hatch, a blush hatch, grain and a wobbly rim; the subject big with construction lines and a
-// scribble; the camera pushes in. mode 'blueprint' draws the same composition in chalk on night.
+// scribble; the camera pushes in. mode 'blueprint' draws the same composition in chalk on night. The push
+// stops short of cutting the subject: it zooms no further than keeps the subject inside the frame (a big
+// actor, `h` or `scale` pushed up), unless opts ask for a crop.
 export const establishing = recipe('A', 'establishing', {
   dur: 2, mode: 'ink', subject: boatSubject, x: 540, y: 440, rot: -0.1, scale: 1.9,
   ground: { x: 560, y: 1000, r: 700, role: 'fills.0' }, at: [540, 520], push: [1.15, 1.3],
@@ -109,8 +125,9 @@ export const establishing = recipe('A', 'establishing', {
   grain: 7000, construction: { y: -10, r: 110 }, scribble: true, extras: null, pushOver: null, seed: 100,
 }, (ctx, o) => {
   const ink = o.mode !== 'blueprint', G = o.ground, g = circle(G.x, G.y, G.r, 120), s = o.seed;
-  const zoom = lerp(o.push[0], o.push[1], ramp(0, o.pushOver ?? ctx.T, ctx.t));
   const subject = o.subject(ctx, o.mode);
+  const want = lerp(o.push[0], o.push[1], ramp(0, o.pushOver ?? ctx.T, ctx.t));
+  const zoom = o.crop ? want : Math.min(want, fitZoom(bounds(norm([place(o.x, o.y, { rot: o.rot, scale: o.scale }, subject)])), o.at, ctx.W, ctx.H));
   const world = [
     ink
       ? [
@@ -128,6 +145,13 @@ export const establishing = recipe('A', 'establishing', {
   ];
   return [ink ? paper() : night(), cam({ x: o.at[0], y: o.at[1], zoom, W: ctx.W, H: ctx.H }, world)];
 }, { ground: 'none', anchor: { name: 'subject' }, camera: 'push-in' });
+
+// The largest zoom about `at` that keeps box b inside a W x H frame (Infinity when nothing limits it).
+function fitZoom(b, [ax, ay], W, H) {
+  if (!b) return Infinity;
+  const lim = (d, half) => (d > 1e-9 ? half / d : Infinity);
+  return Math.min(lim(ax - b[0], W / 2), lim(b[0] + b[2] - ax, W / 2), lim(ay - b[1], H / 2), lim(b[1] + b[3] - ay, H / 2));
+}
 
 // B. Ink blot into blueprint (0.6 to 0.8 s, or the tail of a longer shot). scene(ctx, mode) is drawn in
 // ink, and from t0 the same composition in blueprint grows out of an ink blot centred on the subject.

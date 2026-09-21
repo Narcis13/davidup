@@ -90,11 +90,14 @@ test('words: text outside the sign-off, against the look allowance', () => {
   assert.match(one(says(talker.say('hello there', 0), [text('big world', 100, 100)]), 'words').detail, /hello there/);
 });
 
-test('cuts: longer than 1 s, and two in a row', () => {
+test('cuts: longer than 1 s, two in a row, and a cut whose shots never play', () => {
   const a = scene('a'), b = scene('b'), c = scene('c');
   assert.deepEqual(rules(make(a, cut('dissolve', 0.5, a, b), b)), []);
   assert.equal(one(make(a, cut('dissolve', 1.5, a, b), b), 'cut-long').shot, 'dissolve:a>b');
-  one(make(a, cut('dissolve', 0.5, a, b), cut('wipe', 0.5, b, c), c), 'cut-adjacent');
+  one(make(a, cut('dissolve', 0.5, a, b), b, cut('wipe', 0.5, b, c), cut('wipe', 0.5, b, c), c), 'cut-adjacent');
+  // Two cuts back to back drop the shot between them: it only shows inside the cuts.
+  assert.deepEqual(rules(make(a, cut('dissolve', 0.5, a, b), cut('wipe', 0.5, b, c), c)).sort(), ['cut-adjacent', 'cut-orphan', 'cut-orphan']);
+  assert.match(one(make(cut('dissolve', 0.5, a, b), b), 'cut-orphan').detail, /^the outgoing shot 'a' never plays outside the cut/);
 });
 
 test('sign-off: missing, or still being written 1.5 s before the end', () => {

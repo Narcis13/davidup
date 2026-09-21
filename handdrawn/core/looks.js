@@ -2,7 +2,7 @@
 // films keep their colours. A role (plan 1.2) is resolved against the current look, never raw hex.
 import { asHand, houseHand } from './glyphs.js';
 import { hashData } from './list.js';
-import { record, stored } from './store.js';
+import { peek } from './store.js';
 
 // ---------- colour maths (hex in, hex out; alpha() and rgba parsing are the exceptions) ----------
 
@@ -158,7 +158,7 @@ export function handRecord(id, assets, name = `~hand:${id}`) {
   if (id === 'house') return houseHand();
   const own = assets instanceof Map ? assets.get(id) : assets?.[id];
   if (own?.glyphs) return asHand(own);
-  if (stored().includes(id) && record(id)?.glyphs) return asHand(record(id));
+  if (peek(id)?.glyphs) return asHand(peek(id));
   throw new Error(`look '${name}': no hand '${id}' in the store (make one with \`hdf hand --synth ${id}\` or \`hdf import <file> --kind hand --name ${id}\`)`);
 }
 
@@ -176,12 +176,16 @@ export function handOf(look) {
   return h === houseHand() ? null : h;
 }
 
+// A cutout by id: one of the film's assets, else one read from the store (fromStore, or the store next to the
+// package), so a recipe that resolves 'doodlePastel~from:violin' at module load finds it before the loader
+// has the film's assets.
 function assetRecord(id, assets, name) {
-  if (!assets) throw new Error(`look '${name}': a '~from:' look needs the film's assets; pass --look to a command that loads a film, or call derive(look, { from })`);
-  const rec = assets instanceof Map ? assets.get(id) : assets[id];
+  const own = assets instanceof Map ? assets.get(id) : assets?.[id];
+  const rec = own ?? peek(id);
+  if (rec) return rec;
+  if (!assets) throw new Error(`look '${name}': no asset '${id}' in the store (a '~from:' look reads a cutout by id; \`hdf find ${id}\`, or call derive(look, { from }))`);
   const have = (assets instanceof Map ? [...assets.keys()] : Object.keys(assets)).join(', ');
-  if (!rec) throw new Error(`look '${name}': no asset '${id}' in this film (has ${have || 'none'})`);
-  return rec;
+  throw new Error(`look '${name}': no asset '${id}' in this film (has ${have || 'none'}) or in the store`);
 }
 
 // A look with the modifiers of a name applied to it, in order (mods as parseLookName returns them). The name's
