@@ -31,6 +31,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
                                     --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record
+  svg     <file.svg> --name <id> [--kind puppet|motif] [--roles map.json|ask] [--flatten 0.6] [--units 300]
+                                    [--licence] [--credit] [--source] [--tags] [--no-sheet]
+                                    an SVG into the store: parts from <g id>, pivots, variants, poses, cycles
+                                    (rules in core/svg.js); prints the colour table, writes the sheet
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
                                     hash-check the copy, regenerate packs/manifest.json + packs/sheets/<cel>.jpg
@@ -38,7 +42,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'import', 'find', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'import', 'svg', 'find', 'donate'];
 
 export { loadFilm, UsageError };
 

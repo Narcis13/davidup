@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The cast fox, drawn as an SVG the way Figma exports one: every part a <g id>, its pivot a
+     <circle id="pivot">, the eye a data-variants group, the mouth four steps, poses and cycles as
+     data-joints groups that do not draw. Import: hdf svg assets/src/fox.svg --name fox --licence own
+     --roles assets/src/fox.roles.json -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: nine parts, four eyes, four mouths, three poses, a walk and a run">
+  <g id="tail" data-parent="body">
+    <circle id="pivot" cx="-34" cy="-128" r="3" fill="#00a0ff"/>
+    <path d="M-32 -146L-52 -152L-74 -148L-92 -134L-104 -112L-104 -88L-92 -70L-74 -62L-56 -74L-58 -90L-60 -106L-52 -124L-40 -132L-30 -132Z" fill="#e8734a"/>
+    <polygon points="-104,-88 -92,-70 -74,-62 -56,-74 -68,-86 -90,-84" fill="#fff1d6"/>
+    <path d="M-32 -146L-52 -152L-74 -148L-92 -134L-104 -112L-104 -88L-92 -70L-74 -62L-56 -74L-58 -90L-60 -106L-52 -124L-40 -132L-30 -132Z" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="arm-l" data-parent="body">
+    <circle id="pivot" cx="-36" cy="-170" r="3" fill="#00a0ff"/>
+    <path d="M-44 -180L-30 -178L-26 -164L-24 -146L-22 -130L-26 -120L-36 -116L-44 -122L-44 -138L-46 -156L-48 -170Z" fill="#e8734a"/>
+    <polygon points="-44,-126 -36,-116 -28,-122 -30,-132 -40,-134" fill="#fff1d6"/>
+    <path d="M-44 -180L-30 -178L-26 -164L-24 -146L-22 -130L-26 -120L-36 -116L-44 -122L-44 -138L-46 -156L-48 -170Z" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="leg-l" data-parent="body">
+    <circle id="pivot" cx="-22" cy="-66" r="3" fill="#00a0ff"/>
+    <path d="M-32 -76L-14 -74L-10 -58L-8 -36L-6 -20L-2 -10L8 -6L8 0L-20 0L-30 -6L-32 -22L-34 -42L-36 -62Z" fill="#e8734a"/>
+    <polygon points="-20,-18 -6,-18 -2,-10 8,-6 8,0 -20,0" fill="#fff1d6"/>
+    <path d="M-32 -76L-14 -74L-10 -58L-8 -36L-6 -20L-2 -10L8 -6L8 0L-20 0L-30 -6L-32 -22L-34 -42L-36 -62Z" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="leg-r" data-parent="body">
+    <circle id="pivot" cx="22" cy="-66" r="3" fill="#00a0ff"/>
+    <path d="M12 -76L30 -74L34 -58L36 -36L38 -20L42 -10L54 -6L54 0L24 0L14 -6L12 -22L10 -42L8 -62Z" fill="#e8734a"/>
+    <polygon points="24,-18 38,-18 42,-10 54,-6 54,0 24,0" fill="#fff1d6"/>
+    <path d="M12 -76L30 -74L34 -58L36 -36L38 -20L42 -10L54 -6L54 0L24 0L14 -6L12 -22L10 -42L8 -62Z" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="body">
+    <circle id="pivot" cx="0" cy="-120" r="3" fill="#00a0ff"/>
+    <path d="M0 -198L18 -194L32 -182L42 -164L48 -142L50 -118L46 -94L36 -76L20 -65L0 -62L-20 -65L-36 -76L-46 -94L-50 -118L-48 -142L-42 -164L-32 -182L-18 -194Z" fill="#e8734a"/>
+    <path d="M10 -166L24 -150L30 -126L28 -100L18 -80L4 -70L-2 -84L0 -110L2 -136L6 -154Z" fill="#fff1d6"/>
+    <path d="M0 -198L18 -194L32 -182L42 -164L48 -142L50 -118L46 -94L36 -76L20 -65L0 -62L-20 -65L-36 -76L-46 -94L-50 -118L-48 -142L-42 -164L-32 -182L-18 -194Z" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="head" data-parent="body">
+    <circle id="pivot" cx="0" cy="-196" r="3" fill="#00a0ff"/>
+    <path d="M-26 -192L-42 -208L-48 -228L-46 -250L-56 -282L-38 -272L-26 -262L-8 -270L8 -274L18 -300L34 -276L42 -260L50 -244L58 -230L66 -226L80 -216L76 -202L62 -200L50 -198L40 -190L24 -182L4 -180L-14 -184Z" fill="#e8734a"/>
+    <polygon points="-52,-278 -40,-270 -32,-260" fill="#c8473f"/>
+    <polygon points="20,-294 32,-278 40,-264" fill="#c8473f"/>
+    <polygon points="42,-196 56,-202 70,-210 76,-206 70,-198 56,-190 44,-188" fill="#fff1d6"/>
+    <path d="M-26 -192L-42 -208L-48 -228L-46 -250L-56 -282L-38 -272L-26 -262L-8 -270L8 -274L18 -300L34 -276L42 -260L50 -244L58 -230L66 -226L80 -216L76 -202L62 -200L50 -198L40 -190L24 -182L4 -180L-14 -184Z" fill="none" stroke="#2b2b2b"/>
+    <polyline points="-44,-228 -34,-220 -44,-212" fill="none" stroke="#2b2b2b"/>
+    <polygon points="65,-218 71,-221 76,-216 77,-210 72,-206 65,-208 61,-213" fill="#2b2b2b"/>
+  </g>
+  <g id="eye" data-parent="head" data-variants>
+    <g id="open">
+      <path d="M5.5 -248L4.8 -245.3L2.8 -243.2L0 -242.5L-2.7 -243.2L-4.8 -245.3L-5.5 -248L-4.8 -250.8L-2.8 -252.8L0 -253.5L2.8 -252.8L4.8 -250.8Z" fill="#2b2b2b"/>
+      <path d="M42 -242L40.9 -238L38 -235.1L34 -234L30 -235.1L27.1 -238L26 -242L27.1 -246L30 -248.9L34 -250L38 -248.9L40.9 -246Z" fill="#2b2b2b"/>
+      <polygon points="3.8,-250.5 3.3,-249.2 2,-248.7 0.7,-249.2 0.2,-250.5 0.7,-251.8 2,-252.3 3.3,-251.8" fill="#fff1d6"/>
+      <polygon points="39,-245 38.3,-243.2 36.5,-242.5 34.7,-243.2 34,-245 34.7,-246.8 36.5,-247.5 38.3,-246.8" fill="#fff1d6"/>
+    </g>
+    <g id="happy">
+      <polyline points="-6,-245 -2,-252 4,-252 7,-245" fill="none" stroke="#2b2b2b"/>
+      <polyline points="26,-238 30,-247 38,-247 43,-239" fill="none" stroke="#2b2b2b"/>
+    </g>
+    <g id="sleep">
+      <polyline points="-6,-250 -2,-244 4,-244 7,-249" fill="none" stroke="#2b2b2b"/>
+      <polyline points="26,-244 31,-237 38,-237 43,-243" fill="none" stroke="#2b2b2b"/>
+    </g>
+    <g id="wide">
+      <path d="M8 -248L6.9 -244L4 -241.1L0 -240L-4 -241.1L-6.9 -244L-8 -248L-6.9 -252L-4 -254.9L0 -256L4 -254.9L6.9 -252Z" fill="#fff1d6"/>
+      <path d="M8 -248L6.9 -244L4 -241.1L0 -240L-4 -241.1L-6.9 -244L-8 -248L-6.9 -252L-4 -254.9L0 -256L4 -254.9L6.9 -252Z" fill="none" stroke="#2b2b2b"/>
+      <polygon points="3.5,-248 2.5,-245.5 0,-244.5 -2.5,-245.5 -3.5,-248 -2.5,-250.5 0,-251.5 2.5,-250.5" fill="#2b2b2b"/>
+      <path d="M46 -242L44.4 -236L40 -231.6L34 -230L28 -231.6L23.6 -236L22 -242L23.6 -248L28 -252.4L34 -254L40 -252.4L44.4 -248Z" fill="#fff1d6"/>
+      <path d="M46 -242L44.4 -236L40 -231.6L34 -230L28 -231.6L23.6 -236L22 -242L23.6 -248L28 -252.4L34 -254L40 -252.4L44.4 -248Z" fill="none" stroke="#2b2b2b"/>
+      <path d="M39.5 -242L38.8 -239.3L36.8 -237.2L34 -236.5L31.3 -237.2L29.2 -239.3L28.5 -242L29.2 -244.8L31.2 -246.8L34 -247.5L36.8 -246.8L38.8 -244.8Z" fill="#2b2b2b"/>
+    </g>
+  </g>
+  <g id="mouth-0" data-parent="head">
+    <polyline points="48,-198 56,-194 64,-196 70,-202" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="mouth-1" data-parent="head">
+    <polygon points="56,-198 66,-200 68,-194 60,-190 54,-193" fill="#5a3a28"/>
+    <polygon points="56,-198 66,-200 68,-194 60,-190 54,-193" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="mouth-2" data-parent="head">
+    <polygon points="50,-198 62,-200 72,-198 70,-188 60,-182 52,-188" fill="#5a3a28"/>
+    <polygon points="56,-192 66,-192 64,-185 58,-185" fill="#c8473f"/>
+    <polygon points="50,-198 62,-200 72,-198 70,-188 60,-182 52,-188" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="mouth-3" data-parent="head">
+    <polyline points="44,-200 52,-190 62,-188 72,-196" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="arm-r" data-parent="body">
+    <circle id="pivot" cx="36" cy="-170" r="3" fill="#00a0ff"/>
+    <path d="M44 -180L30 -178L26 -164L24 -146L22 -130L26 -120L36 -116L44 -122L44 -138L46 -156L48 -170Z" fill="#e8734a"/>
+    <polygon points="44,-126 36,-116 28,-122 30,-132 40,-134" fill="#fff1d6"/>
+    <path d="M44 -180L30 -178L26 -164L24 -146L22 -130L26 -120L36 -116L44 -122L44 -138L46 -156L48 -170Z" fill="none" stroke="#2b2b2b"/>
+  </g>
+  <g id="pose:rest" data-joints="eye:open,mouth:0"/>
+  <g id="pose:wave" data-joints="arm-l:112,head:-6,tail:18,eye:happy,mouth:3"/>
+  <g id="pose:asleep" data-joints="head:16,tail:-20,arm-l:6,arm-r:-6,eye:sleep,mouth:0"/>
+  <g id="cycle:walk" data-fps="12">
+    <g data-joints="leg-l:18,leg-r:-18,arm-l:-12,arm-r:12,tail:6,head:0"/>
+    <g data-joints="leg-l:12,leg-r:-8,arm-l:-8,arm-r:8,tail:2,head:-2"/>
+    <g data-joints="leg-l:0,leg-r:4,arm-l:0,arm-r:0,tail:-2,head:-2"/>
+    <g data-joints="leg-l:-12,leg-r:12,arm-l:8,arm-r:-8,tail:-6,head:0"/>
+    <g data-joints="leg-l:-18,leg-r:18,arm-l:12,arm-r:-12,tail:-6,head:2"/>
+    <g data-joints="leg-l:-8,leg-r:12,arm-l:8,arm-r:-8,tail:-2,head:2"/>
+    <g data-joints="leg-l:4,leg-r:0,arm-l:0,arm-r:0,tail:2,head:0"/>
+    <g data-joints="leg-l:12,leg-r:-12,arm-l:-8,arm-r:8,tail:6,head:-2"/>
+  </g>
+  <g id="cycle:run" data-fps="12">
+    <g data-joints="leg-l:30,leg-r:-30,arm-l:-24,arm-r:24,body:4,head:-4,tail:16"/>
+    <g data-joints="leg-l:16,leg-r:-16,arm-l:-12,arm-r:12,body:4,head:-6,tail:22"/>
+    <g data-joints="leg-l:-8,leg-r:8,arm-l:6,arm-r:-6,body:4,head:-6,tail:16"/>
+    <g data-joints="leg-l:-30,leg-r:30,arm-l:24,arm-r:-24,body:4,head:-4,tail:22"/>
+    <g data-joints="leg-l:-14,leg-r:14,arm-l:12,arm-r:-12,body:4,head:-6,tail:16"/>
+    <g data-joints="leg-l:8,leg-r:-8,arm-l:-6,arm-r:6,body:4,head:-6,tail:22"/>
+  </g>
+  <circle id="ground" cx="0" cy="0" r="4" fill="#00a0ff"/>
+</svg>

@@ -1,0 +1,59 @@
+// hdf svg: an SVG drawing into the asset store as a puppet (or a motif), then its check sheet (plan 1.5).
+//
+//   hdf svg assets/src/fox.svg --name fox --licence own --roles assets/src/fox.roles.json
+//   hdf svg fox.svg --name fox --roles ask          the colour table to fox.roles.json next to the SVG; stops
+//   hdf svg star.svg --name star --kind motif        one op list, no rig
+//   [--flatten 0.6] [--units 300] [--credit] [--source] [--tags] [--desc] [--root ../other-store] [--no-sheet]
+//
+// The rules the file has to follow (ids, pivots, variants, poses, cycles, colours) are in core/svg.js. The
+// colour table is printed on every import, so what each source colour became is never a guess; `--roles ask`
+// writes it as JSON for the author to edit and pass back with `--roles <file>`. The payload then goes through
+// exactly what `hdf import` does (validation, puppet lint, the store) and a puppet gets `hdf sheet store <id>`.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { SvgError, svgColours, svgMotif, svgPuppet } from '../core/svg.js';
+import { putPayload } from './import.mjs';
+import { UsageError } from './load.mjs';
+import { storeSheet } from './sheet.mjs';
+
+const KINDS = ['puppet', 'motif'];
+const str = (v) => (v === undefined || v === true ? '' : String(v));
+
+export async function run([file], flags) {
+  const kind = str(flags.kind) || 'puppet', name = str(flags.name);
+  if (!file) throw new UsageError('svg: need <file.svg>');
+  if (!KINDS.includes(kind)) throw new UsageError(`svg: --kind ${kind} (expected ${KINDS.join(' | ')})`);
+  if (!name) throw new UsageError('svg: need --name <id>');
+  const abs = resolve(file);
+  if (!existsSync(abs)) throw new UsageError(`svg: no such file '${file}'`);
+  const src = readFileSync(abs, 'utf8');
+  const opts = { name, flatten: flags.flatten === undefined ? 0.6 : +flags.flatten, ...(flags.units ? { units: +flags.units } : {}) };
+
+  try {
+    if (flags.roles === 'ask') {
+      const table = svgColours(src, opts), out = join(dirname(file), `${name}.roles.json`);
+      writeFileSync(resolve(out), `${JSON.stringify(Object.fromEntries(table.map((r) => [r.hex, r.role])), null, 2)}\n`);
+      process.stdout.write(`${tableText(table)}${out}  edit the roles, then: hdf svg ${file} --name ${name} --roles ${out}\n`);
+      return 0;
+    }
+    opts.roles = flags.roles ? readRoles(String(flags.roles)) : {};
+    const { payload, table } = (kind === 'puppet' ? svgPuppet : svgMotif)(src, opts);
+    process.stdout.write(tableText(table));
+    await putPayload({ kind, name, bytes: Buffer.from(JSON.stringify(payload)), abs, flags });
+    if (kind === 'puppet' && flags.sheet !== false) {
+      await storeSheet(name, { root: flags.root, cycle: Object.keys(payload.cycles ?? {})[0] });
+    }
+    return 0;
+  } catch (e) {
+    if (e instanceof SvgError) throw new UsageError(`svg: ${basename(abs)}: ${e.message}`);
+    throw e;
+  }
+}
+
+function readRoles(path) {
+  if (!existsSync(path)) throw new UsageError(`svg: --roles ${path}: no such file (--roles ask writes one)`);
+  try { return JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new UsageError(`svg: --roles ${path} is not JSON (${e.message})`); }
+}
+
+// colour  area  role  (auto | map), one line each.
+const tableText = (table) => table.map((r) => `${r.hex}  ${String(r.area).padStart(7)}  ${r.role.padEnd(10)} ${r.how}\n`).join('');

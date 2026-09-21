@@ -69,7 +69,7 @@ export async function run([path, name], flags, { loadFilm }) {
 }
 
 // A puppet in the store: its poses and variants as the columns, the cycle `--cycle` names as a strip.
-async function storeSheet(id, flags) {
+export async function storeSheet(id, flags) {
   if (!id) throw new UsageError('sheet: say which asset, e.g. hdf sheet store fox');
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   const e = st.entry(id);

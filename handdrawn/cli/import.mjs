@@ -28,12 +28,17 @@ export async function run(args, flags) {
   if (!file) throw usage('import: need <file>');
   if (!KINDS.includes(kind)) throw usage(`import: --kind ${kind || '<kind>'} (expected ${KINDS.join(' | ')})`);
   if (!name) throw usage('import: need --name <id>');
-  const licence = str(flags.licence) || 'unknown';
-  if (!LICENCES.includes(licence)) throw usage(`import: --licence ${licence} (expected ${LICENCES.join(' | ')})`);
   const abs = resolve(file);
   if (!existsSync(abs)) throw usage(`import: no such file '${file}'`);
 
-  const bytes = readFileSync(abs);
+  return putPayload({ kind, name, bytes: readFileSync(abs), abs, flags });
+}
+
+// Validates a payload, puts it in the store (--root, or handdrawn/assets) under `name` and says what changed.
+// `hdf svg` hands its puppet or motif here, so an SVG import passes every check a JSON import does.
+export async function putPayload({ kind, name, bytes, abs, flags }) {
+  const licence = str(flags.licence) || 'unknown';
+  if (!LICENCES.includes(licence)) throw usage(`import: --licence ${licence} (expected ${LICENCES.join(' | ')})`);
   const meta = {
     kind, name, file: basename(abs), licence,
     credit: str(flags.credit), source: str(flags.source),

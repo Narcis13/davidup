@@ -438,7 +438,7 @@ doodle recipe in the user's hand without reading the source.
 | S3 | Store part 2, migration | S2 | (prereq) | [x] |
 | S4 | Puppets | S2 | (prereq) | [x] |
 | S5 | Actor contract | S4 | (prereq) | [x] |
-| S6 | SVG import | S4 | (prereq) | [ ] |
+| S6 | SVG import | S4 | (prereq) | [x] |
 | S7 | Turnarounds | S5, S6 | turnarounds | [ ] |
 | S8 | Pose sheets as briefs | S7 | pose sheets | [ ] |
 | S9 | Speech scribbles | S5 | speech scribbles | [ ] |

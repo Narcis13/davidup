@@ -482,6 +482,40 @@ hdf import assets/src/fox.puppet.json --kind puppet --name fox --licence own
 hdf sheet store fox --cycle walk    # every look x every pose and variant x 3 scales, the walk as a strip
 ```
 
+### Puppets from SVG
+
+A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported
+with `hdf svg` (`core/svg.js`). The fox in the store comes from
+`assets/src/fox.svg`, which draws exactly what the JSON above draws. The ids
+are the rig:
+
+- a `<g id="arm-l">` is a part, and document order is painter order (and reveal
+  order, so draw the outline last and it reveals last);
+- inside it, a `<circle id="pivot">` (or `data-pivot="x,y"` on the g) is the
+  pivot and is not drawn; `data-parent="body"`, or nesting inside another
+  part's g, gives the parent;
+- `<g id="eye" data-variants>` takes its child g ids as variants; sibling ids
+  `mouth-0`, `mouth-1`, ... become one stepped part `mouth`;
+- `<g id="pose:wave" data-joints="arm-l:112,head:-6,eye:happy"/>` is a pose and
+  `<g id="cycle:walk" data-fps="12">` a cycle, one `<g data-joints="...">` per
+  frame; neither draws. A top-level `<circle id="ground">` is the ground point;
+- the root's `viewBox` is the box and `data-units` the units it is drawn in
+  (`--units` rescales the file).
+
+Every shape (path, rect, circle, ellipse, line, polyline, polygon, with its
+transforms) is flattened to polylines at `--flatten` (0.6 units). `use`, text,
+gradients, patterns, filters, masks, clip paths, CSS and embedded images are
+refused with a message naming the element and its line. Every colour is mapped
+to a role (the darkest `ink`, the lightest `paper`, the rest to the nearest house
+fill or accent) and the table is printed; `--roles ask` writes it next to the
+SVG to edit and pass back with `--roles <file>`. Fills in `fills.n` and
+`accents.n` get the look's finish.
+
+```bash
+hdf svg assets/src/fox.svg --name fox --roles ask       # fox.roles.json: edit, then
+hdf svg assets/src/fox.svg --name fox --licence own --roles assets/src/fox.roles.json
+```
+
 ### Actors
 
 An actor is a cast member a recipe can direct (`core/actor.js`). `actorOf`
@@ -569,6 +603,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf clip <roto.py output> [--js clips.js]` | a traced clip in the v2 format |
 | `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
 | `hdf import --v2 <photos.js\|clips.js> [--licence] [--tags]` | a 2.0 data module into the store: one entry per record |
+| `hdf svg <file.svg> --name <id> [--kind puppet\|motif] [--roles map.json\|ask] [--flatten 0.6] [--units]` | an SVG into the store as a puppet (rigged from its ids) or a motif, with its colour table and check sheet |
 | `hdf find <words...> [--kind]` | search the store: id, kind, licence, what it takes, its check sheet and credit |
 | `hdf donate <module> <cel...> [--pack name]`, `hdf donate --manifest` | move cels into packs; rebuild the manifest and sheets |
 

@@ -85,3 +85,35 @@ test('import and find are commands: usage lists them, a bad kind is a usage erro
     assert.equal((await hdf('find', 'teapot', '--root', dir)).code, 1); // nothing in an empty store
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('svg: --roles ask writes the colour table, an import prints it, puts the puppet in the store and draws its sheet', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-svg-'));
+  try {
+    const root = join(dir, 'store'), file = join(dir, 'fox.svg');
+    cpSync('assets/src/fox.svg', file);
+    assert.match((await hdf('help')).out, /^ {2}svg {5}<file\.svg> --name <id>/m);
+
+    const ask = await hdf('svg', file, '--name', 'fox', '--roles', 'ask', '--root', root);
+    assert.equal(ask.code, 0, ask.out);
+    assert.match(ask.out, /^#e8734a\s+29946\s+fills\.0\s+auto$/m);
+    const table = JSON.parse(readFileSync(join(dir, 'fox.roles.json'), 'utf8'));
+    assert.deepEqual(Object.keys(table), ['#e8734a', '#fff1d6', '#2b2b2b', '#5a3a28', '#c8473f'], 'largest area first');
+    assert.ok(!existsSync(join(root, 'catalogue.json')), 'ask stops before the store');
+
+    const { code, out } = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root);
+    assert.equal(code, 0, out);
+    assert.match(out, /^#fff1d6\s+4885\s+light\s+map$/m);
+    assert.match(out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
+    assert.match(out, /fox\.jpg {2}6 looks x 11 states x 3 scales \+ 8 frames of walk$/m);
+    const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
+    assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
+    assert.equal(cat.fox.sha, JSON.parse(readFileSync('assets/catalogue.json', 'utf8')).fox.sha, 'the same payload as the fox in the house store');
+
+    // A refused element is a usage error that names it; nothing reaches the store.
+    writeFileSync(file, '<svg viewBox="0 0 10 10"><g id="a"><text>hi</text></g></svg>');
+    const bad = await hdf('svg', file, '--name', 'bad', '--root', root, '--no-sheet');
+    assert.equal(bad.code, 2);
+    assert.match(bad.out, /svg: fox\.svg: <text> on line 1: refused: live <text>/);
+    assert.equal((await hdf('svg', file, '--name', 'bad', '--kind', 'cutout', '--root', root)).code, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
