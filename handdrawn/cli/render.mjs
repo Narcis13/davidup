@@ -3,15 +3,18 @@
 //   out/<film>.mp4        picture only        out/<film>.wav        the score
 //   out/<film>-final.mp4  picture + sound     out/<film>-sheet.jpg  two tiles per second
 // It also records every frame's list hash and a thumbnail per hash, the baseline for `hdf changed`.
+// --frames N renders the first N frames only, to out/<film>-<N>f.* so a full render's files are left alone.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { cues } from '../core/tree.js';
+import { FPS } from '../core/curves.js';
 import { filmAudio, toWav16 } from '../core/synth.js';
 import { ffmpegSink, h264Args } from './ffmpeg.mjs';
 import { contactSheet, outDir, variant } from './sheets.mjs';
 import { defaultWorkers, produceFrames } from './frames.mjs';
 import { tracker } from './changed.mjs';
+import { UsageError } from './load.mjs';
 
 function ffmpeg(args) {
   return new Promise((res, rej) => {
@@ -24,9 +27,12 @@ function ffmpeg(args) {
 }
 
 export async function run([path], flags, { loadFilm }) {
-  const film = await loadFilm(path);
+  let film = await loadFilm(path);
+  const cut = flags.frames;
+  if (cut !== undefined && (!Number.isInteger(cut) || cut < 1)) throw new UsageError(`render: --frames takes a whole number of frames >= 1 (got ${cut})`);
+  if (cut !== undefined && cut < film.n) film = Object.freeze({ ...film, n: cut, dur: cut / FPS });
   const workers = flags.workers ?? defaultWorkers();
-  const base = join(outDir(flags), variant(film, flags));
+  const base = join(outDir(flags), variant(film, flags) + (cut !== undefined ? `-${film.n}f` : ''));
   const opts = { look: flags.look, ar: flags.ar, width: flags.width, workers, cacheMb: flags.cacheMb ?? 512, diskCache: flags.diskCache };
   const sheet = contactSheet(film, { ar: flags.ar, width: flags.width });
   const hashes = tracker(film, base, { ar: flags.ar, outW: sheet.outW, outH: sheet.outH });

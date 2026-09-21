@@ -650,7 +650,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 
 | command | does |
 |---|---|
-| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed` |
+| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*` |
 | `hdf grid <film> [--n 24] [--width 480]` | n frames spread over the film in one JPEG |
 | `hdf only <film> 0,37,74` | single frames as full-size PNGs |
 | `hdf board <film> [--cols 4]` | the time tree as text plus one storyboard card per shot |
@@ -672,6 +672,34 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf svg <file.svg> --name <id> [--kind puppet\|motif] [--roles map.json\|ask] [--flatten 0.6] [--units]` | an SVG into the store as a puppet (rigged from its ids) or a motif, with its colour table and check sheet |
 | `hdf find <words...> [--kind]` | search the store: id, kind, licence, what it takes, its check sheet and credit |
 | `hdf donate <module> <cel...> [--pack name]`, `hdf donate --manifest` | move cels into packs; rebuild the manifest and sheets |
+
+### handdrawn ↔ davidup
+
+The two projects meet through a pair of bun scripts at the repo root, not a new
+item type: a film becomes an ordinary davidup video asset. Both render with
+`hdf render`, copy the files into the project's `assets/hdf/` and register them
+through davidup's own `register_asset` (in-process, so a clip gets the same
+ffprobe metadata an agent's call would). Only the `assets` array of
+`composition.json` is rewritten, and an open editor reloads it.
+
+```bash
+# a film (and the model sheet of every store puppet it reads) into a project
+bun run scripts/hdf-to-davidup.ts fox-and-teapot --project ~/videos/promo [--look risoPop]
+#   hdf-fox-and-teapot  video  assets/hdf/hdf-fox-and-teapot.mp4  (1080x1080, 19.5s, sound)
+#   hdf-fox-model       image  assets/hdf/hdf-fox-model.jpg
+
+# a video item that plays a film: render it and point the item's asset at the mp4
+bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox-clip
+```
+
+`--project` takes a project directory or a name from the editor's recents
+(`davidup list`). The film is a path or a bare name from `handdrawn/films/`.
+`davidup-hdf-clip` reads the film from the item's `name`, `"hdf:<film>"`, or
+from `--film`; the item keeps its box, timing and fit. Both take `--look`,
+`--frames N` (a quick first N frames) and `--dry-run` (print what it would
+register; renders nothing). Re-running replaces the assets in place, so after
+editing a film, run the script again. Place a registered film with `add_video`
+or from the editor like any other clip.
 
 ---
 

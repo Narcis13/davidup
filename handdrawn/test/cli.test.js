@@ -44,6 +44,18 @@ test('board, sheet and changed write their images', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('render --frames: the first N frames only, to their own files; a bad count is a usage error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-render-'));
+  try {
+    const { code, out } = await hdf('render', 'films/mini.js', '--frames', '6', '--out', dir, '--no-sound');
+    assert.equal(code, 0, out);
+    assert.match(out, /mini-6f\.mp4  6 frames/);
+    assert.ok(existsSync(join(dir, 'mini-6f.mp4')) && !existsSync(join(dir, 'mini.mp4')));
+    assert.equal(JSON.parse(readFileSync(join(dir, 'mini-6f.hashes.json'), 'utf8')).frames.length, 6);
+    assert.equal((await hdf('render', 'films/mini.js', '--frames', '0', '--out', dir)).code, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('model sheet: the fox brief is one list that hashes the same every run, a row for each thing it has', async () => {
   const { modelSheet } = await import('../cli/sheet.mjs');
   const { readCatalogue, ASSET_ROOT } = await import('../core/assets.js');

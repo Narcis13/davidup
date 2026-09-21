@@ -14,7 +14,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   a preset may carry modifiers: --look 'doodlePastel~from:teapot' paints it in that cutout's own colours,
   --look 'paperInk~hand:test' letters it (and draws its pens) in a hand from the store
 
-  render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir]
+  render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir] [--frames N]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
   grid    <film.js> [--n 24] [--width 480]
   only    <film.js> 0,37,74

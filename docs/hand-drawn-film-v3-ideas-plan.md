@@ -501,6 +501,18 @@ someone films theirs.)
 Done when: a davidup composition plays a handdrawn mp4 registered by the
 script.
 
+(Built: `scripts/hdf-bridge.ts` holds both sides; the two scripts are thin. hdf stays a node program (spawned
+for `render` and `sheet store`), while the film itself is loaded in-process under bun to name its puppets: the
+store ids it read whose catalogue kind is `puppet`. `--project` takes a directory or a name from the editor's
+recents.json. Registration dispatches the engine's `register_asset` tool against a scratch store holding only
+the composition meta, with a probe that resolves `src` against the project, then splices the asset into
+composition.json's `assets` (replacing the same id), so scenes, `$ref`s and everything else stay as written.
+Files land at `assets/hdf/<asset id>.<ext>`. The reverse script finds the film in the item's `name`
+(`hdf:<film>`) or `--film`, since a video item has an `asset`, not a `src`: it rewrites that asset. For the
+6-frame test `hdf render` gained `--frames N` (first N frames, to `<film>-<N>f.*`). Checked by hand: a
+scaffolded project with the fox film, a looping `mini` clip set by the reverse script and the fox model sheet as
+a sprite renders with `davidup render`.)
+
 ### S17. The 3.0 skill
 
 - `.claude/skills/hand-drawn-film/SKILL.md`: the store, `hdf find` before
@@ -535,7 +547,7 @@ doodle recipe in the user's hand without reading the source.
 | S13 | Living packs | S4 | living packs | [x] |
 | S14 | Skeletons + retarget | S4 | (prereq) | [x] |
 | S15 | Motion from your phone | S14 | motion from your phone | [x] |
-| S16 | Store ↔ davidup | S2 | davidup asset source | [ ] |
+| S16 | Store ↔ davidup | S2 | davidup asset source | [x] |
 | S17 | The 3.0 skill | all | — | [ ] |
 
 S9, S10, S11, S13 and S16 only need what is listed and can be pulled forward
