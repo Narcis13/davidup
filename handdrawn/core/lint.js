@@ -8,6 +8,7 @@ import { fallbacks, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
 import { JOINT, VIEW_DIRS, movesOf, puppet } from './puppet.js';
 import { cues, evalShot, frame } from './tree.js';
+import { scoreEvents, voiceSpans } from './synth.js';
 
 export const RULES = Object.freeze({
   draw: "the shot's draw function threw",
@@ -25,6 +26,7 @@ export const RULES = Object.freeze({
   'subject-size': 'the anchor subject is under the readability floor at 240 px',
   'subject-crop': "the anchor subject is cut by the frame edge without meta('intent', 'crop')",
   grid: 'a cue off the 1/12 s grid',
+  voice: "a voice names a sample the store does not have (or cannot decode), or runs past the film's end",
   'puppet-joint': 'a puppet pose or cycle names nothing, or sets a joint (or a slide or scale) off its grid or out of range',
   'roles-raw': 'a raw colour in a puppet part, where a palette role belongs',
   'actor-cycle': 'an actor lacks a cycle a recipe asked for, and its fallback bob is on screen over 1 s in a shot',
@@ -221,6 +223,7 @@ export function inspect(film) {
   handRule(film, F);
   signOffRule(film, F);
   gridRule(film, F);
+  voiceRule(film, F);
   const findings = F.list.sort((a, b) => (a.frame ?? -1) - (b.frame ?? -1));
   return { findings, shots };
 }
@@ -315,6 +318,20 @@ function gridRule(film, F) {
   const c = cues(film);
   for (const s of c.shots) if (off(s.t0) || off(s.dur)) F.add('grid', s.name, Math.round(s.t0 * FPS), `cue ${s.t0} s / ${s.dur} s is off the 1/${FPS} s grid`, 'grid');
   for (const t of c.cuts) if (off(t)) F.add('grid', null, Math.round(t * FPS), `cut at ${t} s is off the 1/${FPS} s grid`, `cut${t}`);
+}
+
+// Every voice in the score (4.0 V1) reads, and ends by the film's end (cut a long one with { dur }).
+function voiceRule(film, F) {
+  let events;
+  try { events = scoreEvents(film)?.events ?? []; } catch { return; }   // a broken score fails where it is rendered
+  for (const e of events) {
+    if (e.type !== 'voice') continue;
+    const i = Math.max(0, Math.min(film.n - 1, Math.floor(e.t * FPS)));
+    let s;
+    try { [s] = voiceSpans([e]); } catch (err) { F.add('voice', null, i, err.message, `missing|${e.id}`); continue; }
+    if (e.t < 0) F.add('voice', null, 0, `voice '${e.id}' starts at ${e.t} s, before the film`, `early|${e.id}|${e.t}`);
+    if (s.t1 > film.dur + 1e-6) F.add('voice', null, i, `voice '${e.id}' at ${e.t} s ends at ${s.t1.toFixed(2)} s, after the film's end (${film.dur.toFixed(2)} s): cut it with { dur } or give the last shot longer`, `late|${e.id}|${e.t}`);
+  }
 }
 
 // lintList(list, look, name) => findings over a display list that is not a shot (a model sheet): the

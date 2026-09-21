@@ -5,7 +5,7 @@ export { createRenderer, outputSize } from '../core/raster.js';
 export { frame, describe, cues, place, seedList, withRootLook } from '../core/tree.js';
 export { format } from '../core/fit.js';
 export { FPS } from '../core/curves.js';
-export { SR, filmAudio } from '../core/synth.js';
+export { SR, filmAudio, scoreEvents, setPcm, voiceIds } from '../core/synth.js';
 export { bounds, group, paper, stroke, rect, walk, hashList, withProps } from '../core/list.js';
 export { withHand } from '../core/glyphs.js';
 export { handOf, hashLook, resolveLook } from '../core/looks.js';

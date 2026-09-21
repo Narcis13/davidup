@@ -2,9 +2,13 @@
 // v1 envelope (note, noiseBurst), so the Node driver and the player play the same samples.
 //   { t, dur, hz, type: 'sine'|'triangle'|'square'|'saw'|'noise'|'hiss', gain = .25, attack = .02, release = 'exp', seed }
 // hiss: seeded white noise through a band-pass at hz (q, default .8), held at gain for dur (v1 sand gestures).
-// Nothing here reads Date, Math.random or global state.
+//   { t, type: 'voice', id, gain = 1, dur }   a recorded line (4.0 V1): the store's sample `id`, mixed at gain
+//   (not scaled by master), cut at dur when given; everything else ducks 9 dB under its voiced part.
+// Nothing here reads Date, Math.random or global state; a voice's samples come from the reader the host
+// installs (core/assets.js in Node, the player's preload in the browser).
 import { rng } from './rand.js';
 import { cues } from './tree.js';
+import { decodeWav, voicedSpan } from './wav.js';
 
 export const SR = 44100;
 const FLOOR = 0.0008;   // exponential releases end here (Web Audio cannot ramp to 0)
@@ -77,10 +81,74 @@ function addHiss(out, ev) {
   }
 }
 
+// ---------- voices (4.0 V1) ----------
+
+// How far the score drops under a voice's voiced part (dB), and the ramp either side (s).
+export const DUCK_DB = 9, DUCK_RAMP = 0.15;
+const PCM = new Map();   // id -> { samples (mono, SR), span: [t0, t1] voiced, or null }
+let PCM_READER = null;
+
+// How a sample's bytes are found by id: (id) => wav bytes | undefined. core/assets.js installs the store's.
+export function setPcmReader(fn) { PCM_READER = fn; }
+
+// Hands the synth a sample: wav bytes (decoded here) or mono samples already at SR. Decoded once per process.
+export function setPcm(id, data) {
+  const samples = data instanceof Float32Array ? data : decodeWav(data);
+  PCM.set(id, { samples, span: voicedSpan(samples) });
+}
+
+// { samples, span } for a sample id, read through the installed reader the first time it is asked for.
+export function pcmOf(id) {
+  if (!PCM.has(id)) {
+    const bytes = PCM_READER?.(id);
+    if (!bytes) throw new Error(`synth: no sample '${id}' (hdf import <line.wav> --kind sample --name ${id}, and name it in the film's assets)`);
+    setPcm(id, bytes);
+  }
+  return PCM.get(id);
+}
+
+// Where each voice plays in film time: { id, t, t1 (end of the sound), v0, v1 (its voiced part) }.
+export function voiceSpans(events) {
+  return events.flat(Infinity).filter((e) => e?.type === 'voice').map((e) => {
+    const { samples, span } = pcmOf(e.id), len = Math.min(samples.length / SR, e.dur ?? Infinity);
+    return { id: e.id, t: e.t, t1: e.t + len, v0: e.t + Math.min(span?.[0] ?? 0, len), v1: e.t + Math.min(span?.[1] ?? 0, len) };
+  });
+}
+
+function addVoice(out, ev) {
+  const { samples } = pcmOf(ev.id), n0 = Math.round(ev.t * SR);
+  const len = ev.dur === undefined ? samples.length : Math.min(samples.length, Math.round(ev.dur * SR));
+  for (let i = Math.max(0, -n0); i < len && n0 + i < out.length; i++) out[n0 + i] += samples[i] * ev.gain;
+}
+
+// The score's gain under the voices: 1, down DUCK_DB dB over each voiced part, ramped linearly in dB over
+// DUCK_RAMP s on either side. Overlapping voices take the deeper duck.
+function duckCurve(spans, n) {
+  const d = new Float32Array(n), r = DUCK_RAMP * SR;
+  for (const s of spans) {
+    if (!(s.v1 > s.v0)) continue;
+    const a = s.v0 * SR, b = s.v1 * SR;
+    for (let i = Math.max(0, Math.floor(a - r)); i < Math.min(n, Math.ceil(b + r)); i++) {
+      const k = i < a ? 1 - (a - i) / r : i > b ? 1 - (i - b) / r : 1;
+      if (k > d[i]) d[i] = k;
+    }
+  }
+  const g = new Float32Array(n);
+  for (let i = 0; i < n; i++) g[i] = d[i] ? Math.pow(10, -DUCK_DB * d[i] / 20) : 1;
+  return g;
+}
+
 const DEFAULTS = { gain: 0.25, attack: 0.02, release: 'exp', type: 'triangle' };
 
 // Checks and fills defaults; throws on anything a score should not contain.
 export function event(e) {
+  if (e?.type === 'voice') {
+    const ev = { gain: 1, ...e };
+    if (typeof ev.id !== 'string' || !ev.id) throw new TypeError(`synth: a voice needs the id of a sample, got ${JSON.stringify(e)}`);
+    for (const k of ['t', 'gain']) if (!Number.isFinite(ev[k])) throw new TypeError(`synth: voice '${ev.id}' ${k} must be a number, got ${JSON.stringify(e)}`);
+    if (ev.dur !== undefined && !(ev.dur > 0)) throw new RangeError(`synth: voice '${ev.id}' at ${ev.t}s has dur ${ev.dur}`);
+    return Object.freeze(ev);
+  }
   const ev = { ...DEFAULTS, ...e };
   for (const k of ['t', 'dur', 'gain']) if (!Number.isFinite(ev[k])) throw new TypeError(`synth: event ${k} must be a number, got ${JSON.stringify(e)}`);
   if (ev.dur <= 0) throw new RangeError(`synth: event at ${ev.t}s has dur ${ev.dur}`);
@@ -88,17 +156,28 @@ export function event(e) {
 }
 
 // events => mono Float32Array of ceil(dur * SR) samples, scaled by master (clamped to 0.6), hard-clipped to +-1.
+// Voices are mixed after the master, at their own gain, over the score ducked under them.
 export function renderScore(events, dur, { master = 0.5 } = {}) {
-  const out = new Float32Array(Math.ceil(dur * SR));
+  const out = new Float32Array(Math.ceil(dur * SR)), voices = [];
   for (const e of events.flat(Infinity)) {
     if (!e) continue;
     const ev = event(e);
-    if (ev.type === 'noise') addNoise(out, ev); else if (ev.type === 'hiss') addHiss(out, ev); else addNote(out, ev);
+    if (ev.type === 'voice') voices.push(ev);
+    else if (ev.type === 'noise') addNoise(out, ev); else if (ev.type === 'hiss') addHiss(out, ev); else addNote(out, ev);
   }
   const m = Math.min(MASTER_MAX, Math.max(0, master));
-  for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, out[i] * m));
+  if (!voices.length) {
+    for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, out[i] * m));
+    return out;
+  }
+  const vox = new Float32Array(out.length), duck = duckCurve(voiceSpans(voices), out.length);
+  for (const v of voices) addVoice(vox, v);
+  for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, out[i] * m * duck[i] + vox[i]));
   return out;
 }
+
+// The sample ids a film's score speaks, in order of first use (the player fetches these before it plays).
+export const voiceIds = (events) => [...new Set(events.flat(Infinity).filter((e) => e?.type === 'voice').map((e) => e.id))];
 
 // A film's score: film.score(cues) => events (or { events, master }). null when the film has none.
 export function scoreEvents(film) {

@@ -748,6 +748,34 @@ Raw events: `note(t, hz, dur, type, gain)`, `burst(t, dur, gain, seed)`,
 `pentHz(octave, step)`. `hdf render` writes the wav and muxes it into
 `-final.mp4`; the contact sheet draws note onsets under the tiles.
 
+### Narration
+
+A recorded line is a store sample under a shot (4.0 V1):
+
+```bash
+say -v Samantha -o line.wav --file-format=WAVE --data-format=LEI16@22050 "Here comes the ball."
+hdf import line.wav --kind sample --name mini-line --licence own --credit "macOS say"
+```
+
+```js
+import { voice } from 'handdrawn';
+film({ ..., assets: ['mini-line'], score: (c) => [plucks(0, 2), voice('mini-line', c.shots[0].t0 + 0.5)] });
+```
+
+`voice(id, t, { gain = 1, dur })` plays the sample from `t` at `gain` (as
+recorded; the master does not scale it), cut at `dur` when given. Everything
+else in the score ducks 9 dB under the line's voiced part (energy above
+-40 dBFS), with 0.15 s ramps either side. `core/wav.js` reads 8/16/24/32-bit
+PCM and float wavs, plain or extensible, any rate and channel count (walking
+past `LIST` chunks), and the synth decodes each sample once per process to
+mono at 44.1 kHz. `hdf render` mixes it into the wav and `-final.mp4`, the
+contact sheet draws a voice bar under the tiles (the whole sound faint, the
+voiced part solid), and the player plays the same samples: `hdf bundle`
+inlines the wav, `hdf dev` serves its blob. Name the id in the film's
+`assets` so the bundle and `hdf find` see it. The package only takes wavs:
+`say`, piper, edge-tts or a phone recording (converted with `ffmpeg -i in.m4a
+line.wav`) all make one. `films/mini-voice.js` is `mini` with one line.
+
 ---
 
 ## 9. The CLI
@@ -908,6 +936,8 @@ that reads the asset store needs `hdf dev` or `hdf bundle`).
 - no sign-off, or one still writing 1.5 s before the end;
 - cues off the 1/12 s grid;
 - an actor's fallback bob (a cycle it lacks) on screen over 1 s in a shot;
+- a voice whose sample the store lacks (or cannot decode), or that runs past
+  the film's end;
 - `Math.random`, `Date`, `filter`, `shadowBlur` or gradients in the source.
 
 `hdf import --kind puppet` runs three of them over a payload before it reaches

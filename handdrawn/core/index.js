@@ -28,8 +28,9 @@ export {
 } from './marks.js';
 export { pin, on, onAll, silhouette, shadow, photo, photoFront, mask, rim, backdrop, nightfall, glow } from './photo.js';
 export { doodle, pen } from './doodle.js';
-export { pentHz, renderScore, toWav16 } from './synth.js';
-export { note, burst, plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
+export { pentHz, renderScore, toWav16, setPcm, voiceSpans, DUCK_DB } from './synth.js';
+export { readWav, decodeWav, voicedSpan } from './wav.js';
+export { note, burst, voice, plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
 export { registerClip, registerClips, clipFromStore, clipOf, pose, traced, gap, airborne } from '../engines/traced.js';
 export { sim, G, cover, scanFill, circlePts, spiralPts, pathOf, pointAt } from '../engines/sim.js';
 export { registerSource } from './sources.js';

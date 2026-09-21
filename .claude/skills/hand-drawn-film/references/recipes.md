@@ -233,6 +233,7 @@ step)` gives a pentatonic pitch. Motifs (`handdrawn`, from
 | gallery, sign-off | `dyad(t0, dur)`: a long sine dyad with a 1 s release |
 | sand | `bed.hiss()`: every gesture hisses for as long as it lasts |
 | speech | `line.events(t0)` from `actor.say()`: one pluck per syllable (`pluckPerSyllable(text, t0)` bare) |
+| narration | `voice(id, t, { gain, dur })`: a recorded line from the store (`--kind sample`); the rest ducks 9 dB under it |
 
 ```js
 score: ({ shots, end }) => {
@@ -243,3 +244,11 @@ score: ({ shots, end }) => {
 
 Master gain is clamped to 0.6. `hdf render` writes the wav and muxes
 `-final.mp4`; nothing to click.
+
+A voice is a wav in the store, not a synth voice: make it with `say -o
+line.wav --file-format=WAVE --data-format=LEI16@22050 "..."` (macOS), piper,
+edge-tts or a phone recording (`ffmpeg -i memo.m4a line.wav`), then `hdf
+import line.wav --kind sample --name <id> --licence own`, name the id in the
+film's `assets` and put `voice('<id>', t)` in the score. Lint rule `voice`
+fails a missing sample or a line that runs past the end (cut it with `{ dur
+}`). The contact sheet shows it as an orange bar under the tiles.

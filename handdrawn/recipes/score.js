@@ -11,6 +11,10 @@ export { pentHz };
 // One enveloped oscillator (v1 note).
 export const note = (t, hz, dur, type = 'triangle', gain = 0.25) => ({ t, hz, dur, type, gain });
 
+// A recorded line (4.0 V1): the store's sample `id` from t, at gain (1 = as recorded), cut at dur if given.
+// The rest of the score ducks under it. Name the id in the film's assets as well, so the bundle carries it.
+export const voice = (id, t, { gain = 1, dur } = {}) => ({ t, type: 'voice', id, gain, ...(dur === undefined ? {} : { dur }) });
+
 // A noise burst (v1 noiseBurst).
 export const burst = (t, dur = 0.25, gain = 0.3, seed = 1) => ({ t, dur, type: 'noise', gain, seed });
 

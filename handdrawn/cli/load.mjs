@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, fromStore, readCatalogue, recordOf } from '../core/assets.js';
 import { mapLooks, withRootLook } from '../core/tree.js';
+import { register } from '../core/store.js';
 import { modifyLook, parseLookName, resolveLook } from '../core/looks.js';
 
 export class UsageError extends Error {}
@@ -48,6 +49,8 @@ export async function loadImages(film, dir = '.') {
   records.set(film, assets);
   const out = new Map();
   for (const [id, a] of Object.entries(assets)) {
+    // A sample (a voice) is registered, so the synth reads it from the store the film named (4.0 V1).
+    if (typeof a?.src === 'string' && /\.wav$/i.test(a.src)) register({ [id]: { ...a, src: resolve(dir, a.src) } });
     if (!a || !isImageSrc(a.src)) continue;
     const src = a.src.startsWith('data:') ? a.src : resolve(dir, a.src);
     try { out.set(id, await loadImage(src)); } catch (e) { throw new Error(`asset '${id}': cannot decode image (${e.message})`); }

@@ -15,7 +15,7 @@ export const guides = cel('guides', () => [
   stroke(circle(0, 0, 123), 'guide', { w: 0.9 }),
 ], { box: [-240, -240, 480, 480], desc: 'construction lines' });
 
-const roll = shot('roll', 2, ({ t, i, W, CX, CY }) => {
+export const roll = shot('roll', 2, ({ t, i, W, CX, CY }) => {
   const x = curve([[0, CX - 400], [1.6, CX + 300]], ease.out)(t);
   return [
     paper(),
@@ -26,14 +26,14 @@ const roll = shot('roll', 2, ({ t, i, W, CX, CY }) => {
   ];
 });
 
-const sign = shot('sign', 2.5, ({ t, CX, CY }) => [
+export const sign = shot('sign', 2.5, ({ t, CX, CY }) => [
   paper(),
   meta('anchor', { name: 'signOff' }),
   signOff('mini', 'film', { x: CX, y: CY, pA: ramp(0, 0.5, t), pB: ramp(0.5, 1, t) }),
 ]);
 
 // v1: a rising triangle pluck every 0.5 s while the ball rolls, a low sine under the sign-off.
-const score = ({ shots: [r, s] }) => ({
+export const score = ({ shots: [r, s] }) => ({
   master: 0.5,
   events: [plucks(r.t0, r.dur, { steps: 'rise', len: 0.4 }), dyad(s.t0, s.dur, { gain: 0.3 })],
 });

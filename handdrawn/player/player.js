@@ -46,11 +46,21 @@ async function load(gen) {
   const named = Array.isArray(film.assets)
     ? film.assets.map((r) => { const id = typeof r === 'string' ? r : r?.id; return [id, cfg.catalogue?.[id]]; })
     : Object.entries(film.assets ?? {});
+  // An asset's URL: a data URL as is, anything else against the film's URL (in dev that is a path, /v<gen>/...).
+  const at = (s) => (s.startsWith('data:') ? s : new URL(s, new URL(src.film, location.href)).href);
   const images = new Map();
   for (const [id, a] of named) {
     const s = cfg.assets?.[id] ?? a?.src;
     if (typeof s !== 'string' || !/^data:image\/|\.(png|jpe?g|webp|gif)$/i.test(s)) continue;
-    images.set(id, await decode(s.startsWith('data:') ? s : new URL(s, src.film).href));
+    images.set(id, await decode(at(s)));
+  }
+  // Voices (4.0 V1): each sample's wav fetched and decoded before the score is mixed, which is synchronous.
+  for (const id of D.voiceIds(D.scoreEvents(film)?.events ?? [])) {
+    const s = cfg.assets?.[id] ?? named.find(([k]) => k === id)?.[1]?.src;
+    if (typeof s !== 'string') throw new Error(`voice '${id}': no wav on the page (name it in the film's assets; re-run hdf bundle)`);
+    const res = await fetch(at(s));
+    if (!res.ok) throw new Error(`voice '${id}': ${res.status} fetching its wav`);
+    D.setPcm(id, new Uint8Array(await res.arrayBuffer()));
   }
   const ar = q.get('ar') || undefined, fmt = ar ? D.format(ar) : film.format;
   const width = +q.get('w') || Math.round(720 * fmt.W / Math.min(fmt.W, fmt.H));

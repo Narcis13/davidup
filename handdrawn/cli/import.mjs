@@ -5,6 +5,7 @@
 //   hdf import work/teapot.png --kind cutout --name teapot --credit "The Met, CC0" --source <url> --licence CC0
 //   hdf import work/fox.puppet.json --kind puppet --name fox --licence own --tags fox,cast
 //   hdf import work/horse.json --kind clip --name horse --licence PD
+//   hdf import work/line1.wav --kind sample --name moon-1 --licence own   a recorded line, for voice() (4.0 V1)
 //   hdf import ... --root ../other-store          import into a store that is not handdrawn/assets
 //   hdf import --v2 films/held-once-photos.js --licence CC0   a 2.0 data module: every record into the store
 //
@@ -21,6 +22,7 @@ import { ASSET_ROOT, KINDS, LICENCES, SCHEMAS, imageType, readCatalogue, validat
 import { bounds, parse } from '../core/list.js';
 import { lintPuppet } from '../core/lint.js';
 import { checkStick, compileStick, isStick } from '../core/stick.js';
+import { readWav } from '../core/wav.js';
 import { UsageError } from './load.mjs';
 import { colours, silhouette } from './photo.mjs';
 import { skiaCanvas } from './skia.mjs';
@@ -92,9 +94,10 @@ async function fields(kind, bytes, abs, name) {
     return { w, h, sil, colours: colours(cv, sil), box: [0, 0, w, h] };
   }
   if (how === 'audio') {
-    if (bytes.subarray(0, 4).toString('latin1') !== 'RIFF' || bytes.subarray(8, 12).toString('latin1') !== 'WAVE') throw usage(`import: a ${kind} must be a wav file`);
-    const rate = bytes.readUInt32LE(24), bits = bytes.readUInt16LE(34), ch = bytes.readUInt16LE(22);
-    const sec = rate && bits && ch ? +((bytes.length - 44) / (rate * ch * bits / 8)).toFixed(3) : undefined;
+    // Read the whole file now, so a wav the synth cannot decode is refused here rather than at render time.
+    let w;
+    try { w = readWav(bytes); } catch (e) { throw usage(`import: a ${kind} must be a wav file the synth can read (${e.message})`); }
+    const sec = +w.sec.toFixed(3);
     return sec > 0 ? { sec } : {};
   }
   const data = json(bytes, abs);

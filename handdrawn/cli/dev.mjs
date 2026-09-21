@@ -5,7 +5,7 @@
 // with no page reload. Reads are limited to the package, the film's directory and the working directory.
 // GET /__hdf/events is an SSE stream with one `change` event per burst of edits.
 // The page also carries the asset store: window.HDF.catalogue is a record per id (a data payload inline, a
-// raster's pixels left out) and window.HDF.assets points every raster at its blob under /v0/, which is what
+// raster's pixels left out) and window.HDF.assets points every raster and every sample at its blob under /v0/, which is what
 // core/assets.web.js reads in place of the file system. The store is read fresh on every page load.
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
@@ -34,7 +34,7 @@ export function storeState(rel) {
   for (const id of st.ids) {
     const { src, ...rest } = recordOf(st, id);
     catalogue[id] = rest;
-    if (SCHEMAS[st.entry(id).kind].payload === 'raster' && src) assets[id] = `/v0/${rel(src)}`;
+    if (['raster', 'audio'].includes(SCHEMAS[st.entry(id).kind].payload) && src) assets[id] = `/v0/${rel(src)}`;
   }
   return { catalogue, assets };
 }

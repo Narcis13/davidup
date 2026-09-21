@@ -9,6 +9,7 @@ import { skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
 import { norm } from '../core/list.js';
 import { seedList } from '../core/tree.js';
+import { voiceSpans } from '../core/synth.js';
 import { imagesOf } from './load.mjs';
 
 // A canvas sized for the film at an output width, and a function drawing frame i on it.
@@ -102,10 +103,11 @@ export async function grid([path], flags, { loadFilm }) {
 
 // The render's contact sheet: two tiles per second (every sixth drawn frame), twelve to a row, with a strip
 // under each row showing cuts (red lines through tile and strip) and score onsets (dots, higher = higher
-// pitch; noise as a cross). add(i, rawRGBA) as frames go by, then write(file, { cues, events }).
+// pitch; noise as a cross) and, when the score speaks, a band of voice bars (4.0 V1: the whole sound faint,
+// its voiced part solid, the sample id on it). add(i, rawRGBA) as frames go by, then write(file, { cues, events }).
 export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, cols = 12 } = {}) {
   const size = outputSize(ar ? format(ar) : film.format, width);
-  const tileH = Math.round(tileW * size.outH / size.outW), strip = 30;
+  const tileH = Math.round(tileW * size.outH / size.outW);
   const full = skiaCanvas(size.outW, size.outH), fctx = full.getContext('2d');
   const tiles = [];
   return {
@@ -119,6 +121,7 @@ export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, co
       tiles[i / every] = t;
     },
     async write(file, { cues = { cuts: [] }, events = [] } = {}) {
+      const voices = voiceSpans(events), strip = voices.length ? 44 : 30;
       const n = Math.ceil(film.n / every), rows = Math.ceil(n / cols), rowH = tileH + strip;
       const sheet = skiaCanvas(cols * tileW, rows * rowH), g = sheet.getContext('2d');
       const perTile = every / FPS;   // seconds per tile
@@ -135,12 +138,30 @@ export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, co
       }
       const lo = Math.log2(40), hi = Math.log2(2000);
       for (const e of events) {
+        if (e.type === 'voice') continue;
         const { row, x } = xAt(e.t);
         if (row >= rows) continue;
         const y0 = row * rowH + tileH + 14, y = y0 + 13 - 12 * Math.min(1, Math.max(0, (Math.log2(e.hz ?? 440) - lo) / (hi - lo)));
         g.fillStyle = g.strokeStyle = e.type === 'noise' ? '#f0f0f0' : { sine: '#7fe7ff', triangle: '#ffe22b', square: '#ff6fd8', saw: '#5fe08a', sawtooth: '#5fe08a' }[e.type] ?? '#ccc';
         if (e.type === 'noise') { g.lineWidth = 1.2; g.beginPath(); g.moveTo(x - 3, y0 + 4); g.lineTo(x + 3, y0 + 10); g.moveTo(x + 3, y0 + 4); g.lineTo(x - 3, y0 + 10); g.stroke(); }
         else { g.beginPath(); g.arc(x, y, 2, 0, Math.PI * 2); g.fill(); }
+      }
+      // A bar crossing a row's end carries on at the start of the next row.
+      const bar = (t0, t1, draw) => {
+        for (let t = t0; t < t1 - 1e-9;) {
+          const { row, x } = xAt(t), end = Math.min(t1, (row + 1) * cols * perTile);
+          if (row >= rows) break;
+          draw(x, row * rowH + tileH + 31, xAt(end - 1e-9).x - x, t === t0);
+          t = end;
+        }
+      };
+      for (const v of voices) {
+        g.fillStyle = 'rgba(255, 159, 67, 0.3)';
+        bar(v.t, v.t1, (x, y, w) => g.fillRect(x, y, w, 12));
+        g.fillStyle = '#ff9f43';
+        bar(v.v0, v.v1, (x, y, w) => g.fillRect(x, y + 1, w, 10));
+        g.fillStyle = '#141414';
+        bar(v.v0, v.v1, (x, y, w, first) => { if (first) g.fillText(v.id, x + 2, y + 1); });
       }
       g.strokeStyle = '#ff3b30';
       g.lineWidth = 2;

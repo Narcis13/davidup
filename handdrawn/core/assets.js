@@ -26,7 +26,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkPath } from './list.js';
-import { register, setReader } from './store.js';
+import { peek, register, setReader } from './store.js';
+import { setPcmReader } from './synth.js';
 
 // The store next to the package (handdrawn/assets) unless a command names another root.
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
@@ -275,6 +276,13 @@ export function recordOf(st, id) {
 setReader((id) => {
   const st = readCatalogue(ASSET_ROOT);
   return st.has(id) ? recordOf(st, id) : undefined;
+});
+
+// A voice in a score (4.0 V1) reads its sample's wav through the registry: a record a film read (or
+// cli/load.mjs registered from another store), else the store next to the package.
+setPcmReader((id) => {
+  const r = peek(id);
+  return typeof r?.src === 'string' && /\.wav$/i.test(r.src) && existsSync(r.src) ? readFileSync(r.src) : undefined;
 });
 
 // The records for the ids a film names, read from the store next to the package (or `from`, a directory

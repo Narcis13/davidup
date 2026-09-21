@@ -25,6 +25,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | film | look / engine | read it for |
 |---|---|---|
 | `mini.js` | paperInk | the smallest complete film: a cel, a shot, a sign-off, a score |
+| `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
 | `four-looks.js` | riso, screen, pencil, ink | recipes N O P U W A S, riso cards as plates, a look per shot |
@@ -210,6 +211,12 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`
   after the actor and add `line.events(shot.t0)` to the score. Spoken words
   count against the look's word allowance (doodle and cutout: 3).
+- **Narration.** A recorded line is a wav in the store: `say -o line.wav
+  --file-format=WAVE --data-format=LEI16@22050 "..."` (macOS), piper,
+  edge-tts or the user's phone (`ffmpeg -i memo.m4a line.wav`); `hdf import
+  line.wav --kind sample --name <id> --licence own`; name `<id>` in `assets`
+  and add `voice('<id>', t)` to the score. The package never synthesises
+  speech. The score ducks 9 dB under it; lint fails a line past the end.
 - **Turnarounds.** A puppet with `views` turns through `look(dir)` and on a
   `book3` page as the leaf lifts (`fox-and-teapot.js`, the turn shot). `hdf
   sheet store fox` opens on the turnaround.

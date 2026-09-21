@@ -231,11 +231,21 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `pentHz(o, s, base = 220)` Pentatonic pitch: octave o, step s (wraps within the octave, as v1 pentHz).
 - `renderScore(events, dur, { master = 0.5 } = {})` events => mono Float32Array of ceil(dur * SR) samples, scaled by master (clamped to 0.6), hard-clipped to +-1.
 - `toWav16(samples, { sr = SR, channels = 1 } = {})` 16-bit PCM WAV bytes (mono unless channels says otherwise; interleaved input).
+- `setPcm(id, data)` Hands the synth a sample: wav bytes (decoded here) or mono samples already at SR.
+- `voiceSpans(events)` Where each voice plays in film time: { id, t, t1 (end of the sound), v0, v1 (its voiced part) }.
+- `DUCK_DB` How far the score drops under a voice's voiced part (dB), and the ramp either side (s).
+
+### core/wav.js
+
+- `readWav(bytes)` { sr, channels, bits, float, sec, data: Float32Array per channel } off the fmt and data chunks.
+- `decodeWav(bytes, { sr = SR } = {})` Mono samples at sr (channels averaged, resampled): what the synth mixes.
+- `voicedSpan(x, sr = SR, { floor = 0.01, win = 0.02 } = {})` The voiced region: 20 ms windows whose RMS is above `floor` (-40 dBFS by default), first to last.
 
 ### recipes/score.js
 
 - `note(t, hz, dur, type = 'triangle', gain = 0.25)` One enveloped oscillator (v1 note).
 - `burst(t, dur = 0.25, gain = 0.3, seed = 1)` A noise burst (v1 noiseBurst).
+- `voice(id, t, { gain = 1, dur } = {})` A recorded line (4.0 V1): the store's sample `id` from t, at gain (1 = as recorded), cut at dur if given.
 - `plucks(t0, dur, { every = 0.5, oct = 0, type = 'triangle', gain = 0.2, len = 0.7, steps: how = 'random', seed =, ...` Establishing, sea: slow pentatonic plucks, triangle, one every 0.5 s.
 - `swell(t0, dur = 1.2, { gain = 0.12 } = {})` Blueprint interlude: 55 Hz sawtooth swell plus a sine an octave up.
 - `cueNotes(times, { oct = 1, type = 'sine', gain = 0.22, len = 0.5, from = 0 } = {})` Doubling, cues, cards: one short note per cue, rising through the pentatonic (octaves carry).
