@@ -1,0 +1,96 @@
+{
+  "kind": "vocabulary",
+  "name": "biped",
+  "about": "Poses, cycles and expressions keyed on the standard biped part names (4.0 K3). Joints are degrees on the 2 degree grid from the part's rest; an -l limb turned positive and an -r limb turned negative swing out and up (out to their side in the front view, the far one back and the near one forward in profile); in profile every limb turned negative swings forward. A variant may be a list: the first one the puppet has wins. 'top' and 'mid' mean a puppet's last and middle mouth. A pose or cycle applies to a puppet that has every part in its `needs` and keeps at least one key; the rest are dropped by the actor's known(). `body` is the trunk above the hips: a puppet whose body is its root does not take its turns. `views` is the view each pose and cycle is drawn for (front when not named). A frame's lift is the stage's (4% of the figure's height), not the puppet's units.",
+  "names": ["head", "neck", "body", "hips", "arm-l", "arm-r", "fore-l", "fore-r", "hand-l", "hand-r", "leg-l", "leg-r", "shin-l", "shin-r", "foot-l", "foot-r", "eye", "pupil", "brow-l", "brow-r", "mouth", "tail"],
+  "poses": {
+    "idle": { "arm-l": 6, "arm-r": -6, "fore-l": 6, "fore-r": -6, "head": 2 },
+    "stand": { "hips": 0, "body": 0, "neck": 0, "head": 0, "arm-l": 0, "arm-r": 0, "fore-l": 0, "fore-r": 0, "hand-l": 0, "hand-r": 0, "leg-l": 0, "leg-r": 0, "shin-l": 0, "shin-r": 0, "foot-l": 0, "foot-r": 0 },
+    "point-l": { "arm-l": 90, "fore-l": 0, "arm-r": -4, "fore-r": -6, "head": -2, "pupil.x": -4 },
+    "point-r": { "arm-r": -90, "fore-r": 0, "arm-l": 4, "fore-l": 6, "head": -2, "pupil.x": 4 },
+    "wave": { "arm-r": -140, "fore-r": -24, "arm-l": 4, "head": -4, "eye": "happy", "mouth": "top" },
+    "think": { "arm-r": -34, "fore-r": -160, "arm-l": 36, "fore-l": -104, "head": 8, "pupil.x": 3, "pupil.y": -3, "brow-l.y": -3, "brow-r": -8, "mouth": 0 },
+    "shrug": { "arm-l": 26, "fore-l": 72, "arm-r": -26, "fore-r": -72, "head": 8, "brow-l.y": -4, "brow-r.y": -4, "mouth": 1 },
+    "cheer": { "arm-l": 150, "fore-l": 12, "arm-r": -150, "fore-r": -12, "head": -6, "eye": "happy", "mouth": "mid", "tail": 20 },
+    "facepalm": { "arm-r": -36, "fore-r": -168, "arm-l": 6, "head": 14, "eye": "sleep", "mouth": 0, "brow-l": -8, "brow-r": 8 },
+    "bow": { "body": 40, "head": 12, "arm-l": -40, "arm-r": -40, "fore-l": 0, "fore-r": 0, "eye": "sleep" },
+    "sit": { "leg-l": -90, "leg-r": -86, "shin-l": 90, "shin-r": 86, "foot-l": 0, "foot-r": 0, "arm-l": -20, "arm-r": -30, "fore-l": -40, "fore-r": -40 },
+    "kneel": { "leg-l": 0, "shin-l": 90, "foot-l": 50, "leg-r": -90, "shin-r": 90, "foot-r": 0, "arm-r": -30, "fore-r": -50, "arm-l": 6 },
+    "fall": { "hips": 30, "body": -10, "head": -8, "arm-l": 130, "fore-l": 40, "arm-r": -110, "fore-r": -30, "leg-l": 30, "leg-r": -20, "shin-l": 30, "shin-r": 40, "eye": "wide", "mouth": "mid", "brow-l.y": -6, "brow-r.y": -6, "tail": 30 },
+    "sleep": { "head": 16, "body": 4, "arm-l": 2, "arm-r": -2, "fore-l": 4, "fore-r": -4, "eye": "sleep", "mouth": 0, "brow-l.y": 2, "brow-r.y": 2, "tail": -16 },
+    "look-up": { "head": -14, "pupil.y": -3, "brow-l.y": -3, "brow-r.y": -3, "mouth": 1 },
+    "carry": { "arm-l": -56, "arm-r": -50, "fore-l": -36, "fore-r": -40, "body": -4, "head": -2 },
+    "push": { "body": 16, "head": -8, "arm-l": -96, "arm-r": -90, "fore-l": -4, "fore-r": -6, "leg-r": -30, "shin-r": 24, "leg-l": 26, "shin-l": 4, "foot-l": 20, "brow-l": 8, "brow-r": -8 },
+    "write": { "arm-r": -118, "fore-r": -24, "arm-l": 8, "fore-l": 10, "head": -8, "pupil.x": 3 },
+    "present": { "arm-r": -64, "fore-r": -36, "hand-r": -20, "arm-l": 8, "fore-l": 10, "head": -4, "eye": "open", "mouth": "top" },
+    "hands-on-hips": { "arm-l": 44, "fore-l": -104, "arm-r": -44, "fore-r": 104, "head": -4 },
+    "arms-crossed": { "arm-l": 26, "fore-l": -112, "arm-r": -26, "fore-r": 112, "head": 4, "brow-l": 8, "brow-r": -8 }
+  },
+  "cycles": {
+    "walk": { "fps": 12, "frames": [
+      { "leg-r": -22, "shin-r": 4, "foot-r": -10, "leg-l": 22, "shin-l": 10, "foot-l": 16, "arm-r": 16, "fore-r": -8, "arm-l": -16, "fore-l": -20, "body": 2, "head": 0 },
+      { "leg-r": -16, "shin-r": 8, "foot-r": 0, "leg-l": 16, "shin-l": 40, "foot-l": 0, "arm-r": 12, "fore-r": -10, "arm-l": -12, "fore-l": -16, "body": 2, "head": -2 },
+      { "leg-r": 0, "shin-r": 4, "foot-r": 0, "leg-l": 0, "shin-l": 44, "foot-l": 0, "arm-r": 0, "fore-r": -12, "arm-l": 0, "fore-l": -12, "body": 2, "head": -2 },
+      { "leg-r": 16, "shin-r": 2, "foot-r": 0, "leg-l": -16, "shin-l": 20, "foot-l": 0, "arm-r": -12, "fore-r": -16, "arm-l": 12, "fore-l": -10, "body": 2, "head": 0 },
+      { "leg-r": 22, "shin-r": 10, "foot-r": 16, "leg-l": -22, "shin-l": 4, "foot-l": -10, "arm-r": -16, "fore-r": -20, "arm-l": 16, "fore-l": -8, "body": 2, "head": 0 },
+      { "leg-r": 16, "shin-r": 40, "foot-r": 0, "leg-l": -16, "shin-l": 8, "foot-l": 0, "arm-r": -12, "fore-r": -16, "arm-l": 12, "fore-l": -10, "body": 2, "head": -2 },
+      { "leg-r": 0, "shin-r": 44, "foot-r": 0, "leg-l": 0, "shin-l": 4, "foot-l": 0, "arm-r": 0, "fore-r": -12, "arm-l": 0, "fore-l": -12, "body": 2, "head": -2 },
+      { "leg-r": -16, "shin-r": 20, "foot-r": 0, "leg-l": 16, "shin-l": 2, "foot-l": 0, "arm-r": 12, "fore-r": -10, "arm-l": -12, "fore-l": -16, "body": 2, "head": 0 }
+    ] },
+    "run": { "fps": 12, "frames": [
+      { "leg-r": -36, "shin-r": 12, "foot-r": -6, "leg-l": 36, "shin-l": 70, "arm-r": 36, "fore-r": -80, "arm-l": -36, "fore-l": -90, "body": 10, "head": -4 },
+      { "leg-r": -18, "shin-r": 24, "foot-r": 0, "leg-l": 18, "shin-l": 100, "arm-r": 18, "fore-r": -84, "arm-l": -18, "fore-l": -88, "body": 10, "head": -6 },
+      { "leg-r": 18, "shin-r": 30, "foot-r": 20, "leg-l": -18, "shin-l": 60, "arm-r": -18, "fore-r": -88, "arm-l": 18, "fore-l": -84, "body": 10, "head": -6, "lift": 1 },
+      { "leg-r": 36, "shin-r": 70, "leg-l": -36, "shin-l": 12, "foot-l": -6, "arm-r": -36, "fore-r": -90, "arm-l": 36, "fore-l": -80, "body": 10, "head": -4 },
+      { "leg-r": 18, "shin-r": 100, "leg-l": -18, "shin-l": 24, "foot-l": 0, "arm-r": -18, "fore-r": -88, "arm-l": 18, "fore-l": -84, "body": 10, "head": -6 },
+      { "leg-r": -18, "shin-r": 60, "leg-l": 18, "shin-l": 30, "foot-l": 20, "arm-r": 18, "fore-r": -84, "arm-l": -18, "fore-l": -88, "body": 10, "head": -6, "lift": 1 }
+    ] },
+    "jump": { "fps": 6, "frames": [
+      { "body": 16, "head": -6, "leg-l": -40, "leg-r": -40, "shin-l": 80, "shin-r": 80, "foot-l": -20, "foot-r": -20, "arm-l": 36, "arm-r": 36, "fore-l": -20, "fore-r": -20, "lift": -2 },
+      { "body": 4, "head": -4, "leg-l": 0, "leg-r": 0, "shin-l": 0, "shin-r": 0, "foot-l": 30, "foot-r": 30, "arm-l": -150, "arm-r": -150, "fore-l": -10, "fore-r": -10, "lift": 1 },
+      { "body": 0, "head": -6, "leg-l": -34, "leg-r": -30, "shin-l": 64, "shin-r": 60, "foot-l": 10, "foot-r": 10, "arm-l": -160, "arm-r": -156, "fore-l": -10, "fore-r": -10, "lift": 6 },
+      { "body": 2, "head": -4, "leg-l": -24, "leg-r": -20, "shin-l": 40, "shin-r": 36, "foot-l": 0, "foot-r": 0, "arm-l": -120, "arm-r": -116, "fore-l": -10, "fore-r": -10, "lift": 4 },
+      { "body": 14, "head": -4, "leg-l": -36, "leg-r": -36, "shin-l": 72, "shin-r": 72, "foot-l": -16, "foot-r": -16, "arm-l": -60, "arm-r": -60, "fore-l": -20, "fore-r": -20, "lift": -2 },
+      { "body": 4, "head": 0, "leg-l": -8, "leg-r": -8, "shin-l": 16, "shin-r": 16, "foot-l": -4, "foot-r": -4, "arm-l": -10, "arm-r": -10, "fore-l": -8, "fore-r": -8 }
+    ] },
+    "breathe": { "fps": 3, "frames": [
+      { "head": 0, "arm-l": 0, "arm-r": 0 },
+      { "head": -2, "arm-l": 2, "arm-r": -2 },
+      { "head": -2, "arm-l": 4, "arm-r": -4 },
+      { "head": 0, "arm-l": 2, "arm-r": -2 }
+    ] },
+    "talk-hands": { "fps": 6, "frames": [
+      { "arm-r": -30, "fore-r": -60, "arm-l": 16, "fore-l": 30, "head": 0 },
+      { "arm-r": -40, "fore-r": -80, "arm-l": 20, "fore-l": 44, "head": -2 },
+      { "arm-r": -24, "fore-r": -50, "arm-l": 24, "fore-l": 60, "head": -2 },
+      { "arm-r": -44, "fore-r": -90, "arm-l": 18, "fore-l": 40, "head": 2 },
+      { "arm-r": -34, "fore-r": -70, "arm-l": 14, "fore-l": 26, "head": 2 },
+      { "arm-r": -28, "fore-r": -56, "arm-l": 20, "fore-l": 36, "head": 0 }
+    ] }
+  },
+  "expressions": {
+    "happy": { "eye": "happy", "mouth": "top", "tail": 12, "head": -4, "brow-l.y": -2, "brow-r.y": -2 },
+    "sleep": { "eye": "sleep", "mouth": 0, "head": 14, "tail": -16, "brow-l.y": 2, "brow-r.y": 2 },
+    "wide": { "eye": "wide", "mouth": "mid", "arm-l": 24, "arm-r": -24, "tail": 20, "brow-l.y": -5, "brow-r.y": -5 },
+    "sad": { "eye": "sleep", "mouth": 0, "head": 10, "tail": -24, "brow-l": -14, "brow-r": 14, "brow-l.y": -1, "brow-r.y": -1 },
+    "worried": { "eye": "open", "mouth": 0, "head": 6, "brow-l": -12, "brow-r": 12, "brow-l.y": -2, "brow-r.y": -2, "pupil.y": 1 },
+    "surprised": { "eye": ["wide", "open"], "mouth": [4, "mid"], "head": -6, "brow-l.y": -6, "brow-r.y": -6, "tail": 16 },
+    "angry": { "eye": "open", "mouth": [1, 0], "head": 6, "brow-l": 14, "brow-r": -14, "brow-l.y": 2, "brow-r.y": 2, "tail": -8 },
+    "confused": { "eye": "open", "mouth": 1, "head": 10, "brow-l": -10, "brow-r": 8, "brow-l.y": -5, "brow-r.y": 1, "pupil.x": 2, "pupil.y": -2 },
+    "thinking": { "eye": "open", "mouth": 0, "head": -6, "brow-r": -8, "brow-l.y": -3, "pupil.x": 3, "pupil.y": -3 },
+    "laughing": { "eye": "happy", "mouth": "mid", "head": -10, "brow-l.y": -3, "brow-r.y": -3, "tail": 20 },
+    "wink": { "eye": ["wink", "happy"], "mouth": "top", "head": 6, "brow-r.y": -3 },
+    "bored": { "eye": ["half", "open"], "mouth": 0, "head": 8, "brow-l.y": 2, "brow-r.y": 2, "pupil.y": 2, "tail": -10 }
+  },
+  "needs": {
+    "point-l": ["arm-l"], "point-r": ["arm-r"], "wave": ["arm-r"], "think": ["arm-r"], "shrug": ["arm-l", "arm-r"],
+    "cheer": ["arm-l", "arm-r"], "facepalm": ["arm-r"], "bow": ["head"], "sit": ["leg-l", "leg-r"], "kneel": ["leg-l", "leg-r"],
+    "look-up": ["head"], "carry": ["arm-l", "arm-r"], "push": ["arm-l", "arm-r"], "write": ["arm-r"], "present": ["arm-r"],
+    "hands-on-hips": ["fore-l", "fore-r"], "arms-crossed": ["fore-l", "fore-r"],
+    "walk": ["leg-l", "leg-r"], "run": ["leg-l", "leg-r"], "jump": ["leg-l", "leg-r"], "talk-hands": ["arm-r"]
+  },
+  "views": {
+    "bow": "side", "sit": "side", "kneel": "side", "fall": "side", "carry": "side", "push": "side", "write": "side",
+    "walk": "side", "run": "side", "jump": "side"
+  }
+}

@@ -174,6 +174,11 @@ For an explainer's presenter, `hdf stick --name sam [--build kid|adult|tall|roun
 [--style line|tube]` makes a **stick puppet**: standard biped part names, three
 views, a face (eye, pupil, brows, mouth 0..5), and `hdf retarget --clip me --to
 sam --name walk` needs no map because its joints are the biped rig's.
+Every biped shares a **pose vocabulary** (`packs/poses/biped.json`): the actor
+drops what a puppet lacks (the fox has no forearms, the octopus no legs) and
+tempers a pose until it fits the puppet's box, so `A.pose('cheer')` is safe on
+any cast member. `hdf sheet store <id> --vocabulary` shows what applies before
+you direct it.
 
 `actorOf(puppet | cel | builder, spec)` makes a **cast member** every recipe
 can direct. `CAST.FOX` and `CAST.HOG` (the hedgehog) are ready; a new puppet
@@ -183,8 +188,11 @@ plain input objects a recipe merges and draws:
 ```js
 A.idle(t, seed)            // breathing, a blink, a tail, on the twos
 A.look(dir)                // -1 .. 1: facing, the view, the head turn
-A.emote('happy')           // happy | sleep | wide | sad | worried; brows and pupil when it has them; its own pose of that name wins
-A.cycle('run', t)          // a declared cycle; a missing one is a two-pose bob that lint reports over 1 s
+A.emote('happy')           // happy sad wide sleep worried surprised angry confused thinking laughing wink bored; its own pose of that name wins
+A.pose('point-r', k)       // its own pose or the vocabulary's: idle stand point-l/-r wave think shrug cheer facepalm bow sit
+                           //   kneel fall sleep look-up carry push write present hands-on-hips arms-crossed
+A.cycle('run', t)          // its own cycle, else the vocabulary's (walk run jump breathe talk-hands); else a bob lint reports over 1 s
+A.vocabulary               // { poses, cycles, expressions } that apply to this puppet
 A.say('hello there', t0)   // a fragment: mouth per syllable, letters in a bubble, a pluck per syllable
 A.place(x, y, s, state)    // the merged state on the doodle stage (centre x, y; feet at y + .86 s)
 A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its own floor

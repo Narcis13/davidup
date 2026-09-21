@@ -572,13 +572,57 @@ stroke to its distal joint (a filled capsule in `tube`), named for the distal
 joint in the standard biped names: `body, neck, arm-l, fore-l, leg-l, shin-l,
 foot-l`, ... ; the root is `hips`, the head a circle on a part at the neck,
 hands `hand-l/-r` at the wrists. A face prints on the head: `eye` (open,
-happy, sleep, wide), `pupil` (slides), `brow-l/-r` (turn and slide), `mouth`
+happy, sleep, wide, half, wink), `pupil` (slides), `brow-l/-r` (turn and slide), `mouth`
 0..5 (shut, three openings, an oo, a smile: `emote('happy')` takes the
 smile). The three views are generated from the joints: the front stands each
 pair `spread` from the middle, -l on the drawing's left; painter order is -l
 limbs, trunk and face, -r limbs. The box holds anything the limbs reach from
 the hip, so a raised arm fits. A regenerated stick keeps its retargeted
 cycles.
+
+### The pose vocabulary
+
+Every biped knows how to point, shrug and cheer (4.0 K3). `packs/poses/biped.json`
+holds poses (`idle, stand, point-l, point-r, wave, think, shrug, cheer,
+facepalm, bow, sit, kneel, fall, sleep, look-up, carry, push, write, present,
+hands-on-hips, arms-crossed`), cycles (`walk` 8, `run` 6, `jump` 6, `breathe` 4,
+`talk-hands` 6) and expressions (`happy, sad, wide, sleep, surprised, angry,
+confused, thinking, laughing, worried, wink, bored`), all keyed on the standard
+biped part names, joints on the 2° grid:
+
+```js
+const SAM = actorOf(puppet('sam'));
+SAM.put(d, x, y, s, { ...SAM.pose('point-r'), ...SAM.emote('confused') })
+SAM.pose('cheer', k)        // rest -> cheer by k: joints lerp, variants switch at half-way
+SAM.cycle('talk-hands', t)  // the vocabulary's cycle, as the puppet has none of its own
+SAM.vocabulary              // { poses, cycles, expressions } that apply to it
+```
+
+`pose`, `emote` and `cycle` look in the puppet's own poses and cycles first and
+the vocabulary after, through the actor's `known()`, which drops the parts a
+puppet lacks: a stick has every name, the fox takes its arms, legs and face
+(no forearms, so no `hands-on-hips`), the octopus its arms and eyes. An entry
+*applies* when the puppet has every part in its `needs` and keeps a key;
+`pose()` of one that does not is `{}` and `cycle()` bobs as before. A variant
+may be a list, the first the puppet has winning (`eye: ["wink", "happy"]`).
+The vocabulary's `body` is a trunk above the hips, so a puppet whose `body` is
+its root (the fox, the octopus) does not take its turns: the fox bows with its
+head. An entry is *tempered* to fit: its turns and slides are scaled towards
+rest in tenths until the figure stays in its box in every view whose rest does,
+so lint's `cel-box` holds for whatever the vocabulary asks (the octopus cheers
+as high as its box lets it). Sign convention: an -l limb turned positive and
+an -r limb turned negative swing out and up; in profile a negative turn swings
+any limb forward. `views` names the poses drawn side on (`sit`, `bow`, `walk`,
+...); the rest read from the front. A vocabulary frame's `lift` is the stage's
+(4% of the figure's height), not puppet units. `EMOTES` is the file's
+expressions. A code cel or a doodle builder (the hedgehog) has no vocabulary.
+
+```bash
+hdf sheet store sam --vocabulary    # assets/sheets/sam-vocabulary.jpg: every pose, expression, cycle that applies
+```
+
+`hdf bundle` inlines the file as a JSON module (`data:application/json`);
+`hdf dev` serves it as JSON.
 
 ### Puppets from SVG
 
@@ -660,8 +704,9 @@ A.put(d, x, y, s, { ...A.idle(tau), ...A.look(-1), ...A.emote('happy'), ...A.cyc
 
 `idle(t, seed)` breathes and blinks on the twos, `look(dir)` faces (and turns
 a puppet with views to the view `dir` stands for), `emote(name)`
-is `happy | sleep | wide | sad` (a puppet's own pose of that name wins),
-`cycle(name, t)` is a declared cycle, `reveal(tau)` draws it in stroke order.
+is any expression of the vocabulary (a puppet's own pose of that name wins),
+`pose(name, k)` a named pose, its own or the vocabulary's (above),
+`cycle(name, t)` is a declared cycle or the vocabulary's, `reveal(tau)` draws it in stroke order.
 For a puppet they come from its poses, cycles and the conventional part names
 (`head`, `eye`, `mouth`, `tail`, `body`, `arm-l`, `arm-r`); `hand: [x, y]` aims
 an arm. A cycle the actor lacks falls back to a two-pose bob and marks the

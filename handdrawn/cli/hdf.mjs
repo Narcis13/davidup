@@ -24,6 +24,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     (a motif: the drawing at 3 scales in every look)
   sheet   store <id> --poses [--look risoPop]  the model sheet: turnaround, expressions, hands and feet, poses,
                                     cycles, credits on one page (assets/sheets/<id>-model.jpg)
+  sheet   store <id> --vocabulary [--look]   the biped vocabulary's poses, expressions and cycles that apply to it
+                                    (packs/poses/biped.json; assets/sheets/<id>-vocabulary.jpg)
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json

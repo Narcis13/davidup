@@ -45,6 +45,7 @@ export function graph(entries) {
     let src;
     try { src = webSource(file); } catch (e) { throw new Error(`cannot read module ${file} (${e.code ?? e.message})`); }
     out.set(file, src);
+    if (file.endsWith('.json')) continue;   // a JSON module (packs/poses/biped.json): data, no imports
     for (const s of specifiers(src)) todo.push(resolveSpec(s, file));
   }
   return out;

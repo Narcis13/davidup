@@ -13,7 +13,7 @@ export { RIGS, rigClip, skelOf } from './rig.js';
 export { retarget } from './retarget.js';
 export { BUILDS, compileStick, stickMap, stickSource } from './stick.js';
 export { poseClip } from './pose.js';
-export { actorOf, EMOTES } from './actor.js';
+export { actorOf, EMOTES, VOCABULARY } from './actor.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf, mix, tint, shade, alpha } from './looks.js';

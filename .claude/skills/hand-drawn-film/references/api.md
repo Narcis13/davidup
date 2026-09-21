@@ -111,7 +111,8 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 ### core/actor.js
 
 - `actorOf(src, spec = {})` actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.
-- `EMOTES` Emotes as joint and variant changes, for a puppet with no pose of that name.
+- `EMOTES` Emotes as joint and variant changes, for a puppet with no pose of that name: the vocabulary's expressions.
+- `VOCABULARY` The vocabulary: every biped knows how to point, shrug and cheer (see the top of this file and the file's `about`).
 
 ### core/fit.js
 

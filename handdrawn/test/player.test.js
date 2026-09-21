@@ -46,6 +46,8 @@ test('bundle: one HTML whose import map closes over every module it imports', as
       const src = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64').toString('utf8');
       for (const s of specifiers(src)) assert.ok(imports[s], `${key} imports '${s}', which is not in the map`);
     }
+    const vocab = Object.entries(imports).find(([k]) => k.endsWith('packs/poses/biped.json'));
+    assert.ok(vocab && vocab[1].startsWith('data:application/json;'), 'the pose vocabulary is a JSON module, typed as JSON (4.0 K3)');
     assert.doesNotMatch(html, /src="\.\/player\.js"|href="shell\.css"/);
     assert.match(html, /<style>/);
   } finally { rmSync(dir, { recursive: true, force: true }); }

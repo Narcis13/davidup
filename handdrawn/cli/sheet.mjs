@@ -17,15 +17,19 @@
 // emote name, the head at 2x), hands and feet at 2x (every limb in every view it is drawn in), every named
 // pose, every cycle as a strip, and a credits line. The page is one display list, so it hashes, and lint's
 // `role` and `cel-box` run over it before any pixel does. It writes assets/sheets/<id>-model.jpg.
+//
+// hdf sheet store <id> --vocabulary [--look]: the same page for the biped vocabulary (4.0 K3): every pose,
+// expression and cycle of packs/poses/biped.json that applies to the puppet. It writes
+// assets/sheets/<id>-vocabulary.jpg.
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
-import { actorOf, EMOTES } from '../core/actor.js';
+import { actorOf, EMOTES, VOCABULARY } from '../core/actor.js';
 import { bounds, fill, group, hashList, line, paper, parse, poly, rect, stroke, walk, xf } from '../core/list.js';
-import { formatFinding, lintList } from '../core/lint.js';
+import { celOverflow, formatFinding, lintList } from '../core/lint.js';
 import { LOOKS, modifyLook, resolveLook } from '../core/looks.js';
 import { VIEW_DIRS, puppet } from '../core/puppet.js';
 import { hash32 } from '../core/rand.js';
@@ -92,7 +96,7 @@ export async function storeSheet(id, flags) {
   if (e.kind !== 'puppet') throw new UsageError(`sheet: '${id}' is a ${e.kind}; hdf sheet store draws a puppet, a motif or a hand (hdf sheet <film.js> <cel> for a cel)`);
   const d = st.json(e), make = puppet({ ...d, name: id });
   if (d.mirror) return mirrorSheet(id, make, st, flags);
-  if (flags.poses) return modelSheetFile(make, e, st, flags);
+  if (flags.poses || flags.vocabulary) return modelSheetFile(make, e, st, flags);
 
   const poses = flags.pose ? [String(flags.pose)] : make.poses;
   // The turnaround: side, three-quarter, front, three-quarter mirrored, side mirrored.
@@ -120,7 +124,7 @@ export async function storeSheet(id, flags) {
 
 // A motif: its one op list as a cel over the entry's box, at three scales in every look.
 async function motifSheet(id, e, st, flags) {
-  if (flags.poses || flags.pose || flags.cycle) throw new UsageError(`sheet: '${id}' is a motif; it has no poses or cycles`);
+  if (flags.poses || flags.pose || flags.cycle || flags.vocabulary) throw new UsageError(`sheet: '${id}' is a motif; it has no poses or cycles`);
   const ops = parse(JSON.stringify(st.json(e))), make = cel(id, () => ops, { box: e.box });
   const file = st.sheetPath(id);
   mkdirSync(dirname(file), { recursive: true });
@@ -131,7 +135,7 @@ async function motifSheet(id, e, st, flags) {
 
 // A pack cel's mirror (3.0 S13): the sheet of the cel it mirrors, drawn from the store.
 async function mirrorSheet(id, make, st, flags) {
-  if (flags.poses || flags.pose || flags.cycle) throw new UsageError(`sheet: '${id}' mirrors a pack cel; it has inputs, not poses or cycles`);
+  if (flags.poses || flags.pose || flags.cycle || flags.vocabulary) throw new UsageError(`sheet: '${id}' mirrors a pack cel; it has inputs, not poses or cycles`);
   const file = st.sheetPath(id);
   mkdirSync(dirname(file), { recursive: true });
   const { looks, variants: nv } = await celSheet(make, make.cel, { look: flags.look ? resolveLook(String(flags.look)) : LOOKS.paperInk, format: format('1:1'), file, cell: 120 });
@@ -199,7 +203,11 @@ function partOf(list, n) {
 // modelSheet(make, { entry, look }) => { list, W, H, rows }: the model sheet of a puppet as one display
 // list on a PAGE-wide page, and the names of its rows. make is a puppet (puppet(id)), entry its catalogue
 // record (credits), look the look it is drawn in (its name goes in the credits).
-export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {}) {
+//
+// With vocabulary: true it is the vocabulary sheet (4.0 K3) instead: every pose, expression and cycle of the
+// biped vocabulary (packs/poses/biped.json) that applies to the puppet, its own named poses and cycles among
+// them, each pose in the view the vocabulary draws it for (front unless it says side) when the puppet has it.
+export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel, vocabulary = false } = {}) {
   const id = entry.name ?? make.cel.name, A = actorOf(make), [bx, by, bw, bh] = make.cel.box;
   const S = Math.min(FIG[0] / bw, FIG[1] / bh);   // every figure on the sheet at the one scale
   const views = make.views ?? [];
@@ -219,64 +227,90 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
   // guides: construction lines across the row, at these heights in the puppet's units (figure rows only).
   const row = (name, heading, cells, guides = []) => { if (cells.length) rows.push({ name, heading, cells, guides }); };
   const ground = make.ground[1], lines = [ground];
+  const named = make.poses.filter((p) => p !== 'rest');
 
-  // The turnaround: side, three-quarter, front, three-quarter mirrored, side mirrored, on lines at the top of
-  // the box, the neck and the ground.
-  if (views.length) {
-    const dirs = [...new Set(views.map((v) => VIEW_DIRS[v] ?? 1))].sort((a, b) => b - a);
-    const turn = [...dirs, ...dirs.filter((v) => v > 0).reverse().map((v) => -v)];
-    const neck = make.parts.includes('head') ? [make.pivotAt('head', views[0])[1]] : [];
-    row('turnaround', 'turnaround', once(turn.map((dir) => figure(`${make.viewOf(dir)}${dir < 0 ? ', mirrored' : ''}`, { ...make.rest, dir }))), [by, ...neck, ground]);
-  } else row('turnaround', 'rest', [figure('rest', make.rest)], lines);
-
-  // Expressions: neutral and every emote, turned three-quarter when the puppet has that view; the head
-  // alone at 2x when it has a head.
-  const face = views.includes('three-quarter') ? { ...make.rest, ...A.look(0.5) } : make.rest;
-  const heads = make.parts.includes('head');
-  const faces = once([['neutral', face], ...Object.keys(EMOTES).map((e) => [e, { ...face, ...A.emote(e) }])]
-    .map(([label, q]) => (heads ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q))));
-  if (faces.length > 1) row('expressions', heads ? 'expressions, 2x' : 'expressions', faces, heads ? [] : lines);
-
-  // Slides and scales (4.0 K1): every such input at its min and its max, on the expression face; the head
-  // alone at 2x when the part is on the head.
-  const onHead = (n) => { for (let c = make.puppet.parts[n]?.parent; c !== undefined; c = make.puppet.parts[c]?.parent) if (c === 'head') return true; return n === 'head'; };
-  const moves = Object.entries(make.moves).flatMap(([k, [lo, hi]]) => [lo, hi].map((v) => {
-    const label = `${k} ${v}`, q = { ...face, [k]: v }, part = k.slice(0, k.lastIndexOf('.'));
-    return heads && onHead(part) ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q);
-  }));
-  row('slides', 'slides and scales', moves, heads ? [] : lines);
-
-  // Hands and feet at 2x: every limb in every view it has a drawing of its own in.
-  const limbs = make.parts.filter((n) => EXTREMITY.test(n)), seen = new Set(), ext = [];
-  for (const V of views.length ? views : [null]) {
-    const list = [make(V ? { ...make.rest, dir: VIEW_DIRS[V] ?? 1 } : make.rest)];
-    for (const n of limbs) {
-      const p = partOf(list, n), key = p && hashList(p.own);
-      if (!p || seen.has(key)) continue;
-      seen.add(key);
-      ext.push(lifted(views.length > 1 ? `${n}, ${V}` : n, p, 2 * S, key));
+  if (vocabulary) {
+    // A view the puppet has and whose rest stays in the box (the octopus's front does not), else its rest view.
+    const V = A.vocabulary, dirOf = (n) => {
+      const want = VOCABULARY.views[n] ?? 'front';
+      if (make.poses.includes(n) || make.cycles.includes(n)) return make.rest.dir;   // its own: as the model sheet draws it
+      return views.includes(want) && !celOverflow(make({ ...make.rest, dir: VIEW_DIRS[want] })) ? VIEW_DIRS[want] : make.rest.dir;
+    };
+    const at = (n, q) => ({ ...make.rest, ...(views.length ? { dir: dirOf(n) } : {}), ...q });
+    row('poses', 'poses', [figure('rest', make.rest), ...V.poses.map((n) => figure(n, at(n, A.pose(n))))], lines);
+    const face = views.includes('three-quarter') ? { ...make.rest, ...A.look(0.5) } : make.rest, heads = make.parts.includes('head');
+    row('expressions', heads ? 'expressions, 2x' : 'expressions', [['neutral', face], ...V.expressions.map((e) => [e, { ...face, ...A.emote(e) }])]
+      .map(([label, q]) => (heads ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q))), heads ? [] : lines);
+    for (const cyc of V.cycles) {
+      const c = make.puppet.cycles?.[cyc] ?? VOCABULARY.cycles[cyc], fps = c.fps ?? FPS;
+      // The actor's lift is the stage's (4% of the box's height); the figure rides in the puppet's units.
+      row(`cycle ${cyc}`, `${cyc}, ${c.frames.length} frames at ${fps} fps`, c.frames.map((_, j) => {
+        const { lift = 0, fallback: _f, ...q } = A.cycle(cyc, j / fps);
+        return figure(String(j), at(cyc, q), Math.round(lift * 0.04 * bh * 100) / 100);
+      }), lines);
     }
-  }
-  row('hands and feet', 'hands and feet, 2x', ext);
+  } else {
+    // The turnaround: side, three-quarter, front, three-quarter mirrored, side mirrored, on lines at the top of
+    // the box, the neck and the ground.
+    if (views.length) {
+      const dirs = [...new Set(views.map((v) => VIEW_DIRS[v] ?? 1))].sort((a, b) => b - a);
+      const turn = [...dirs, ...dirs.filter((v) => v > 0).reverse().map((v) => -v)];
+      const neck = make.parts.includes('head') ? [make.pivotAt('head', views[0])[1]] : [];
+      row('turnaround', 'turnaround', once(turn.map((dir) => figure(`${make.viewOf(dir)}${dir < 0 ? ', mirrored' : ''}`, { ...make.rest, dir }))), [by, ...neck, ground]);
+    } else row('turnaround', 'rest', [figure('rest', make.rest)], lines);
 
-  // The neutral pose first, so every other pose reads against it; it counts as one. A puppet with no named
-  // pose has no row (the turnaround already shows it at rest).
-  const named = make.poses.filter((p) => p !== 'rest'), rest = make.poses.includes('rest') ? make.poseOf('rest', 1) : make.rest;
-  row('poses', 'poses', named.length ? [figure('rest', rest), ...named.map((p) => figure(p, make.poseOf(p, 1)))] : [], lines);
-  const cycles = make.puppet.cycles ?? {};
-  for (const cyc of make.cycles) {
-    const c = cycles[cyc], fps = c.fps ?? FPS;
-    row(`cycle ${cyc}`, `${cyc}, ${c.frames.length} frames at ${fps} fps`, c.frames.map((_, j) => figure(String(j), make.frameOf(cyc, j / fps), make.liftOf(cyc, j / fps))), lines);
+    // Expressions: neutral and every emote, turned three-quarter when the puppet has that view; the head
+    // alone at 2x when it has a head.
+    const face = views.includes('three-quarter') ? { ...make.rest, ...A.look(0.5) } : make.rest;
+    const heads = make.parts.includes('head');
+    const faces = once([['neutral', face], ...Object.keys(EMOTES).map((e) => [e, { ...face, ...A.emote(e) }])]
+      .map(([label, q]) => (heads ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q))));
+    if (faces.length > 1) row('expressions', heads ? 'expressions, 2x' : 'expressions', faces, heads ? [] : lines);
+
+    // Slides and scales (4.0 K1): every such input at its min and its max, on the expression face; the head
+    // alone at 2x when the part is on the head.
+    const onHead = (n) => { for (let c = make.puppet.parts[n]?.parent; c !== undefined; c = make.puppet.parts[c]?.parent) if (c === 'head') return true; return n === 'head'; };
+    const moves = Object.entries(make.moves).flatMap(([k, [lo, hi]]) => [lo, hi].map((v) => {
+      const label = `${k} ${v}`, q = { ...face, [k]: v }, part = k.slice(0, k.lastIndexOf('.'));
+      return heads && onHead(part) ? lifted(label, partOf([make(q)], 'head'), 2 * S) : figure(label, q);
+    }));
+    row('slides', 'slides and scales', moves, heads ? [] : lines);
+
+    // Hands and feet at 2x: every limb in every view it has a drawing of its own in.
+    const limbs = make.parts.filter((n) => EXTREMITY.test(n)), seen = new Set(), ext = [];
+    for (const V of views.length ? views : [null]) {
+      const list = [make(V ? { ...make.rest, dir: VIEW_DIRS[V] ?? 1 } : make.rest)];
+      for (const n of limbs) {
+        const p = partOf(list, n), key = p && hashList(p.own);
+        if (!p || seen.has(key)) continue;
+        seen.add(key);
+        ext.push(lifted(views.length > 1 ? `${n}, ${V}` : n, p, 2 * S, key));
+      }
+    }
+    row('hands and feet', 'hands and feet, 2x', ext);
+
+    // The neutral pose first, so every other pose reads against it; it counts as one. A puppet with no named
+    // pose has no row (the turnaround already shows it at rest).
+    const rest = make.poses.includes('rest') ? make.poseOf('rest', 1) : make.rest;
+    row('poses', 'poses', named.length ? [figure('rest', rest), ...named.map((p) => figure(p, make.poseOf(p, 1)))] : [], lines);
+    const cycles = make.puppet.cycles ?? {};
+    for (const cyc of make.cycles) {
+      const c = cycles[cyc], fps = c.fps ?? FPS;
+      row(`cycle ${cyc}`, `${cyc}, ${c.frames.length} frames at ${fps} fps`, c.frames.map((_, j) => figure(String(j), make.frameOf(cyc, j / fps), make.liftOf(cyc, j / fps))), lines);
+    }
   }
 
   // Top to bottom: the title card, the rows, the credits.
   const list = [paper()], right = PAGE - MARGIN;
   let y = MARGIN;
-  const nViews = Math.max(1, views.length), nPoses = named.length ? named.length + 1 : 0;
+  const nViews = Math.max(1, views.length), V = A.vocabulary;
+  const nPoses = vocabulary ? V.poses.length : named.length ? named.length + 1 : 0, nCycles = vocabulary ? V.cycles.length : make.cycles.length;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   list.push(
     handText(lettered(id), MARGIN, y + 96, { size: 112 }),
-    handText('model sheet', right, y + 60, { size: 44, align: 'right' }),
-    handText(`${nViews} view${nViews > 1 ? 's' : ''}, ${nPoses} pose${nPoses === 1 ? '' : 's'}, ${make.cycles.length} cycle${make.cycles.length === 1 ? '' : 's'}`, right, y + 108, { size: 24, align: 'right', ink2: null }),
+    handText(vocabulary ? 'vocabulary' : 'model sheet', right, y + 60, { size: 44, align: 'right' }),
+    handText(vocabulary ? `${plural(nPoses, 'pose')}, ${plural(V.expressions.length, 'expression')}, ${plural(nCycles, 'cycle')}`
+      : `${plural(nViews, 'view')}, ${plural(nPoses, 'pose')}, ${plural(nCycles, 'cycle')}`, right, y + 108, { size: 24, align: 'right', ink2: null }),
   );
   y += 140;
   const desc = lettered(make.puppet.desc);
@@ -311,17 +345,18 @@ export function modelSheet(make, { entry = {}, look = LOOKS.doodlePastel } = {})
 
 // The model sheet written to assets/sheets/<id>-model.jpg; lint findings on the page stop it.
 async function modelSheetFile(make, entry, st, flags) {
-  const look = flags.look ? resolveLook(String(flags.look)) : LOOKS.doodlePastel;
-  const { list, W, H, rows } = modelSheet(make, { entry, look });
-  const found = lintList(list, look, `${entry.name}-model`);
+  const look = flags.look ? resolveLook(String(flags.look)) : LOOKS.doodlePastel, vocabulary = !!flags.vocabulary;
+  const { list, W, H, rows } = modelSheet(make, { entry, look, vocabulary });
+  const what = vocabulary ? 'vocabulary' : 'model';
+  const found = lintList(list, look, `${entry.name}-${what}`);
   if (found.length) {
     for (const f of found) process.stderr.write(`${formatFinding(f, 'sheet')}\n`);
     return 1;
   }
-  const file = st.sheetPath(`${entry.name}-model`);
+  const file = st.sheetPath(`${entry.name}-${what}`);
   mkdirSync(dirname(file), { recursive: true });
-  await paint(list, { look, W, H, width: Math.round(W * 1.5), seed: hash32('model', entry.name) }).toFile(file, { quality: 0.92 });
-  process.stdout.write(`${file}  model sheet in ${look.name}, ${rows.length} rows: ${rows.join(', ')}  (list ${hashList(list).slice(0, 12)})\n`);
+  await paint(list, { look, W, H, width: Math.round(W * 1.5), seed: hash32(what, entry.name) }).toFile(file, { quality: 0.92 });
+  process.stdout.write(`${file}  ${what} sheet in ${look.name}, ${rows.length} rows: ${rows.join(', ')}  (list ${hashList(list).slice(0, 12)})\n`);
   return 0;
 }
 

@@ -21,7 +21,8 @@ export async function bundle(path, { loadFilm, out, look }) {
   const base = commonDir([...mods.keys()]);
   const key = (f) => `hdf/${posix(relative(base, f))}`;
   const imports = {};
-  for (const [f, src] of mods) imports[key(f)] = dataUrl('text/javascript', rewrite(src, (s) => key(resolveSpec(s, f))));
+  // A JSON module keeps its type: it is imported `with { type: 'json' }`, which checks the MIME.
+  for (const [f, src] of mods) imports[key(f)] = f.endsWith('.json') ? dataUrl('application/json', src) : dataUrl('text/javascript', rewrite(src, (s) => key(resolveSpec(s, f))));
 
   // Only the ids the film named: a record each, with the pixels of the rasters lifted out as data URLs.
   const assets = {}, catalogue = {};

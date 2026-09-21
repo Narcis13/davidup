@@ -9,8 +9,10 @@
 //   actor(inputs)                   the cel call (keys that are not inputs are dropped)
 //   actor.idle(t, seed)             breathing, a blink, a tail, on the twos grid        -> state
 //   actor.look(dir)                 -1 .. 1: facing, the view, the head turn             -> state
-//   actor.emote(name)               'happy' | 'sleep' | 'wide' | 'sad' | 'dot' (none)    -> state
+//   actor.emote(name)               'happy' | 'sad' | 'confused' ... | 'dot' (none)       -> state
+//   actor.pose(name, k)             a named pose, rest -> pose by k (0..1)              -> state
 //   actor.cycle(name, t)            any declared cycle, else a two-pose bob, recorded   -> state
+//   actor.vocabulary                { poses, cycles, expressions }: the names that apply to it
 //   actor.reveal(tau, state)        itself in stroke order, 0..1                        -> list
 //   actor.place(x, y, s, o)         the state drawn on the doodle stage                 -> group
 //                                   (o.shadow: true or a strength: a contact shadow on its own floor, so an
@@ -25,7 +27,16 @@
 //
 // A puppet derives everything from its payload: poses named like an emote win over the house table, cycles
 // are its own, and the conventional parts (head, eye, mouth, tail, body, arm-l / arm-r) are what idle,
-// look, emote and hand move; unknown parts stay still. A cycle it lacks falls back to a bob between rest and
+// look, emote and hand move; unknown parts stay still.
+//
+// The vocabulary (4.0 K3, packs/poses/biped.json): poses, cycles and expressions keyed on the standard biped
+// part names. pose(), emote() and cycle() look in the puppet's own first and the vocabulary after, through
+// known(), which drops what the puppet lacks: a stick has every name, the fox takes its arms, legs and face,
+// the octopus its arms and eyes. A vocabulary entry applies to a puppet that has every part its `needs` names
+// and keeps at least one key (so the octopus does not sit with its arms); one that does not apply is {} from
+// pose() and a bob from cycle(). A variant may be a list, the first the puppet has winning (wink, else happy).
+// A code cel or a doodle builder has no vocabulary: pose() is {} and its emote and cycle are as before.
+// A cycle neither has falls back to a bob between rest and
 // a lifted rest; a puppet with views (a turnaround) turns with look: -1 and 1 its side view, +-0.5 its
 // three-quarter view and 0 its front when it has them (the side, or facing us chin up, when not), and it
 // mirrors itself, so the stage does not. The drawing of a missing cycle carries meta('actor-cycle') so lint can say when it is on screen too long,
@@ -40,12 +51,15 @@
 // drawn over it at spec.mouthAt ([x, y] in s units from its centre, as it faces right) while it speaks.
 import { FPS } from './curves.js';
 import { pen } from './doodle.js';
+import { celOverflow } from './lint.js';
 import { ellipse, fill, group, meta, mmul, poly, rotate, scale, stroke, translate } from './list.js';
 import { bubble as bubbleMark } from './marks.js';
 import { hash32 } from './rand.js';
 import { handText, measure, speech } from './text.js';
 import { reveal as revealList } from './tools.js';
+import { VIEW_DIRS } from './puppet.js';
 import { cel } from './tree.js';
+import BIPED from '../packs/poses/biped.json' with { type: 'json' };
 import { pluckPerSyllable } from '../recipes/score.js';
 
 const RAD = Math.PI / 180;
@@ -53,17 +67,18 @@ const TWOS = FPS / 2;                     // drawn twos: 6 states a second
 const sign = (v) => (v < 0 ? -1 : 1);
 const wrap180 = (a) => ((a + 540) % 360) - 180;
 
-// Emotes as joint and variant changes, for a puppet with no pose of that name. Variant picks that the
-// puppet lacks are dropped; 'top' and 'mid' mean its last and middle mouth. Brows (4.0 K1) are the standard
-// biped names: brow-l on the left of the drawing, so a negative brow-l and a positive brow-r lift the inner
-// ends (worried); `.y` slides them, up negative. A puppet without brows or a pupil takes the rest.
-export const EMOTES = Object.freeze({
-  happy: { eye: 'happy', mouth: 'top', tail: 12, head: -4, 'brow-l.y': -2, 'brow-r.y': -2 },
-  sleep: { eye: 'sleep', mouth: 0, head: 14, tail: -16, 'brow-l.y': 2, 'brow-r.y': 2 },
-  wide: { eye: 'wide', mouth: 'mid', 'arm-l': 24, 'arm-r': -24, tail: 20, 'brow-l.y': -5, 'brow-r.y': -5 },
-  sad: { eye: 'sleep', mouth: 0, head: 10, tail: -24, 'brow-l': -14, 'brow-r': 14, 'brow-l.y': -1, 'brow-r.y': -1 },
-  worried: { eye: 'open', mouth: 0, head: 6, 'brow-l': -12, 'brow-r': 12, 'brow-l.y': -2, 'brow-r.y': -2, 'pupil.y': 1 },
-});
+const deepFreeze = (o) => { if (o && typeof o === 'object') { for (const v of Object.values(o)) deepFreeze(v); Object.freeze(o); } return o; };
+// The vocabulary: every biped knows how to point, shrug and cheer (see the top of this file and the file's
+// `about`). Frozen through, so a film cannot edit the house's poses by accident.
+export const VOCABULARY = deepFreeze(BIPED);
+
+// Emotes as joint and variant changes, for a puppet with no pose of that name: the vocabulary's expressions.
+// Variant picks that the puppet lacks are dropped; 'top' and 'mid' mean its last and middle mouth. Brows (4.0
+// K1) are the standard biped names: brow-l on the left of the drawing, so a negative brow-l and a positive
+// brow-r lift the inner ends (worried); `.y` slides them, up negative. A puppet without brows or a pupil
+// takes the rest.
+export const EMOTES = VOCABULARY.expressions;
+const NO_VOCABULARY = Object.freeze({ poses: Object.freeze([]), cycles: Object.freeze([]), expressions: Object.freeze([]) });
 
 // actorOf(src, spec) => actor. src is a puppet (puppet(id)), a cel (cel(...)), or a doodle builder.
 // spec overrides any method and sets the stage fit: { name, height: 2, feet: .86 } for a puppet or a cel;
@@ -87,12 +102,15 @@ export function actorOf(src, spec = {}) {
     idle: spec.idle ?? base.idle ?? (() => ({})),
     look: spec.look ?? base.look ?? ((dir) => ({ dir: sign(dir) })),
     emote: spec.emote ?? base.emote ?? (() => ({})),
+    pose: spec.pose ?? base.pose ?? (() => ({})),
     cycle: spec.cycle ?? ((name, t) => base.cycle?.(name, t) ?? bob(name, t)),
     reveal: spec.reveal ?? ((tau, state = {}) => revealList(tau, call(state))),
     place: spec.place ?? base.place,
     put: spec.put ?? base.put ?? ((d, x, y, s, o = {}) => d.mark((k) => revealList(k, actor.place(x, y, s, o)), spec.dur ?? 0.5)),
     say: spec.say ?? ((text, t0, o) => speak(actor, base, spec, text, t0, o)),
   });
+  // A puppet's vocabulary is worked out when first asked for; a code cel or a builder has none.
+  Object.defineProperty(actor, 'vocabulary', { get: () => base.vocabulary?.() ?? NO_VOCABULARY, enumerable: true });
   if (!actor.place) actor.place = () => { throw new Error(`actor ${actor.name}: a doodle builder has put(), not place()`); };
   return actor;
 }
@@ -157,10 +175,67 @@ function fromPuppet(p, spec) {
     const out = {};
     for (const [k, v] of Object.entries(state)) {
       if (!has(k) && p.moves?.[k] === undefined) continue;   // a part, or a part's slide or scale (pupil.x)
-      if (variants(k).length) { const got = variant(k, v); if (got !== undefined) out[k] = got; } else out[k] = v;
+      if (variants(k).length) {
+        // A list is an order of preference: the first variant the puppet has.
+        const got = (Array.isArray(v) ? v : [v]).map((w) => variant(k, w)).find((w) => w !== undefined);
+        if (got !== undefined) out[k] = got;
+      } else if (!Array.isArray(v)) out[k] = v;
     }
     return out;
   };
+  // A vocabulary entry for this puppet: its known keys, or null when it does not apply.
+  // The vocabulary's body is a trunk above the hips: on a puppet whose body is its root (the fox, the
+  // octopus) a turn of it would tip the whole figure off its feet, so it is dropped.
+  const rootBody = has('body') && d.parts.body.parent === undefined;
+  // Tempering: a vocabulary entry is scaled towards rest (turns and slides by 0.9, 0.8, ... on their grid)
+  // until the figure stays in its box in every view whose rest does, so the octopus cheers as high as its
+  // box allows and lint's cel-box holds for whatever the vocabulary asks. One factor for all of an entry's
+  // states (a cycle keeps its shape); memoised per name.
+  const fitDirs = views ? [...new Set(p.views.map((V) => VIEW_DIRS[V] ?? 1))].filter((dir) => !celOverflow(p({ ...p.rest, dir }))) : [undefined];
+  const scaled = (q, f) => {
+    if (f === 1) return q;
+    const out = {};
+    for (const [k, v] of Object.entries(q)) out[k] = typeof v === 'number' && k !== 'lift' ? Math.round(v * f / 2) * 2 : v;
+    return out;
+  };
+  const inBox = (q) => fitDirs.every((dir) => !celOverflow(p({ ...p.rest, ...(dir === undefined ? {} : { dir }), ...q })));
+  const tempers = new Map();
+  const temper = (name, states) => {
+    if (!tempers.has(name)) {
+      let f = 1;
+      while (f > 0.05 && !states.every((q) => inBox(scaled(q, f)))) f = Math.round((f - 0.1) * 10) / 10;
+      tempers.set(name, f);
+    }
+    return tempers.get(name);
+  };
+  const fits = (name, state) => {
+    if (!(VOCABULARY.needs[name] ?? []).every(has)) return null;
+    const q = known(state);
+    if (rootBody) delete q.body;
+    return Object.keys(q).length ? scaled(q, temper(name, [q])) : null;
+  };
+  const vcycle = new Map();   // name -> its frames through known(), with the stage lift kept (or null)
+  const vocabCycle = (name) => {
+    if (!vcycle.has(name)) {
+      const c = VOCABULARY.cycles[name];
+      let frames = c && (VOCABULARY.needs[name] ?? []).every(has) ? c.frames.map(({ lift, ...q }) => {
+        const f = known(q);
+        if (rootBody) delete f.body;
+        return { ...f, ...(lift ? { lift } : {}) };
+      }) : null;
+      if (frames && !frames.some((f) => Object.keys(f).some((k) => k !== 'lift'))) frames = null;
+      if (frames) { const k = temper(name, frames); frames = frames.map((f) => scaled(f, k)); }
+      vcycle.set(name, frames && { fps: c.fps ?? FPS, frames });
+    }
+    return vcycle.get(name);
+  };
+  // What applies, worked out the first time it is asked for (it draws every entry to temper it).
+  let listed = null;
+  const vocabulary = () => (listed ??= Object.freeze({
+    poses: Object.freeze([...new Set([...Object.keys(d.poses ?? {}).filter((n) => n !== 'rest'), ...Object.keys(VOCABULARY.poses).filter((n) => fits(n, VOCABULARY.poses[n]))])]),
+    cycles: Object.freeze([...new Set([...p.cycles, ...Object.keys(VOCABULARY.cycles).filter((n) => vocabCycle(n))])]),
+    expressions: Object.freeze(Object.keys(VOCABULARY.expressions).filter((n) => d.poses?.[n] || fits(n, VOCABULARY.expressions[n]))),
+  }));
   const blinkKey = ['sleep', 'shut', 'closed'].find((k) => variants('eye').includes(k));
 
   return {
@@ -191,16 +266,34 @@ function fromPuppet(p, spec) {
       if (has('head')) out.head = dir === 0 ? -6 : 0;   // 0: facing us, chin up
       return out;
     },
+    vocabulary,
     emote(what) {
       if (d.poses?.[what]) return known(d.poses[what]);
       return EMOTES[what] ? known(EMOTES[what]) : {};
     },
+    // Rest -> the pose by k: joints and moves lerp from the puppet's rest, variants switch at k >= 0.5. Its own
+    // pose first, then the vocabulary's (only when it applies); a name in neither is an error.
+    pose(what, k = 1) {
+      const target = d.poses?.[what] ? known(d.poses[what]) : VOCABULARY.poses[what] ? fits(what, VOCABULARY.poses[what]) ?? {} : null;
+      if (!target) throw new Error(`actor ${name}: no pose '${what}' (has ${vocabulary().poses.join(', ') || 'none'})`);
+      if (k >= 1) return target;
+      const out = {};
+      for (const [key, v] of Object.entries(target)) {
+        const r = p.rest[key] ?? 0;
+        if (typeof v === 'number' && typeof r === 'number' && !variants(key).length) out[key] = r + (v - r) * k;
+        else if (k >= 0.5) out[key] = v;
+      }
+      return out;
+    },
     cycle(what, t) {
-      const c = d.cycles?.[what];
-      if (!c?.frames?.length) return undefined;
+      const own = d.cycles?.[what];
+      const c = own?.frames?.length ? own : vocabCycle(what);
+      if (!c) return undefined;
       const n = c.frames.length, j = ((Math.floor(t * (c.fps ?? FPS) + 1e-9) % n) + n) % n;
-      // A frame's lift (a retargeted gallop, 3.0 S14) is in puppet units; the stage's lift is in 4% of its height.
       const { lift, ...q } = c.frames[j];
+      // A frame's lift (a retargeted gallop, 3.0 S14) is in puppet units; the stage's lift is in 4% of its
+      // height, which is what the vocabulary's frames already carry.
+      if (!own) return lift ? { ...q, lift } : q;
       return lift ? { ...q, lift: lift / (0.04 * (p.cel.box[3] || 1)) } : q;
     },
     place(x, y, s, o = {}) {

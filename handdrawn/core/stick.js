@@ -18,9 +18,10 @@
 // joint no bone reaches hangs off its anchor (shoulder-l off the chest, hip-l off the hip), and the part that
 // owns the anchor draws the collar line out to it (only seen in the front and three-quarter views). The head
 // is a circle about the head joint on a part pivoting at the neck; hands are dots or mitts on `hand-l`,
-// `hand-r` at the wrists; a face prints on the head: `eye` (open, happy, sleep, wide), `pupil` (a slide, shown
-// with an open or wide eye), `brow-l`, `brow-r` (a turn and a slide up and down), `mouth` (0 shut, 1 to 3
-// opening, 4 an oo, 5 a smile), with the ranges scaled to the head so the fox's numbers mean the same thing.
+// `hand-r` at the wrists; a face prints on the head: `eye` (open, happy, sleep, wide, half a lid, a wink),
+// `pupil` (a slide, shown with an open, wide or half-lidded eye), `brow-l`, `brow-r` (a turn and a slide up
+// and down), `mouth` (0 shut, 1 to 3 opening, 4 an oo, 5 a smile), with the ranges scaled to the head so the
+// fox's numbers mean the same thing.
 //
 // Views: `side` is the joints as given; `front` stands each pair `spread` from the middle (-l on the drawing's
 // left, like the fox's brow-l) with the centre joints on the hip's x; `three-quarter` is between. Every part
@@ -40,7 +41,7 @@ import { circle, ellipse, fill, line, mmul, poly, rotate, serialise, stroke, tra
 export const STICK_VIEWS = Object.freeze(['side', 'three-quarter', 'front']);
 export const STYLES = Object.freeze(['line', 'tube']);
 export const HANDS = Object.freeze(['dots', 'mitts', 'none']);
-export const EYES = Object.freeze(['open', 'happy', 'sleep', 'wide']);
+export const EYES = Object.freeze(['open', 'happy', 'sleep', 'wide', 'half', 'wink']);
 export const MOUTHS = 6;
 
 // Distal joint (without its side) -> part name.
@@ -247,18 +248,27 @@ function build(src) {
       front: { eyes: { l: [-0.34, -0.12], r: [0.34, -0.12] }, mouth: [0, 0.42], mw: 1 },
     };
     const place = (V, [fx, fy]) => { const c = centre(V); return [c[0] + fx * R, c[1] + fy * R]; };
-    const eyeOps = (kind, V) => Object.values(LAYOUT[V].eyes).flatMap((e) => {
+    const eyeOps = (kind, V) => Object.entries(LAYOUT[V].eyes).flatMap(([s, e]) => {
       const [x, y] = place(V, e), er = R * (kind === 'wide' ? 0.26 : 0.2);
+      // wink: the far (-l) eye open with its own pupil, the near one a happy arch (in profile only the arch).
+      if (kind === 'wink') return s === 'l' ? [stroke(circle(r2(x), r2(y), r2(er), 16), 'ink', { w: fw, name: 'eye' }), fill(circle(r2(x), r2(y), r2(R * 0.1), 12), 'ink', { name: 'eye' })] : eyeOps1('happy', x, y, er);
+      if (kind === 'half') return [   // a lid across the top half: the lower arc and the lid line
+        stroke(poly(Array.from({ length: 9 }, (_, i) => { const a = (i / 8) * Math.PI; return pt([x + er * Math.cos(a), y + er * Math.sin(a)]); }), false), 'ink', { w: fw, name: 'eye' }),
+        stroke(line(r2(x - er * 1.1), r2(y - er * 0.05), r2(x + er * 1.1), r2(y - er * 0.05)), 'ink', { w: fw, name: 'eye' }),
+      ];
+      return eyeOps1(kind, x, y, er);
+    });
+    const eyeOps1 = (kind, x, y, er) => {
       if (kind === 'open' || kind === 'wide') return [stroke(circle(r2(x), r2(y), r2(er), 16), 'ink', { w: fw, name: 'eye' })];
       const k = kind === 'happy' ? -1 : 1;   // happy: an arch; sleep: a lid, curved down
       return [stroke(poly([[x - er, y], [x - er * 0.5, y + k * er * 0.55], [x + er * 0.5, y + k * er * 0.55], [x + er, y]].map(pt), false), 'ink', { w: fw, name: 'eye' })];
-    });
+    };
     parts.eye = { parent: 'head', variants: Object.fromEntries(EYES.map((k) => [k, byView((V) => data(eyeOps(k, V)))])) };
     parts.pupil = {
       parent: 'head',
       ops: byView((V) => data(Object.values(LAYOUT[V].eyes).map((e) => { const [x, y] = place(V, e); return fill(circle(r2(x), r2(y), r2(R * 0.1), 12), 'ink', { name: 'pupil' }); }))),
       slide: { x: [-4 * pupilStep, 4 * pupilStep, pupilStep], y: [-3 * pupilStep, 3 * pupilStep, pupilStep] },
-      when: { eye: ['open', 'wide'] },
+      when: { eye: ['open', 'wide', 'half'] },
     };
     // Brows: a short stroke over each eye, turning about its own middle. In profile only the near one shows.
     for (const s of ['l', 'r']) {
