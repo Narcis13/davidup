@@ -24,12 +24,14 @@ import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { FPS } from '../core/curves.js';
 import { format } from '../core/fit.js';
 import { actorOf, EMOTES } from '../core/actor.js';
-import { bounds, fill, group, hashList, line, paper, rect, stroke, walk, xf } from '../core/list.js';
+import { bounds, fill, group, hashList, line, paper, poly, rect, stroke, walk, xf } from '../core/list.js';
 import { formatFinding, lintList } from '../core/lint.js';
-import { LOOKS, resolveLook } from '../core/looks.js';
+import { LOOKS, modifyLook, resolveLook } from '../core/looks.js';
 import { VIEW_DIRS, puppet } from '../core/puppet.js';
 import { hash32 } from '../core/rand.js';
 import { handText, measure } from '../core/text.js';
+import { asHand, glyph, GLYPHS, houseHand } from '../core/glyphs.js';
+import { SHAPES, UNIT } from '../core/handsheet.js';
 import { frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
 import { imagesOf, UsageError } from './load.mjs';
@@ -69,6 +71,7 @@ function silhouette(g) {
 }
 
 export async function run([path, name], flags, { loadFilm }) {
+  if (flags.hand !== undefined && !path) return handSheetFile(flags.hand === true ? '' : String(flags.hand), flags);
   if (path === 'store') return storeSheet(name, flags);
   if (!name) throw new Error('sheet: say which cel, e.g. hdf sheet films/mini.js ball');
   const film = await loadFilm(path);
@@ -84,6 +87,7 @@ export async function storeSheet(id, flags) {
   if (!id) throw new UsageError('sheet: say which asset, e.g. hdf sheet store fox');
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   const e = st.entry(id);
+  if (e.kind === 'hand') return handSheetFile(id, flags);
   if (e.kind !== 'puppet') throw new UsageError(`sheet: '${id}' is a ${e.kind}; hdf sheet store draws a puppet (hdf sheet <film.js> <cel> for a cel)`);
   const d = st.json(e), make = puppet({ ...d, name: id });
   if (flags.poses) return modelSheetFile(make, e, st, flags);
@@ -277,5 +281,69 @@ async function modelSheetFile(make, entry, st, flags) {
   mkdirSync(dirname(file), { recursive: true });
   await paint(list, { look, W, H, width: Math.round(W * 1.5), seed: hash32('model', entry.name) }).toFile(file, { quality: 0.92 });
   process.stdout.write(`${file}  model sheet in ${look.name}, ${rows.length} rows: ${rows.join(', ')}  (list ${hashList(list).slice(0, 12)})\n`);
+  return 0;
+}
+
+// ---------- a hand beside the house ----------
+
+const HAND_W = 1600, SPARE = [...".,:'-!?&"], PANGRAMS = ['The quick brown fox jumps over the lazy dog.', 'Pack my box with five dozen liquor jugs!', '0123456789  Sphinx of black quartz, judge my vow.'];
+
+// handPage(hand) => { list, W, H }: one hand on a page: its name, its pen profile, every glyph (the ones it
+// lacks drawn by the house, in the guide colour and listed), three pangrams, and the pen row of the hand sheet
+// (a line, a circle, a square, a zigzag, a long S) for the pen to draw in the hand's look.
+export function handPage(rec) {
+  const H = asHand(rec), house = H === houseHand(), list = [paper()], M = 60, st = H.stroke;
+  let y = M;
+  list.push(handText(lettered(H.name), M, y + 90, { size: 100, hand: H }));
+  const prof = `wobble ${st.wobble}, overshoot ${st.overshoot}, hook ${st.hook}, pressure ${st.pressure.join(' ')}, tremor ${st.tremor}, rounding ${st.rounding}`;
+  list.push(handText(prof, M, y + 140, { size: 26, hand: H, ink2: null }));
+  y += 170;
+  const chars = [...Object.keys(GLYPHS).filter((c) => /[0-9A-Za-z]/.test(c)).sort((a, b) => rank(a) - rank(b)), ...SPARE];
+  const per = 14, cw = (HAND_W - 2 * M) / per, ch = 112, lacks = [];
+  chars.forEach((c, i) => {
+    const own = glyph(c, H).own;
+    if (!own) lacks.push(c);
+    const x = M + (i % per) * cw + cw / 2, by = y + Math.floor(i / per) * ch + 88;
+    list.push(stroke(line(x - cw / 2 + 8, by, x + cw / 2 - 8, by), 'guide', { w: 1, wobble: 0 }));
+    list.push(handText(c, x, by, { size: 76, align: 'center', hand: H, ink2: null, role: own ? 'ink' : 'guide' }));
+  });
+  y += Math.ceil(chars.length / per) * ch + 10;
+  list.push(handText(lacks.length ? `the house draws ${lacks.join(' ')}` : house ? 'the house hand' : 'every glyph its own', M, y + 30, { size: 26, hand: H, ink2: null, role: lacks.length ? 'guide' : 'ink' }));
+  y += 60;
+  for (const p of PANGRAMS) { list.push(handText(p, M, y + 64, { size: 56, hand: H, ink2: null })); y += 86; }
+  y += 20;
+  let x = M;
+  for (const c of SHAPES) {
+    list.push(place(x, y, group(`pen:${c.name}`, c.paths.map((p, i) => stroke(poly(p, false), 'ink', { w: 4.5, name: `${c.name}${i}` })))));
+    x += c.w / UNIT + 30;
+  }
+  y += 140 + M;
+  return { list, W: HAND_W, H: Math.ceil(y) };
+}
+const rank = (c) => (/[a-z]/.test(c) ? 0 : /[A-Z]/.test(c) ? 100 : 200) + c.charCodeAt(0);
+
+// The house page beside the hand's, each painted in paperInk carrying its hand (so its pen draws the pen row),
+// written to assets/sheets/<id>.jpg (what `hdf find` points at).
+export async function handSheetFile(id, flags = {}) {
+  if (!id) throw new UsageError('sheet: say which hand, e.g. hdf sheet --hand narcis');
+  const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
+  let rec;
+  if (id === 'house') rec = houseHand();
+  else {
+    if (!st.has(id)) throw new UsageError(`sheet: no hand '${id}' in the store`);
+    const e = st.entry(id);
+    if (e.kind !== 'hand') throw new UsageError(`sheet: '${id}' is a ${e.kind}, not a hand`);
+    rec = { ...st.json(e), name: id };
+  }
+  const pages = [[houseHand(), LOOKS.paperInk], [rec, id === 'house' ? LOOKS.paperInk : modifyLook(LOOKS.paperInk, [['hand', id]], { [id]: rec })]];
+  const tiles = pages.map(([h, look]) => {
+    const { list, W, H } = handPage(h);
+    return { canvas: paint(list, { look, W, H, width: 1100, seed: hash32('hand sheet', h.name) }), label: h.name };
+  });
+  const file = st.sheetPath(id);
+  mkdirSync(dirname(file), { recursive: true });
+  await tileSheet(tiles, { cols: 2, label: 18 }).toFile(file, { quality: 0.9 });
+  const lacks = Object.keys(GLYPHS).filter((c) => c.trim() && !glyph(c, asHand(rec)).own);
+  process.stdout.write(`${file}  house | ${id}${lacks.length ? `  (the house draws ${lacks.join(' ')})` : ''}\n`);
   return 0;
 }

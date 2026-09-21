@@ -165,3 +165,39 @@ test("hand: --synth puts a hand in the store; --look 'x~hand:<id>' letters a fil
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('hand: --template prints the sheet (PDF, or lettered by a stored hand), <sheet.jpg> --name reads one into the store', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-sheet-'));
+  const raw = (...argv) => spawnSync(process.execPath, ['cli/hdf.mjs', ...argv], { encoding: 'buffer' });
+  try {
+    assert.match(await hdf('help').then((r) => r.out), /^ {2}hand {4}--template/m);
+    for (const paper of ['a4', 'letter']) {
+      const pdf = raw('hand', '--template', '--paper', paper);
+      assert.equal(pdf.status, 0, pdf.stderr.toString());
+      assert.equal(pdf.stdout.subarray(0, 5).toString(), '%PDF-');
+    }
+    assert.equal(raw('hand', '--template', '--paper', 'a3').status, 2);
+    const jpg = raw('hand', '--template', '--letter', 'test');
+    assert.equal(jpg.status, 0, jpg.stderr.toString());
+    const file = join(dir, 'sheet.jpg');
+    writeFileSync(file, jpg.stdout);
+
+    const r = await hdf('hand', file, '--name', 'scribe', '--root', dir, '--out', dir);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{40}\.json {2}own {2}\(new\)/m);
+    assert.match(r.out, /^62 of 62 glyphs traced$/m);
+    assert.match(r.out, /^pen: wobble [\d.]+, overshoot [\d.]+, hook [\d.]+, pressure [\d.]+\/1\/[\d.]+, tremor [\d.]+, rounding [\d.]+, width [\d.]+ em {2}\(from 3 lines and the square\)$/m);
+    assert.ok(existsSync(join(dir, 'hand-scribe-trace.jpg')));
+    assert.ok(existsSync(join(dir, 'sheets', 'scribe.jpg')));
+    const cat = JSON.parse(readFileSync(join(dir, 'catalogue.json'), 'utf8'));
+    assert.deepEqual([cat.scribe.kind, cat.scribe.glyphs, cat.scribe.licence, cat.scribe.source], ['hand', 62, 'own', 'sheet.jpg']);
+
+    const sheet = await hdf('sheet', '--hand', 'scribe', '--root', dir);
+    assert.equal(sheet.code, 0, sheet.out);
+    assert.match(sheet.out, /sheets\/scribe\.jpg {2}house \| scribe {2}\(the house draws \. , : ' - ! \? &\)/);
+    assert.equal((await hdf('sheet', 'store', 'scribe', '--root', dir)).code, 0, 'a hand in the store gets the same page');
+
+    assert.equal((await hdf('hand', file, '--root', dir)).code, 2, 'needs --name');
+    assert.equal((await hdf('hand', file, '--name', 'house', '--root', dir)).code, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+

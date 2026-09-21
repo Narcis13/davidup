@@ -361,6 +361,28 @@ lettered in another hand; `mini` default golden holds.
   the `test` hand, run `hdf hand` on that jpg, and check every glyph traces
   and the profile lands within tolerance of the `test` hand's values.
 
+(Built: the geometry lives in `core/handsheet.js` (pure: a luminance plane in, canvas-agnostic drawing out),
+so the PDF, the tests' lettered sheets and the reader share it. The frame is 180 x 250 mm, centred on A4 or
+letter (`--paper letter`), in em units of 0.2 mm, so what is written on the baseline comes back at house size.
+The marks are thick Ls found as components that fill a third to a half of their box with one quarter empty, the
+four spanning the largest quad; a square key beside the top-left one lets a sideways photo read; the homography
+is fitted to their centroids. Guides, exemplars and box borders print light and drop out under a per-box
+threshold (ink < 0.6 x the box's 90th-percentile paper, `--thr`). `core/skeleton.js` is Zhang-Suen plus a
+staircase pass, a Felzenszwalb distance transform for widths, whisker pruning, roto.py's `trace()`, and a join
+of branches that run straight through a junction (so x and t come back as two strokes); dots come back as small
+circles. Glyphs are centred in an advance 6 wider than their ink. The pen row is three lines (drawn left to
+right) plus the circle, square, zigzag and S; lines give wobble (RMS off the fitted line, x sqrt 18, less the
+skeleton's own noise), pressure (width at 0.1/0.5/0.9, over the widest), hook (ink reach off the line at the
+start beyond the end's, in 1.5 pen widths) and tremor (high-pass residual); the square (side 80, room for
+overshoot 0.35) gives overshoot (skeleton ends outside the fitted square, median per corner, over the side) and
+rounding. Wobble and hook read 0.85 of the pen's own values in a six-seed sweep and are scaled back; hook
+scatters about +-0.15 because the pen curls each entry through a random 60-120 degrees. Speed is not on a sheet
+(the house's). `hdf hand --template --letter <id>` fills the sheet in with a stored hand; `hdf hand sheet.jpg`
+also writes `out/hand-<id>-trace.jpg` (straightened, traces in red) and the house | hand page that `hdf sheet
+--hand <id>` (and `hdf sheet store <id>` for a hand) draws. The test photographs the lettered sheet in
+perspective on a dark table, lit unevenly: all 62 glyphs trace within 0.3-1.7 em units of the strokes handText
+wrote, and wobble, overshoot, pressure and hook land within 20%, 0.03, 0.07 and 0.2 of the test hand's.)
+
 Done when: a photo of the printed sheet becomes a hand and `hdf render
 film.js --look 'risoPop~hand:narcis'` letters and draws the film in it.
 
@@ -474,7 +496,7 @@ doodle recipe in the user's hand without reading the source.
 | S9 | Speech scribbles | S5 | speech scribbles | [x] |
 | S10 | Cut-out look | S4 | cut-out look | [x] |
 | S11 | Hands part 1 | S2 | same film, two hands | [x] |
-| S12 | Hands part 2 | S11 | same film, two hands | [ ] |
+| S12 | Hands part 2 | S11 | same film, two hands | [x] |
 | S13 | Living packs | S4 | living packs | [ ] |
 | S14 | Skeletons + retarget | S4 | (prereq) | [ ] |
 | S15 | Motion from your phone | S14 | motion from your phone | [ ] |
