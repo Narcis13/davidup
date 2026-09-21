@@ -82,7 +82,7 @@ export function widen(payload, name) {
 const tableText = (table) => table.map((r) => `${r.hex}  ${String(r.area).padStart(7)}  ${r.role.padEnd(10)} ${r.how}\n`).join('');
 
 // The retargeted cycles of the puppet already in the store under this name, carried over to the new payload.
-function keepRetargeted(payload, name, flags) {
+export function keepRetargeted(payload, name, flags) {
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   if (!st.has(name) || st.entry(name).kind !== 'puppet') return;
   const kept = Object.entries(st.json(name).cycles ?? {}).filter(([k, c]) => c?.from && !payload.cycles?.[k]);

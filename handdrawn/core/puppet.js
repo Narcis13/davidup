@@ -50,10 +50,14 @@
 // cel's ops, so `puppet('pack:boat')({ note: 1 })` hashes as `boat({ note: 1 })` does. An input between two
 // mirrored values draws the nearest one; an input the cel does not declare (boat's mode) needs the code cel.
 //
+// Stick puppets (4.0 K2): a payload of kind 'stick' (joints and bones, core/stick.js) is compiled to parts
+// first, so puppet(stickSource) and puppet(compiled) are the same puppet.
+//
 // Browser-safe: the payload comes from the registry (core/store.js), which `fromStore` fills in node and
 // `hdf dev` / `hdf bundle` fill from `window.HDF.assets`.
 import { FPS } from './curves.js';
 import { bounds, circle, dots, fill, fx, group, mmul, norm, parse, rotate, scale, serialise, stroke, translate, withProps } from './list.js';
+import { compileStick, isStick } from './stick.js';
 import { record } from './store.js';
 import { cel } from './tree.js';
 
@@ -126,7 +130,8 @@ export function cutoutOf(g) {
 // in hand (a test, or `hdf sheet store <id>` reading the blob itself). Built once per payload object: the ops
 // are deserialised through list.js one time and every pose reuses them.
 export function puppet(idOrData) {
-  const d = typeof idOrData === 'string' ? record(idOrData) : idOrData;
+  const got = typeof idOrData === 'string' ? record(idOrData) : idOrData;
+  const d = isStick(got) ? compileStick(got) : got;   // a stick payload (4.0 K2) compiles to ordinary parts
   if (!d || typeof d !== 'object' || !d.parts || typeof d.parts !== 'object' || !Object.keys(d.parts).length) {
     throw new TypeError(`puppet ${typeof idOrData === 'string' ? `'${idOrData}'` : ''}: expected a puppet payload { units, parts: { ... } } (plan 1.2)`);
   }

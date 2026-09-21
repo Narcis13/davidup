@@ -763,7 +763,8 @@ most of a day. About twice v3.
 | T5 | [x] 2026-09-21: `layout` / `measureBox` from real advances and glyph ink (`core/layout.js`), `textBox`, `bullets` (dot dash number check), `text` op wraps with `width` (`w` stays the pen) and breaks on `\n`; `bounds` of a text op measures its ink in the shot's hand; player `B` shows text boxes; every film lint clean, every golden holds |
 | T2 T3 T4 T6 T7 T8 T9 T10 | [ ] each |
 | K1 | [x] 2026-09-21: `slide`/`scale` (`keepArea`) part inputs `<n>.x/.y/.sx/.sy` quantised like joints, xf `translate(pivot).translate(d).rotate.scale`; `when: { eye: ['open'] }` shows a part with a variant (the pupil hides behind a happy eye); SVG `data-slide`/`data-scale`/`data-when`; fox gets `pupil`, `brow-l`, `brow-r` (l = the drawing's left, so worried is brow-l -, brow-r +), EMOTES use them and gain `worried`; lint and both sheets see every move at its extremes; a sliding part is a print in the cut-out look; cutout-fox and fox-and-teapot goldens rewritten, every other golden holds |
-| K2 K3 K4 K5 K6 K7 K8 | [ ] each |
+| K2 | [x] 2026-09-21: `core/stick.js` compiles `{ kind: 'stick', joints, bones, head, spread }` to parts (bone = part at its proximal joint, named by its distal joint in the biped names, root `hips`, collars to shoulders and hips of a side), three views generated from the joints (front: pairs `spread` apart, -l on the drawing's left), a face (eye 4 variants, pupil slide, brows turn + slide, mouth 0..5 with 5 the smile), dots or mitts, `line` or `tube`; stored compiled with the source as `stick`; `hdf stick` (four builds) writes `src/<id>.stick.json` and imports it, keeping retargeted cycles; `hdf retarget` derives the map from the stick (-l side 1, zero = the bone's rest direction, so a clip in the rest stance retargets to zeros); box is the reach about the hip; every golden holds |
+| K3 K4 K5 K6 K7 K8 | [ ] each |
 | V1 V2 V3 V4 | [ ] each |
 | L1 L2 L3 L4 | [ ] each |
 | E1 E2 E3 E4 E5 | [ ] each |

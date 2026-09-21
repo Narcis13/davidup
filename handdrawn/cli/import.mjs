@@ -8,6 +8,8 @@
 //   hdf import ... --root ../other-store          import into a store that is not handdrawn/assets
 //   hdf import --v2 films/held-once-photos.js --licence CC0   a 2.0 data module: every record into the store
 //
+// A stick source (`hdf stick` writes one, 4.0 K2) imported as a puppet is compiled to parts on the way in.
+//
 // A cutout is expected to be cut out already (alpha, as `hdf photo` writes it): its silhouette and colours
 // table are traced here so `pin()` and `derive({ from })` see the shape they see today. The entry is validated
 // before anything is written; `--licence` defaults to `unknown`, which `hdf lint` refuses to render.
@@ -18,6 +20,7 @@ import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, KINDS, LICENCES, SCHEMAS, imageType, readCatalogue, validatePayload } from '../core/assets.js';
 import { bounds, parse } from '../core/list.js';
 import { lintPuppet } from '../core/lint.js';
+import { checkStick, compileStick, isStick } from '../core/stick.js';
 import { UsageError } from './load.mjs';
 import { colours, silhouette } from './photo.mjs';
 import { skiaCanvas } from './skia.mjs';
@@ -37,6 +40,7 @@ export async function run(args, flags) {
 // Validates a payload, puts it in the store (--root, or handdrawn/assets) under `name` and says what changed.
 // `hdf svg` hands its puppet or motif here, so an SVG import passes every check a JSON import does.
 export async function putPayload({ kind, name, bytes, abs, flags }) {
+  bytes = stickBytes(kind, name, bytes, abs);
   const licence = str(flags.licence) || 'unknown';
   if (!LICENCES.includes(licence)) throw usage(`import: --licence ${licence} (expected ${LICENCES.join(' | ')})`);
   const meta = {
@@ -58,6 +62,18 @@ export async function putPayload({ kind, name, bytes, abs, flags }) {
 }
 
 const str = (v) => (v === undefined || v === true ? '' : String(v));
+
+// A stick source (4.0 K2: kind 'stick', joints and bones) goes in compiled, so the store holds ordinary parts
+// and every reader of a puppet sees one; the source rides along as the payload's `stick`.
+function stickBytes(kind, name, bytes, abs) {
+  if (kind !== 'puppet') return bytes;
+  let d;
+  try { d = JSON.parse(bytes.toString('utf8')); } catch { return bytes; }
+  if (!isStick(d)) return bytes;
+  const bad = checkStick(d);
+  if (bad.length) throw usage(`import: ${basename(abs)} is not a valid stick:\n  ${bad.join('\n  ')}`);
+  return Buffer.from(JSON.stringify(compileStick({ ...d, name })));
+}
 const usage = (msg) => new UsageError(msg);
 
 // The entry fields a kind adds, read off the payload itself (never off flags: the payload is the truth).

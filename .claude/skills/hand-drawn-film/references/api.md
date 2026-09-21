@@ -97,6 +97,13 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `retarget(clip, d, map)` The cycle a clip's skeleton drives on a puppet payload d through a map: { cycle: { fps, n, frames }, report: { parts, flip, scale, lift } }.
 
+### core/stick.js
+
+- `BUILDS` Fractions of the figure's height H. y are heights above the ground; x forward of the hip (side view).
+- `compileStick(src)` A stick source -> a puppet payload (see the top of this file).
+- `stickMap(d)` A retarget map for a stick (its source, or a payload compiled from one): every bone whose two ends are joints of the biped rig follows that chain, zeroed on its own rest direction in the side view, so the rest pose is the clip's pose ...
+- `stickSource({ name = 'stick', h = 300, build = 'adult', style = 'line', hands = 'dots', face = true } = {})` A stick source for a build: the joints, the bones with their widths, the head, the front spread.
+
 ### core/pose.js
 
 - `poseClip(raw, { loop = true, seam = 0.03, credit = '', source = '' } = {})` A pose landmarker's output as a biped clip (see the top of this file).

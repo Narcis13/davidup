@@ -40,7 +40,12 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     -> a biped clip in the store at 12 fps, cut to its best loop
   retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]   a clip's skeleton as a
                                     puppet cycle in the store (maps in assets/src/): joints on 2 degrees, a lift
-                                    (--clip me --map biped-fox.json --name walk: the fox walks like you)
+                                    (--clip me --map biped-fox.json --name walk: the fox walks like you;
+                                    a stick puppet needs no --map)
+  stick   --name <id> [--h 300] [--build kid|adult|tall|round] [--style line|tube] [--hands dots|mitts|none]
+                                    [--no-face] [--root dir] [--no-sheet]   a stick puppet: joints and bones compiled
+                                    to parts in three views, a face, standard biped names; writes src/<id>.stick.json
+                                    and imports it (then hdf retarget --clip me --to <id> --name walk, no map)
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
                                     --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record
@@ -69,7 +74,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'retarget', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };
 

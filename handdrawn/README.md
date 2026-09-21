@@ -552,6 +552,34 @@ hdf import assets/src/fox.puppet.json --kind puppet --name fox --licence own
 hdf sheet store fox --cycle walk    # every look x every pose and variant x 3 scales, the walk as a strip
 ```
 
+### Stick puppets
+
+A stickman is its own rig (4.0 K2, `core/stick.js`). A stick payload names
+joints (the side view, facing right, ground at y = 0) and the bones between
+them; `puppet()` compiles it to ordinary parts, so sheets, lint, the cut-out
+look and the actor contract see a puppet like any other:
+
+```bash
+hdf stick --name sam [--h 300] [--build kid|adult|tall|round] [--style line|tube] [--hands dots|mitts|none] [--no-face]
+hdf retarget --clip me --to sam --name walk     # no --map: a stick's joints are the biped rig's
+hdf sheet store sam --cycle walk                # the turnaround and the walk
+```
+
+`hdf stick` writes `<store>/src/sam.stick.json` (edit it and `hdf import` it
+as a puppet to take the edit) and stores it compiled, the source kept as the
+payload's `stick`. A bone is a part pivoting at its proximal joint, one pen
+stroke to its distal joint (a filled capsule in `tube`), named for the distal
+joint in the standard biped names: `body, neck, arm-l, fore-l, leg-l, shin-l,
+foot-l`, ... ; the root is `hips`, the head a circle on a part at the neck,
+hands `hand-l/-r` at the wrists. A face prints on the head: `eye` (open,
+happy, sleep, wide), `pupil` (slides), `brow-l/-r` (turn and slide), `mouth`
+0..5 (shut, three openings, an oo, a smile: `emote('happy')` takes the
+smile). The three views are generated from the joints: the front stands each
+pair `spread` from the middle, -l on the drawing's left; painter order is -l
+limbs, trunk and face, -r limbs. The box holds anything the limbs reach from
+the hip, so a raised arm fits. A regenerated stick keeps its retargeted
+cycles.
+
 ### Puppets from SVG
 
 A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported

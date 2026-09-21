@@ -170,6 +170,10 @@ about pivots in painter order; joints are degrees on a 2° step; `eye` and
 and scale: `FOX({ 'pupil.x': 4, 'brow-l': -12, 'brow-r.y': -3 })` looks across
 and frets (`<part>.x/.y` slide in units, `<part>.sx/.sy` scale; the payload's
 `slide`/`scale`, or `data-slide`/`data-scale` in the SVG, give the ranges).
+For an explainer's presenter, `hdf stick --name sam [--build kid|adult|tall|round]
+[--style line|tube]` makes a **stick puppet**: standard biped part names, three
+views, a face (eye, pupil, brows, mouth 0..5), and `hdf retarget --clip me --to
+sam --name walk` needs no map because its joints are the biped rig's.
 
 `actorOf(puppet | cel | builder, spec)` makes a **cast member** every recipe
 can direct. `CAST.FOX` and `CAST.HOG` (the hedgehog) are ready; a new puppet
