@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { platform, homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { request } from "node:http";
+import { hdfRoot } from "../mcp/hdf.js";
 
 export type EditErrorCode =
   | "E_PROJECT_NOT_FOUND"
@@ -335,6 +336,19 @@ const DEFAULT_DEV_SPAWN_IO: DevSpawnIO = {
  * the terminal therefore reaches only the CLI, whose SIGINT handler tears the
  * group down. Windows has no process groups; there it's a plain spawn.
  */
+/**
+ * The handdrawn package this CLI sits beside, for the editor's
+ * `render_hdf_clip` (4.0 D5). The editor runs from its own copy of the engine
+ * (bun's snapshot of the repo, or editor-dist's vendored copy), whose
+ * `handdrawn/` is stale or absent, so the launching CLI names the real one.
+ * An env that already sets it, or an install without the package, adds nothing.
+ */
+export function hdfEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (env.DAVIDUP_HDF_ROOT) return {};
+  const root = hdfRoot();
+  return root ? { DAVIDUP_HDF_ROOT: root } : {};
+}
+
 export function spawnDevServer(
   input: SpawnServerInput,
   io: DevSpawnIO = DEFAULT_DEV_SPAWN_IO,
@@ -346,6 +360,7 @@ export function spawnDevServer(
     HOST: input.host,
     DAVIDUP_HMR_PORT: String(hmrPortFor(input.port, io.env)),
     NODE_ENV: io.env.NODE_ENV ?? "development",
+    ...hdfEnv(io.env),
   };
   const detached = io.platform !== "win32";
   const child = io.spawn("node", ["ace", "serve", "--hmr"], {
@@ -411,6 +426,7 @@ export function spawnPackagedServer(
     LOG_LEVEL: parentEnv.LOG_LEVEL ?? "info",
     SESSION_DRIVER: parentEnv.SESSION_DRIVER ?? "cookie",
     DAVIDUP_DB_PATH: parentEnv.DAVIDUP_DB_PATH ?? join(dbDir, "editor.sqlite3"),
+    ...hdfEnv(parentEnv),
   };
 
   // `node ace.js migration:run --force` runs the migration to completion

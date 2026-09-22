@@ -4,7 +4,7 @@
 > One canonical JSON composition runs in the **browser** (live preview via
 > Canvas2D + `requestAnimationFrame`), on the **server** (frame-by-frame render
 > with [`skia-canvas`](https://github.com/samizdatco/skia-canvas) piped to
-> `ffmpeg` → MP4), inside an **AI agent** loop (59 atomic MCP tools), from the
+> `ffmpeg` → MP4), inside an **AI agent** loop (60 atomic MCP tools), from the
 > **CLI** (`davidup render`), or in a **human editor** (`davidup edit`).
 > Same input → same pixels, every host.
 
@@ -18,7 +18,7 @@
             │                        │                        │
     ┌───────▼───────┐       ┌────────▼────────┐      ┌────────▼────────┐
     │ browser/      │       │ drivers/node    │      │ mcp server      │
-    │ attach()      │       │ renderToFile()  │      │ 59 tools, stdio │
+    │ attach()      │       │ renderToFile()  │      │ 60 tools, stdio │
     │ live preview  │       │ → mp4 (+audio)  │      │ for AI agents   │
     └───────────────┘       └────────┬────────┘      └────────┬────────┘
                                      │                        │
@@ -909,7 +909,7 @@ render preset) at `~/.davidup/state.json`.
 ## The MCP server — full reference for agents
 
 **Transport**: stdio. **Entry**: `dist/mcp/bin.js` (the `davidup-mcp` bin,
-Node shebang) or `bun run src/mcp/bin.ts` from a checkout. **Tools**: 59
+Node shebang) or `bun run src/mcp/bin.ts` from a checkout. **Tools**: 60
 atomic tools, all returning structured results with `{error: {code, message,
 hint?, issues?, warnings?, details?}}` on failure (`isError: true`).
 
@@ -929,7 +929,7 @@ the TTL.
 | § | Category | Tools |
 |---|---|---|
 | 4.1 | Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset`, `replace_composition` (whole-document swap, validated) |
-| 4.2 | Assets | `register_asset` (image / font / audio / video; audio+video are ffprobed; an image may carry a sprite `sheet`), `list_assets`, `remove_asset` |
+| 4.2 | Assets | `register_asset` (image / font / audio / video; audio+video are ffprobed; an image may carry a sprite `sheet`; `replace: true` swaps an asset in place), `list_assets`, `remove_asset` |
 | 4.3 | Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 | Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
 | 4.4a | Video items | `add_video`, `update_video` — sprite-shaped clips with `trimIn`/`trimOut`, `fit`, `loop` (freezes on the last frame once trimmed content runs out), `keepAudio` (mux the clip's own sound) |
@@ -942,6 +942,7 @@ the TTL.
 | 4.7 | Project lifecycle *(editor-hosted)* | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 | Library *(editor-hosted)* | `list_library`, `get_library_thumbnail` |
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
+| 4.10 | Hand-drawn clips | `render_hdf_clip` — renders a film of the `handdrawn/` package (`film`, `look`, `ar`, `width`, `frames`, `alpha` mov\|webm) and registers it as a video asset in one call; `place` adds the video item, `item` repoints one, the film is cut to the composition's markers and its chapters come back as markers (`cues`); `sprites` registers cast members as sprite sheets. Needs a checkout (or `DAVIDUP_HDF_ROOT`) and node |
 
 `render_preview_frame` and `render_thumbnail_strip` return real MCP image
 content blocks, so a multimodal agent sees the frame directly. Video items are
@@ -1397,7 +1398,7 @@ src/
     node/         renderToFile via skia-canvas + ffmpeg,          (§5.6, §6)
                   video pre-extraction cache, audio mux, ffprobe
     browser/      attach() — RAF preview + pick + bounds + source (§5.6)
-  mcp/            server + 59 tools + in-memory store + bin       (§4)
+  mcp/            server + 60 tools + in-memory store + bin       (§4)
   cli/            bin + commands (new / edit / render / list) + scaffold templates
 
 apps/

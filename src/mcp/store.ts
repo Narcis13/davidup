@@ -731,7 +731,10 @@ export class CompositionStore {
 
   // ──────────────── Assets ────────────────
 
-  registerAsset(input: RegisterAssetInput, compositionId?: string): void {
+  // `replace` (4.0 D5): an asset of the same id is swapped in place and the
+  // items and tracks that use it keep using it (a re-rendered clip, a redrawn
+  // sheet). Changing its type is refused while anything uses it.
+  registerAsset(input: RegisterAssetInput, compositionId?: string, opts: { replace?: boolean } = {}): void {
     const comp = this.requireComposition(compositionId);
     if (!input.id || input.id.length === 0) {
       throw new MCPToolError(
@@ -740,12 +743,23 @@ export class CompositionStore {
         "Pass a stable string id (used later by add_sprite/add_text and remove_asset).",
       );
     }
-    if (comp.assets.has(input.id)) {
+    const was = comp.assets.get(input.id);
+    if (was && !opts.replace) {
       throw new MCPToolError(
         "E_DUPLICATE_ID",
         `Asset id "${input.id}" already registered.`,
-        "Use remove_asset first if you want to replace it.",
+        "Pass `replace: true` to swap it in place (items using it keep it), or remove_asset first.",
       );
+    }
+    if (was && was.type !== input.type) {
+      const user = assetUser(comp, input.id);
+      if (user) {
+        throw new MCPToolError(
+          "E_ASSET_TYPE_MISMATCH",
+          `Asset "${input.id}" is a ${was.type} used by ${user}; it cannot be replaced by a ${input.type}.`,
+          "Register the new file under another id, or reassign the item first.",
+        );
+      }
     }
     if (input.sheet !== undefined && input.type !== "image") {
       throw new MCPToolError(
@@ -847,37 +861,15 @@ export class CompositionStore {
         "Call list_assets to see registered asset ids.",
       );
     }
-    for (const [itemId, item] of comp.items) {
-      if (item.type === "sprite" && item.asset === assetId) {
-        throw new MCPToolError(
-          "E_ASSET_IN_USE",
-          `Asset "${assetId}" is used by sprite "${itemId}".`,
-          "Remove or reassign the item before removing the asset.",
-        );
-      }
-      if (item.type === "text" && item.font === assetId) {
-        throw new MCPToolError(
-          "E_ASSET_IN_USE",
-          `Asset "${assetId}" is used as font by text "${itemId}".`,
-          "Remove or reassign the item before removing the asset.",
-        );
-      }
-      if (item.type === "video" && item.asset === assetId) {
-        throw new MCPToolError(
-          "E_ASSET_IN_USE",
-          `Asset "${assetId}" is used by video "${itemId}".`,
-          "Remove or reassign the item before removing the asset.",
-        );
-      }
-    }
-    for (const [trackId, track] of comp.audio) {
-      if (track.asset === assetId) {
-        throw new MCPToolError(
-          "E_ASSET_IN_USE",
-          `Asset "${assetId}" is used by audio track "${trackId}".`,
-          "Remove the audio track (remove_audio_track) before removing the asset.",
-        );
-      }
+    const user = assetUser(comp, assetId);
+    if (user) {
+      throw new MCPToolError(
+        "E_ASSET_IN_USE",
+        `Asset "${assetId}" is used ${user.startsWith("text") ? "as font " : ""}by ${user}.`,
+        user.startsWith("audio track")
+          ? "Remove the audio track (remove_audio_track) before removing the asset."
+          : "Remove or reassign the item before removing the asset.",
+      );
     }
     comp.assets.delete(assetId);
   }
@@ -2557,6 +2549,20 @@ function cloneLayer(layer: Layer): Layer {
   };
 }
 
+// The first item or audio track using an asset, as `sprite "<id>"`, `text "<id>"`,
+// `video "<id>"` or `audio track "<id>"`; null when nothing does.
+function assetUser(comp: MutableComposition, assetId: string): string | null {
+  for (const [itemId, item] of comp.items) {
+    if (item.type === "sprite" && item.asset === assetId) return `sprite "${itemId}"`;
+    if (item.type === "text" && item.font === assetId) return `text "${itemId}"`;
+    if (item.type === "video" && item.asset === assetId) return `video "${itemId}"`;
+  }
+  for (const [trackId, track] of comp.audio) {
+    if (track.asset === assetId) return `audio track "${trackId}"`;
+  }
+  return null;
+}
+
 function cloneItem(item: Item): Item {
   // §M flags + lifespan propagate through every clone path so toJSON
   // round-trips them.
@@ -2564,6 +2570,7 @@ function cloneItem(item: Item): Item {
     ...(item.effects !== undefined ? { effects: item.effects.map(cloneEffect) } : {}),
     ...(item.visible !== undefined ? { visible: item.visible } : {}),
     ...(item.locked !== undefined ? { locked: item.locked } : {}),
+    ...(item.name !== undefined ? { name: item.name } : {}),
     ...(item.enter !== undefined ? { enter: item.enter } : {}),
     ...(item.exit !== undefined ? { exit: item.exit } : {}),
   };

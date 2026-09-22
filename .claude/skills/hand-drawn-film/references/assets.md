@@ -403,3 +403,14 @@ chapters, notes, words, marks }`; `davidup-hdf-clip.ts` (and `hdf-to-davidup.ts`
 for each item playing the film) passes the composition as `--cues-from` and
 writes the film's chapters into `composition.markers` with `source:
 "hdf:<item>"`; `--no-cues` turns both off.
+The davidup MCP server does both scripts' work in one call (4.0 D5):
+`render_hdf_clip { film, look, ar, width, frames, alpha, asset, place | item,
+cues, sprites, states, spriteHeight, video }` renders with `hdf render`,
+registers the clip with `register_asset { replace: true }` (in the open
+project's `assets/hdf/`, or `handdrawn/out/davidup/` on a standalone server),
+then `place` adds a video item (add_video's fields, named `hdf:<film>`) or
+`item` repoints one; with either, the film reads the composition's marks and
+writes its chapters back as markers (`cues: false` for neither). `sprites`
+(`true` for the cast `hdf sprite --film <film> --cast` lists, or names)
+registers `hdf-<name>-sprite` sheets. A film given as a path must sit under
+`handdrawn/` or the project (it runs as code) unless `DAVIDUP_ALLOW_FS=1`.

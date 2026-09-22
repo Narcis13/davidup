@@ -44,6 +44,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     a .json beside it (frames, fps, cycles, anchor at the feet, a walk's speed);
                                     --film finds the name in that film's cast (its store puppets, its \`cast\` export)
                                     (scripts/hdf-to-davidup.ts --sprites registers them)
+  sprite  --film <film.js> --cast   the film's cast, a name a line
   lint    <film.js>                 review checklist over lists; exits 1 on any finding (a line per chapter after)
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid

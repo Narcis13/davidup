@@ -19,6 +19,7 @@
 */
 
 import { test } from '@japa/runner'
+import { existsSync } from 'node:fs'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -539,5 +540,68 @@ test.group('MCP bridge · async render (§20.31)', (group) => {
         `unexpected code: ${result.error.code}`
       )
     }
+  })
+})
+
+// 4.0 D5: render_hdf_clip is not a command itself; it renders with hdf and makes
+// its changes through other tools' calls (deps.call), which the router sends
+// through the CommandBus like any MCP mutation, so they land in the project.
+test.group('MCP bridge · render_hdf_clip (4.0 D5)', (group) => {
+  let dir: string
+  const envWas = process.env.DAVIDUP_HDF_ROOT
+
+  group.each.setup(async () => {
+    // The editor's copy of the engine carries a stale handdrawn/; `davidup edit` names the real one.
+    process.env.DAVIDUP_HDF_ROOT = join(import.meta.dirname, '..', '..', '..', '..', 'handdrawn')
+    await projectStore.unload()
+    dir = await makeProject()
+    await projectStore.load(dir)
+    commandBus.reset()
+  })
+
+  group.each.teardown(async () => {
+    if (envWas === undefined) delete process.env.DAVIDUP_HDF_ROOT
+    else process.env.DAVIDUP_HDF_ROOT = envWas
+    await projectStore.unload()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('renders into <project>/assets/hdf and registers and places the clip through the bus', async ({
+    assert,
+  }) => {
+    const seen: Array<{ kind: string; source: string }> = []
+    const off = commandBus.on((e) => seen.push({ kind: e.command.kind, source: e.source }))
+    const res = await dispatchTool(
+      findTool('render_hdf_clip'),
+      { film: 'mini', frames: 2, width: 160, place: { layerId: 'fg', x: 10, y: 20 }, cues: false },
+      buildDeps(projectStore),
+      buildRouter(commandBus, projectStore)
+    )
+    off()
+    assert.isTrue(res.ok, JSON.stringify(res))
+    assert.deepEqual(seen, [
+      { kind: 'register_asset', source: 'mcp' },
+      { kind: 'add_video', source: 'mcp' },
+    ])
+    assert.isTrue(existsSync(join(dir, 'assets', 'hdf', 'hdf-mini.mp4')))
+    const stored = projectStore.composition as {
+      assets: Array<{ id: string; src: string }>
+      items: Record<string, { type: string; asset?: string; name?: string }>
+      layers: Array<{ id: string; items: string[] }>
+    }
+    assert.deepInclude(stored.assets.find((a) => a.id === 'hdf-mini'), { src: 'assets/hdf/hdf-mini.mp4' })
+    const itemId = (res as { result: { itemId: string } }).result.itemId
+    assert.deepInclude(stored.items[itemId], { type: 'video', asset: 'hdf-mini', name: 'hdf:mini' })
+    assert.include(stored.layers[0].items, itemId)
+
+    // Again: the asset is replaced in place (register_asset replace), not refused as a duplicate.
+    const again = await dispatchTool(
+      findTool('render_hdf_clip'),
+      { film: 'mini', frames: 3, width: 160, item: itemId, cues: false },
+      buildDeps(projectStore),
+      buildRouter(commandBus, projectStore)
+    )
+    assert.isTrue(again.ok, JSON.stringify(again))
+    assert.lengthOf((projectStore.composition as { assets: unknown[] }).assets, 1)
   })
 })

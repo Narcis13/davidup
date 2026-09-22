@@ -115,6 +115,34 @@ describe("CompositionStore — assets", () => {
     expect(() => store.removeAsset("f")).toThrow(MCPToolError);
   });
 
+  it("replaces an asset of the same id in place only when asked (4.0 D5)", () => {
+    const { store } = makeStore();
+    store.registerAsset({ id: "logo", type: "image", src: "a.png" });
+    const layerId = store.addLayer({ z: 0 });
+    const sprite = store.addSprite({ layerId, asset: "logo", x: 0, y: 0, width: 10, height: 10, name: "the logo" });
+    try {
+      store.registerAsset({ id: "logo", type: "image", src: "b.png" });
+      expect.unreachable();
+    } catch (err) {
+      expect((err as MCPToolError).code).toBe("E_DUPLICATE_ID");
+      expect((err as MCPToolError).hint).toMatch(/replace: true/);
+    }
+    store.registerAsset({ id: "logo", type: "image", src: "b.png" }, undefined, { replace: true });
+    const doc = store.toJSON();
+    expect(doc.assets).toEqual([{ id: "logo", type: "image", src: "b.png" }]);
+    expect(doc.items[sprite]).toMatchObject({ asset: "logo", name: "the logo" });
+    // A new type while a sprite still uses it would break the sprite.
+    try {
+      store.registerAsset({ id: "logo", type: "font", src: "f.ttf", family: "F" }, undefined, { replace: true });
+      expect.unreachable();
+    } catch (err) {
+      expect((err as MCPToolError).code).toBe("E_ASSET_TYPE_MISMATCH");
+    }
+    store.removeItem(sprite);
+    store.registerAsset({ id: "logo", type: "font", src: "f.ttf", family: "F" }, undefined, { replace: true });
+    expect(store.toJSON().assets).toEqual([{ id: "logo", type: "font", src: "f.ttf", family: "F" }]);
+  });
+
   it("rejects font registration without family", () => {
     const { store } = makeStore();
     expect(() =>

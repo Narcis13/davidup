@@ -100,3 +100,10 @@ test('hdf sprite: the PNG and its JSON, from the store or a film\'s cast; a bad 
     assert.match(hdf('help', 'sprite').out, /^ {2}sprite {2}<puppet\|stick:<name>>/m);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('hdf sprite --cast: the names --film knows, a line each (davidup render_hdf_clip sprites: true, 4.0 D5)', () => {
+  assert.deepEqual(hdf('sprite', '--film', 'films/walk-on.js', '--cast'), { code: 0, out: 'fox\nsam\n' });
+  const bad = hdf('sprite', '--cast');
+  assert.equal(bad.code, 2);
+  assert.match(bad.out, /--cast lists a film's cast; give it --film/);
+});

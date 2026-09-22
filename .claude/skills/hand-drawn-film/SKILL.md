@@ -554,6 +554,18 @@ read them too. The composition's audio track carries the beats as `markers`
 back as composition markers; `hdf cues <film>` prints the cue file.
 `handdrawn/films/on-beat.js` and `examples/hdf-cues/build.mjs` are the pattern.
 
+**From an agent, in one call.** Inside a davidup MCP session the scripts are
+one tool: `render_hdf_clip { film, look, ar, width, frames, alpha, place |
+item, cues, sprites, states, video }` renders the film, registers the clip
+(`hdf-<film>`, replaced on a re-run) and with `place` adds the video item
+(named `hdf:<film>`, sound kept when the film has a score) or with `item`
+points an existing one at it; a placed clip is cut to the composition's marks
+and its chapters come back as markers, as with `davidup-hdf-clip.ts`;
+`sprites: true` registers the cast's sheets. It blocks while hdf renders, so
+try things with `frames` and a small `width`.
+`list_engine_capabilities.handdrawn.films` names the films it can render.
+`examples/hdf-clip/agent.mjs` is the pattern.
+
 ## Procedure
 
 You cannot judge a frame from code. "Look" means open the JPG and look at it,

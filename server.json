@@ -74,7 +74,8 @@
     "list_easings",
     "list_fonts",
     "list_engine_capabilities",
-    "get_source_map"
+    "get_source_map",
+    "render_hdf_clip"
   ],
   "requirements": {
     "runtime": "bun >=1.1 (or node >=20)",

@@ -286,6 +286,7 @@ const replaceComposition = z.object({
 // is NOT part of the payload — the engine derives it via ffprobe at
 // registration time. `sheet` (4.0 D2) makes an image a sprite sheet; its
 // shape is checked by the engine (SpriteSheetSchema), so it passes through.
+// `replace` (4.0 D5) swaps an asset of the same id in place.
 const registerAsset = z.object({
   kind: z.literal('register_asset'),
   payload: z.object({
@@ -294,6 +295,8 @@ const registerAsset = z.object({
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     sheet: z.record(z.string(), z.unknown()).optional(),
+    // 4.0 D5: swap an asset of the same id in place (a re-rendered clip).
+    replace: z.boolean().optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,

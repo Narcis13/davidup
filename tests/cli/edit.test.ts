@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import {
   runEdit,
   EditError,
+  hdfEnv,
   hmrPortFor,
   spawnDevServer,
   spawnPackagedServer,
@@ -360,6 +361,15 @@ describe("cli · hmrPortFor", () => {
     expect(hmrPortFor(3333, { DAVIDUP_HMR_PORT: "5173" })).toBe(5173);
     expect(hmrPortFor(3333, { DAVIDUP_HMR_PORT: "nope" })).toBe(3334);
     expect(hmrPortFor(3333, { DAVIDUP_HMR_PORT: "70000" })).toBe(3334);
+  });
+});
+
+// 4.0 D5: the editor runs from a copy of the engine whose handdrawn/ is stale or
+// absent, so `davidup edit` names the package it sits beside for render_hdf_clip.
+describe("hdfEnv", () => {
+  it("names the checkout's handdrawn/ unless the env already names one", () => {
+    expect(hdfEnv({})).toEqual({ DAVIDUP_HDF_ROOT: resolve(__dirname, "..", "..", "handdrawn") });
+    expect(hdfEnv({ DAVIDUP_HDF_ROOT: "/elsewhere" })).toEqual({});
   });
 });
 

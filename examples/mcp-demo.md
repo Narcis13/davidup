@@ -28,7 +28,7 @@ with `bun run src/mcp/bin.ts` (or via the `davidup-mcp` bin shim defined
 in `package.json`), the process:
 
 - attaches to `stdin`/`stdout` as an MCP transport (JSON-RPC framed);
-- registers the 59 tools from the design doc §4.1–4.9 against an in-memory
+- registers the 60 tools from the design doc §4.1–4.10 against an in-memory
   `CompositionStore`;
 - never logs to `stdout` — diagnostic output goes to `stderr` so the protocol
   framing stays uncorrupted.
@@ -60,6 +60,7 @@ MCP registries.
 | 4.7 Project lifecycle | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 Library | `list_library`, `get_library_thumbnail` |
 | 4.9 Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
+| 4.10 Hand-drawn clips | `render_hdf_clip` (see Recipe D) |
 
 Every tool returns either:
 
@@ -117,7 +118,7 @@ Notes:
   `node --experimental-strip-types` and adjust the entry path. Bun is the
   primary supported runtime per the implementation plan.
 
-Reload Claude Code (`/mcp` to verify) and the 59 tools become callable.
+Reload Claude Code (`/mcp` to verify) and the 60 tools become callable.
 
 ### 2.2 Programmatic registration (`claude mcp add`)
 
@@ -503,8 +504,76 @@ render_preview_frame  → better
 ```
 
 `remove_asset` errors with `E_ASSET_IN_USE` if any item still references it.
-The safe sequence is: re-`register_asset` (overwrite by id) and the swap
-takes effect on the next render call without touching items at all.
+The safe sequence is: `register_asset` again with `replace: true` (overwrite
+by id) and the swap takes effect on the next render call without touching
+items at all.
+
+### Recipe D — "summon a hand-drawn clip"
+
+Everything above is declarative: the composition is data, and the engine draws
+it. Some pictures are better drawn by code — a character that waves, words a
+hand writes, a diagram that builds itself. The `handdrawn/` package in this
+repo draws those frame by frame (Canvas 2D, 12 drawings a second, its own
+score), and `render_hdf_clip` brings one into the composition in one call:
+render, register, place.
+
+```
+create_composition  { width: 1280, height: 720, fps: 24, duration: 4, background: "#2b3a55" }
+add_layer           { id: "card", z: 0 }
+add_shape           { layerId: "card", id: "panel", kind: "rect", x: 80, y: 90, width: 1120, height: 540, cornerRadius: 36, fillColor: "#f4efe4" }
+add_text            { layerId: "card", id: "title", text: "Say hello to the fox", fontSize: 72, color: "#2b3a55", x: 150, y: 300 }
+add_layer           { id: "cast", z: 10 }
+render_hdf_clip     { film: "fox-wave", alpha: "webm", width: 540,
+                      place: { layerId: "cast", x: 700, y: 110, width: 500, height: 500, start: 0.5 } }
+```
+
+```json
+{
+  "clip": {
+    "assetId": "hdf-fox-wave",
+    "src": "/…/davidup/handdrawn/out/davidup/hdf-fox-wave.webm",
+    "duration": 3.008, "width": 540, "height": 540,
+    "hasAlpha": true, "hasAudio": true
+  },
+  "itemId": "item-1",
+  "markers": 0,
+  "marks": 1
+}
+```
+
+`alpha` draws the film on no paper and keeps its transparency (VP9 here;
+`true` or `"mov"` is ProRes 4444), so the fox stands on the card with the
+panel all round it. The placed item is an ordinary video item named
+`hdf:fox-wave`, with the film's score kept (`keepAudio`); `validate`,
+`render_preview_frame` and `render_to_video` treat it like any other clip.
+`examples/hdf-clip/agent.mjs` runs this over stdio (with a subtitle and a
+fade-in on the title) and writes a preview frame and the mp4.
+
+The rest of the tool:
+
+- `film` is a name from `list_engine_capabilities.handdrawn.films` or a path
+  to a film module (under `handdrawn/` or the project, since it runs as code,
+  unless the server has `DAVIDUP_ALLOW_FS=1`). `look` restyles it
+  (`"whiteboard"`, `"chalkboard"`, `"paperInk~hand:test"`, …), `ar` picks
+  `1:1` / `16:9` / `9:16`, `width` the pixels, `frames` renders only the
+  first N drawings for a quick look.
+- `item` instead of `place` points an existing video item at the new clip
+  (its box and timing are kept). Calling again re-renders and swaps the asset
+  in place (`register_asset` with `replace: true`).
+- A clip that plays in the composition is cut to its marks: the film's
+  `atMark("drop")` / `marksNamed("beat")` read `composition.markers`, audio
+  track markers and item starts and ends, in the clip's own seconds. The
+  film's chapters come back as composition markers tagged
+  `source: "hdf:<itemId>"`, replaced on every call (`markers` counts them;
+  `cues: false` turns both off).
+- `sprites: true` (or names) also draws the film's cast as sprite sheets,
+  registered as `hdf-<name>-sprite` images with their `sheet`, so
+  `add_sprite { cycle: "walk" }` walks them. `video: false` draws only those.
+- The call blocks while `hdf` renders: about a second for this clip, a
+  minute or more for a long film at full size. It needs a davidup checkout
+  (or `DAVIDUP_HDF_ROOT`) and node on `PATH`; otherwise it returns
+  `E_FEATURE_UNAVAILABLE`, and a failed render is `E_RENDER_FAILED` with
+  hdf's last lines.
 
 ---
 

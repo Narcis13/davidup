@@ -163,6 +163,13 @@ const list = (v, dflt) => (v === undefined || v === true ? dflt : String(v).spli
 export async function run([ref], flags, { loadFilm }) {
   const path = flags.film ? String(flags.film) : null;
   const film = path ? await loadFilm(path) : null;
+  // --cast (4.0 D5): the names --film knows, a line each, for render_hdf_clip's `sprites: true`.
+  if (flags.cast) {
+    if (!film) throw new UsageError('sprite: --cast lists a film\'s cast; give it --film <film.js>');
+    const names = Object.keys(await castOf(film, path)).sort();
+    process.stdout.write(names.map((n) => `${n}\n`).join(''));
+    return 0;
+  }
   const { id, actor } = await spriteActor(ref, { film, path, root: flags.root ? resolve(String(flags.root)) : undefined });
   const fps = flags.fps ?? FPS, h = flags.h ?? 300, dir = flags.dir ?? 1;
   if (!(fps > 0 && fps <= 60)) throw new UsageError(`sprite: --fps ${flags.fps}; 1 to 60`);

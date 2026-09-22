@@ -14,6 +14,8 @@
 //     `isError: true` so MCP clients see it as an error too.
 
 import { randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 
 import { z } from "zod";
 
@@ -77,7 +79,7 @@ import {
   type ValidationError,
   type ValidationWarning,
 } from "../schema/validator.js";
-import type { FontAsset, Tween } from "../schema/types.js";
+import type { FontAsset, Marker, Tween } from "../schema/types.js";
 import {
   AUDIO_ASSET_EXTENSIONS,
   VIDEO_ASSET_EXTENSIONS,
@@ -93,7 +95,21 @@ import {
   isSupportedVideoSrc,
 } from "../schema/zod.js";
 import { strictObject } from "../schema/strict.js";
+import type { DispatchResult } from "./dispatch.js";
 import { MCPToolError } from "./errors.js";
+import {
+  castNames,
+  chapterMarkers,
+  filmCues,
+  HDF_ASPECTS,
+  HdfError,
+  hdfRoot,
+  renderFilm,
+  replaceMarkers,
+  slug,
+  spriteSheet,
+  type AlphaCodec,
+} from "./hdf.js";
 import {
   renderPreviewFrame,
   renderThumbnailStrip,
@@ -308,6 +324,11 @@ export interface ToolDeps {
   // Video metadata probe for `register_asset` (v0.2 §S6). Same injection
   // contract as `probeAudio`.
   probeVideo?: (src: string) => Promise<VideoMetadata>;
+  // Runs another tool with these deps and the router this call came through
+  // (4.0 D5). Set by dispatchTool, so a tool made of other tools' calls
+  // (render_hdf_clip) changes the composition exactly as those calls would:
+  // through the editor's CommandBus when an editor hosts the server.
+  call?: (toolName: string, args: Record<string, unknown>) => Promise<DispatchResult>;
   // R-29 idle TTL the standalone server was started with (`--session-ttl`);
   // surfaced by `list_engine_capabilities.server.sessionIdleSeconds`.
   sessionIdleSeconds?: number;
@@ -709,6 +730,8 @@ const registerAsset = defineTool({
     "An image may be a sprite sheet: pass `sheet` ({ frameWidth, frameHeight, columns, count, fps, cycles?: { name: { start, count, loop?, speed? } }, anchor?: { x, y } }, " +
     "frames laid left to right, top to bottom) and sprites on it play its cycles by name (add_sprite `cycle`). " +
     "`hdf sprite` in handdrawn/ writes a sheet's PNG and this object as JSON. " +
+    "An id already registered fails with E_DUPLICATE_ID unless `replace: true`, which swaps the asset in place " +
+    "(items and audio tracks using it keep using it; a change of type is refused while anything does). " +
     `Audio assets accept ${AUDIO_ASSET_EXTENSIONS.join(", ")} and are probed with ffprobe to ` +
     "extract duration, sampleRate, channels, and codec. " +
     `Video assets accept ${VIDEO_ASSET_EXTENSIONS.join(", ")} and are probed for duration, width, ` +
@@ -721,10 +744,15 @@ const registerAsset = defineTool({
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     sheet: SpriteSheetSchema.optional(),
+    replace: z
+      .boolean()
+      .optional()
+      .describe("Swap an asset of the same id in place; items and tracks using it keep using it. Default false: E_DUPLICATE_ID."),
     compositionId: COMPOSITION_ID,
   },
   handler: async (args, deps) => {
     const { store } = deps;
+    const replace = { replace: args.replace === true };
     if (args.type === "audio") {
       const warnings: string[] = [];
       let metadata: AudioMetadata = {};
@@ -752,6 +780,7 @@ const registerAsset = defineTool({
       store.registerAsset(
         { id: args.id, type: "audio", src: args.src, ...metadata },
         args.compositionId,
+        replace,
       );
       return warnings.length > 0
         ? { ok: true as const, warnings }
@@ -788,6 +817,7 @@ const registerAsset = defineTool({
       store.registerAsset(
         { id: args.id, type: "video", src: args.src, ...metadata },
         args.compositionId,
+        replace,
       );
       return warnings.length > 0
         ? { ok: true as const, warnings }
@@ -803,6 +833,7 @@ const registerAsset = defineTool({
         ...(args.sheet !== undefined ? { sheet: args.sheet } : {}),
       },
       args.compositionId,
+      replace,
     );
     return { ok: true as const };
   },
@@ -2870,6 +2901,261 @@ const cancelRender = defineTool({
   },
 });
 
+// ──────────────── 4.6a Hand-drawn clips (hand-drawn film 4.0, D5) ────────────────
+
+// Where `render_hdf_clip` puts what it registers: inside the open project (a
+// src relative to it, as the bridge scripts write), or on a standalone server
+// under handdrawn/out/davidup/ (an absolute src). One file per asset id, so
+// re-rendering one clip never swaps another asset's file.
+const HDF_ASSET_DIR = "assets/hdf";
+
+// A film given as a path runs as code (it is a JavaScript module), so a path
+// has to stay inside the handdrawn package or the open project, as
+// import_scene's reads do, unless the operator opted in with DAVIDUP_ALLOW_FS=1.
+function resolveHdfFilm(
+  ref: string,
+  root: string,
+  projectRoot: string | null,
+  path: typeof import("node:path"),
+  exists: (p: string) => boolean,
+  films: () => string[],
+): string {
+  const named = /^[A-Za-z0-9._-]+$/.test(ref) && !ref.startsWith(".");
+  if (named) {
+    const file = path.join(root, "films", ref.endsWith(".js") ? ref : `${ref}.js`);
+    if (exists(file)) return file;
+    throw new MCPToolError(
+      "E_NOT_FOUND",
+      `No hand-drawn film "${ref}".`,
+      `Films in ${path.join(root, "films")}: ${films().join(", ") || "none"}. Or pass a path to a film module.`,
+    );
+  }
+  const file = path.resolve(projectRoot ?? process.cwd(), ref);
+  const inside = (dir: string) => {
+    const rel = path.relative(dir, file);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  };
+  if (!inside(root) && !(projectRoot && inside(projectRoot)) && process.env.DAVIDUP_ALLOW_FS !== "1") {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `Film path "${ref}" is outside the handdrawn package${projectRoot ? " and the project" : ""}.`,
+      "A film module runs as code: keep it under handdrawn/ (e.g. handdrawn/work/<film>/) or the project, or set `DAVIDUP_ALLOW_FS=1` in the server's environment.",
+    );
+  }
+  if (!exists(file)) throw new MCPToolError("E_NOT_FOUND", `No film module at "${file}".`);
+  return file;
+}
+
+function hdfCapabilities() {
+  const root = hdfRoot();
+  if (!root) return { available: false as const };
+  let films: string[] = [];
+  try {
+    films = readdirSync(join(root, "films")).filter((f) => f.endsWith(".js")).map((f) => f.slice(0, -3)).sort();
+  } catch { /* a package with no films of its own still renders a path */ }
+  return { available: true as const, tool: "render_hdf_clip", films, aspects: [...HDF_ASPECTS], alpha: ["mov", "webm"] };
+}
+
+const HDF_PLACE = z
+  .object({
+    layerId: z.string().min(1).optional(),
+    id: z.string().min(1).optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().nonnegative().optional(),
+    height: z.number().nonnegative().optional(),
+    start: z.number().nonnegative().optional(),
+    end: z.number().positive().optional(),
+    trimIn: z.number().nonnegative().optional(),
+    fit: z.enum(VIDEO_FIT_MODES).optional(),
+    loop: z.boolean().optional(),
+    keepAudio: z.boolean().optional(),
+  })
+  .strict()
+  .describe(
+    "Put the clip on the timeline as a new video item (add_video's fields; x/y default 0, width/height the composition's, " +
+      "fit contain, keepAudio true when the film has a score). The item is named `hdf:<film>`.",
+  );
+
+const renderHdfClip = defineTool({
+  name: "render_hdf_clip",
+  title: "Render a hand-drawn clip",
+  description:
+    "Summon an imperative hand-drawn film into this declarative composition in one call: renders a film of the handdrawn package " +
+    "(`hdf render`: characters, lettering and diagrams drawn frame by frame on Canvas 2D, 12 drawings a second, with its own score) " +
+    "and registers the clip as a video asset (id `asset`, default `hdf-<film>[-<look>]`). " +
+    "`film` is a name in handdrawn/films (e.g. \"fox-wave\", \"on-beat\", \"lesson\"; list_engine_capabilities.handdrawn.films lists them) or a path to a film module. " +
+    "`look` restyles it (a preset: paperInk, risoPop, whiteboard, chalkboard, crayon, notebook, ...; modifiers too, e.g. \"paperInk~hand:test\"); " +
+    "`ar` picks the frame (1:1, 16:9, 9:16; default the film's); `width` the output width in px (default 1080); `frames` renders only the first N drawings (a quick look). " +
+    "`alpha` draws no paper and keeps the transparency (true or \"mov\": ProRes 4444; \"webm\": VP9, which the editor's browser preview also plays), so the clip is an overlay over whatever lies under it. " +
+    "Then either `place` (a new video item: x, y, width, height, start, fit, ...) or `item` (an existing video item that plays the clip instead, keeping its box and timing). " +
+    "A placed clip is cut to the composition's marks (`cues`, default true): the film's `atMark`/`marksNamed` read composition.markers, audio-track markers (beats) and item starts/ends in the clip's own seconds, " +
+    "and the film's chapters come back as composition markers tagged `source: \"hdf:<itemId>\"` (replaced on every call). " +
+    "`sprites` (true for the film's whole cast, or names) also draws cast members as sprite sheets (`hdf sprite`: states idle, walk, happy by default; `states`, `spriteHeight`), " +
+    "registered as images `hdf-<name>-sprite` with their `sheet`, so add_sprite with `cycle: \"walk\"` walks them; `video: false` draws only the sheets. " +
+    "Blocks until hdf finishes: seconds for a short clip, a minute or more for a long film at full size (use `frames` or a smaller `width` to try things). " +
+    "Needs the handdrawn package beside davidup (the repo checkout, or DAVIDUP_HDF_ROOT) and node on PATH: E_FEATURE_UNAVAILABLE otherwise. " +
+    "Returns `{ clip: { assetId, src, duration, width, height, hasAlpha, hasAudio }, itemId?, markers?, marks?, sprites?, warnings? }`.",
+  inputSchema: {
+    film: z.string().min(1),
+    look: z.string().min(1).optional(),
+    ar: z.enum(HDF_ASPECTS).optional(),
+    width: z.number().int().min(64).max(3840).optional(),
+    frames: z.number().int().min(1).optional(),
+    alpha: z.union([z.boolean(), z.enum(["mov", "webm"])]).optional(),
+    asset: z.string().min(1).optional().describe("The clip's asset id. Default: `hdf-<film>[-<look>]`, or the asset `item` already plays."),
+    item: z.string().min(1).optional().describe("An existing video item to play the clip (its box and timing are kept)."),
+    place: HDF_PLACE.optional(),
+    cues: z.boolean().optional(),
+    video: z.boolean().optional(),
+    sprites: z.union([z.boolean(), z.array(z.string().min(1)).min(1)]).optional(),
+    states: z.array(z.string().min(1)).min(1).optional(),
+    spriteHeight: z.number().int().min(16).max(4096).optional(),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, deps) => {
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const root = hdfRoot();
+    if (!root) {
+      throw new MCPToolError(
+        "E_FEATURE_UNAVAILABLE",
+        "The handdrawn package is not available to this server.",
+        "render_hdf_clip runs handdrawn/ from a davidup checkout; set `DAVIDUP_HDF_ROOT` to its directory.",
+      );
+    }
+    const call = deps.call;
+    if (!call) throw new MCPToolError("E_FEATURE_UNAVAILABLE", "render_hdf_clip needs the dispatcher (call it through dispatchTool or the MCP server).");
+    const project = deps.projectControls ? await deps.projectControls.current() : null;
+    if (deps.projectControls && !project) {
+      throw new MCPToolError("E_NOT_FOUND", "render_hdf_clip needs an open project.", "Call `open_project` or `create_project` first; the clip is copied into `<project>/assets/hdf/`.");
+    }
+    if (args.item && args.place) throw new MCPToolError("E_INVALID_VALUE", "Pass `item` or `place`, not both.");
+    const video = args.video !== false;
+    if (!video && (args.item || args.place || args.asset)) {
+      throw new MCPToolError("E_INVALID_VALUE", "`video: false` renders no clip, so there is nothing to `place` or `item` to play.");
+    }
+    if (!video && args.sprites === undefined) throw new MCPToolError("E_INVALID_VALUE", "Nothing to do: `video: false` and no `sprites`.");
+
+    const film = resolveHdfFilm(args.film, root, project?.root ?? null, path, fs.existsSync, () =>
+      fs.readdirSync(path.join(root, "films")).filter((f) => f.endsWith(".js")).map((f) => f.slice(0, -3)).sort());
+    const doc = deps.store.toJSON(args.compositionId);
+    const existing = args.item !== undefined ? doc.items[args.item] : undefined;
+    if (args.item !== undefined && !existing) throw new MCPToolError("E_NOT_FOUND", `No item "${args.item}".`);
+    if (existing && existing.type !== "video") {
+      throw new MCPToolError("E_INVALID_VALUE", `Item "${args.item}" is a ${existing.type}, not a video.`, "Pass `place` to add a new video item instead.");
+    }
+    const alpha: AlphaCodec | undefined = args.alpha === true ? "mov" : args.alpha === false ? undefined : args.alpha;
+    const look = args.look;
+    const dest = project ? path.join(project.root, HDF_ASSET_DIR) : path.join(root, "out", "davidup");
+    const srcOf = (file: string) => (project ? `${HDF_ASSET_DIR}/${path.basename(file)}` : file);
+    const warnings: string[] = [];
+    const hdfFailed = (e: unknown): never => {
+      if (e instanceof MCPToolError) throw e;
+      throw new MCPToolError(e instanceof HdfError ? "E_RENDER_FAILED" : "E_UNKNOWN", (e as Error).message);
+    };
+    const registered = async (id: string, type: "video" | "image", file: string, extra: Record<string, unknown> = {}) => {
+      fs.mkdirSync(dest, { recursive: true });
+      const copy = path.join(dest, `${slug(id)}${path.extname(file)}`);
+      fs.copyFileSync(file, copy);
+      const r = await call("register_asset", { id, type, src: srcOf(copy), replace: true, ...extra, ...(args.compositionId ? { compositionId: args.compositionId } : {}) });
+      if (!r.ok) throw new MCPToolError(r.error.code, `register_asset ${id}: ${r.error.message}`, r.error.hint);
+      warnings.push(...(((r.result as { warnings?: string[] })?.warnings) ?? []));
+      return copy;
+    };
+    const out: Record<string, unknown> = {};
+
+    if (video) {
+      // The clip's own seconds, for the marks it is cut to: the item's (its start less its trimIn), or a
+      // placed item's, which does not exist until the clip does.
+      let cuesFile: string | undefined;
+      const itemTiming = existing ?? (args.place ? { start: args.place.start ?? 0, trimIn: args.place.trimIn, end: args.place.end } : undefined);
+      const cueAt = existing ? args.item! : args.place ? String((args.place.start ?? 0) - (args.place.trimIn ?? 0)) : undefined;
+      if (args.cues !== false && cueAt !== undefined) {
+        cuesFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "davidup-hdf-")), "composition.json");
+        fs.writeFileSync(cuesFile, JSON.stringify(doc));
+      }
+      try {
+        const cueOpts = cuesFile ? { cuesFrom: cuesFile, at: cueAt } : {};
+        const clip = await renderFilm(film, { look, ar: args.ar, width: args.width, frames: args.frames, alpha, ...cueOpts }).catch(hdfFailed);
+        const variant = path.basename(clip, path.extname(clip)).replace(/-final$/, "").replace(/-\d+f$/, "").replace(/-alpha$/, "");
+        const assetId = args.asset ?? (existing as { asset?: string } | undefined)?.asset ?? `hdf-${slug(variant)}`;
+        const copy = await registered(assetId, "video", clip);
+        let meta: VideoMetadata = {};
+        try { meta = await (deps.probeVideo ?? defaultProbeVideo)(copy); } catch { /* register_asset has said why */ }
+        out.clip = {
+          assetId, src: srcOf(copy),
+          ...(meta.duration !== undefined ? { duration: meta.duration } : {}),
+          ...(meta.width !== undefined ? { width: meta.width, height: meta.height } : {}),
+          hasAlpha: meta.hasAlpha === true, hasAudio: meta.hasAudio === true,
+        };
+
+        let itemId: string | undefined;
+        if (existing) {
+          itemId = args.item!;
+          if ((existing as { asset: string }).asset !== assetId) {
+            const r = await call("update_video", { id: itemId, props: { asset: assetId }, ...(args.compositionId ? { compositionId: args.compositionId } : {}) });
+            if (!r.ok) throw new MCPToolError(r.error.code, `update_video ${itemId}: ${r.error.message}`, r.error.hint);
+          }
+        } else if (args.place) {
+          const { keepAudio, x, y, ...rest } = args.place;
+          const r = await call("add_video", {
+            asset: assetId, x: x ?? 0, y: y ?? 0, ...stripUndefined(rest),
+            keepAudio: keepAudio ?? meta.hasAudio === true,
+            name: `hdf:${args.film}`.slice(0, 80),
+            ...(args.compositionId ? { compositionId: args.compositionId } : {}),
+          });
+          if (!r.ok) throw new MCPToolError(r.error.code, `add_video: ${r.error.message}`, r.error.hint);
+          const res = r.result as { itemId: string; warnings?: string[] };
+          itemId = res.itemId;
+          warnings.push(...(res.warnings ?? []));
+        }
+        if (itemId) out.itemId = itemId;
+
+        // Chapters back as composition markers, and how many marks the film read (4.0 D4).
+        if (itemId && cuesFile && itemTiming) {
+          const c = await filmCues(film, { look, cuesFrom: cuesFile, at: cueAt }).catch(hdfFailed);
+          const source = `hdf:${itemId}`;
+          const was = (doc.composition.markers ?? []) as Marker[];
+          const next = replaceMarkers(was, source, chapterMarkers(c, itemTiming, source));
+          if (JSON.stringify(next) !== JSON.stringify(was)) {
+            const r = await call("set_composition_property", { property: "markers", value: next.length ? next : null, ...(args.compositionId ? { compositionId: args.compositionId } : {}) });
+            if (!r.ok) throw new MCPToolError(r.error.code, `set_composition_property markers: ${r.error.message}`, r.error.hint);
+          }
+          out.markers = next.filter((m) => m.source === source).length;
+          out.marks = c.marks.length;
+        }
+      } finally {
+        if (cuesFile) fs.rmSync(path.dirname(cuesFile), { recursive: true, force: true });
+      }
+    }
+
+    if (args.sprites !== undefined && args.sprites !== false) {
+      const cast = await castNames(film).catch(hdfFailed);
+      const names = args.sprites === true ? cast : args.sprites;
+      const missing = names.filter((n) => !cast.includes(n));
+      if (missing.length || !names.length) {
+        throw new MCPToolError(
+          "E_NOT_FOUND",
+          names.length ? `Not in ${args.film}'s cast: ${missing.join(", ")}.` : `${args.film} has no cast to draw.`,
+          `Its cast: ${cast.join(", ") || "none"} (store puppets it reads, and its module's \`cast\` export).`,
+        );
+      }
+      const sprites: unknown[] = [];
+      for (const name of names) {
+        const s = await spriteSheet(name, { film, look, states: args.states?.join(","), h: args.spriteHeight }).catch(hdfFailed);
+        const assetId = `hdf-${slug(name)}-sprite`;
+        const copy = await registered(assetId, "image", s.png, { sheet: s.sheet });
+        sprites.push({ assetId, src: srcOf(copy), ...s.sheet });
+      }
+      out.sprites = sprites;
+    }
+    if (warnings.length) out.warnings = warnings;
+    return out;
+  },
+});
+
 // ──────────────── 4.7 Project lifecycle (polish §20.29) ────────────────
 
 const currentProject = defineTool({
@@ -3125,6 +3411,10 @@ const listEngineCapabilitiesTool = defineTool({
         audioTrack: "markers",
         fields: ["t", "name", "source"],
       },
+      // Hand-drawn clips (4.0 D5): render_hdf_clip renders a film of the
+      // handdrawn package into this composition. Present only when the
+      // package sits beside the engine (a checkout, or DAVIDUP_HDF_ROOT).
+      handdrawn: hdfCapabilities(),
       // Per-item effects (v1.1 S21), on every item type via update_item.
       // `tweenable` lists each type's fields, animated as
       // `effects.<index>.<field>`. Blur runs in-engine so node and browser
@@ -3288,6 +3578,8 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   listFontsTool,
   listEngineCapabilitiesTool,
   getSourceMap,
+  // 4.10 — hand-drawn clips (hand-drawn film 4.0, D5)
+  renderHdfClip,
 ];
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);

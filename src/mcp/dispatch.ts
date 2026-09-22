@@ -21,7 +21,7 @@
 import { z } from "zod";
 
 import { MCPToolError, toErrorBody, type MCPErrorBody, type MCPIssue } from "./errors.js";
-import type { ToolDef, ToolDeps } from "./tools.js";
+import { TOOLS, type ToolDef, type ToolDeps } from "./tools.js";
 
 export type DispatchResult =
   | { ok: true; result: unknown }
@@ -75,7 +75,7 @@ export async function dispatchTool(
         return intercepted;
       }
     }
-    const result = await tool.handler(parsed.data as never, deps);
+    const result = await tool.handler(parsed.data as never, withCall(deps, router));
     return { ok: true, result };
   } catch (err) {
     if (err instanceof MCPToolError) {
@@ -89,4 +89,17 @@ function formatIssuePath(issues: ReadonlyArray<{ path: ReadonlyArray<unknown> }>
   if (issues.length === 0) return "Invalid arguments.";
   const path = issues[0]?.path?.join(".") ?? "";
   return path ? `Invalid value at "${path}".` : "Invalid arguments.";
+}
+
+// `deps.call` (4.0 D5): another tool, dispatched with the same deps and router.
+function withCall(deps: ToolDeps, router?: DispatchRouter): ToolDeps {
+  const inner: ToolDeps = {
+    ...deps,
+    call: (name, args) => {
+      const tool = TOOLS.find((t) => t.name === name);
+      if (!tool) return Promise.resolve({ ok: false, error: { code: "E_NOT_FOUND", message: `No tool "${name}".` } });
+      return dispatchTool(tool, args, inner, router);
+    },
+  };
+  return inner;
 }

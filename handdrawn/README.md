@@ -1466,6 +1466,14 @@ register; renders nothing). Re-running replaces the assets in place, so after
 editing a film, run the script again. Place a registered film with `add_video`
 or from the editor like any other clip.
 
+From an agent the same thing is one MCP call (4.0 D5): davidup's
+`render_hdf_clip` renders a film, registers the clip and places it (or points
+an existing video item at it), cut to the composition's marks with its
+chapters written back as markers, and with `sprites` registers the cast's
+sheets. `examples/hdf-clip/agent.mjs` builds a card declaratively and
+summons the fox-wave overlay onto it that way; `hdf sprite --film <film>
+--cast` lists the cast it draws from.
+
 With `--alpha` (4.0 D1) the clip is an overlay: `paper()` and `night()` draw
 nothing, a wash brings its paper in behind the drawing so a doodle body stays
 opaque, and `register_asset` records `hasAlpha`, which davidup's frame

@@ -10,25 +10,30 @@
 // `assets` array of composition.json is rewritten; the rest of the document is
 // left exactly as it was, so a running editor reloads it as an external edit.
 
-import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CompositionStore, dispatchTool, TOOLS } from "../src/mcp/index.js";
+import { HdfError, replaceMarkers, slug, type AlphaCodec } from "../src/mcp/hdf.js";
 import { probeVideo } from "../src/drivers/node/ffprobe.js";
 import type { Asset, Marker, SpriteSheet } from "../src/schema/types.js";
 
+// The calls into hdf live with the MCP tool that makes them too (render_hdf_clip, 4.0 D5).
+export {
+  chapterMarkers, filmCues, filmPath, handFont, modelSheet, renderFilm, sheetOf, slug, spriteSheet,
+  type AlphaCodec, type CueFile, type CueOpts, type SpriteJson, type SpriteOpts,
+} from "../src/mcp/hdf.js";
+
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const HANDDRAWN = join(REPO, "handdrawn");
-const HDF = join(HANDDRAWN, "cli", "hdf.mjs");
-const HDF_OUT = join(HANDDRAWN, "out");
 
 /** Where bridged files land inside a davidup project, relative to its root. */
 export const ASSET_DIR = "assets/hdf";
 
-export class BridgeError extends Error {}
+/** An error the scripts print as one line: hdf's own (a film that is not there, a render that failed) too. */
+export const BridgeError = HdfError;
 
 // ──────────────── flags ────────────────
 
@@ -54,19 +59,7 @@ export function frameCount(v: string | true | undefined): number | undefined {
   return n;
 }
 
-/** A value safe as a file name and an asset id: `paperInk~hand:test` → `paperInk-hand-test`. */
-export const slug = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-
 // ──────────────── handdrawn side ────────────────
-
-/** A film path as given, or a bare name for `handdrawn/films/<name>.js`. */
-export function filmPath(ref: string, cwd = process.cwd()): string {
-  const direct = resolve(cwd, ref);
-  if (existsSync(direct)) return direct;
-  const named = join(HANDDRAWN, "films", ref.endsWith(".js") ? ref : `${ref}.js`);
-  if (existsSync(named)) return named;
-  throw new BridgeError(`no film '${ref}' (neither ${direct} nor ${named})`);
-}
 
 export interface FilmInfo {
   name: string;
@@ -90,30 +83,6 @@ export async function filmInfo(path: string, look?: string): Promise<FilmInfo> {
   return { name: film.name, n: film.n, puppets, variant: `${film.name}${look ? `-${look}` : ""}` };
 }
 
-function hdf(args: string[]): Promise<string> {
-  return new Promise((res, rej) => {
-    // hdf is a node program (skia-canvas, worker threads); these scripts run under bun.
-    const p = spawn(process.env.NODE ?? "node", [HDF, ...args], {
-      cwd: HANDDRAWN,
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    let out = "";
-    p.stdout.on("data", (c) => { out += c; });
-    p.on("error", rej);
-    p.on("close", (code) => (code === 0 ? res(out) : rej(new BridgeError(`hdf ${args.join(" ")} exited with code ${code}`))));
-  });
-}
-
-// The last file a command printed with this extension (hdf prints `<path>  <what>` lines).
-function printed(out: string, ext: string): string {
-  const files = out.split("\n").map((l) => l.trim().split(/\s+/)[0] ?? "").filter((f) => f.endsWith(ext));
-  const last = files.at(-1);
-  if (!last) throw new BridgeError(`hdf printed no ${ext} file:\n${out}`);
-  return last;
-}
-
-export type AlphaCodec = "mov" | "webm";
-
 /** `--alpha` alone is ProRes 4444 in a .mov, `--alpha webm` VP9; undefined when the flag is absent. */
 export function alphaCodec(v: string | true | undefined): AlphaCodec | undefined {
   if (v === undefined) return undefined;
@@ -123,121 +92,18 @@ export function alphaCodec(v: string | true | undefined): AlphaCodec | undefined
 }
 
 /**
- * `hdf render`; returns the clip with sound when the film has a score, else the picture: an mp4, or with
- * `alpha` (4.0 D1) a .mov / .webm drawn on no stock, whose transparency davidup keeps.
- */
-export async function renderFilm(
-  path: string,
-  opts: { look?: string; frames?: number; alpha?: AlphaCodec } & CueOpts = {},
-): Promise<string> {
-  const args = ["render", path, "--out", HDF_OUT, ...cueArgs(opts)];
-  if (opts.look) args.push("--look", opts.look);
-  if (opts.frames !== undefined) args.push("--frames", String(opts.frames));
-  if (opts.alpha) args.push("--alpha", opts.alpha);
-  return printed(await hdf(args), opts.alpha ? `.${opts.alpha}` : ".mp4");
-}
-
-/**
- * Where a film's marks come from (4.0 D4): `hdf ... --cues-from <composition.json> --at <item>`. The film
- * reads the composition's markers, its audio tracks' beats and its items' starts and ends, in the seconds
- * of the item it plays in, and cuts to them (`atMark`, `marksNamed` in handdrawn/core/cuemarks.js).
- */
-export interface CueOpts {
-  cuesFrom?: string;
-  at?: string;
-}
-
-const cueArgs = (o: CueOpts) => [...(o.cuesFrom ? ["--cues-from", o.cuesFrom] : []), ...(o.cuesFrom && o.at ? ["--at", o.at] : [])];
-
-/** What `hdf cues` writes (handdrawn/cli/cues.mjs). Seconds from the film's first frame. */
-export interface CueFile {
-  kind: "hdf-cues";
-  version: number;
-  film: string;
-  look: string | null;
-  fps: number;
-  end: number;
-  shots: Array<{ name: string; t0: number; dur: number; hold?: boolean; cut?: string }>;
-  cuts: number[];
-  chapters: Array<{ n: number; title: string; t0: number; dur: number }>;
-  notes: Array<{ t: number; dur: number; type: string; hz?: number }>;
-  words: Array<{ text: string; t0: number; t1: number; voice: string }>;
-  marks: Array<{ t: number; name: string; from: string }>;
-}
-
-/** `hdf cues` (4.0 D4): the film's shots, cuts, chapters, notes, words and the marks it was cut to. */
-export async function filmCues(path: string, opts: { look?: string } & CueOpts = {}): Promise<CueFile> {
-  const args = ["cues", path, "--out", HDF_OUT, ...cueArgs(opts)];
-  if (opts.look) args.push("--look", opts.look);
-  return JSON.parse(readFileSync(printed(await hdf(args), ".json"), "utf8")) as CueFile;
-}
-
-/**
- * The film's chapters as composition markers for a video item that plays it: each at the item's `start`
- * plus the chapter's start less the item's `trimIn`, named by its title. A chapter trimmed off the front,
- * or past the item's `end`, is left out.
- */
-export function chapterMarkers(
-  cues: Pick<CueFile, "chapters">,
-  item: { start?: number; end?: number; trimIn?: number },
-  source: string,
-): Marker[] {
-  const start = item.start ?? 0, trimIn = item.trimIn ?? 0;
-  return cues.chapters
-    .map((c) => ({ t: +(start + c.t0 - trimIn).toFixed(6), name: c.title, source }))
-    .filter((m) => m.t >= start - 1e-9 && (item.end === undefined || m.t < item.end));
-}
-
-/**
  * Replaces the composition's markers from `source` with `markers` (the others are kept), sorted by time.
  * Only `composition.markers` is rewritten. Returns how many it wrote.
  */
 export function writeMarkers(compositionFile: string, source: string, markers: Marker[]): number {
   const doc = JSON.parse(readFileSync(compositionFile, "utf8"));
   if (!doc?.composition) throw new BridgeError(`${compositionFile} is not a composition document`);
-  const kept = ((doc.composition.markers ?? []) as Marker[]).filter((m) => m.source !== source);
-  const all = [...kept, ...markers].map((m, i) => ({ m, i })).sort((a, b) => a.m.t - b.m.t || a.i - b.i).map(({ m }) => m);
+  const all = replaceMarkers((doc.composition.markers ?? []) as Marker[], source, markers);
   const was = JSON.stringify(doc.composition.markers ?? []);
   if (all.length) doc.composition.markers = all;
   else delete doc.composition.markers;
   if (JSON.stringify(doc.composition.markers ?? []) !== was) writeFileSync(compositionFile, JSON.stringify(doc, null, 2) + "\n");
   return markers.length;
-}
-
-/** What `hdf sprite` writes beside its PNG: davidup's `sheet` and what the sprite is. */
-export interface SpriteJson extends SpriteSheet {
-  kind: "hdf-sprite";
-  name: string;
-  look: string;
-  image: string;
-  frames: Array<[number, number, number, number]>;
-}
-
-/** The sheet davidup keeps on the image asset: the JSON without hdf's own fields. */
-export function sheetOf(j: SpriteJson): SpriteSheet {
-  const { frameWidth, frameHeight, columns, count, fps, cycles, anchor } = j;
-  return { frameWidth, frameHeight, columns, count, fps, ...(cycles ? { cycles } : {}), ...(anchor ? { anchor } : {}) };
-}
-
-export interface SpriteOpts {
-  /** The film whose cast the name is looked up in (and whose look it is drawn in). */
-  film?: string;
-  look?: string;
-  states?: string;
-  h?: number;
-}
-
-/** `hdf sprite <ref> --alpha`; returns the PNG and its sheet. */
-export async function spriteSheet(ref: string, opts: SpriteOpts = {}): Promise<{ png: string; sheet: SpriteSheet; json: SpriteJson }> {
-  const args = ["sprite", ref, "--alpha", "--out", HDF_OUT];
-  if (opts.film) args.push("--film", opts.film);
-  if (opts.look) args.push("--look", opts.look);
-  if (opts.states) args.push("--states", opts.states);
-  if (opts.h !== undefined) args.push("--h", String(opts.h));
-  const out = await hdf(args);
-  const png = printed(out, ".png");
-  const json = JSON.parse(readFileSync(printed(out, ".json"), "utf8")) as SpriteJson;
-  return { png, sheet: sheetOf(json), json };
 }
 
 /** The cast `hdf sprite --film` knows for a film: its store puppets and its module's `cast` export. */
@@ -254,16 +120,6 @@ export async function filmHand(path: string, look?: string): Promise<string> {
   const { handOf } = await import("../handdrawn/core/looks.js");
   const film = await loadFilm(path, { look });
   return (handOf(film.look) as { name?: string } | null)?.name ?? "house";
-}
-
-/** `hdf hand --export-ttf <id>` (4.0 D3); returns the .ttf. */
-export async function handFont(hand: string): Promise<string> {
-  return printed(await hdf(["hand", "--export-ttf", hand, "--out", HDF_OUT]), ".ttf");
-}
-
-/** `hdf sheet store <id> --poses`; returns the model sheet's path. */
-export async function modelSheet(puppet: string): Promise<string> {
-  return printed(await hdf(["sheet", "store", puppet, "--poses"]), ".jpg");
 }
 
 // ──────────────── davidup side ────────────────
