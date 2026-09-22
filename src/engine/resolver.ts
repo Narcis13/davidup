@@ -16,12 +16,15 @@ import {
   parseEffectPath,
   type TweenValueKind,
 } from "../schema/tweenable.js";
-import type { Composition, Item, Layer, Tween } from "../schema/types.js";
+import type { Asset, Composition, Item, Layer, SpriteSheet, Tween } from "../schema/types.js";
 
 export interface ResolvedScene {
   composition: Composition["composition"];
   layers: ReadonlyArray<Layer>;
   items: Record<string, Item>;
+  // Image assets that are sprite sheets (4.0 D2), by asset id. Absent when
+  // the composition has none, so scenes built by hand stay valid.
+  sheets?: ReadonlyMap<string, SpriteSheet>;
 }
 
 export interface TweenIndex {
@@ -89,11 +92,28 @@ export function computeStateAt(
     setByPath(item, property, clampForProperty(property, value));
   }
 
+  const sheets = sheetsOf(comp.assets);
   return {
     composition: comp.composition,
     layers,
     items,
+    ...(sheets !== undefined ? { sheets } : {}),
   };
+}
+
+// The sheet of every image asset that has one, worked out once per assets
+// array (a composition's assets do not change between frames).
+const sheetCache = new WeakMap<ReadonlyArray<Asset>, ReadonlyMap<string, SpriteSheet> | null>();
+
+function sheetsOf(assets: ReadonlyArray<Asset>): ReadonlyMap<string, SpriteSheet> | undefined {
+  let hit = sheetCache.get(assets);
+  if (hit === undefined) {
+    const m = new Map<string, SpriteSheet>();
+    for (const a of assets) if (a.type === "image" && a.sheet !== undefined) m.set(a.id, a.sheet);
+    hit = m.size > 0 ? m : null;
+    sheetCache.set(assets, hit);
+  }
+  return hit ?? undefined;
 }
 
 // Half-open `[enter, exit)` window — matches the scene-clip `[fromTime,
@@ -194,6 +214,7 @@ const NON_NEGATIVE_PROPS: ReadonlySet<string> = new Set([
   "lineHeight",
   "strokeWidth",
   "cornerRadius",
+  "frame",
 ]);
 
 function clampForProperty(property: string, value: number | string): number | string {

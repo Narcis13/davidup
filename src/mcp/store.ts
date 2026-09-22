@@ -26,6 +26,7 @@ import type {
   Layer,
   ShapeItem,
   SpriteItem,
+  SpriteSheet,
   TextItem,
   TextShadow,
   Transform,
@@ -142,6 +143,8 @@ export interface RegisterAssetInput {
   type: "image" | "font" | "audio" | "video";
   src: string;
   family?: string;
+  // Image only (4.0 D2): the image is a sprite sheet.
+  sheet?: SpriteSheet;
   // Audio (v0.2 §S2) + video (§S6) metadata. Probed via ffprobe by the
   // `register_asset` tool before the input reaches the store; all optional so
   // the asset can be registered even when ffprobe is unavailable. `duration`
@@ -195,6 +198,9 @@ export interface AddSpriteInput {
   scaleX?: number;
   scaleY?: number;
   tint?: string;
+  // Sprite sheets (4.0 D2): the named cycle to play, or a fixed frame.
+  cycle?: string;
+  frame?: number;
   id?: string;
   name?: string;
 }
@@ -283,9 +289,12 @@ export interface UpdateItemProps {
   // Sprite/shape size.
   width?: number;
   height?: number;
-  // Sprite-specific.
+  // Sprite-specific. `cycle: null` stops a sheet's cycle, `frame: null`
+  // returns it to the clock (4.0 D2).
   asset?: string;
   tint?: string;
+  cycle?: string | null;
+  frame?: number | null;
   // Text-specific.
   text?: string;
   font?: string;
@@ -717,8 +726,27 @@ export class CompositionStore {
         "Use remove_asset first if you want to replace it.",
       );
     }
+    if (input.sheet !== undefined && input.type !== "image") {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        `Asset "${input.id}" is ${input.type}; only an image can be a sprite sheet.`,
+      );
+    }
     if (input.type === "image") {
-      comp.assets.set(input.id, { id: input.id, type: "image", src: input.src });
+      for (const [name, c] of Object.entries(input.sheet?.cycles ?? {})) {
+        if (c.start + c.count > input.sheet!.count) {
+          throw new MCPToolError(
+            "E_INVALID_VALUE",
+            `Sheet "${input.id}" cycle "${name}" runs to frame ${c.start + c.count - 1}, past the sheet's ${input.sheet!.count} frames.`,
+          );
+        }
+      }
+      comp.assets.set(input.id, {
+        id: input.id,
+        type: "image",
+        src: input.src,
+        ...(input.sheet !== undefined ? { sheet: structuredClone(input.sheet) } : {}),
+      });
     } else if (input.type === "font") {
       if (!input.family || input.family.length === 0) {
         throw new MCPToolError(
@@ -950,6 +978,8 @@ export class CompositionStore {
       height: input.height,
       transform,
       ...(input.tint !== undefined ? { tint: input.tint } : {}),
+      ...(input.cycle !== undefined ? { cycle: input.cycle } : {}),
+      ...(input.frame !== undefined ? { frame: input.frame } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     comp.items.set(id, sprite);
@@ -2451,7 +2481,12 @@ function videoPlacementWarnings(
 function cloneAsset(asset: Asset): Asset {
   switch (asset.type) {
     case "image":
-      return { id: asset.id, type: "image", src: asset.src };
+      return {
+        id: asset.id,
+        type: "image",
+        src: asset.src,
+        ...(asset.sheet !== undefined ? { sheet: structuredClone(asset.sheet) } : {}),
+      };
     case "font":
       return { id: asset.id, type: "font", src: asset.src, family: asset.family };
     case "audio":
@@ -2515,6 +2550,8 @@ function cloneItem(item: Item): Item {
         height: item.height,
         transform: { ...item.transform },
         ...(item.tint !== undefined ? { tint: item.tint } : {}),
+        ...(item.cycle !== undefined ? { cycle: item.cycle } : {}),
+        ...(item.frame !== undefined ? { frame: item.frame } : {}),
         ...flags,
       };
     case "text":
@@ -2734,11 +2771,20 @@ function applyTypedItemUpdate(item: Item, props: UpdateItemProps): Item {
         ...flagPatch,
       };
       if (props.tint !== undefined) next.tint = props.tint;
+      if (props.cycle === null) delete next.cycle;
+      else if (props.cycle !== undefined) next.cycle = props.cycle;
+      if (props.frame === null) delete next.frame;
+      else if (props.frame !== undefined) {
+        ensureNonNegative("frame", props.frame);
+        next.frame = props.frame;
+      }
       rejectKeys(props, item.type, [
         "asset",
         "width",
         "height",
         "tint",
+        "cycle",
+        "frame",
         "x",
         "y",
         "scaleX",

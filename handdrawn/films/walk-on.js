@@ -18,6 +18,8 @@ const IDS = ['teapot', 'fox'];
 const PHOTOS = fromStore(IDS);
 const FOX = CAST.FOX;
 const SAM = actorOf(puppet(stickSource({ name: 'sam' })));
+// The cast `hdf sprite --film` and `hdf-to-davidup --sprites` draw as sprite sheets (the fox comes from the store).
+export const cast = { sam: SAM };
 
 // ---------- walk: sam walks on, looks up, takes the balloon's string ----------
 const FEET = 960, S = 260, Y = FEET - 0.86 * S, X = 430;   // sam's feet line, size, place and where it stops

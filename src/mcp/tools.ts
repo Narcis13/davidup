@@ -84,6 +84,7 @@ import {
   VIDEO_FIT_MODES,
   BLEND_MODES,
   BlendModeSchema,
+  SpriteSheetSchema,
   COMPOSITION_VERSION,
   EFFECT_TYPES,
   EasingSchema,
@@ -691,6 +692,9 @@ const registerAsset = defineTool({
   title: "Register asset",
   description:
     "Register an image, font, audio, or video asset by id. Font assets require a `family`. " +
+    "An image may be a sprite sheet: pass `sheet` ({ frameWidth, frameHeight, columns, count, fps, cycles?: { name: { start, count, loop?, speed? } }, anchor?: { x, y } }, " +
+    "frames laid left to right, top to bottom) and sprites on it play its cycles by name (add_sprite `cycle`). " +
+    "`hdf sprite` in handdrawn/ writes a sheet's PNG and this object as JSON. " +
     `Audio assets accept ${AUDIO_ASSET_EXTENSIONS.join(", ")} and are probed with ffprobe to ` +
     "extract duration, sampleRate, channels, and codec. " +
     `Video assets accept ${VIDEO_ASSET_EXTENSIONS.join(", ")} and are probed for duration, width, ` +
@@ -702,6 +706,7 @@ const registerAsset = defineTool({
     type: z.enum(["image", "font", "audio", "video"]),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
+    sheet: SpriteSheetSchema.optional(),
     compositionId: COMPOSITION_ID,
   },
   handler: async (args, deps) => {
@@ -781,6 +786,7 @@ const registerAsset = defineTool({
         type: args.type,
         src: args.src,
         ...(args.family !== undefined ? { family: args.family } : {}),
+        ...(args.sheet !== undefined ? { sheet: args.sheet } : {}),
       },
       args.compositionId,
     );
@@ -917,7 +923,9 @@ const addSprite = defineTool({
   name: "add_sprite",
   title: "Add sprite item",
   description:
-    "Add a sprite item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the item's width/height (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180.",
+    "Add a sprite item to a layer. Coordinates `x`/`y` are in pixels with origin at the composition's top-left and positive y pointing down. `anchorX`/`anchorY` are fractional in 0..1 of the item's width/height (0=left/top, 0.5=center, 1=right/bottom) and act as the pivot for rotation and scale. `rotation` is in radians, clockwise — multiply degrees by Math.PI/180. " +
+    "When the image asset is a sprite sheet (registered with `sheet`, see list_assets), the sprite shows one frame of it: `cycle` plays that named cycle from the item's `enter` (0 when unset) at the sheet's fps, looping unless the cycle has `loop: false`; `frame` (tweenable) picks a frame instead — within the cycle, or the whole sheet when no cycle is named; with neither it shows frame 0. " +
+    "Size the sprite in the frame's aspect (sheet.frameWidth x sheet.frameHeight), put its feet on the ground with the sheet's `anchor` as anchorX/anchorY, and move a walking cycle by its `speed` (px/s at the frame's own size, scaled by width / frameWidth) so its feet do not slide.",
   inputSchema: {
     layerId: z.string().min(1),
     asset: z.string().min(1),
@@ -927,6 +935,8 @@ const addSprite = defineTool({
     height: z.number().nonnegative(),
     ...TRANSFORM_INPUT,
     tint: z.string().optional(),
+    cycle: z.string().min(1).optional(),
+    frame: z.number().nonnegative().optional(),
     id: z.string().min(1).optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,
@@ -947,6 +957,8 @@ const addSprite = defineTool({
         ...(args.scaleX !== undefined ? { scaleX: args.scaleX } : {}),
         ...(args.scaleY !== undefined ? { scaleY: args.scaleY } : {}),
         ...(args.tint !== undefined ? { tint: args.tint } : {}),
+        ...(args.cycle !== undefined ? { cycle: args.cycle } : {}),
+        ...(args.frame !== undefined ? { frame: args.frame } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
         ...(args.name !== undefined ? { name: args.name } : {}),
       },
@@ -1142,6 +1154,10 @@ const ITEM_PROP_SHAPE = strictObject(
     height: z.number().nonnegative(),
     asset: z.string().min(1),
     tint: z.string(),
+    // Sprite sheets (4.0 D2). `cycle: null` stops the cycle; `frame: null`
+    // hands the frame back to the clock.
+    cycle: z.string().min(1).nullable(),
+    frame: z.number().nonnegative().nullable(),
     text: z.string(),
     font: z.string().min(1),
     fontSize: z.number().positive(),
@@ -1189,6 +1205,7 @@ const updateItem = defineTool({
     "doesn't take, is E_INVALID_PROPERTY (with a \"did you mean\" for typos). " +
     "Text items accept the text v2 fields (maxWidth, lineHeight, letterSpacing, fontWeight, fontStyle, strokeColor, " +
     "strokeWidth, shadow — see add_text); pass `maxWidth: null` to drop back to point mode or `shadow: null` to remove the shadow. " +
+    "Sprite items accept `cycle` and `frame` (see add_sprite); `null` removes either. " +
     "Group items accept `isolate`, `blendMode`, and `width`/`height` — the anchor box their `anchorX`/`anchorY` are fractions of (see add_group). " +
     "Every item type accepts `effects`, an ordered stack of `{type:\"blur\",radius}`, " +
     "`{type:\"shadow\",color,blur?,offsetX?,offsetY?}` and `{type:\"glow\",color,radius}` — it replaces the " +
@@ -3068,6 +3085,13 @@ const listEngineCapabilitiesTool = defineTool({
         extensions: [...VIDEO_ASSET_EXTENSIONS],
         fitModes: [...VIDEO_FIT_MODES],
         loop: true,
+      },
+      // Sprite sheets (4.0 D2): an image registered with `sheet` is a grid of
+      // frames; a sprite item plays a named `cycle` or shows a tweenable
+      // `frame`. `hdf sprite` (handdrawn/) draws a puppet's states into one.
+      spriteSheets: {
+        assetField: "sheet",
+        itemFields: ["cycle", "frame"],
       },
       // Per-item effects (v1.1 S21), on every item type via update_item.
       // `tweenable` lists each type's fields, animated as

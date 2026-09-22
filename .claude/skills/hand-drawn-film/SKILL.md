@@ -500,6 +500,7 @@ image asset. Run from the repo root:
 ```bash
 bun run scripts/hdf-to-davidup.ts fox-and-teapot --project <dir|name> [--look risoPop] [--dry-run]
 bun run scripts/davidup-hdf-clip.ts <project>/composition.json <video-item-id> [--film <film>] [--alpha [mov|webm]]
+bun run scripts/hdf-to-davidup.ts walk-on --project <dir> --sprites [sam] [--states idle,walk,happy] [--no-video]
 ```
 
 The first renders and registers `hdf-<film>` (video) and `hdf-<puppet>-model`
@@ -517,6 +518,19 @@ sign-off (the composition signs off). Washes bring their paper with them, so
 a doodle body stays opaque, with a thin paper edge like a sticker.
 `handdrawn/films/fox-wave.js` is the pattern; `examples/hdf-overlay/` puts it
 over a slideshow of photos.
+
+**A sprite.** When davidup lays out the scene and the character only has to
+walk, stand and react, `hdf sprite <puppet|stick:sam> --states idle,walk,happy
+--alpha` draws its states as one sheet (a cycle one loop, a pose or
+expression one held frame) and a JSON; `--sprites` on `hdf-to-davidup.ts`
+registers each cast member (store puppets, and the film module's
+`export const cast = { sam: SAM }`) as an image with that `sheet`. In davidup
+the sprite plays a state by name (`add_sprite` with `cycle: "walk"`), stands
+on its feet with the sheet's `anchor` as anchorX/anchorY, and crosses the
+stage by an `x` tween at the cycle's `speed`; a second sprite on the sheet
+takes over (`exit` / `enter`) to stop and be happy.
+`examples/hdf-sprite/agent.mjs` is the pattern. A performance (reach, look
+at, lip sync) stays a film.
 
 ## Procedure
 

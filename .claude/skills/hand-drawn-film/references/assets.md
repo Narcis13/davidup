@@ -383,3 +383,9 @@ assets (`hdf-<film>` video, `hdf-<puppet>-model` image) in
 `davidup-hdf-clip.ts --alpha [mov|webm]` renders the film on no stock with its
 transparency (`hdf render --alpha`), and `register_asset` records `hasAlpha`,
 so davidup's render keeps it: an overlay clip.
+`hdf-to-davidup.ts --sprites [a,b]` draws each cast member with `hdf sprite
+--film --alpha` (the sheet PNG and its JSON: `frameWidth`, `frameHeight`,
+`columns`, `count`, `fps`, `cycles` with a walk's `speed`, `anchor`) and
+registers it as `hdf-<name>-sprite`, an image with a `sheet`; a davidup sprite
+on it takes `cycle` (a state by name) or a tweenable `frame`. The cast is the
+film's store puppets and its module's `cast` export (name -> actor or puppet).

@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { CompositionStore, dispatchTool, TOOLS } from "../src/mcp/index.js";
 import { probeVideo } from "../src/drivers/node/ffprobe.js";
-import type { Asset } from "../src/schema/types.js";
+import type { Asset, SpriteSheet } from "../src/schema/types.js";
 
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const HANDDRAWN = join(REPO, "handdrawn");
@@ -137,6 +137,50 @@ export async function renderFilm(
   return printed(await hdf(args), opts.alpha ? `.${opts.alpha}` : ".mp4");
 }
 
+/** What `hdf sprite` writes beside its PNG: davidup's `sheet` and what the sprite is. */
+export interface SpriteJson extends SpriteSheet {
+  kind: "hdf-sprite";
+  name: string;
+  look: string;
+  image: string;
+  frames: Array<[number, number, number, number]>;
+}
+
+/** The sheet davidup keeps on the image asset: the JSON without hdf's own fields. */
+export function sheetOf(j: SpriteJson): SpriteSheet {
+  const { frameWidth, frameHeight, columns, count, fps, cycles, anchor } = j;
+  return { frameWidth, frameHeight, columns, count, fps, ...(cycles ? { cycles } : {}), ...(anchor ? { anchor } : {}) };
+}
+
+export interface SpriteOpts {
+  /** The film whose cast the name is looked up in (and whose look it is drawn in). */
+  film?: string;
+  look?: string;
+  states?: string;
+  h?: number;
+}
+
+/** `hdf sprite <ref> --alpha`; returns the PNG and its sheet. */
+export async function spriteSheet(ref: string, opts: SpriteOpts = {}): Promise<{ png: string; sheet: SpriteSheet; json: SpriteJson }> {
+  const args = ["sprite", ref, "--alpha", "--out", HDF_OUT];
+  if (opts.film) args.push("--film", opts.film);
+  if (opts.look) args.push("--look", opts.look);
+  if (opts.states) args.push("--states", opts.states);
+  if (opts.h !== undefined) args.push("--h", String(opts.h));
+  const out = await hdf(args);
+  const png = printed(out, ".png");
+  const json = JSON.parse(readFileSync(printed(out, ".json"), "utf8")) as SpriteJson;
+  return { png, sheet: sheetOf(json), json };
+}
+
+/** The cast `hdf sprite --film` knows for a film: its store puppets and its module's `cast` export. */
+export async function filmCast(path: string, look?: string): Promise<string[]> {
+  const { loadFilm } = await import("../handdrawn/cli/load.mjs");
+  const { castOf } = await import("../handdrawn/cli/sprite.mjs");
+  const film = await loadFilm(path, { look });
+  return Object.keys(await castOf(film, path)).sort();
+}
+
 /** `hdf sheet store <id> --poses`; returns the model sheet's path. */
 export async function modelSheet(puppet: string): Promise<string> {
   return printed(await hdf(["sheet", "store", puppet, "--poses"]), ".jpg");
@@ -176,6 +220,8 @@ export interface Planned {
   type: "video" | "image";
   /** The file to copy in. */
   file: string;
+  /** An image that is a sprite sheet (4.0 D2). */
+  sheet?: SpriteSheet;
 }
 
 export interface Registered {
@@ -207,7 +253,7 @@ export async function registerFiles(compositionFile: string, planned: Planned[])
   for (const p of planned) {
     const src = `${ASSET_DIR}/${slug(p.id)}${extname(p.file)}`;
     copyFileSync(p.file, join(root, src));
-    const r = await dispatchTool(REGISTER, { id: p.id, type: p.type, src }, deps);
+    const r = await dispatchTool(REGISTER, { id: p.id, type: p.type, src, ...(p.sheet ? { sheet: p.sheet } : {}) }, deps);
     if (!r.ok) throw new BridgeError(`register_asset ${p.id}: ${r.error.message}${r.error.hint ? ` (${r.error.hint})` : ""}`);
     const asset = store.getAsset(p.id)!;
     const at = doc.assets.findIndex((a: { id?: string }) => a?.id === p.id);
@@ -226,6 +272,10 @@ export function describe(asset: Asset): string {
     if (asset.duration !== undefined) extra.push(`${asset.duration}s`);
     if (asset.hasAlpha) extra.push("alpha");
     if (asset.hasAudio) extra.push("sound");
+  }
+  if (asset.type === "image" && asset.sheet) {
+    const s = asset.sheet;
+    extra.push(`${s.count} frames of ${s.frameWidth}x${s.frameHeight}`, `cycles ${Object.keys(s.cycles ?? {}).join(", ")}`);
   }
   return `${asset.id}  ${asset.type}  ${asset.src}${extra.length ? `  (${extra.join(", ")})` : ""}`;
 }

@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { scaffoldProject } from "../../src/cli/scaffold.js";
+import * as skia from "skia-canvas";
+
 import { CompositionStore, dispatchTool, TOOLS } from "../../src/mcp/index.js";
 
 const REPO = resolve(__dirname, "..", "..");
@@ -69,6 +71,59 @@ describe("hdf-to-davidup", () => {
     // A second run replaces the asset instead of failing on a duplicate id.
     expect(bun("hdf-to-davidup.ts", "mini", "--project", root, "--frames", "6").code).toBe(0);
     expect((await listAssets(root)).filter((a) => a.id === "hdf-mini")).toHaveLength(1);
+  });
+});
+
+// 4.0 D2: sprite sheets. The film's cast (walk-on exports sam) drawn by `hdf sprite`, registered as an image
+// with its `sheet`, and walked by an agent's add_sprite with `cycle: "walk"`: no video anywhere.
+describe("hdf-to-davidup --sprites", () => {
+  it("--dry-run names the cast it would draw, and refuses a name outside it", () => {
+    const dry = bun("hdf-to-davidup.ts", "walk-on", "--dry-run", "--sprites", "--no-video", "--no-sheets");
+    expect(dry.code, dry.err).toBe(0);
+    expect(dry.out).toMatch(/^hdf-fox-sprite {2}image {2}hdf sprite fox --film .*walk-on\.js --alpha$/m);
+    expect(dry.out).toMatch(/^hdf-sam-sprite {2}image {2}hdf sprite sam --film .*walk-on\.js --alpha$/m);
+    expect(dry.out).not.toMatch(/video/);
+    expect(bun("hdf-to-davidup.ts", "walk-on", "--dry-run", "--sprites", "sam,bob").err).toMatch(/bob not in walk-on's cast \(has fox, sam\)/);
+  });
+
+  it("registers sam's sheet, and a sprite playing its walk changes frame as it crosses the stage", async () => {
+    const root = await project();
+    const { code, out, err } = bun("hdf-to-davidup.ts", "walk-on", "--project", root, "--sprites", "sam",
+      "--no-video", "--no-sheets", "--states", "walk,happy", "--h", "120");
+    expect(code, err).toBe(0);
+    expect(out).toMatch(/hdf-sam-sprite {2}image {2}assets\/hdf\/hdf-sam-sprite\.png {2}\(9 frames of \d+x120, cycles walk, happy\)/);
+    const asset = (await listAssets(root)).find((a) => a.id === "hdf-sam-sprite") as {
+      sheet: { frameWidth: number; frameHeight: number; count: number; fps: number; cycles: Record<string, { start: number; count: number; speed?: number; loop?: boolean }>; anchor: { x: number; y: number } };
+    };
+    expect(asset.sheet).toMatchObject({ frameHeight: 120, count: 9, fps: 12, cycles: { walk: { start: 0, count: 8 }, happy: { start: 8, count: 1, loop: false } } });
+    expect(asset.sheet.cycles.walk!.speed).toBeGreaterThan(0);
+
+    // What an agent does next, on a stage of its own: the sheet registered as the bridge registered it, a
+    // sprite on it walking at the sheet's own speed, feet on a line. (Rendered from this test's cwd, so the
+    // src is absolute.)
+    const store = new CompositionStore();
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store, skiaCanvas: skia as never });
+      if (!r.ok) throw new Error(`${name}: ${r.error.message}`);
+      return r.result as Record<string, unknown>;
+    };
+    const { frameWidth: fw, frameHeight: fh, anchor } = asset.sheet;
+    const speed = asset.sheet.cycles.walk!.speed!;
+    await call("create_composition", { width: 640, height: 360, fps: 12, duration: 2, background: "#ffffff" });
+    await call("register_asset", { id: "sam", type: "image", src: join(root, "assets/hdf/hdf-sam-sprite.png"), sheet: asset.sheet });
+    await call("add_layer", { id: "cast", z: 10 });
+    await call("add_sprite", { layerId: "cast", id: "sam", asset: "sam", x: 200, y: 330, width: fw, height: fh, anchorX: anchor.x, anchorY: anchor.y, cycle: "walk" });
+    const png = async (time: number) => Buffer.from((await call("render_preview_frame", { time, format: "png" })).image as string, "base64");
+    // Standing still, the cycle alone changes the picture: frame 1 of the walk a twelfth in, frame 0 again a loop on.
+    const [a, b, loop] = [await png(0), await png(1 / 12), await png(8 / 12)];
+    expect(a.equals(b)).toBe(false);
+    expect(a.equals(loop)).toBe(true);
+    // Held on happy it stops changing.
+    await call("update_item", { id: "sam", props: { cycle: "happy" } });
+    expect((await png(0.25)).equals(await png(1.5))).toBe(true);
+    await call("update_item", { id: "sam", props: { cycle: "walk" } });
+    await call("add_tween", { target: "sam", property: "transform.x", from: 200, to: 200 + speed, start: 0, duration: 1 });
+    expect((await call("validate", {})).valid).toBe(true);
   });
 });
 

@@ -78,6 +78,7 @@ import { anchorHeight, anchorWidth } from "./anchor.js";
 import { blurPixels } from "./blur.js";
 import { scratchSurfaceRect } from "./bounds.js";
 import { profileNow } from "./profile.js";
+import { spriteFrameIndex, spriteFrameRect } from "./spriteSheet.js";
 import {
   DEFAULT_LINE_HEIGHT,
   isBoxText,
@@ -290,7 +291,7 @@ export function drawItem(
 
   switch (item.type) {
     case "sprite":
-      drawSprite(ctx, item, dc);
+      drawSprite(ctx, item, scene, dc);
       break;
     case "shape":
       drawShape(ctx, item);
@@ -347,16 +348,24 @@ function applyBlendMode(ctx: Canvas2DContext, mode: BlendMode): void {
 function drawSprite(
   ctx: Canvas2DContext,
   item: SpriteItem,
+  scene: ResolvedScene,
   dc: DrawContext,
 ): void {
   const image = dc.assets?.getImage(item.asset);
   if (image === undefined) return;
+  // A sprite sheet (4.0 D2) paints one frame of the image into the box.
+  const sheet = scene.sheets?.get(item.asset);
+  const src = sheet !== undefined ? spriteFrameRect(sheet, spriteFrameIndex(sheet, item, dc.time)) : undefined;
+  const paint = (c: Canvas2DContext) => {
+    if (src === undefined) c.drawImage(image, 0, 0, item.width, item.height);
+    else c.drawImage(image, src[0], src[1], src[2], src[3], 0, 0, item.width, item.height);
+  };
   const tint = item.tint;
   // No tint, identity (white) tint, or no offscreen factory wired by the
   // driver → just paint the image. Skipping the offscreen on white avoids
   // a per-frame allocation when the tween parks on its identity colour.
   if (tint === undefined || isIdentityTint(tint) || !dc.createOffscreen) {
-    ctx.drawImage(image, 0, 0, item.width, item.height);
+    paint(ctx);
     return;
   }
 
@@ -369,7 +378,7 @@ function drawSprite(
   // silhouette rather than a luminance-preserving multiply.
   const off = takeOffscreen(dc, item.width, item.height);
   const oc = off.context;
-  oc.drawImage(image, 0, 0, item.width, item.height);
+  paint(oc);
   oc.globalCompositeOperation = "source-atop";
   oc.fillStyle = tint;
   oc.fillRect(0, 0, item.width, item.height);

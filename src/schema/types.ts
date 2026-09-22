@@ -14,6 +14,7 @@ import type {
   LayerSchema,
   ShapeItemSchema,
   SpriteItemSchema,
+  SpriteSheetSchema,
   TextItemSchema,
   TextShadowSchema,
   TransformSchema,
@@ -31,6 +32,7 @@ export type AudioMaster = NonNullable<CompositionMeta["audioMaster"]>;
 
 export type Asset = z.infer<typeof AssetSchema>;
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;
+export type SpriteSheet = z.infer<typeof SpriteSheetSchema>;
 export type FontAsset = z.infer<typeof FontAssetSchema>;
 export type AudioAsset = z.infer<typeof AudioAssetSchema>;
 export type VideoAsset = z.infer<typeof VideoAssetSchema>;

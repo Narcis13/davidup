@@ -136,10 +136,36 @@ export const CompositionMetaSchema = strictObject({
   }).optional(),
 });
 
+// A sprite sheet (hand-drawn film 4.0 D2): the image is a grid of equal
+// frames, `columns` across, read left to right and top to bottom, `count` in
+// all. `cycles` name runs of frames a sprite item plays by name (`cycle`).
+// `fps` is the rate a cycle plays at; `loop: false` holds the last frame.
+// `anchor` (fractions of a frame, the figure's feet) and a cycle's `speed`
+// (px per second at the frame's own size, how fast a walk travels so its feet
+// do not slide) are hints for whoever places the sprite; the renderer ignores
+// them. Cross-field checks (cycles inside `count`) live in the validator.
+export const SpriteCycleSchema = strictObject({
+  start: z.number().int().nonnegative(),
+  count: z.number().int().positive(),
+  loop: z.boolean().optional(),
+  speed: z.number().optional(),
+});
+
+export const SpriteSheetSchema = strictObject({
+  frameWidth: z.number().int().positive(),
+  frameHeight: z.number().int().positive(),
+  columns: z.number().int().positive(),
+  count: z.number().int().positive(),
+  fps: z.number().positive(),
+  cycles: z.record(z.string().min(1), SpriteCycleSchema).optional(),
+  anchor: strictObject({ x: z.number(), y: z.number() }).optional(),
+});
+
 export const ImageAssetSchema = strictObject({
   id: z.string().min(1),
   type: z.literal("image"),
   src: z.string().min(1),
+  sheet: SpriteSheetSchema.optional(),
 });
 
 export const FontAssetSchema = strictObject({
@@ -330,6 +356,13 @@ export const SpriteItemSchema = strictObject({
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
   tint: z.string().optional(),
+  // Sprite sheets (4.0 D2), only on an image asset with a `sheet`: `cycle`
+  // plays that named run from the item's `enter` (0 when unset) at the
+  // sheet's fps; `frame` (tweenable) picks a frame instead of the clock —
+  // within the cycle when one is named, else within the whole sheet. With
+  // neither, the sprite shows the sheet's first frame.
+  cycle: z.string().min(1).optional(),
+  frame: z.number().nonnegative().optional(),
   transform: TransformSchema,
   ...ItemFlagsSchema,
 });

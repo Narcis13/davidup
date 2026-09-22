@@ -52,6 +52,9 @@
 //                                              → W_GROUP_ANCHOR_NO_BOX
 //      (L-3: the anchor is a fraction of `width`/`height`, which a group only
 //      has if it says so — without them the field reads as a silent no-op.)
+//  19. Sprite sheets (4.0 D2): a cycle outside the sheet's `count`, a sprite
+//      `cycle` its asset's sheet does not name, or `cycle`/`frame` on a
+//      sprite whose image has no sheet   → E_SPRITE_SHEET
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
@@ -73,7 +76,8 @@ export type ValidationErrorCode =
   | "E_DUPLICATE_LAYER_ID"
   | "E_DUPLICATE_TWEEN_ID"
   | "E_POLYGON_INVALID"
-  | "E_DIMENSION_ODD";
+  | "E_DIMENSION_ODD"
+  | "E_SPRITE_SHEET";
 
 export type ValidationWarningCode =
   | "W_DIMENSION_LARGE"
@@ -147,6 +151,7 @@ export function validate(input: unknown): ValidationResult {
   validateVideoRanges(comp, assetMap, errors);
   validateDuplicateIds(comp, errors);
   validateShapes(comp, errors);
+  validateSpriteSheets(comp, errors);
 
   // Compose lint (§6.20) — best-effort warnings, never errors. Each one is
   // independent of the others; a crash-worthy bug in one shouldn't blind the
@@ -161,6 +166,45 @@ export function validate(input: unknown): ValidationResult {
   validateGroupAnchorBox(comp, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Sprite sheets (4.0 D2, E_SPRITE_SHEET). The schema checks each field; this
+// checks them against each other: every cycle lies inside the sheet's frames,
+// and a sprite's `cycle` / `frame` have a sheet to read. A missing or
+// wrong-type asset is E_ASSET_MISSING already, so it is skipped here.
+function validateSpriteSheets(comp: Composition, errors: ValidationError[]): void {
+  comp.assets.forEach((asset, i) => {
+    if (asset.type !== "image" || asset.sheet === undefined) return;
+    for (const [name, c] of Object.entries(asset.sheet.cycles ?? {})) {
+      if (c.start + c.count > asset.sheet.count) {
+        errors.push({
+          code: "E_SPRITE_SHEET",
+          message: `Sheet "${asset.id}" cycle "${name}" runs to frame ${c.start + c.count - 1}, past the sheet's ${asset.sheet.count} frames.`,
+          path: `assets.${i}.sheet.cycles.${name}`,
+        });
+      }
+    }
+  });
+  const byId = new Map(comp.assets.map((a) => [a.id, a]));
+  for (const [itemId, item] of Object.entries(comp.items)) {
+    if (item.type !== "sprite" || (item.cycle === undefined && item.frame === undefined)) continue;
+    const asset = byId.get(item.asset);
+    if (asset === undefined || asset.type !== "image") continue;
+    if (asset.sheet === undefined) {
+      errors.push({
+        code: "E_SPRITE_SHEET",
+        message: `Sprite "${itemId}" sets ${item.cycle !== undefined ? "cycle" : "frame"}, but image "${item.asset}" is not a sprite sheet (register it with a sheet).`,
+        path: `items.${itemId}.${item.cycle !== undefined ? "cycle" : "frame"}`,
+      });
+    } else if (item.cycle !== undefined && asset.sheet.cycles?.[item.cycle] === undefined) {
+      const have = Object.keys(asset.sheet.cycles ?? {});
+      errors.push({
+        code: "E_SPRITE_SHEET",
+        message: `Sprite "${itemId}" plays cycle "${item.cycle}", which sheet "${item.asset}" does not have (${have.length ? `has ${have.join(", ")}` : "it names no cycles"}).`,
+        path: `items.${itemId}.cycle`,
+      });
+    }
+  }
 }
 
 // Group anchor without a box (L-3, W_GROUP_ANCHOR_NO_BOX). `anchorX`/`anchorY`

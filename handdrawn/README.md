@@ -1383,6 +1383,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf only <film> 0,37,74` | single frames as full-size PNGs |
 | `hdf board <film> [--cols 4] [--chapter N] [--shots]` | the time tree as text plus one storyboard card per shot; in a film with chapters, one card per chapter (its title card written, span, shots, cuts, recipes, lint), `--chapter N` that chapter's shots, `--shots` every shot |
 | `hdf sheet <film> <cel>` | the cel at 3 scales × input extremes × every look, silhouette, 240 px |
+| `hdf sprite <puppet\|stick:<name>> [--states idle,walk,happy] [--fps 12] [--h 300] [--alpha] [--dir 1] [--cols N] [--idle 2] [--look] [--film <film>]` | a cast member as a sprite sheet for davidup's sprite item (4.0 D2): `out/<id>-sprite[-alpha].png`, each state a run of equal cells (a cycle one loop at `--fps`, a travelling one standing on its planted foot; a pose or expression one held frame), and `<id>-sprite.json` beside it (`frameWidth`, `frameHeight`, `columns`, `count`, `fps`, `cycles` with a walk's `speed` in px/s, `anchor` at the feet, `frames`). The puppet is a store id, `stick:<name>[:<build>]`, a payload `.json`, or with `--film` a member of that film's cast (its store puppets and its `cast` export) |
 | `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip → `assets/sheets/<id>.jpg` |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
@@ -1423,6 +1424,11 @@ bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox-clip
 # an overlay: the film on no stock, its transparency kept (ProRes 4444, or --alpha webm)
 bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox --alpha
 #   fox plays hdf-fox-wave  video  assets/hdf/hdf-fox-wave.mov  (1080x1080, 3s, alpha, sound)
+
+# the cast as sprite sheets, no video: each member an image with its `sheet`
+bun run scripts/hdf-to-davidup.ts walk-on --project ~/videos/promo --sprites --no-video --no-sheets
+#   hdf-fox-sprite  image  assets/hdf/hdf-fox-sprite.png  (33 frames of 234x300, cycles idle, walk, happy)
+#   hdf-sam-sprite  image  assets/hdf/hdf-sam-sprite.png  (33 frames of 317x300, cycles idle, walk, happy)
 ```
 
 `--project` takes a project directory or a name from the editor's recents
@@ -1440,6 +1446,16 @@ opaque, and `register_asset` records `hasAlpha`, which davidup's frame
 extraction keeps. `films/fox-wave.js` is the pattern (one character, a soft
 shadow, `meta('intent', 'clip')` so lint wants no sign-off), and
 `examples/hdf-overlay/build.mjs <photos...>` puts it over a slideshow.
+
+With `--sprites [a,b]` (4.0 D2) each cast member (the film's store puppets and
+the entries of its module's `cast` export; `films/walk-on.js` exports sam) is
+drawn by `hdf sprite --film --alpha` and registered as an image with a
+`sheet`, so a davidup sprite plays its states by name: `add_sprite` with
+`cycle: "walk"` walks it, a tween on `x` at the cycle's `speed` moves it
+without the feet sliding, and a second sprite on the same sheet with
+`cycle: "happy"` takes over at the walk's `exit`. `--states`, `--h` and
+`--no-video` shape it. `examples/hdf-sprite/agent.mjs` does that as an agent
+does, over the MCP protocol.
 
 ---
 

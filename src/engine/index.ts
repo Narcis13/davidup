@@ -37,6 +37,7 @@ export {
   type FitRects,
   type VideoRenderContext,
 } from "./render.js";
+export { spriteFrameIndex, spriteFrameRect } from "./spriteSheet.js";
 export {
   DEFAULT_LINE_HEIGHT,
   TEXT_ASCENT_RATIO,

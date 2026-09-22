@@ -26,6 +26,8 @@ const SPRITE_PROPS: PropertyDescriptor[] = [
   { path: "width", kind: "number" },
   { path: "height", kind: "number" },
   { path: "tint", kind: "color" },
+  // A sprite sheet's frame (4.0 D2); read only when the asset has a sheet.
+  { path: "frame", kind: "number" },
 ];
 
 const TEXT_PROPS: PropertyDescriptor[] = [

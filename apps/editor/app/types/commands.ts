@@ -103,6 +103,9 @@ const ITEM_PROPS = z
     height: NON_NEG,
     asset: ID,
     tint: z.string(),
+    // Sprite sheets (4.0 D2). DUAL of update_item: `null` removes either.
+    cycle: z.string().min(1).nullable(),
+    frame: NON_NEG.nullable(),
     text: z.string(),
     font: ID,
     fontSize: POSITIVE,
@@ -266,7 +269,8 @@ const replaceComposition = z.object({
 // before reaching the MCP tool. Probed metadata (audio: duration/sampleRate/
 // channels/codec; video: duration/width/height/fps/hasAlpha/codec/pixelFormat/hasAudio)
 // is NOT part of the payload — the engine derives it via ffprobe at
-// registration time.
+// registration time. `sheet` (4.0 D2) makes an image a sprite sheet; its
+// shape is checked by the engine (SpriteSheetSchema), so it passes through.
 const registerAsset = z.object({
   kind: z.literal('register_asset'),
   payload: z.object({
@@ -274,6 +278,7 @@ const registerAsset = z.object({
     type: z.enum(['image', 'font', 'audio', 'video']),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
+    sheet: z.record(z.string(), z.unknown()).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
@@ -346,6 +351,8 @@ const addSprite = z.object({
     height: NON_NEG,
     ...TRANSFORM_INPUT,
     tint: z.string().optional(),
+    cycle: z.string().min(1).optional(),
+    frame: NON_NEG.optional(),
     id: ID.optional(),
     name: z.string().max(80).optional(),
     compositionId: COMPOSITION_ID,

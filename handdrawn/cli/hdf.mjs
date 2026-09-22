@@ -31,6 +31,13 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     cycles, credits on one page (assets/sheets/<id>-model.jpg)
   sheet   store <id> --vocabulary [--look]   the biped vocabulary's poses, expressions and cycles that apply to it
                                     (packs/poses/biped.json; assets/sheets/<id>-vocabulary.jpg)
+  sprite  <puppet|stick:<name>> [--states idle,walk,happy] [--fps 12] [--h 300] [--alpha] [--dir 1] [--cols N]
+                                    [--idle 2] [--look <preset>] [--film <film.js>] [--out dir]   a cast member as a
+                                    sprite sheet for davidup's sprite item: out/<id>-sprite[-alpha].png, each state a
+                                    run of equal cells (a cycle one loop, a pose or expression one held frame), and
+                                    a .json beside it (frames, fps, cycles, anchor at the feet, a walk's speed);
+                                    --film finds the name in that film's cast (its store puppets, its \`cast\` export)
+                                    (scripts/hdf-to-davidup.ts --sprites registers them)
   lint    <film.js>                 review checklist over lists; exits 1 on any finding (a line per chapter after)
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
@@ -98,7 +105,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   lint    packs/<pack>.js           a pack: pack-mirror findings, one per cel whose mirror is missing or stale
 `;
 
-const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'lint', 'changed', 'golden',
+const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'sprite', 'lint', 'changed', 'golden',
   'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };

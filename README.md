@@ -395,7 +395,7 @@ this way.
 
 | Type | Own fields |
 |---|---|
-| `sprite` | `asset` (image id), `width`, `height`, `tint?` |
+| `sprite` | `asset` (image id), `width`, `height`, `tint?`, `cycle?` / `frame?` (an image that is a sprite sheet: see Assets) |
 | `text` | `text`, `font` (font **asset id**, not a CSS family), `fontSize`, `color`, `align?` (`left`/`center`/`right`), `maxWidth?`, `lineHeight?` (× fontSize, default 1.2), `letterSpacing?` (px), `fontWeight?`, `fontStyle?`, `strokeColor?`, `strokeWidth?`, `shadow?` (`{color, blur?, offsetX?, offsetY?}`) |
 | `shape` | `kind` (`rect`/`circle`/`polygon`), `width?`, `height?`, `points?`, `fillColor?`, `strokeColor?`, `strokeWidth?`, `cornerRadius?` |
 | `group` | `items: string[]` — child ids; `isolate?` (flatten the children and composite once), `blendMode?` |
@@ -546,7 +546,7 @@ forms (`list_engine_capabilities` reports it as `parametricEasings`).
 | Item | Common | Type-specific |
 |---|---|---|
 | all | `transform.x/y/scaleX/scaleY/rotation/opacity/anchorX/anchorY` (number) | — |
-| sprite | + | `width`, `height` (number); `tint` (color) |
+| sprite | + | `width`, `height`, `frame` (number; `frame` only on a sprite sheet); `tint` (color) |
 | text | + | `fontSize`, `letterSpacing`, `lineHeight`, `strokeWidth` (number); `color` (color) |
 | shape | + | `width`, `height`, `strokeWidth`, `cornerRadius` (number); `fillColor`, `strokeColor` (color) |
 | group | + | `width`, `height` (number — the anchor box; children carry their own tweens) |
@@ -566,10 +566,25 @@ through to Canvas2D for static fills but are rejected as tween endpoints.
 
 | Type | Fields | Accepted sources |
 |---|---|---|
-| `image` | `id`, `src` | png / jpg / … anything Canvas2D decodes |
+| `image` | `id`, `src`, `sheet?` | png / jpg / … anything Canvas2D decodes |
 | `font` | `id`, `src`, `family` | ttf / otf / woff |
 | `audio` | `id`, `src`, `duration?`, `sampleRate?`, `channels?`, `codec?` | `.mp3 .wav .aac .m4a .ogg` |
 | `video` | `id`, `src`, `duration?`, `width?`, `height?`, `fps?`, `hasAlpha?`, `codec?`, `pixelFormat?`, `hasAudio?` | `.mp4 .mov .webm .mkv` |
+
+**Sprite sheets.** An image with a `sheet` — `{ frameWidth, frameHeight,
+columns, count, fps, cycles?: { <name>: { start, count, loop?, speed? } },
+anchor?: { x, y } }` — is a grid of equal frames read left to right, top to
+bottom. A sprite on it shows one frame: `cycle` plays that run from the item's
+`enter` (0 when unset) at the sheet's `fps`, looping unless `loop: false`
+(which holds the last frame); `frame` (tweenable) picks a frame instead,
+within the cycle or the whole sheet; with neither it shows frame 0. `anchor`
+(the figure's feet, as fractions of a frame) and a cycle's `speed` (px per
+second at the frame's own size) are placement hints the renderer ignores:
+use them as `anchorX`/`anchorY` and as the rate of an `x` tween so a walk's
+feet do not slide. To change state over time (walk, then stop), put two
+sprites on the same sheet and hand over with `exit` / `enter`.
+`hdf sprite` in `handdrawn/` draws a puppet's states into one; see
+[`examples/hdf-sprite/agent.mjs`](./examples/hdf-sprite/agent.mjs).
 
 Audio/video metadata is filled in by `ffprobe` on `register_asset` when
 available; without it the asset still registers (with a warning). The
@@ -880,7 +895,7 @@ the TTL.
 | § | Category | Tools |
 |---|---|---|
 | 4.1 | Composition lifecycle | `create_composition`, `get_composition`, `set_composition_property`, `validate`, `reset`, `replace_composition` (whole-document swap, validated) |
-| 4.2 | Assets | `register_asset` (image / font / audio / video; audio+video are ffprobed), `list_assets`, `remove_asset` |
+| 4.2 | Assets | `register_asset` (image / font / audio / video; audio+video are ffprobed; an image may carry a sprite `sheet`), `list_assets`, `remove_asset` |
 | 4.3 | Layers | `add_layer`, `update_layer`, `remove_layer` |
 | 4.4 | Items | `add_sprite`, `add_text`, `add_shape`, `add_group`, `update_item`, `move_item_to_layer`, `remove_item` |
 | 4.4a | Video items | `add_video`, `update_video` — sprite-shaped clips with `trimIn`/`trimOut`, `fit`, `loop` (freezes on the last frame once trimmed content runs out), `keepAudio` (mux the clip's own sound) |
@@ -940,7 +955,8 @@ handle:
 `E_VALUE_KIND`, `E_COLOR_INVALID`, `E_TWEEN_OVERLAP`, `E_GROUP_CYCLE`,
 `E_VIDEO_RANGE`, `E_DUPLICATE_LAYER_ID`, `E_DUPLICATE_TWEEN_ID`,
 `E_POLYGON_INVALID`, `E_DIMENSION_ODD` (odd composition width/height — the
-H.264/yuv420p encoder needs even sizes); warnings `W_DIMENSION_LARGE` (either
+H.264/yuv420p encoder needs even sizes), `E_SPRITE_SHEET` (a sheet's cycle
+outside its frames, or a sprite naming a cycle its sheet lacks); warnings `W_DIMENSION_LARGE` (either
 axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 `W_ITEM_OFF_CANVAS`, `W_FONT_UNREGISTERED`, `W_SCENE_INSTANCE_OUTLIVES`,
 `W_VIDEO_NO_AUDIO_STREAM` (`keepAudio` on a source with no audio stream),
