@@ -14,14 +14,18 @@
 //                                              Muybridge's horse, retargeted (hdf retarget, plan S14)
 // 11.50  3.50  turn   table  book3              a pop-up book: the fox stands on a page, the leaf turns and the
 //                                              fox turns with it (front, three-quarter, side), then back to us
-// 15.00  4.50  end    sand   AF printsOnALine   three prints on a line, sign-off, two foxes
+// 15.00  9.17  talk   mint   dialogue           the fox asks a stick teacher where the teapot went: four lines,
+//                                              speech, thought, shout and whisper bubbles facing each other
+// 24.17  4.50  end    sand   AF printsOnALine   three prints on a line, sign-off, two foxes
 // The chase is a retargeted cycle (plan S14): `fox.cycle('gallop')` is the horse of films/gallop.js, its skeleton
 // read off the traced silhouettes and turned into the fox's joints; each frame's lift carries the moment in
 // the air. The turn shot is the turnaround (plan S7): the fox puppet has three views and book3 picks one from the angle
 // of the page it stands on. The greeting is actor.say (plan S9): the fox's mouth, the letters in the bubble and
 // a pluck per syllable in the score all come from one timing, so they stay in sync; it takes the place of the
 // shot's caption ('for two' is in the sign-off), which keeps the shot inside the look's three words.
-import { film, seq, shot, paper, note, burst, pentHz, fill, stroke, rect, poly, ellipse, meta, ramp, ease, wash, spline, handText, camera3, card3, project, book3, LOOKS, pastel } from '../core/index.js';
+// The talk is dialogue (4.0 T9): four turns scheduled at a reader's pace, each bubble held through the
+// reply, the listener turned to the speaker. Its shot carries fourteen words (withLook), not the look's three.
+import { film, seq, shot, paper, note, burst, pentHz, fill, stroke, rect, poly, ellipse, meta, ramp, ease, wash, spline, handText, camera3, card3, project, book3, LOOKS, pastel, withLook, puppet, actorOf, stickSource, dialogue, FPS } from '../core/index.js';
 import { CAST, doesItsJob, looksBack, getaway, printsOnALine, lastFrame } from '../recipes/doodle.js';
 import { fromStore } from '../core/assets.js';
 
@@ -81,11 +85,39 @@ const turnShot = shot('turn', 3.5, ({ t, look }) => {
     book.draw({ turn, cam, look }),
   ];
 }, { recipe: 'book3' });
+// ---------- the talk: the fox asks the stick teacher (4.0 T9) ----------
+const SAM = actorOf(puppet(stickSource({ name: 'sam' })), { height: 2.9 });
+const TG = 880, FS = 104, SS = 104;   // the ground line, the fox's and sam's stage sizes
+const WHERE = { fox: [290, TG - 0.86 * FS, FS], sam: [790, TG - 0.86 * SS, SS] };
+const talk = dialogue([
+  [FOX, 'have you seen a teapot?', { emote: 'worried' }],
+  [SAM, 'a teapot?', { kind: 'thought', emote: 'thinking' }],
+  [FOX, 'it ran away!', { kind: 'shout', emote: 'wide' }],
+  [SAM, 'it went that way.', { kind: 'whisper', emote: 'wink' }],
+], { t0: 0.5, where: WHERE });
+const TALK = Math.ceil((talk.until + 0.25) * FPS - 1e-6) / FPS;
+const talkShot = shot('talk', TALK, ({ t }) => {
+  const last = talk.turns[3], point = ramp(last.t0, last.t0 + 0.4, t, ease.out);
+  const fox = { ...FOX.idle(t), ...talk.state(FOX, t) };
+  const sam = { ...SAM.idle(t, 2), ...(point > 0 ? SAM.pose('point-l', point) : {}), ...talk.state(SAM, t) };
+  return [
+    paper(), fill(rect(-2, -2, 1084, 1084), { base: 'fills.2', tint: 0.6 }),
+    fill(rect(-2, TG, 1084, 212), { base: 'fills.3', tint: 0.3 }),
+    stroke(poly([[-10, TG], [1090, TG]], false), 'ink', { w: 4 }),
+    fill(ellipse(WHERE.fox[0], TG + 6, 80, 11), 'shade', { alpha: 0.3, name: 'shadow' }),
+    fill(ellipse(WHERE.sam[0], TG + 6, 60, 9), 'shade', { alpha: 0.3, name: 'shadow' }),
+    meta('anchor', { cel: 'fox' }),
+    FOX.place(...WHERE.fox, fox),
+    SAM.place(...WHERE.sam, sam),
+    talk.draw(t),
+  ];
+}, { recipe: 'dialogue', look: withLook(pastel(LOOKS.doodlePastel, 'mint'), { words: 14 }) });
+
 const end = printsOnALine({ name: 'end', prints: SCENES.map((s) => ({ draw: lastFrame(s), look: s.look })), a: 'tea for two', b: 'next time', actor: FOX });
 
 // ---------- score: a music box for tea, a low growl, hooves, the gallop, the box again ----------
 const score = ({ shots }) => {
-  const [t0, t1, t2, tc, t3, t4] = shots.map((s) => s.t0), ev = [];
+  const [t0, t1, t2, tc, t3, tt, t4] = shots.map((s) => s.t0), ev = [];
   const box = (t, o, s, g = 0.2, d = 0.9) => ev.push(note(t, pentHz(o, s, 261.6), d, 'sine', g), note(t, pentHz(o + 1, s, 261.6), d * 0.5, 'triangle', g * 0.25));
   [[0.25, 1, 0], [0.75, 1, 2], [2.5, 1, 3], [2.75, 1, 4], [3.0, 2, 1]].forEach(([t, o, s]) => box(t0 + t, o, s));
   ev.push(...hello.events(t0));
@@ -96,8 +128,9 @@ const score = ({ shots }) => {
   for (let k = 0; k < 2; k++) for (const b of [0, 0.1, 0.25, 0.35]) ev.push(burst(tc + 0.2 + k + b, 0.03, 0.16, 60 + k * 4 + b * 10));
   for (let k = 0; k < 6; k++) ev.push(burst(t3 + 0.6 + k * 0.32, 0.6, 0.1 * (0.5 + 0.5 * Math.sin(k / 5 * Math.PI)), 40 + k));
   [[0.1, 1, 4], [2.9, 1, 0], [3.1, 1, 2]].forEach(([t, o, s]) => box(t3 + t, o, s, 0.18, 0.8));
+  ev.push(...talk.events(tt));
   [[0, 1, 0], [0.6, 1, 2], [1.2, 1, 4], [2.5, 0, 0], [2.5, 1, 2], [2.5, 2, 0]].forEach(([t, o, s]) => box(t4 + t, o, s, 0.22, 2));
   return { master: 0.5, events: ev };
 };
 
-export default film({ name: 'fox-and-teapot', look: 'doodlePastel', timeline: seq(...SCENES, chase, turnShot, end), score, assets: IDS });
+export default film({ name: 'fox-and-teapot', look: 'doodlePastel', timeline: seq(...SCENES, chase, turnShot, talkShot, end), score, assets: IDS });

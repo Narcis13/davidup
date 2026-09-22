@@ -53,13 +53,19 @@
 // follow the sample's word timing (core/align.js alignOf, the copy `text` or, when text is empty, the
 // alignment's own), and events(t) is the voice itself, not plucks. The timing is read on first use, so a
 // line built at a film's top level waits for the player to fetch its wav.
+// 4.0 T9: the copy may run to several lines ('\n', or wrapped at `width`, 11 sizes by default), the bubble
+// sized from the lines; `kind` is the bubble's (speech, thought, shout, whisper, caption: core/marks.js);
+// `audience` sets the letter size (48 by its text scale) and the hold (its dwell, and at least the line's
+// reading time on screen). draw's o.lane ([x0, x1]) keeps the bubble between two stage xs (dialogue's lanes).
 import { FPS } from './curves.js';
 import { pen } from './doodle.js';
 import { celOverflow } from './lint.js';
-import { ellipse, fill, group, meta, mmul, poly, rotate, scale, stroke, translate } from './list.js';
-import { bubble as bubbleMark } from './marks.js';
+import { bounds, ellipse, fill, group, meta, mmul, poly, rotate, scale, stroke, translate } from './list.js';
+import { bubble as bubbleMark, BUBBLE_KINDS } from './marks.js';
 import { hash32 } from './rand.js';
-import { handText, measure, speech } from './text.js';
+import { audienceOf, wordCount } from './audience.js';
+import { LINE_H } from './layout.js';
+import { handText, layout, measure, speech } from './text.js';
 import { reveal as revealList } from './tools.js';
 import { VIEW_DIRS } from './puppet.js';
 import { cel } from './tree.js';
@@ -405,29 +411,55 @@ function speak(actor, base, spec, text, t0, o = {}) {
 function lineOf(actor, base, spec, text, t0, o, vid) {
   const A = vid ? alignOf(vid, text === null ? {} : { text }) : null;
   if (A) text = A.text;
-  const { at = null, size = 48, bubble = true, hold = 0.75, seed = hash32('say', actor.name, text) } = o;
-  const sp = A ? spokenOf(A, t0) : speech(text, t0), until = sp.end + hold, talks = base.has('mouth');
+  const aud = o.audience === undefined ? null : audienceOf(o.audience);
+  const { at = null, size = aud ? Math.round(48 * aud.text) : 48, bubble = true, kind = 'speech', seed = hash32('say', actor.name, text) } = o;
+  if (!BUBBLE_KINDS.includes(kind)) throw new TypeError(`actor ${actor.name}: say kind '${kind}' (${BUBBLE_KINDS.join(', ')})`);
+  const sp = A ? spokenOf(A, t0) : speech(text, t0);
+  // Held after the last word: 0.75 s, or with an audience its dwell, and long enough that the whole line has
+  // been up for its reading time.
+  const hold = o.hold ?? (aud ? Math.max(aud.dwell, t0 + wordCount(text) / aud.read - sp.end) : 0.75);
+  const until = sp.end + hold, talks = base.has('mouth');
   const mouth = A ? sp.mouth : (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : sp.steps[Math.floor((t - t0) * FPS + 1e-9)] ?? 0);
-  const tw = measure(text, size), bw = tw + size * 1.2, bh = size * 1.9;
-  const words = handText(text, 0, 0, { size, align: 'center', role: 'ink', ink2: null, w: size * 0.07, seed });
+  // The copy in lines: '\n' breaks, and a line wider than `width` wraps (4.0 T9). One line letters as it always
+  // has; several are one lettering, centred, the bubble sized from the widest.
+  const L = layout(text, { size, w: o.width ?? size * 11, align: 'center' }).lines;
+  const one = L.length === 1 && L[0].str === text, lineH = size * LINE_H;
+  const tw = one ? measure(text, size) : Math.max(...L.map((l) => l.w)), bw = tw + size * 1.2, bh = size * 1.9 + (L.length - 1) * lineH;
+  const words = handText(one ? text : L.map((l) => l.str).join('\n'), 0, 0, { size, align: 'center', role: 'ink', ink2: null, w: size * 0.07, seed, ...(one ? {} : { lineH }) });
+  // Each glyph's character in the copy (the lines drop the spaces and breaks they wrap at).
+  const charOf = [];
+  let pos = 0;
+  for (const l of L) {
+    const at0 = text.indexOf(l.str, pos), from = at0 < 0 ? pos : at0;
+    for (let c = 0; c < l.str.length; c++) charOf.push(Math.min(text.length - 1, from + c));
+    pos = from + l.str.length;
+  }
   const glyphOf = (op) => parseInt(op.name.slice(1), 10);
+  // How far the bubble's outline reaches past its box (left, top, right, bottom): a shout's spikes and a
+  // thought's lobes do, so the stage keeps them on it; a speech bubble's wobble is not counted.
+  const reach = [0, 0, 0, 0];
+  if (bubble && (kind === 'shout' || kind === 'thought')) {
+    const b = bounds(bubbleMark([0, 0, bw, bh], null, { kind, seed, w: Math.max(2, size * 0.07) }).kids);
+    reach.splice(0, 4, Math.max(0, -b[0]), Math.max(0, -b[1]), Math.max(0, b[0] + b[2] - bw), Math.max(0, b[1] + b[3] - bh));
+  }
   return {
     text, sp, until, mouth,
     draw(t, x, y, s, q = {}) {
       if (t < t0 - 1e-9 || t >= until - 1e-9) return null;
       const dir = (q.dir ?? 1) < 0 ? -1 : 1, head = [x + dir * 0.15 * s, y + base.top * s], tip = [head[0], head[1] - 0.14 * s];
+      const [lo, hi] = q.lane ?? [MARGIN, STAGE - MARGIN], [ol, ot, or, ob] = reach;
       const [cx, cy] = at ?? [
-        clampTo(head[0] + dir * bw * 0.3, MARGIN + bw / 2, STAGE - MARGIN - bw / 2),
-        clampTo(tip[1] - 0.5 * s - bh / 2, MARGIN + bh / 2, STAGE - MARGIN - bh / 2),
+        clampTo(head[0] + dir * bw * 0.3, lo + ol + bw / 2, hi - or - bw / 2),
+        clampTo(tip[1] - 0.5 * s - ob - bh / 2, MARGIN + ot + bh / 2, STAGE - MARGIN - ob - bh / 2),
       ];
       const box = [cx - bw / 2, cy - bh / 2, bw, bh];
       const inBox = tip[0] > box[0] && tip[0] < box[0] + bw && tip[1] > box[1] && tip[1] < box[1] + bh;
-      const shown = sp.letters.filter((u) => u <= t + 1e-9).length;
-      const letters = group({ name: `text:${text}`, xf: translate(cx, cy + size * 0.36) }, words.kids.filter((op) => glyphOf(op) < shown));
+      const shown = (gi) => sp.letters[charOf[gi]] <= t + 1e-9;
+      const letters = group({ name: `text:${text}`, xf: translate(cx, cy + size * 0.36 - (L.length - 1) * lineH / 2) }, words.kids.filter((op) => shown(glyphOf(op))));
       const v = mouth(t), mx = spec.mouthAt;
       return group({ name: `say:${actor.name}`, cache: 'never' }, [
         A && meta('captions', { id: vid, by: A.by, span: alignSpan(A) }),
-        bubble && bubbleMark(box, inBox ? null : tip, { seed, w: Math.max(2, size * 0.07) }),
+        bubble && bubbleMark(box, inBox || kind === 'caption' ? null : tip, { kind, seed, w: Math.max(2, size * 0.07) }),
         letters,
         !talks && mx && v !== null ? mouthMark(x + mx[0] * s * dir, y + mx[1] * s, s, v, dir) : null,
       ]);

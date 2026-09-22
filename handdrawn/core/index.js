@@ -14,6 +14,8 @@ export { retarget } from './retarget.js';
 export { BUILDS, compileStick, stickMap, stickSource } from './stick.js';
 export { poseClip } from './pose.js';
 export { actorOf, EMOTES, VOCABULARY } from './actor.js';
+export { dialogue } from './dialogue.js';
+export { AUDIENCES, audienceOf } from './audience.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf, mix, tint, shade, alpha } from './looks.js';
@@ -26,7 +28,7 @@ export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grai
 export { FX, chalkLook } from './fx.js';
 export {
   cross, hex, hexCells, hexLattice, aster, dotBurst, speedLines, loops, construction,
-  seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, bubble, thread, cam, whip,
+  seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, bubble, BUBBLE_KINDS, thread, cam, whip,
 } from './marks.js';
 export { pin, on, onAll, silhouette, shadow, photo, photoFront, mask, rim, backdrop, nightfall, glow } from './photo.js';
 export { doodle, pen } from './doodle.js';

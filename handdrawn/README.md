@@ -817,6 +817,67 @@ estimate. The timing is read on first use, so captions built at a film's top
 level wait for the player to fetch the wav. `films/narrated.js` is an 18 s
 paragraph under a moon that changes phase as the voice says so.
 
+With no recording, give the copy as a list (4.0 T9): `captions(['the moon is
+a ball of rock', 'it has no light of its own'], { t0, audience: 'kids-7' })`.
+Each string opens a page of its own, lettered whole (`reveal: 'page'` unless
+you say otherwise), and the underline walks it at the audience's reading speed
+with `gap` seconds (the audience's dwell) between strings. `audience` also
+sizes the letters (44 by its `text` scale) on voiced captions.
+
+### Speech, bubbles and dialogue
+
+`actor.say(text, t0, o)` (S9) letters a line in a bubble over the speaker's
+head while its mouth moves. Since 4.0 T9 the copy may run to several lines:
+`'\n'` breaks it, and a line wider than `width` (11 letter sizes by default)
+wraps, the bubble sized from the lines (a single line draws exactly as it
+always has). `kind` picks the bubble, `core/marks.js bubble(box, tail, { kind
+})`:
+
+| kind | outline | tail |
+|---|---|---|
+| `speech` | a wobbly rounded rect (the default) | a wedge to the speaker |
+| `whisper` | the same, dashed | a dashed wedge |
+| `shout` | spikes round the copy | one spike runs out to the speaker |
+| `thought` | a cloud of lobes | three shrinking puffs |
+| `caption` | a plain strip | none |
+
+`audience` (a key of `AUDIENCES`, now in `core/audience.js`) sets the letter
+size (48 by its `text` scale) and the hold: at least its dwell after the last
+word, and the whole line up for its reading time. Without it the hold is the
+old 0.75 s.
+
+`dialogue(turns, o)` turns several `say`s into a conversation:
+
+```js
+const WHERE = { fox: [290, 790, 104], sam: [790, 790, 104] };   // name -> [x, y, s] on the stage
+const talk = dialogue([
+  [FOX, 'have you seen a teapot?', { emote: 'worried' }],
+  [SAM, 'a teapot?', { kind: 'thought' }],
+  [FOX, 'it ran away!', { kind: 'shout', emote: 'wide' }],
+  [SAM, 'it went that way.', { kind: 'whisper' }],
+], { t0: 0.5, where: WHERE });
+shot('talk', talk.until + 0.25, ({ t }) => [
+  ..., FOX.place(...WHERE.fox, { ...FOX.idle(t), ...talk.state(FOX, t) }),
+  SAM.place(...WHERE.sam, { ...SAM.idle(t), ...talk.state(SAM, t) }), talk.draw(t),
+]);
+// score: talk.events(shot.t0)
+```
+
+Each line starts after the one before has been read at the audience's
+reading speed (or `gap` seconds after it ends), on the grid. A line's bubble
+stays up through the reply, so a question and its answer are on screen
+together, and goes when its speaker talks again. `state(actor, t)` is the
+mouth, the turn's `emote` while its line is up, and `look(dir)` towards the
+actor it is talking or listening to. `where` also gives each actor a lane
+(the stage split halfway between neighbours): the copy wraps to fit it and
+the bubbles lean towards each other without crossing, a shout's spikes and a
+thought's lobes included. A turn takes any `say` option (`voice`, `size`,
+`hold`); `where` can instead be passed to `state` and `draw` for actors who
+move. The fox and `sam`, a stick teacher, talk this way in
+`films/fox-and-teapot.js` (the `talk` shot). The words in bubbles count
+against the look's allowance, so that shot carries 14 (`withLook(..., {
+words: 14 })`).
+
 ---
 
 ## 9. The CLI

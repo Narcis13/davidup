@@ -114,6 +114,15 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `EMOTES` Emotes as joint and variant changes, for a puppet with no pose of that name: the vocabulary's expressions.
 - `VOCABULARY` The vocabulary: every biped knows how to point, shrug and cheer (see the top of this file and the file's `about`).
 
+### core/dialogue.js
+
+- `dialogue(turns, o = {})` dialogue(turns, { t0, gap, audience, where, hold, ...say options }) => a fragment of turns between actors: state(actor, t), draw(t), events(t), turns, lines, end, until (see the top of this file).
+
+### core/audience.js
+
+- `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them; T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the ...
+- `audienceOf(a = 'general')` The audience record for a name (or a record passed whole); throws on a name it does not know.
+
 ### core/fit.js
 
 - `FORMATS` Aspect ratio -> [W, H] in logical units.
@@ -216,7 +225,8 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `tornEdge(y, { amp = 9, seed = 1, freq = 60, W = 1080, H = 1080 } = {})` The frame below a torn paper line at height y (v1 tornEdge).
 - `section(y, role, seed = 1, { W = 1080, H = 1080 } = {})` A new paper colour from a torn edge downward, a soft shadow under the tear, grain (v1 section).
 - `stickyNote(x, y, s, seed, kids = [])` A paper square with a drawing inside, turned a little (v1 stickyNote).
-- `bubble(box, tail, { seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {})` A speech bubble: a wobbly rounded rect over box [x, y, w, h] with a tail out to the point tail ([x, y], or null for none), filled paper and outlined in pen.
+- `bubble(box, tail, { kind = 'speech', seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {})` A bubble round box [x, y, w, h] (the copy's box and its margin) with a tail out to the point tail ([x, y], or null for none), filled paper and outlined in pen; the wobble comes from seed, so a bubble only changes when its arguments do.
+- `BUBBLE_KINDS` The bubbles bubble() draws: speech, thought (a cloud and puffs), shout (spikes), whisper (dashed), caption (a strip).
 - `thread(x, seed, { role = 'accents.0', w = 1.2, H = 1080 } = {})` A thin line wandering down the frame (v1 thread).
 - `cam({ x, y, zoom = 1, rot = 0, W = 1080, H = 1080 }, kids)` A camera over kids: the point (x, y) lands at the frame centre, zoomed and turned (v1 cam).
 - `whip(t, dur, { inn = 0.17, out = 0.17, dist = 520 } = {})` A horizontal camera offset for motion-matched cuts: leaves right over the last `out` seconds, arrives from the left over the first `inn` (v1 whip).
@@ -266,7 +276,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/captions.js
 
-- `captions(src, o = {})` captions(id | alignment, { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand }) => a strip that letters a recorded line as it is spoken, the spoken word underlined; draw(t, { W, H }) in the clock of t0.
+- `captions(src, o = {})` captions(id | alignment | [copy], { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand, audience, gap, name }) => a strip that letters a recorded line as it is spoken (or copy at the audience's reading pace, a page per ...
 
 ### recipes/score.js
 
@@ -385,7 +395,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ### Helpers
 
-- `AUDIENCES` Audiences (until T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the seconds anything new stays before the next thing, count ... <sub>recipes/teach.js</sub>
+- `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them; T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the ... <sub>core/audience.js</sub>
 - `BOAT` the boat's hull and sail paths <sub>recipes/shots.js</sub>
 - `CARDS` Three sample riso cards (sun over the sea, a big moon, stripes under a disc), the default for recipes that take cards (O, P, Q), so each renders with no arguments; N's iris takes one (`iris: { card: CARDS[0] }`). <sub>recipes/shots.js</sub>
 - `CAST` The doodle characters by name. FOX is the store's puppet as an actor, built the first time it is asked for, and only once the film has read it (fromStore(['fox'])); undefined before that. <sub>recipes/doodle.js</sub>
@@ -395,7 +405,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `ROLES` Roles the doodle cast and props share (quills, tea, star, ...), as role objects. <sub>recipes/doodle.js</sub>
 - `actorFigure(actor, state = {}, h = 140, fit = 'box')` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/recipe.js</sub>
 - `apple` An apple to count (AP's and AQ's default), about 60 units across. <sub>recipes/teach.js</sub>
-- `audienceOf(a = 'general')` The audience record for a name (or a record passed whole); throws on a name it does not know. <sub>recipes/teach.js</sub>
+- `audienceOf(a = 'general')` The audience record for a name (or a record passed whole); throws on a name it does not know. <sub>core/audience.js</sub>
 - `bez([p0, p1, p2, p3], u)` A point on a cubic Bezier [p0, c0, c1, p1] at u. <sub>recipes/shots.js</sub>
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>

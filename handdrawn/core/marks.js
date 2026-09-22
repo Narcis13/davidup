@@ -178,33 +178,101 @@ export function stickyNote(x, y, s, seed, kids = []) {
   ]);
 }
 
-// A speech bubble: a wobbly rounded rect over box [x, y, w, h] with a tail out to the point tail ([x, y], or
-// null for none), filled paper and outlined in pen. The tail leaves the side nearest the point, a base
-// `base` wide; the wobble comes from seed, so a bubble only changes when its arguments do.
-export function bubble(box, tail, { seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {}) {
+// The ring pts ([x, y] pairs round a centre) giving way to a tail out to the point tail: the rim point facing
+// it and the points either side within half the base leave (at least its two neighbours), and the outline
+// runs through the tip instead.
+function withTail(pts, tail, half, cx, cy) {
+  const dx = tail[0] - cx, dy = tail[1] - cy;
+  let best = 0, score = -Infinity;
+  pts.forEach(([px, py], k) => { const v = (px - cx) * dx + (py - cy) * dy; if (v / Math.hypot(px - cx, py - cy) > score) { score = v / Math.hypot(px - cx, py - cy); best = k; } });
+  const n = pts.length, near = (k) => Math.hypot(pts[k][0] - pts[best][0], pts[k][1] - pts[best][1]) <= half;
+  let a = best, b = best;
+  while (near((a - 1 + n) % n) && (a - 1 + n) % n !== b) a = (a - 1 + n) % n;
+  while (near((b + 1) % n) && (b + 1) % n !== a) b = (b + 1) % n;
+  if (a === b) { a = (best - 1 + n) % n; b = (best + 1) % n; }   // nothing within half: the neighbours are the base
+  const outline = [];
+  for (let k = (b + 1) % n, c = 0; c < n; k = (k + 1) % n, c++) {
+    if (k === a) { outline.push(pts[a], tail, pts[b]); break; }
+    outline.push(pts[k]);
+  }
+  return outline;
+}
+
+// The rim of the ellipse (cx, cy, rx, ry) facing the point (x, y): where the line from the centre crosses it.
+const rimToward = (cx, cy, rx, ry, [x, y]) => {
+  const a = Math.atan2((y - cy) / ry, (x - cx) / rx);
+  return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry];
+};
+
+// The bubbles bubble() draws: speech, thought (a cloud and puffs), shout (spikes), whisper (dashed), caption (a strip).
+export const BUBBLE_KINDS = Object.freeze(['speech', 'thought', 'shout', 'whisper', 'caption']);
+
+// A bubble round box [x, y, w, h] (the copy's box and its margin) with a tail out to the point tail ([x, y],
+// or null for none), filled paper and outlined in pen; the wobble comes from seed, so a bubble only changes
+// when its arguments do. kind:
+//   speech   a wobbly rounded rect, the tail leaving the side nearest the point, a base `base` wide
+//   whisper  the same outline dashed
+//   shout    a spiky burst round the box, one spike running out to the point
+//   thought  a cloud of lobes round the box, the tail three shrinking puffs towards the point
+//   caption  a plain strip over the box: no tail, a thin edge (a narrator's line)
+export function bubble(box, tail, { kind = 'speech', seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {}) {
+  if (!BUBBLE_KINDS.includes(kind)) throw new TypeError(`bubble: kind '${kind}' (${BUBBLE_KINDS.join(', ')})`);
   const [x, y, bw, bh] = box, r = rng(seed), cx = x + bw / 2, cy = y + bh / 2;
+  const half = (base ?? Math.min(bw, bh) * 0.36) / 2;
+  if (kind === 'caption') {
+    const path = poly([[x, y], [x + bw, y], [x + bw, y + bh], [x, y + bh]].map(([px, py]) => [px + (r() - 0.5) * wobble, py + (r() - 0.5) * wobble]), true);
+    return group({ name: 'bubble', seed }, [
+      fill(path, paper, { name: 'sheet' }),
+      stroke(path, role, { w: w * 0.6, wobble: w * 0.2, name: 'edge' }),
+    ]);
+  }
+  if (kind === 'shout') {
+    // Spikes round an ellipse that holds the box: valleys on it, points out past it, every other one longer.
+    const rx = bw / 2 * 1.16, ry = bh / 2 * 1.3, n = Math.max(12, 2 * Math.round(Math.PI * (rx + ry) / Math.max(24, Math.min(bw, bh) * 0.55) / 2));
+    const out = Math.min(bw, bh) * 0.32, pts = [];
+    for (let k = 0; k < n; k++) {
+      const a = (k + 0.5) / n * TAU - Math.PI / 2, spike = k % 2 === 0, e = spike ? out * (0.75 + r() * 0.5) * (k % 4 === 0 ? 1.25 : 1) : out * 0.05 * r();
+      pts.push([cx + Math.cos(a) * (rx + e * Math.abs(Math.cos(a)) + e * 0.4), cy + Math.sin(a) * (ry + e * Math.abs(Math.sin(a)) + e * 0.4)]);
+    }
+    const path = poly(tail ? withTail(pts, tail, Math.min(bw, bh) * 0.2, cx, cy) : pts, true);
+    return group({ name: 'bubble', seed }, [
+      fill(path, paper, { name: 'sheet' }),
+      stroke(path, role, { w: w * 1.2, wobble: w * 0.2, name: 'edge' }),
+    ]);
+  }
+  if (kind === 'thought') {
+    // Lobes: arcs bulging out from points on an ellipse round the box, each a little different.
+    const rx = bw / 2 * 1.12, ry = bh / 2 * 1.22, n = Math.max(7, Math.round(Math.PI * (rx + ry) / Math.max(30, Math.min(bw, bh) * 0.62)));
+    const at = Array.from({ length: n }, (_, k) => (k + (r() - 0.5) * 0.3) / n * TAU);
+    const pts = [];
+    at.forEach((a0, k) => {
+      const a1 = at[(k + 1) % n] + (k === n - 1 ? TAU : 0), p0 = [cx + Math.cos(a0) * rx, cy + Math.sin(a0) * ry], p1 = [cx + Math.cos(a1) * rx, cy + Math.sin(a1) * ry];
+      const mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2, c = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), bulge = c * (0.32 + r() * 0.12);
+      const nx = (mx - cx) / (Math.hypot(mx - cx, my - cy) || 1), ny = (my - cy) / (Math.hypot(mx - cx, my - cy) || 1);
+      for (let j = 0; j < 8; j++) {
+        const u = j / 8, s = Math.sin(u * Math.PI);
+        pts.push([p0[0] + (p1[0] - p0[0]) * u + nx * bulge * s, p0[1] + (p1[1] - p0[1]) * u + ny * bulge * s]);
+      }
+    });
+    const path = poly(pts, true), kids = [fill(path, paper, { name: 'sheet' }), stroke(path, role, { w, wobble: w * 0.3, name: 'edge' })];
+    if (tail) {
+      // Three puffs from past the rim to the point, each smaller.
+      const [ex, ey] = rimToward(cx, cy, rx * 1.18, ry * 1.18, tail), R = Math.min(bw, bh) * 0.13, puffs = [];
+      for (let j = 0; j < 3; j++) {
+        const u = (j + 0.6) / 3.2, pr = R * (1 - j * 0.28);
+        puffs.push(ellipse(ex + (tail[0] - ex) * u, ey + (tail[1] - ey) * u, pr, pr * 0.8, 16));
+      }
+      const dots = mkPath(puffs.flatMap((p) => p.sub));
+      kids.push(fill(dots, paper, { name: 'puffs' }), stroke(dots, role, { w: w * 0.8, wobble: 0, name: 'puffEdge' }));
+    }
+    return group({ name: 'bubble', seed }, kids);
+  }
   const ring = roundRect(x, y, bw, bh, Math.min(bw, bh) * 0.42, 5).sub[0].pts, pts = [];
   for (let i = 0; i < ring.length; i += 2) pts.push([ring[i] + (r() - 0.5) * wobble * 2, ring[i + 1] + (r() - 0.5) * wobble * 2]);
-  let outline = pts;
-  if (tail) {
-    // The rim point facing the tip, and the points either side within half the base: they give way to it.
-    const half = (base ?? Math.min(bw, bh) * 0.36) / 2, dx = tail[0] - cx, dy = tail[1] - cy;
-    let best = 0, score = -Infinity;
-    pts.forEach(([px, py], k) => { const v = (px - cx) * dx + (py - cy) * dy; if (v / Math.hypot(px - cx, py - cy) > score) { score = v / Math.hypot(px - cx, py - cy); best = k; } });
-    const n = pts.length, near = (k) => Math.hypot(pts[k][0] - pts[best][0], pts[k][1] - pts[best][1]) <= half;
-    let a = best, b = best;
-    while (near((a - 1 + n) % n) && (a - 1 + n) % n !== b) a = (a - 1 + n) % n;
-    while (near((b + 1) % n) && (b + 1) % n !== a) b = (b + 1) % n;
-    outline = [];
-    for (let k = (b + 1) % n, c = 0; c < n; k = (k + 1) % n, c++) {
-      if (k === a) { outline.push(pts[a], tail, pts[b]); break; }
-      outline.push(pts[k]);
-    }
-  }
-  const path = poly(outline, true);
+  const path = poly(tail ? withTail(pts, tail, half, cx, cy) : pts, true);
   return group({ name: 'bubble', seed }, [
     fill(path, paper, { name: 'sheet' }),
-    stroke(path, role, { w, wobble: w * 0.3, name: 'edge' }),
+    stroke(path, role, kind === 'whisper' ? { w: w * 0.8, wobble: w * 0.3, dash: [w * 3, w * 2.4], name: 'edge' } : { w, wobble: w * 0.3, name: 'edge' }),
   ]);
 }
 

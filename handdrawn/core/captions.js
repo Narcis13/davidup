@@ -1,8 +1,15 @@
 // Captions that follow a voice (4.0 V2): the copy of a recorded line lettered in a strip at the bottom of the
-// frame as it is spoken, the word being said underlined.
+// frame as it is spoken, the word being said underlined. Or plain copy with no voice (4.0 T9), read at the
+// audience's pace.
 //
-//   captions(id | alignment, { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand })
-//     => { kind: 'captions', id, t0, words, end, until, current(t), draw(t, { W, H }) }
+//   captions(id | alignment | [lines], { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand,
+//     audience, gap }) => { kind: 'captions', id, t0, words, end, until, current(t), draw(t, { W, H }) }
+//
+// A list of strings is copy with no recording: each string starts a page of its own, its words timed at the
+// audience's reading speed (AUDIENCES, `audience` 'general' by default) with `gap` seconds (the audience's dwell)
+// between strings, the whole page lettered at once (reveal 'page' unless given) and the underline moving at
+// reading pace. Its id is `name` (default 'copy'); lint sees it as captions timed 'by: reading'.
+// `audience` also sets the letter size (44 by its text scale) and the last page's hold (at least its dwell).
 //
 // id is a sample in the store (its word timing is core/align.js alignOf, `text` the copy when the entry has
 // none), or an alignment itself ({ text, words: [{ text, t0, t1 }] }). t0 is when the recording starts, in the
@@ -16,6 +23,7 @@
 // lint does not count its words against the look (they are the voice's) and warns (caption-sync) when a
 // long line is timed by the estimate.
 import { alignOf, alignSpan } from './align.js';
+import { audienceOf, wordCount } from './audience.js';
 import { asHand, currentHand, houseHand } from './glyphs.js';
 import { advance } from './layout.js';
 import { fill, group, line, meta, rect, stroke } from './list.js';
@@ -24,20 +32,24 @@ import { handText } from './text.js';
 const GRACE = 0.15;   // s the underline stays on a word after it ends (so a quick word is seen underlined)
 const CAP = 0.72;     // cap height in sizes (core/layout.js)
 
-// captions(id | alignment, { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand }) => a strip
-// that letters a recorded line as it is spoken, the spoken word underlined; draw(t, { W, H }) in the clock of t0.
+// captions(id | alignment | [copy], { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand, audience,
+// gap, name }) => a strip that letters a recorded line as it is spoken (or copy at the audience's reading pace, a
+// page per string), the spoken word underlined; draw(t, { W, H }) in the clock of t0.
 export function captions(src, o = {}) {
+  const copy = Array.isArray(src);
+  if (copy && (!src.length || !src.every((l) => typeof l === 'string' && wordCount(l)))) throw new TypeError('captions: a list of copy must be non-empty strings');
+  const aud = o.audience === undefined && !copy ? null : audienceOf(o.audience ?? 'general');
   const {
-    t0 = 0, text, size = 44, lines = 2, box = null, hold = 0.8, reveal = 'word',
-    role = 'ink', mark = 'accents.0', sheet = 'paper', lineH = size * 1.3, hand,
+    t0 = 0, text, size = aud ? Math.round(44 * aud.text) : 44, lines = 2, box = null, hold = aud ? Math.max(0.8, aud.dwell) : 0.8,
+    reveal = copy ? 'page' : 'word', role = 'ink', mark = 'accents.0', sheet = 'paper', lineH = size * 1.3, hand,
   } = o;
   if (!['word', 'page'].includes(reveal)) throw new TypeError(`captions: reveal '${reveal}' (word or page)`);
   if (!(Number.isInteger(lines) && lines > 0)) throw new TypeError(`captions: lines must be an integer > 0, got ${lines}`);
   if (!Number.isFinite(t0)) throw new TypeError(`captions: t0 must be a number, got ${t0}`);
-  const id = typeof src === 'string' ? src : src?.id ?? 'line';
+  const id = copy ? o.name ?? 'copy' : typeof src === 'string' ? src : src?.id ?? 'line';
   // The timing, read on first use (the player fetches a voice's wav after the film module is imported).
   let A = null;
-  const align = () => A ??= typeof src === 'string' ? alignOf(src, text === undefined ? {} : { text }) : src;
+  const align = () => A ??= copy ? readAlong(src, aud, o.gap ?? aud.dwell) : typeof src === 'string' ? alignOf(src, text === undefined ? {} : { text }) : src;
   const words = () => align().words;
   const until = () => { const w = words(); return w.length ? w[w.length - 1].t1 + hold : 0; };
 
@@ -61,58 +73,67 @@ export function captions(src, o = {}) {
     const said = (a, b) => w.slice(a, b + 1).map((x) => x.text).join(' ');
     const stops = (k, re) => re.test(w[k].text);
     const STOP = /[.!?]["')\]]*$/, PAUSE = /[,;:.!?]["')\]]*$/;
-    // Rows ([first word, last word]) greedily, breaking after any word in `after`. The last row of a page also
-    // ends at a sentence's end once it is 40% full, so a page opens on a new sentence.
-    const flow = (after) => {
+    // The words in runs that each start a page: one run for a recording, one per string of copy.
+    const breaks = align().breaks ?? [];
+    const runs = [0, ...breaks].map((a, j) => [a, (breaks[j] ?? w.length) - 1]).filter(([a, b]) => b >= a);
+    // Rows ([first word, last word]) of words a..z greedily, breaking after any word in `after`. The last row of
+    // a page also ends at a sentence's end once it is 40% full, so a page opens on a new sentence.
+    const flow = (after, a0, z) => {
       const rows = [];
       let cur = null;
-      w.forEach((word, k) => {
+      for (let k = a0; k <= z; k++) {
         const stop = cur && rows.length % lines === lines - 1 && stops(k - 1, STOP) && advance(said(cur[0], k - 1), size, H) > 0.4 * bx[2];
-        if (cur && !stop && !after.has(k - 1) && fits(said(cur[0], k))) { cur[1] = k; return; }
+        if (cur && !stop && !after.has(k - 1) && fits(said(cur[0], k))) { cur[1] = k; continue; }
         if (cur) rows.push(cur);
         cur = [k, k];
-      });
+      }
       if (cur) rows.push(cur);
       return rows;
     };
     // A page must not leave one or two words of its last sentence for the next: its last row breaks at its
     // last pause instead (a comma), and the copy flows again.
-    const after = new Set();
-    let rows = flow(after);
-    for (let pass = 0; pass < 8; pass++) {
-      const widow = rows.findIndex(([a, b], r) => {
-        if (r % lines !== lines - 1 || r === rows.length - 1 || stops(b, STOP)) return false;
-        let e = b + 1;
-        while (e < w.length - 1 && !stops(e, STOP)) e++;
-        return e - b <= 2;
-      });
-      if (widow < 0) break;
-      const [a, b] = rows[widow];
-      let c = b - 1;
-      while (c > a && !stops(c, PAUSE)) c--;
-      if (c <= a || after.has(c)) break;
-      after.add(c);
-      rows = flow(after);
-    }
+    const rowsOf = (a0, z) => {
+      const after = new Set();
+      let rows = flow(after, a0, z);
+      for (let pass = 0; pass < 8; pass++) {
+        const widow = rows.findIndex(([a, b], r) => {
+          if (r % lines !== lines - 1 || r === rows.length - 1 || stops(b, STOP)) return false;
+          let e = b + 1;
+          while (e < z && !stops(e, STOP)) e++;
+          return e - b <= 2;
+        });
+        if (widow < 0) break;
+        const [a, b] = rows[widow];
+        let c = b - 1;
+        while (c > a && !stops(c, PAUSE)) c--;
+        if (c <= a || after.has(c)) break;
+        after.add(c);
+        rows = flow(after, a0, z);
+      }
+      return rows;
+    };
     const pages = [];
-    for (let r = 0; r < rows.length; r += lines) {
-      const mine = rows.slice(r, r + lines), top = bx[1] + (bx[3] - mine.length * lineH) / 2;
-      pages.push({
-        from: mine[0][0], to: mine[mine.length - 1][1],
-        rows: mine.map(([a, b], q) => {
-          const str = w.slice(a, b + 1).map((x) => x.text).join(' '), y = top + q * lineH + (lineH - size) / 2 + CAP * size;
-          const cx = bx[0] + bx[2] / 2, gx = cx - advance(str, size, H) / 2, k100 = size / 100;
-          // Each word's pen span on the line and the chars it ends at (the lettering's glyph index).
-          let at = 0;
-          const spans = [];
-          for (let j = a; j <= b; j++) {
-            const x0 = gx + (at ? advance(str.slice(0, at), size, H) + H.track * k100 : 0);
-            spans.push({ k: j, x0, x1: x0 + advance(w[j].text, size, H), end: at + w[j].text.length });
-            at += w[j].text.length + 1;
-          }
-          return { str, y, spans, letters: handText(str, cx, y, { size, align: 'center', role, ink2: null, hand: H }) };
-        }),
-      });
+    for (const [a0, z] of runs) {
+      const rows = rowsOf(a0, z);
+      for (let r = 0; r < rows.length; r += lines) {
+        const mine = rows.slice(r, r + lines), top = bx[1] + (bx[3] - mine.length * lineH) / 2;
+        pages.push({
+          from: mine[0][0], to: mine[mine.length - 1][1],
+          rows: mine.map(([a, b], q) => {
+            const str = w.slice(a, b + 1).map((x) => x.text).join(' '), y = top + q * lineH + (lineH - size) / 2 + CAP * size;
+            const cx = bx[0] + bx[2] / 2, gx = cx - advance(str, size, H) / 2, k100 = size / 100;
+            // Each word's pen span on the line and the chars it ends at (the lettering's glyph index).
+            let at = 0;
+            const spans = [];
+            for (let j = a; j <= b; j++) {
+              const x0 = gx + (at ? advance(str.slice(0, at), size, H) + H.track * k100 : 0);
+              spans.push({ k: j, x0, x1: x0 + advance(w[j].text, size, H), end: at + w[j].text.length });
+              at += w[j].text.length + 1;
+            }
+            return { str, y, spans, letters: handText(str, cx, y, { size, align: 'center', role, ink2: null, hand: H }) };
+          }),
+        });
+      }
     }
     const out = { box: bx, pages };
     byHand.set(key, out);
@@ -154,4 +175,16 @@ export function captions(src, o = {}) {
       return group({ name: `captions:${id}`, cache: 'never' }, kids);
     },
   });
+}
+
+// Copy with no recording as an alignment: each word 1 / read s at the audience's reading speed, `gap` s between
+// strings, each string a run of its own (breaks: the word each later string starts at).
+function readAlong(list, aud, gap) {
+  const words = [], breaks = [];
+  let t = 0;
+  list.forEach((str, j) => {
+    if (j) { breaks.push(words.length); t += gap; }
+    for (const word of str.split(/\s+/).filter(Boolean)) { words.push({ text: word, t0: t, t1: t + 1 / aud.read }); t += 1 / aud.read; }
+  });
+  return { text: list.join(' '), words, breaks, by: 'reading' };
 }

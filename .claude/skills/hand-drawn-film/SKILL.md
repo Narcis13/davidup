@@ -29,7 +29,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
-| `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page |
+| `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page, a four-line `dialogue` with a stick teacher |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
 | `four-looks.js` | riso, screen, pencil, ink | recipes N O P U W A S, riso cards as plates, a look per shot |
 | `fly-style.js` | ink + blueprint | recipes A to H, camera follow, mosaic, blot into blueprint |
@@ -215,7 +215,18 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`
   after the actor and add `line.events(shot.t0)` to the score. Spoken words
-  count against the look's word allowance (doodle and cutout: 3).
+  count against the look's word allowance (doodle and cutout: 3; raise it
+  for a talking shot with `withLook(look, { words: n })`). `say` takes
+  several lines (`'\n'`, or wrapped at `width`), `kind: 'speech' |
+  'thought' | 'shout' | 'whisper' | 'caption'` and `audience` (letter size,
+  hold for the reading time).
+- **Dialogue.** `dialogue([[FOX, 'line'], [SAM, 'line', { kind: 'shout',
+  emote: 'wide' }], ...], { t0, where: { fox: [x, y, s], sam: [...] } })`:
+  the turns are timed at a reading pace, each bubble stays up through the
+  reply and keeps to its speaker's lane, and the listener turns to the
+  speaker. In the shot, spread `talk.state(A, t)` into each actor's state,
+  draw `talk.draw(t)` after them, and add `talk.events(shot.t0)` to the score
+  (the fox and `sam` in `fox-and-teapot.js`, the talk shot).
 - **Narration.** A recorded line is a wav in the store: `say -o line.wav
   --file-format=WAVE --data-format=LEI16@22050 "..."` (macOS), piper,
   edge-tts or the user's phone (`ffmpeg -i memo.m4a line.wav`); `hdf import
@@ -227,6 +238,8 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   `$HDF_PYTHON` if that is installed, and otherwise stores an estimate.
   `captions(id, { t0 })` letters the words as they are spoken, underlines
   the spoken word, and is drawn with `CAPS.draw(t, { W, H })` in the shot.
+  With no recording, `captions(['line one', 'line two'], { t0, audience })`
+  shows a page per string at the audience's reading pace.
   `FOX.say(null, t0, { voice: id })` speaks the recording: its letters and
   mouth follow the timing, and `line.events(t)` is the voice itself.
   Captions do not count as words. Lint warns `caption-sync` on an estimate
@@ -462,7 +475,8 @@ These need eyes, and they are the review list:
   its verb: a walk walks, the gallop is the horse's. A retargeted cycle whose
   feet slide needs `ground` in the map, not a fix in the film.
 - **Speech.** The mouth moves only while letters arrive; the bubble sits
-  above the head and never covers the object; one line a shot.
+  above the head and never covers the object; one line a shot, or a
+  `dialogue` whose bubbles lean towards each other without crossing.
 - **Cut-out.** Shadows fall down-right from every piece, fasteners sit on
   joints only, the card edge is a light line up-left; a photo on the table
   keeps its own shadow.
