@@ -42,7 +42,7 @@
 //   stickSource({ name: 'sam', h: 300, build: 'kid', style: 'tube', face: true })   what `hdf stick` writes
 //   compileStick(src)    the puppet payload (memoised per source object)
 //   puppet(src)          the same as puppet(compileStick(src))
-//   stickMap(d)          a retarget map for a stick payload (source or compiled)
+//   stickMap(d)          a retarget map for a stick payload (source or compiled), or a rig sheet's (4.0 W1)
 import { circle, ellipse, fill, line, mmul, poly, rotate, serialise, stroke, translate, xf } from './list.js';
 import { HAND_POSES } from './face.js';
 
@@ -460,7 +460,8 @@ const RIG_JOINT = (j) => {
 // pose is the clip's pose exactly where they agree. The head follows shoulder -> head; hands, feet and the
 // hips follow their parents.
 export function stickMap(d) {
-  const src = isStick(d) ? d : d?.stick;
+  // A rig sheet's puppet (4.0 W1, core/rigsheet.js) carries its joints and bones as `skeleton`, in these names.
+  const src = isStick(d) ? d : d?.stick ?? (d?.skeleton?.joints ? { name: d.name, ...d.skeleton } : undefined);
   if (!src?.joints) throw new Error(`stickMap: '${d?.name ?? '?'}' is not a stick puppet (no stick source)`);
   const J = src.joints, parts = {};
   const boneTo = new Map(src.bones.map(([a, z]) => [z, a]));
@@ -479,5 +480,5 @@ export function stickMap(d) {
   }
   put('head', 'neck', 'head', 'shoulder-l', 'head');
   const ground = ['leg-l', 'leg-r'].filter((n) => parts[n]);
-  return { rig: 'biped', facing: 1, desc: `derived from the stick ${src.name ?? ''}: each bone on the rig's joints of its name, -l side 1`, parts, ground };
+  return { rig: 'biped', facing: 1, desc: `derived from the ${isStick(d) || d?.stick ? 'stick' : 'rig sheet of'} ${src.name ?? ''}: each bone on the rig's joints of its name, -l side 1`, parts, ground };
 }

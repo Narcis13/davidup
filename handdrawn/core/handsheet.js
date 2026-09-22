@@ -92,18 +92,10 @@ export function markCentroids() {
 
 const INK = '#000', GUIDE = '#9cc3e6', FAINT = '#c6ddf0', EXEMPLAR = '#bdbdbd', LABEL = '#6a6a6a';
 
-// One page of the template, drawn with ctx in mm (the caller scales to points or pixels). paper: 'a4' | 'letter'.
-export function drawTemplate(ctx, paper = 'a4', page = 'latin') {
-  const [pw, ph] = PAPERS[paper] ?? PAPERS.a4, [ox, oy] = frameOrigin(paper), [W, H] = FRAME, pg = pageOf(page);
-  ctx.save();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, pw, ph);
-  ctx.translate(ox, oy);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  // The marks: an L at each corner, arms pointing in, and the key beside the top-left one.
-  const { arm: a, thick: t, key } = MARK;
+// The marks, in frame mm: an L at each corner, arms pointing in, the key beside the top-left one, and the code
+// squares of a sheet's index along the bottom edge (a hand page's, or a rig sheet's, core/rigsheet.js).
+export function drawMarks(ctx, index) {
+  const [W, H] = FRAME, { arm: a, thick: t, key } = MARK;
   ctx.fillStyle = INK;
   for (const [sx, sy, cx, cy] of [[1, 1, 0, 0], [-1, 1, W, 0], [-1, -1, W, H], [1, -1, 0, H]]) {
     ctx.beginPath();
@@ -111,7 +103,20 @@ export function drawTemplate(ctx, paper = 'a4', page = 'latin') {
     ctx.lineTo(cx + sx * t, cy + sy * a); ctx.lineTo(cx, cy + sy * a); ctx.closePath(); ctx.fill();
   }
   ctx.fillRect(key[0], key[1], key[2], key[2]);
-  for (let k = 0; k < CODE.bits; k++) if (pg.index >> k & 1) ctx.fillRect(CODE.x + k * CODE.step, CODE.y, CODE.side, CODE.side);
+  for (let k = 0; k < CODE.bits; k++) if (index >> k & 1) ctx.fillRect(CODE.x + k * CODE.step, CODE.y, CODE.side, CODE.side);
+}
+
+// One page of the template, drawn with ctx in mm (the caller scales to points or pixels). paper: 'a4' | 'letter'.
+export function drawTemplate(ctx, paper = 'a4', page = 'latin') {
+  const [pw, ph] = PAPERS[paper] ?? PAPERS.a4, [ox, oy] = frameOrigin(paper), pg = pageOf(page);
+  ctx.save();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.translate(ox, oy);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  drawMarks(ctx, pg.index);
 
   // The header.
   ctx.fillStyle = '#333';
@@ -288,6 +293,13 @@ function shoelace(p) {
 
 // The page a photo is of, from its code: each square's ink against the paper round it. at: frameMap()'s.
 export function readPage(img, at) {
+  const index = readCode(img, at), name = Object.keys(PAGES).find((p) => PAGES[p].index === index);
+  if (!name) throw new Error(`hand sheet: the page code reads ${index}, which is no page (${Object.keys(PAGES).join(', ')})${index >= 4 ? '; it is a rig sheet (hdf sketch reads it)' : '; photograph the whole sheet'}`);
+  return name;
+}
+
+// The number the code squares along the bottom edge spell (bit k: the k-th square filled).
+export function readCode(img, at) {
   const S = 4, strip = sample(img, at, (x, y) => [x, y], [CODE.x - 3, CODE.y - 3, CODE.bits * CODE.step + 4, CODE.side + 6], S);
   const paper = Float32Array.from(strip.data).sort()[Math.floor(strip.data.length * 0.9)];
   let index = 0;
@@ -295,9 +307,7 @@ export function readPage(img, at) {
     const x = CODE.x + k * CODE.step + 1, cell = sample(img, at, (fx, fy) => [fx, fy], [x, CODE.y + 1, CODE.side - 2, CODE.side - 2], S);
     if (cell.data.reduce((t, v) => t + v, 0) / cell.data.length < 0.55 * paper) index |= 1 << k;
   }
-  const name = Object.keys(PAGES).find((p) => PAGES[p].index === index);
-  if (!name) throw new Error(`hand sheet: the page code reads ${index}, which is no page (${Object.keys(PAGES).join(', ')}); photograph the whole sheet`);
-  return name;
+  return index;
 }
 
 // The frame (mm) -> photo (px) map from the four marks.
@@ -335,7 +345,7 @@ const r2 = (v) => Math.round(v * 100) / 100;
 // caller knows it). Whiskers up to a pen width long are pruned, and with spur (4.0 T4) a font's serifs: spurs up to
 // spur pen widths long whose ink is under THIN of the pen's width, in pairs at a stroke's end (serifs()).
 export const THIN = 0.75;
-function skeletonOf(ink, w, h, spur = 0, known = 0, diagonal = false) {
+export function skeletonOf(ink, w, h, spur = 0, known = 0, diagonal = false) {
   const dt = distanceTransform(ink, w, h), raw = zhangSuen(ink, w, h, { diagonal }), ds = [];
   for (let i = 0; i < raw.length; i++) if (raw[i]) ds.push(dt[i]);
   const pen = known || Math.max(1, 2 * median(ds) - 1), len = Math.max(2, Math.round(pen));

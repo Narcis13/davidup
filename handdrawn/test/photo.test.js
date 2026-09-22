@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { traceAlpha } from '../cli/trace.mjs';
+import { traceAlpha } from '../core/trace.js';
 import { skiaCanvas } from '../cli/skia.mjs';
 import { inside, isPath } from '../core/list.js';
 import { parse } from '../core/looks.js';

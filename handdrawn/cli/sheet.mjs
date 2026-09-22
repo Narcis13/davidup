@@ -109,8 +109,17 @@ export async function storeSheet(id, flags) {
 
   const cyc = flags.cycle === true ? make.cycles[0] : flags.cycle ? String(flags.cycle) : null;
   const c = cyc ? d.cycles?.[cyc] : null;
-  if (cyc && !c) throw new UsageError(`sheet: '${id}' has no cycle '${cyc}' (has ${make.cycles.join(', ') || 'none'})`);
-  const strip = c ? c.frames.map((_, j) => [`${cyc} ${j}`, make.frameOf(cyc, j / (c.fps ?? FPS)), make.liftOf(cyc, j / (c.fps ?? FPS))]) : [];
+  let strip = c ? c.frames.map((_, j) => [`${cyc} ${j}`, make.frameOf(cyc, j / (c.fps ?? FPS)), make.liftOf(cyc, j / (c.fps ?? FPS))]) : [];
+  if (cyc && !c) {
+    // A cycle of the biped vocabulary (4.0 K3) the puppet takes: its frames through the actor, a stage lift (4% of
+    // the height a unit) back in the puppet's units. A sketch from a rig sheet (4.0 W1) walks this way.
+    const A = actorOf(make), got = A.vocabulary.cycles.includes(cyc) ? A.cycleOf(cyc) : null;
+    if (!got) throw new UsageError(`sheet: '${id}' has no cycle '${cyc}' (has ${A.vocabulary.cycles.join(', ') || 'none'}, its own and the vocabulary's)`);
+    strip = Array.from({ length: got.n }, (_, j) => {
+      const { lift = 0, ...q } = A.cycle(cyc, j / got.fps);
+      return [`${cyc} ${j}`, { ...make.rest, ...q }, lift * 0.04 * (make.cel.box?.[3] || 1)];
+    });
+  }
 
   const file = st.sheetPath(id);
   mkdirSync(dirname(file), { recursive: true });

@@ -798,6 +798,53 @@ limbs, trunk and face, -r limbs. The box holds anything the limbs reach from
 the hip, so a raised arm fits. A regenerated stick keeps its retargeted
 cycles.
 
+### A drawing that walks: the rig sheet
+
+A child draws a character in labelled boxes and it walks (4.0 W1,
+`core/rigsheet.js`, `cli/sketch.mjs`):
+
+```bash
+hdf hand --template --rig biped > out/rig-sheet.pdf          # print it (--rig biped,biped-front adds the face-on page)
+hdf sketch mia.jpg --sheet biped --name mia                  # the photo -> the puppet 'mia' and its sheet, walking
+hdf sketch mia.jpg mia-front.jpg --name mia                  # with the face-on page: views side and front
+hdf hand --template --rig biped --drawn > out/rig-drawn.jpg  # a sheet drawn in by the package (tests, a demo)
+```
+
+The sheet has a box a piece, one side: head, body, upper arm, forearm, hand,
+thigh, shin, foot, drawn side on, looking right. Each box prints an orange
+dot, where the piece is pinned, and orange rings, where the pieces below it
+are pinned, over a faint guide shape; arms and legs hang straight down. Every
+box is a window onto one figure (`RIG.joints`, 180 mm tall on the page, 300
+units in the puppet), so the pieces meet when they are put together. The
+corner marks, homography and sampling are the hand sheet's; the code squares
+say which sheet a photo is (rig sheets are 4 and 5, hand pages 0 to 2), so
+`hdf hand` refuses a rig sheet and `hdf sketch` a hand page.
+
+Reading a box: pixels are judged against the box's own paper. Dark grey marks
+are ink: thicker than 2.6 mm a blob (a black shoe), small and round a dot (an
+eye), the rest thinned to strokes as the hand sheet thins letters. Colour
+(crayon, felt tip) is split into colour classes, each closed over together
+with the ink round it, so a coloured-in area is one `fill` with `finish: true`
+that reaches under its outline and swallows colouring over the line; a thin
+run of colour is a stroke of its own. The colour most lines are drawn in is
+`ink`, as is any dark grey; the others get roles from `autoRoles` (the nearest
+house fill or accent), so looks recolour the drawing. A greyscale photo still
+reads, but light colours drop out and dark ones become ink.
+
+The puppet has the standard biped names in painter order far arm, far leg,
+near leg, `hips` (the root, drawing nothing), body, head, near arm; both sides
+come from the one box. `views: ['side']`, or `['side', 'front']` with the
+face-on page (its head, body and foot; the limbs hang from the shoulders and
+hips its body box marks, the -l ones mirrored). Its box holds the vocabulary's
+cycles untempered, so `walk`, `run` and `jump` play at full swing, and it
+carries `skeleton` (joints and bones in the stick's names), so `hdf retarget
+--clip me --to mia --name walk` needs no map. `hdf sketch` writes
+`out/sketch-<id>-trace.jpg` (the photo straightened, lines red, fills blue,
+dots green) and the store sheet with the walk as its strip: `hdf sheet store
+<id> --cycle <name>` now falls back to the vocabulary's cycle when the puppet
+has none of its own. A blank box is reported and its part draws nothing; a
+blank body is an error. Re-reading a sheet keeps retargeted cycles.
+
 ### The pose vocabulary
 
 Every biped knows how to point, shrug and cheer (4.0 K3). `packs/poses/biped.json`
@@ -1406,7 +1453,9 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf sheet <film> <cel>` | the cel at 3 scales × input extremes × every look, silhouette, 240 px |
 | `hdf sprite <puppet\|stick:<name>> [--states idle,walk,happy] [--fps 12] [--h 300] [--alpha] [--dir 1] [--cols N] [--idle 2] [--look] [--film <film>]` | a cast member as a sprite sheet for davidup's sprite item (4.0 D2): `out/<id>-sprite[-alpha].png`, each state a run of equal cells (a cycle one loop at `--fps`, a travelling one standing on its planted foot; a pose or expression one held frame), and `<id>-sprite.json` beside it (`frameWidth`, `frameHeight`, `columns`, `count`, `fps`, `cycles` with a walk's `speed` in px/s, `anchor` at the feet, `frames`). The puppet is a store id, `stick:<name>[:<build>]`, a payload `.json`, or with `--film` a member of that film's cast (its store puppets and its `cast` export) |
 | `hdf hand --export-ttf <id\|house> [--family] [--pen 4.5] [--no-composites] [--text '...'] [--out dir]` | a hand as a TrueType font (4.0 D3): `out/<id>.ttf`, each glyph its centre lines swept by the pen (pressure, slant, overshoot and hook as `handText` pens them), composed glyphs as composites; `out/<id>-ttf.png` the proof, the font set by skia over the hand lettered |
-| `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip → `assets/sheets/<id>.jpg` |
+| `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip (its own, else the vocabulary's) → `assets/sheets/<id>.jpg` |
+| `hdf hand --template --rig biped[,biped-front] [--paper] [--drawn]` | the rig sheet a character is drawn on (4.0 W1), a box a piece; `--drawn` one drawn in by the package, as a JPEG |
+| `hdf sketch <photo.jpg ...> --name <id> [--sheet biped\|biped-front] [--licence] [--cycle walk] [--root] [--no-sheet]` | a photographed rig sheet into the store as a puppet with the standard biped names (lines as strokes, coloured-in areas as fills, the face-on sheet adding the front view); `out/sketch-<id>-trace.jpg` and its sheet with the walk as the strip |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
 | `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |

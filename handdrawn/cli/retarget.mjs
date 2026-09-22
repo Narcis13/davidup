@@ -10,7 +10,8 @@
 //   hdf sheet store fox --cycle gallop
 //   hdf clip --kind pose work/me --name me                                  your walk, filmed (3.0 S15)
 //   hdf retarget --clip me --to fox --map biped-fox.json --name walk        replaces the hand-authored walk
-//   hdf retarget --clip me --to sam --name walk                             a stick (4.0 K2) derives its own map
+//   hdf retarget --clip me --to sam --name walk                             a stick (4.0 K2) derives its own map,
+//                                                                            and so does a rig sheet's puppet (4.0 W1)
 //
 // A pose clip's stride (4.0 K7) rides along as the cycle's `advance`, scaled by leg length; the command says
 // what it is and what the puppet's own feet make of it.
@@ -44,15 +45,15 @@ export async function run(args, flags) {
     mapFile = [resolve(mapArg), ...dirs.map((dd) => join(dd, mapArg))].find(existsSync);
     if (!mapFile) throw new UsageError(`retarget: no map '${mapArg}' (looked here and in ${dirs.join(', ')})`);
     map = JSON.parse(readFileSync(mapFile, 'utf8'));
-  } else if (d.stick) {
-    map = stickMap(d);   // a stick's joints are the biped rig's (4.0 K2)
-    if (clip.rig && clip.rig !== 'biped') throw new UsageError(`retarget: '${to}' is a stick, a biped; the clip is ${clip.rig} (give a --map)`);
-  } else throw new UsageError(`retarget: need --map <map.json> ('${to}' is not a stick puppet, so no map can be derived)`);
+  } else if (d.stick || d.skeleton) {
+    map = stickMap(d);   // a stick's joints are the biped rig's (4.0 K2), and so are a rig sheet's (4.0 W1)
+    if (clip.rig && clip.rig !== 'biped') throw new UsageError(`retarget: '${to}' is a biped; the clip is ${clip.rig} (give a --map)`);
+  } else throw new UsageError(`retarget: need --map <map.json> ('${to}' is not a stick puppet or a rig sheet's, so no map can be derived)`);
 
   const { cycle, report } = retarget(clip, d, map);
   const joints = report.parts;
   process.stdout.write(`${clipId} -> ${to}.${name}: ${cycle.n} frames at ${cycle.fps} fps, ${joints.join(' ')}`
-    + `${report.flip ? ', mirrored' : ''}, lift x${report.scale}${mapFile ? '' : ', map from the stick'}\n`);
+    + `${report.flip ? ', mirrored' : ''}, lift x${report.scale}${mapFile ? '' : d.stick ? ', map from the stick' : ', map from the rig sheet'}\n`);
   cycle.frames.forEach((f, k) => process.stdout.write(`  ${String(k).padStart(2)}  ${joints.map((j) => `${j} ${f[j]}`).join('  ')}${f.lift ? `  lift ${f.lift}` : ''}\n`));
   if (report.stride !== undefined) {
     // The clip's stride (4.0 K7) against what the puppet's own feet make of the cycle.
@@ -65,7 +66,7 @@ export async function run(args, flags) {
   }
   if (flags.dry) return 0;
 
-  const data = { ...d, cycles: { ...(d.cycles ?? {}), [name]: { ...cycle, from: { clip: clipId, sha: ce.sha, map: mapFile ? basename(mapFile) : 'stick' } } } };
+  const data = { ...d, cycles: { ...(d.cycles ?? {}), [name]: { ...cycle, from: { clip: clipId, sha: ce.sha, map: mapFile ? basename(mapFile) : d.stick ? 'stick' : 'rig sheet' } } } };
   const found = lintPuppet(data, to);
   if (found.length) throw new Error(`retarget: ${to} with cycle '${name}' does not pass lint:\n  ${found.map((f) => `${f.rule}  ${f.detail}`).join('\n  ')}`);
   const bytes = Buffer.from(JSON.stringify(data));

@@ -72,6 +72,12 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--no-face] [--root dir] [--no-sheet]   a stick puppet: joints and bones compiled
                                     to parts in three views, a face, standard biped names; writes src/<id>.stick.json
                                     and imports it (then hdf retarget --clip me --to <id> --name walk, no map)
+  sketch  <photo.jpg ...> --name <id> [--sheet biped|biped-front] [--licence own] [--cycle walk] [--root dir] [--no-sheet]
+                                    a character drawn on a rig sheet (hdf hand --template --rig biped) into the store
+                                    as a puppet: each box's lines as strokes, its coloured-in blobs as fills, pinned at
+                                    the printed dots, the standard biped names, the other side mirrored (a face-on
+                                    sheet adds the front view); writes out/sketch-<id>-trace.jpg and its sheet with the
+                                    vocabulary's walk (then hdf retarget --clip me --to <id> --name walk, no map)
   align   <id> [--text "..."] [--json words.json] [--estimate] [--show] [--model base] [--lang en] [--root dir]
                                     word timing for a sample, stored on its entry: a transcriber (faster-whisper or
                                     whisper-timestamped under $HDF_PYTHON) laid onto the copy, any tool's words
@@ -89,6 +95,9 @@ const USAGE = `usage: hdf <command> [args] [flags]
   hand    --template [--paper a4|letter] [--pages latin,symbols,marks] > out/hand-template.pdf   the hand sheet
                                     to print and fill in, all three pages unless --pages says (--letter <hand>: a page
                                     filled in by a stored hand, as a JPEG; the latin one unless --pages says)
+  hand    --template --rig biped[,biped-front] [--paper] [--drawn] > out/rig-sheet.pdf   the rig sheet a character
+                                    is drawn on, a box a piece (--drawn: one drawn in by the package, as a JPEG);
+                                    hdf sketch reads its photo
   hand    <page.jpg ...> --name <id> [--thr 0.6] [--credit] [--root dir] [--no-sheet]   photos of filled-in pages
                                     into the store as a hand: glyphs traced, pen fitted from the latin page's last
                                     row; writes out/hand-<id>-trace[-<page>].jpg and assets/sheets/<id>.jpg
@@ -117,7 +126,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
 `;
 
 const COMMANDS = ['render', 'cues', 'grid', 'only', 'board', 'sheet', 'sprite', 'lint', 'changed', 'golden',
-  'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
+  'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'sketch', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };
 

@@ -317,6 +317,31 @@ Without `--licence` the licence is `unknown`, and lint `credit` fails any
 film that letters in the hand. The same rule fails a film naming any asset
 whose licence is `unknown`.
 
+## The rig sheet: a drawing that walks (4.0 W1)
+
+```bash
+hdf hand --template --rig biped > out/rig-sheet.pdf          # --rig biped,biped-front adds the face-on page
+hdf sketch mia.jpg --sheet biped --name mia                  # -> puppet 'mia', out/sketch-mia-trace.jpg, its sheet with the walk
+hdf sketch mia.jpg mia-front.jpg --name mia                  # + the front view
+hdf hand --template --rig biped --drawn > out/rig-drawn.jpg  # a sheet drawn in by the package, to try it
+```
+
+What to tell whoever draws: each piece in its box, side on, looking right;
+start at the orange dot (where it is pinned) and reach to the orange ring
+(where the next piece is pinned); arms and legs hang straight down; colour in
+freely, over the lines is fine; a dark pen for outlines. Photograph the whole
+sheet flat with the four corners and the squares along the bottom in it.
+
+The puppet has the standard biped names (`head, body, hips, arm-l, fore-l,
+hand-l, leg-l, shin-l, foot-l`, the same with -r), so `A.pose('cheer')`,
+`A.cycle('walk', t)` and every vocabulary entry apply, and `hdf retarget
+--clip me --to mia --name walk` needs no map. It has no face parts (the face
+is part of the head drawing), so expressions change nothing. Coloured-in areas
+are fills with `finish: true` in roles from the house palette, the outline
+colour is `ink`: the look recolours it. Check `out/sketch-<id>-trace.jpg`
+first when a piece looks wrong: lines red, fills blue, dots green, blank boxes
+crossed out.
+
 ## Clips, skeletons, retargeting, the phone
 
 A clip is traced poses: `frames[k] = { outer, lines, skel? }`, `h` the

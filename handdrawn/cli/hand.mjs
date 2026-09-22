@@ -10,6 +10,9 @@
 //                                                        adds its glyphs to a stored hand, the hand's own kept)
 //   hdf hand --font Inter.ttf --name inter --licence OFL  a font as a hand (4.0 T4; --glyphs latin,cyrillic,greek,symbols,
 //                                                        every set by default, the font drawing those it has; --px 400)
+//   hdf hand --template --rig biped > out/rig-sheet.pdf  the rig sheet a child draws a character on (4.0 W1; --rig
+//                                                        biped,biped-front adds the face-on page; --drawn: one drawn
+//                                                        in by the package, as a JPEG); hdf sketch reads it
 //   hdf hand --template --letter test > out/sample.jpg   a page filled in by a stored hand, as a 300 dpi JPEG
 //                                                        (the latin page; --pages symbols or marks for another)
 //   hdf hand --export-ttf narcis                         a stored hand as a TrueType font (4.0 D3): out/narcis.ttf, and
@@ -45,6 +48,7 @@ import { parseArgs } from './hdf.mjs';
 import { UsageError } from './load.mjs';
 import { outDir, paint } from './sheets.mjs';
 import { handSheetFile } from './sheet.mjs';
+import { drawnRigSheet, rigTemplatePdf, rigsOf } from './sketch.mjs';
 import { skiaCanvas } from './skia.mjs';
 
 // The synthetic hand's profile: a backhand (slant -6), looser and faster than the house, corners run past,
@@ -185,6 +189,7 @@ export async function run(args, flags) {
   if (flags.template) {
     const paper = flags.paper === undefined ? 'a4' : String(flags.paper).toLowerCase();
     if (!PAPERS[paper]) throw new UsageError(`hand: --paper ${paper} (expected ${Object.keys(PAPERS).join(' | ')})`);
+    if (flags.rig !== undefined) return rigTemplate(paper, flags);
     const pages = flags.letter && flags.pages === undefined ? ['latin'] : pagesOf(flags.pages);
     if (flags.letter && pages.length > 1) throw new UsageError('hand: --letter writes one page as a JPEG; say which with --pages latin, symbols or marks');
     if (process.stdout.isTTY) throw new UsageError(`hand: --template writes ${flags.letter ? 'a JPEG' : 'a PDF'} to stdout; redirect it, e.g. hdf hand --template > out/hand-template.${flags.letter ? 'jpg' : 'pdf'}`);
@@ -243,6 +248,17 @@ export async function run(args, flags) {
   }
   if (flags.sheet !== false) await handSheetFile(id, flags);
   return code;
+}
+
+// --template --rig biped[,biped-front] [--drawn]: the rig sheets (4.0 W1, cli/sketch.mjs) as a PDF, or one drawn in
+// by the package as a 300 dpi JPEG.
+async function rigTemplate(paper, flags) {
+  const rigs = rigsOf(flags.rig);
+  if (flags.drawn && rigs.length > 1) throw new UsageError('hand: --drawn writes one sheet as a JPEG; say which with --rig biped or --rig biped-front');
+  if (process.stdout.isTTY) throw new UsageError(`hand: --template writes ${flags.drawn ? 'a JPEG' : 'a PDF'} to stdout; redirect it, e.g. hdf hand --template --rig biped > out/rig-sheet.${flags.drawn ? 'jpg' : 'pdf'}`);
+  const bytes = flags.drawn ? await drawnRigSheet({ paper, sheet: rigs[0] }).toBuffer('jpg', { quality: 0.9 }) : await rigTemplatePdf(paper, rigs);
+  await new Promise((ok, fail) => process.stdout.write(bytes, (e) => (e ? fail(e) : ok())));
+  return 0;
 }
 
 // --hershey <file.jhf> --name <id> [--map] [--merge <id>]: a Hershey font into the store as a hand (licence PD,

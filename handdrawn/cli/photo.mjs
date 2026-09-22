@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
 import { css } from '../core/looks.js';
 import { skiaCanvas } from './skia.mjs';
-import { traceAlpha } from './trace.mjs';
+import { traceAlpha } from '../core/trace.js';
 import { UsageError } from './load.mjs';
 
 const HEAD = [
