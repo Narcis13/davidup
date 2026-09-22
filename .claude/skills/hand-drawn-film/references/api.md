@@ -75,7 +75,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `hold(dur, child)` The child's last frame (T - 1/12) for `dur` seconds.
 - `cut(kind, dur, a, b)` A transition between two shots the timeline also plays: seq(a, cut('iris', 0.5, a, b), b).
 - `lookOn(look, child)` A look for a subtree; the innermost look wins.
-- `film({ name, look, timeline, score, format: ar = '1:1', assets = {} } = {})` The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ...
+- `film({ name, look, timeline, score, format: ar = '1:1', assets = {}, audience = 'general' } = {})` The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ...
 - `frame(f, i, { ar } = {})` frame(film, i, { ar }) => { list, look, shot, t, k } for drawn frame i (0 <= i < film.n).
 - `describe(f)` Indented text: the tree with durations and spans, cels per shot, then the cues.
 - `cues(f)` { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], end }. Times come from frame counts, so they sit on the grid.
@@ -136,7 +136,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/audience.js
 
-- `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them; T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the ...
+- `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them, lint profiles at T10).
 - `audienceOf(a = 'general')` The audience record for a name (or a record passed whole); throws on a name it does not know.
 
 ### core/fit.js
@@ -411,7 +411,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ### Helpers
 
-- `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them; T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the ... <sub>core/audience.js</sub>
+- `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them, lint profiles at T10). <sub>core/audience.js</sub>
 - `BOAT` the boat's hull and sail paths <sub>recipes/shots.js</sub>
 - `CARDS` Three sample riso cards (sun over the sea, a big moon, stripes under a disc), the default for recipes that take cards (O, P, Q), so each renders with no arguments; N's iris takes one (`iris: { card: CARDS[0] }`). <sub>recipes/shots.js</sub>
 - `CAST` The doodle characters by name. FOX is the store's puppet as an actor, built the first time it is asked for, and only once the film has read it (fromStore(['fox'])); undefined before that. <sub>recipes/doodle.js</sub>

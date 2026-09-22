@@ -17,8 +17,8 @@
 // without just idles. The subject of AO is `subject`, to label an actor pass
 // `subject: (ctx) => actorFigure(A, A.idle(ctx.t), 300, 'drawn')`.
 //
-// Words: every lettered string counts against the look's allowance (digits too). The whiteboard carries 12 a
-// shot; on another look set `look.words` (derive(...)) until the audience profiles (T10) set it.
+// Words: every lettered string counts against the allowance (digits too): the film's audience's (4.0 T10,
+// film({ audience })), or for a general film the look's (12 a shot on the whiteboard; `look.words` wins).
 // Coordinates are v1's: a 1080 square around (540, 540).
 import {
   fill, stroke, group, circle, ellipse, line, poly, spline, place, cel, ramp, ease, reveal, handText, cam,

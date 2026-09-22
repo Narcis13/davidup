@@ -3,6 +3,8 @@
 // finding names the shot and the first frame it shows up on. Findings are deduplicated per rule, shot
 // and subject, which is what makes one broken rule one finding.
 import { FPS } from './curves.js';
+import { audienceOf } from './audience.js';
+import { contrastOf, textUnits } from './legible.js';
 import { bounds, mmul, norm } from './list.js';
 import { fallbacks, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
@@ -34,6 +36,11 @@ export const RULES = Object.freeze({
   'hand-missing': 'the look names a hand the store lacks, or the sign-off falls back to the house hand for a glyph',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
   'foot-slide': 'a walking actor\'s planted ankle drifts more than 2 units between frames (walk it with walkTo)',
+  'text-size': "lettering whose x-height at 240 px wide is under the audience's minX (the sign-off does not count)",
+  'text-dwell': "text on screen for less than the audience's perWord seconds a word (captions of a recording and the sign-off do not count)",
+  'text-contrast': "text in a colour the look resolves to under the audience's contrast ratio against what it is drawn on",
+  'caption-overlap': 'two pieces of text whose ink boxes cross in one frame',
+  'cut-floor': "a shot shorter than the audience's cut floor",
 });
 
 // Warnings: worth saying, not worth failing a film for. `hdf lint` prints them and still exits 0.
@@ -43,49 +50,55 @@ export const WARNINGS = Object.freeze({
 });
 export const SYNC_MAX = 3;         // s of estimated word timing before caption-sync warns
 
-// Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins. A board
-// carries a lesson's title and labels; the audience profiles (4.0 T10) will set it per audience.
+// Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins, then
+// the audience's words (4.0 T10; general has none), then this. A board carries a lesson's title and labels.
 export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3, whiteboard: 12 });
 export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
 export const SIGN_OFF_LEAD = 1.5;  // seconds the finished sign-off must hold before the end
 const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1, MAX_BOB = 1;
+const OVERLAP = 2;                 // stage units two text boxes must share both ways to cross
 export const SLIDE_MAX = 2;        // stage units a planted ankle may drift between two frames of a walk
 const PLANT_TOL = 0.03;            // an ankle within this share of the figure's height of the ground is down
 
 const lookName = (l) => resolveLook(l).name;
-const wordAllowance = (l) => { const lk = resolveLook(l); return lk.words ?? WORDS[lk.name.split('~')[0]] ?? 0; };
+const wordAllowance = (l, A) => { const lk = resolveLook(l); return lk.words ?? A.words ?? WORDS[lk.name.split('~')[0]] ?? 0; };
 const finishOf = (op, look) => (typeof op.finish === 'string' ? op.finish : op.finish?.kind ?? resolveLook(look).finish);
 const countWords = (s) => s.split(/\s+/).filter(Boolean).length;
 const isCrop = (op) => op.op === 'meta' && op.tag === 'intent' && (op.data === 'crop' || op.data?.crop === true || op.data?.kind === 'crop');
 const fmtBox = (b) => `[${b.map((v) => Math.round(v)).join(', ')}]`;
 
-// Where each shot plays: [{ node, f0, ks, i(k), look }]. Cuts show their neighbours' frames, so they are
-// not plays of their own; hold plays its child's last frame.
+// Where each shot plays: [{ node, f0, ks, i(k), look, shown(k) }]. Cuts show their neighbours' frames, so
+// they are not plays of their own; hold plays its child's last frame. shown(k) is every film frame the shot's
+// frame k is on screen: its own, a held frame's whole hold, and a last frame a par keeps up after its end.
 export function plays(film) {
   const out = [];
-  const visit = (node, f0, sel, look) => {
+  const range = (a, n) => Array.from({ length: n }, (_, j) => a + j);
+  // span: frames a selected frame covers (a hold); tail: frames a par keeps the last frame up past the end.
+  const visit = (node, f0, sel, look, span, tail) => {
     switch (node.kind) {
       case 'shot': {
         const ks = sel === null ? [...Array(node.n).keys()] : [sel];
-        out.push({ node, f0, ks, i: (k) => (sel === null ? f0 + k : f0), look });
+        const shown = (k) => (sel !== null ? range(f0, span) : k === node.n - 1 ? range(f0 + k, 1 + tail) : [f0 + k]);
+        out.push({ node, f0, ks, i: (k) => (sel === null ? f0 + k : f0), look, shown });
         break;
       }
       case 'seq': {
         let at = f0, k = sel;
-        for (const c of node.kids) {
-          if (sel === null) visit(c, at, null, look);
-          else if (k < c.n) { visit(c, at, k, look); break; } else k -= c.n;
+        node.kids.forEach((c, j) => {
+          if (k === -1) return;
+          if (sel === null) visit(c, at, null, look, 1, j === node.kids.length - 1 ? tail : 0);
+          else if (k < c.n) { visit(c, at, k, look, span, 0); k = -1; } else k -= c.n;
           at += c.n;
-        }
+        });
         break;
       }
-      case 'par': node.kids.forEach((c) => visit(c, f0, sel === null ? null : Math.min(sel, c.n - 1), look)); break;
-      case 'hold': visit(node.child, f0, node.child.n - 1, look); break;
-      case 'look': visit(node.child, f0, sel, node.look); break;
+      case 'par': node.kids.forEach((c) => (sel === null ? visit(c, f0, null, look, 1, tail + node.n - c.n) : visit(c, f0, Math.min(sel, c.n - 1), look, span, 0))); break;
+      case 'hold': visit(node.child, f0, node.child.n - 1, look, sel === null ? node.n + tail : span, 0); break;
+      case 'look': visit(node.child, f0, sel, node.look, span, tail); break;
       default: break;
     }
   };
-  visit(film.timeline, 0, null, undefined);
+  visit(film.timeline, 0, null, undefined, 1, 0);
   return out;
 }
 
@@ -185,10 +198,14 @@ function footSlide(a, b, report) {
 
 const anchorLabel = (d) => (d.cel !== undefined ? `cel '${d.cel}'` : d.name !== undefined ? `'${d.name}'` : 'anchor');
 
-// inspect(film) => { findings, shots } where shots summarise each play for `hdf board`:
-// { name, f0, n, dur, look, anchor, recipe, camera, finishes, words }.
-export function inspect(film) {
+// inspect(film, { audience }) => { findings, shots, warnings } where shots summarise each play for `hdf board`:
+// { name, f0, n, dur, look, anchor, recipe, camera, finishes, words }. audience (a key of AUDIENCES or a
+// record) overrides the film's own for the check.
+export function inspect(film, { audience } = {}) {
   const F = finder(), W = finder(), shots = [];
+  const A = audienceOf(audience ?? film.audience ?? 'general'), aud = typeof (audience ?? film.audience) === 'string' ? audience ?? film.audience : 'general';
+  const onScreen = new Map();   // text-dwell and text-contrast: str => Map(film frame => { shot, c: contrast | null })
+  const sizes = new Map();      // text-size: str => its largest x-height at 240 px, where (written on, it grows)
   for (const p of plays(film)) {
     const { node } = p, name = node.name;
     const s = { name, f0: p.f0, n: p.ks.length === 1 ? 1 : node.n, dur: node.dur, look: null, anchor: true, recipe: node.recipe, camera: node.camera, finishes: new Set(), words: new Set() };
@@ -209,6 +226,16 @@ export function inspect(film) {
         if (!first || !(first.op === 'paper' || first.op === 'night' || backdrop)) report('first-op', `first op is ${first ? `'${first.op}'` : 'missing'}; start with paper(), night() or a backdrop image`, 'first');
       }
       const got = withHand(handOf(ev.look), () => scan(list, ev.look, report));
+      const units = withHand(handOf(ev.look), () => textUnits(list, ev.look));
+      overlaps(units, report);
+      for (const u of units) {
+        const px = u.x === null ? null : u.x * 240 / env.W, z = sizes.get(u.str);
+        if (!u.sign && px !== null && (!z || px > z.px)) sizes.set(u.str, { px, shot: name, i });
+        let e = onScreen.get(u.str);
+        if (!e) onScreen.set(u.str, (e = new Map()));
+        const c = u.fg && u.bg ? contrastOf(u.fg, u.bg) : null;
+        for (const f of p.shown(k)) if (!e.has(f)) e.set(f, { shot: name, c, timed: u.sign || u.voiced });
+      }
       if (got.looks) { looked = true; report('one-look', 'a look op inside the shot; put the look on the shot or on lookOn()', 'look'); }
       got.finishes.forEach((x) => s.finishes.add(x));
       got.words.forEach((w) => s.words.add(w));
@@ -242,11 +269,15 @@ export function inspect(film) {
     }
     if (s.finishes.size > 1 && !looked) F.add('one-look', name, p.f0, `two finishes in one shot: ${[...s.finishes].join(', ')}`, 'finish');
     if (size && size.px < FLOOR_PX) F.add('subject-size', name, size.i, `${size.label} is at most ${size.px.toFixed(1)} px at 240 px wide (floor ${FLOOR_PX})`, 'size');
-    const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.lookObj ? wordAllowance(s.lookObj) : 0;
+    const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.lookObj ? wordAllowance(s.lookObj, A) : 0;
+    const by = s.lookObj && resolveLook(s.lookObj).words === undefined && A.words != null ? `audience ${aud}` : `look ${s.look}`;
     delete s.lookObj;
-    if (words > allow) F.add('words', name, p.f0, `${words} words (${[...s.words].map((w) => `"${w}"`).join(', ')}); look ${s.look} allows ${allow} outside the sign-off`, 'words');
+    if (words > allow) F.add('words', name, p.f0, `${words} words (${[...s.words].map((w) => `"${w}"`).join(', ')}); ${by} allows ${allow} outside the sign-off`, 'words');
     shots.push(s);
   }
+  readRules(onScreen, A, aud, F);
+  for (const [str, z] of sizes) if (z.px < A.minX - 1e-9) F.add('text-size', z.shot, z.i, `"${clip(str)}" has an x-height of ${z.px.toFixed(1)} px at 240 px wide (audience ${aud}: at least ${A.minX}); letter it larger`, str);
+  cutFloorRule(film, A, aud, F);
   timelineRules(film, F);
   handRule(film, F);
   signOffRule(film, F);
@@ -254,6 +285,54 @@ export function inspect(film) {
   voiceRule(film, F);
   const findings = F.list.sort((a, b) => (a.frame ?? -1) - (b.frame ?? -1));
   return { findings, shots, warnings: W.list.map((f) => ({ ...f, warn: true })) };
+}
+
+// caption-overlap over one frame's text units (core/legible.js); the other text rules read the whole film.
+function overlaps(units, report) {
+  for (let a = 0; a < units.length; a++) {
+    for (let b = a + 1; b < units.length; b++) {
+      const [p, q] = [units[a], units[b]];
+      if (p.str === q.str) continue;   // a double print of one line
+      const w = Math.min(p.box[0] + p.box[2], q.box[0] + q.box[2]) - Math.max(p.box[0], q.box[0]);
+      const h = Math.min(p.box[1] + p.box[3], q.box[1] + q.box[3]) - Math.max(p.box[1], q.box[1]);
+      if (w > OVERLAP && h > OVERLAP) report('caption-overlap', `"${clip(p.str)}" ${fmtBox(p.box)} and "${clip(q.str)}" ${fmtBox(q.box)} cross`, [p.str, q.str].sort().join('|'));
+    }
+  }
+}
+const clip = (s) => (s.length > 40 ? `${s.slice(0, 37)}...` : s).replace(/\n/g, ' / ');
+
+// Over the film frames each piece of text shows on, one run at a time (text that comes back is read again):
+// text-dwell, every run at least perWord a word (the sign-off and a recording's captions keep their own
+// time); text-contrast, somewhere in every run the text stands at the audience's contrast for as long as it
+// needs reading (or the whole run, if shorter), so lettering that fades out with the light or sinks into a
+// wash on its way off has had its read.
+function readRules(onScreen, A, aud, F) {
+  for (const [str, e] of onScreen) {
+    const n = Math.max(1, countWords(str)), need = A.perWord * n, frames = [...e.keys()].sort((a, b) => a - b);
+    let start = 0;
+    for (let j = 1; j <= frames.length; j++) {
+      if (j < frames.length && frames[j] === frames[j - 1] + 1) continue;
+      const run = frames.slice(start, j).map((f) => e.get(f)), secs = run.length / FPS, at = frames[start];
+      start = j;
+      if (!run[0].timed && secs < need - 1e-9) F.add('text-dwell', run[0].shot, at, `"${clip(str)}" is on screen ${secs.toFixed(2)} s from ${(at / FPS).toFixed(2)} s (audience ${aud}: ${n} word${n > 1 ? 's' : ''} need ${need.toFixed(2)} s); hold it longer`, str);
+      let best = 0, cur = 0, worst = null;
+      for (const r of run) {
+        const ok = r.c === null || r.c >= A.contrast - 1e-9;
+        cur = ok ? cur + 1 : 0; best = Math.max(best, cur);
+        if (!ok && (!worst || r.c < worst.c)) worst = r;
+      }
+      if (worst && best < Math.min(run.length, Math.round(need * FPS))) F.add('text-contrast', worst.shot, at, `"${clip(str)}" stands at ${worst.c.toFixed(1)}:1 on what it is drawn over, and at ${A.contrast}:1 for only ${(best / FPS).toFixed(2)} s of the ${need.toFixed(2)} s it needs (audience ${aud}); letter it in ink, or put it on paper`, str);
+    }
+  }
+}
+
+// cut-floor: every shot (and hold) the timeline plays on screen at least the audience's cut floor.
+function cutFloorRule(film, A, aud, F) {
+  if (!A.cutFloor) return;
+  for (const s of cues(film).shots) {
+    if (s.cut || s.dur >= A.cutFloor - 1e-9) continue;
+    F.add('cut-floor', s.name, Math.round(s.t0 * FPS), `${s.hold ? 'a hold of ' : ''}'${s.name}' lasts ${s.dur.toFixed(2)} s (audience ${aud}: at least ${A.cutFloor} s)`, 'floor');
+  }
 }
 
 // The shot a node shows first or last (through seq, look and hold); a cut's own end shots count as its ends.
@@ -537,15 +616,16 @@ export function warnAssets(film) {
     .map(([id, a]) => ({ rule: 'inline-asset', warn: true, shot: null, frame: null, detail: `'${id}': ${Math.round(a.src.length / 1024)} KB of data URL; hdf import --v2 it and name the id in assets` }));
 }
 
-// lint(film, { source }) => findings [{ rule, shot, frame, line?, detail }], source rules first.
-export function lint(film, { source } = {}) {
-  return lintAll(film, { source }).findings;
+// lint(film, { source, audience }) => findings [{ rule, shot, frame, line?, detail }], source rules first.
+// audience overrides the film's profile (film({ audience })) for the check.
+export function lint(film, o = {}) {
+  return lintAll(film, o).findings;
 }
 
 // Findings and warnings in one pass over the film: { findings, warnings } (warnings: inline assets, and
 // caption-sync from the frames).
-export function lintAll(film, { source } = {}) {
-  const got = inspect(film);
+export function lintAll(film, { source, audience } = {}) {
+  const got = inspect(film, { audience });
   return { findings: [...(source ? lintSource(source) : []), ...got.findings], warnings: [...warnAssets(film), ...got.warnings] };
 }
 

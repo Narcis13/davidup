@@ -30,6 +30,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   sheet   store <id> --vocabulary [--look]   the biped vocabulary's poses, expressions and cycles that apply to it
                                     (packs/poses/biped.json; assets/sheets/<id>-vocabulary.jpg)
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
+          [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json; --alpha: <film>-alpha.json
   dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)

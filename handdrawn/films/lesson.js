@@ -1,5 +1,6 @@
 // The first lesson (4.0 E2): the four teaching recipes on the whiteboard, with sam (a stick puppet built from
-// its source, no store) as the teacher. Every shot times itself from its copy for a kids-9 audience.
+// its source, no store) as the teacher. Every shot times itself from its copy for a kids-9 audience, and lint
+// checks the film against that audience's profile (4.0 T10).
 // t      dur    shot       recipe  what
 // 0.00   6.25   title      AN      "parts of a flower" written on, sam presents it
 // 6.25   7.67   parts      AO      the flower labelled: petal, stem, leaf, roots; sam points
@@ -27,4 +28,4 @@ const score = ({ shots: [t, p, c, m, s] }) => ({
   ],
 });
 
-export default film({ name: 'lesson', look: 'whiteboard', timeline: seq(title, parts, count, more, sign), score });
+export default film({ name: 'lesson', look: 'whiteboard', audience, timeline: seq(title, parts, count, more, sign), score });

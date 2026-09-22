@@ -1,6 +1,7 @@
 // The time tree. Cels are timeless drawings, shots are drawings over time, and seq/par/hold/cut/lookOn
 // arrange them. frame(film, i) is the one entry point the rasteriser and lint use.
 import { FPS } from './curves.js';
+import { audienceOf } from './audience.js';
 import { fitFor, format } from './fit.js';
 import { currentHand, withHand } from './glyphs.js';
 import { fx, group, hashData, lookNode, mmul, norm, rotate, scale, translate, walk, withProps } from './list.js';
@@ -124,14 +125,16 @@ export function lookOn(look, child) {
 }
 
 // The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read
-// as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ... } }).
-export function film({ name, look, timeline, score, format: ar = '1:1', assets = {} } = {}) {
+// as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ... } }),
+// audience (4.0 T10: a key of AUDIENCES, the profile lint checks the film against; 'general' by default).
+export function film({ name, look, timeline, score, format: ar = '1:1', assets = {}, audience = 'general' } = {}) {
   if (typeof name !== 'string' || !name) throw new TypeError('film: needs a name');
   if (!look) throw new TypeError(`film ${name}: needs a look`);
+  try { audienceOf(audience); } catch (e) { throw new TypeError(`film ${name}: ${e.message}`); }
   if (Array.isArray(timeline)) timeline = seq(...timeline);
   [timeline] = nodes([timeline], `film ${name}`);
   return Object.freeze({
-    name, look: typeof look === 'string' ? { name: look } : look, timeline, score, assets,
+    name, look: typeof look === 'string' ? { name: look } : look, timeline, score, assets, audience,
     format: format(ar), seed: hash32(name), dur: timeline.n / FPS, n: timeline.n,
   });
 }

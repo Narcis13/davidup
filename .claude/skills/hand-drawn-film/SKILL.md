@@ -475,6 +475,18 @@ asset carried as a data URL (`inline-asset`, a warning); a pack cel whose store 
 run `cel-box`, `puppet-joint` and `roles-raw` over every pose and variant
 before anything is written.
 
+For a lesson, name the audience on the film: `film({ ..., audience:
+'kids-7' })` (general, beginner, kids-9, kids-7, kids-5; 4.0 T10). Lint then
+checks that profile: words a shot (it replaces the look's allowance;
+`look.words` still wins), lettering whose x-height at 240 px is too small
+(`text-size`), text up for less than its words need (`text-dwell`; a
+recording's captions and the sign-off exempt), text too faint on what it sits
+on for as long as it needs reading (`text-contrast`), two pieces of text
+crossing (`caption-overlap`) and shots under the floor (`cut-floor`). Build
+the recipes, `say`, `dialogue` and `captions` with the same `audience:` and
+they pass. `hdf lint <film> --audience kids-5` tries another profile without
+editing the film. `general` asks what lint always asked.
+
 These need eyes, and they are the review list:
 
 - **One idea per shot.** On the grid, each shot reads in a second and a

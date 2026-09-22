@@ -2,22 +2,29 @@
 // per finding and exits 1 on any. Warnings (core/lint.js WARNINGS) print the same way, marked `warn`, and
 // never change the exit code.
 //
+// hdf lint <film.js> --audience kids-5: the film against another audience's profile (4.0 T10) instead of its
+// own (film({ audience }), 'general' by default).
+//
 // hdf lint packs/<pack>.js: a pack is not a film; its findings are `pack-mirror`, one per cel whose store
 // mirror is missing or stale (3.0 S13).
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ASSET_ROOT, readCatalogue, sha } from '../core/assets.js';
+import { AUDIENCES } from '../core/audience.js';
 import { lintAll, lintPack, formatFinding } from '../core/lint.js';
 import { mirrorPayload, packCels, readManifest } from './donate.mjs';
+import { UsageError } from './load.mjs';
 
 export async function run([path], flags, { loadFilm }) {
   if (path && isPack(resolve(path))) return lintPackFile(resolve(path), flags);
+  const audience = flags.audience;
+  if (audience !== undefined && !Object.hasOwn(AUDIENCES, audience)) throw new UsageError(`lint: --audience takes ${Object.keys(AUDIENCES).join(', ')} (got '${audience}')`);
   const film = await loadFilm(path);
-  const { findings, warnings } = lintAll(film, { source: readFileSync(resolve(path), 'utf8') });
+  const { findings, warnings } = lintAll(film, { source: readFileSync(resolve(path), 'utf8'), audience });
   const file = basename(path);
   for (const f of [...warnings, ...findings]) process.stdout.write(formatFinding(f, file) + '\n');
   const tail = warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '';
-  process.stdout.write(findings.length ? `${findings.length} finding${findings.length > 1 ? 's' : ''}${tail}\n` : `${film.name}: lint clean${tail}\n`);
+  process.stdout.write(findings.length ? `${findings.length} finding${findings.length > 1 ? 's' : ''}${tail}\n` : `${film.name}: lint clean${audience ? ` for ${audience}` : film.audience && film.audience !== 'general' ? ` for ${film.audience}` : ''}${tail}\n`);
   return findings.length ? 1 : 0;
 }
 

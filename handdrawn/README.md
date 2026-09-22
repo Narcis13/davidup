@@ -1135,15 +1135,60 @@ that reads the asset store needs `hdf dev` or `hdf bundle`).
   frame edge without `meta('intent', 'crop')`;
 - more than two scribbled parts;
 - a cel drawing outside its declared box;
-- words beyond the look's allowance (0 by default, 3 for doodle; `look.words`
-  changes it);
+- words beyond the allowance (the audience's; for `general` the look's, 0 by
+  default, 3 for doodle and cut-out, 12 on the whiteboard; `look.words` wins);
 - a cut longer than 1 s, or two cuts in a row;
 - no sign-off, or one still writing 1.5 s before the end;
 - cues off the 1/12 s grid;
 - an actor's fallback bob (a cycle it lacks) on screen over 1 s in a shot;
 - a voice whose sample the store lacks (or cannot decode), or that runs past
   the film's end;
-- `Math.random`, `Date`, `filter`, `shadowBlur` or gradients in the source.
+- `Math.random`, `Date`, `filter`, `shadowBlur` or gradients in the source;
+- lettering too small, too quick, too faint or crossing other lettering for
+  the film's audience (below).
+
+### Audience profiles (4.0 T10)
+
+`film({ audience })` names who the film is for: `general` (the default),
+`beginner`, `kids-9`, `kids-7` or `kids-5`, the same keys the teaching
+recipes, `say`, `dialogue` and `captions` take (`core/audience.js
+AUDIENCES`). Lint checks the film against that profile; `hdf lint <film>
+--audience kids-5` checks it against another one without touching the film.
+
+| profile | words a shot | least x-height at 240 px | on screen a word | shortest shot | contrast |
+|---|---|---|---|---|---|
+| general | the look's | 2.5 px | 0.15 s | none | 3:1 |
+| beginner | 16 | 3.5 px | 0.3 s | 1 s | 4.5:1 |
+| kids-9 | 14 | 4 px | 0.4 s | 1.5 s | 4.5:1 |
+| kids-7 | 10 | 4.5 px | 0.5 s | 2 s | 4.5:1 |
+| kids-5 | 8 | 5 px | 0.7 s | 2.5 s | 4.5:1 |
+
+`general` asks what lint asked before: every film that was clean still is.
+Each other row sits under what the recipes make for that audience, so a
+title card, a label, a count, copy captions or a dialogue built with
+`audience: 'kids-7'` lints clean in a `kids-7` film. The rules, over the text
+units of each frame (text ops, and groups already lettered as `text:<copy>`,
+read by `core/legible.js textUnits`):
+
+- `words`: an audience's allowance replaces the look's table; `look.words`
+  still wins over both.
+- `text-size`: the largest x-height a piece of lettering reaches (so a line
+  being written on is judged written), measured through every transform; a
+  lettered group is measured on its own x-height letters. The sign-off is
+  exempt.
+- `text-dwell`: every run of frames a piece of text is up (across shots,
+  through holds, and while a `par` keeps a short shot's last frame) lasts
+  `perWord` a word. A recording's captions and the sign-off keep their own
+  clocks; copy captions are read like any text.
+- `text-contrast`: the text's colour against what is under the middle of it:
+  the last fill drawn before it whose path holds that point (translucent fills
+  laid over it, a multiply multiplied, a coverage ramp such as a vignette
+  ignored), else the stock. A picture under it has no colour and is skipped.
+  It fails only when the text never stands at the contrast for as long as it
+  needs reading, so words that fade with the light on their way off are fine.
+- `caption-overlap`: two different pieces of text whose ink boxes cross in
+  one frame.
+- `cut-floor`: a shot (or hold) shorter than the floor.
 
 `hdf import --kind puppet` runs three of them over a payload before it reaches
 the store: `puppet-joint` (a pose or a cycle frame that names nothing, or sets
