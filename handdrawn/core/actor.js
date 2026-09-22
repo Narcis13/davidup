@@ -26,6 +26,10 @@
 // idle first and a cycle last. Stage conventions are the v1 cast's (recipes/doodle.js): centred at (x, y),
 // feet at y + .86 s, about 2 s tall; o also takes rot (about x, y) and hand ([x, y] in stage units: an arm
 // reaches for it), and a code builder reads whatever else it knows (scarf, fright, w).
+// 4.0 K5 (core/ik.js): o.reach ({ 'hand-r': [x, y] }, bent by o.elbow) puts a hand or foot on a stage point
+// with two-bone IK, and `hand` reaches the same way on an arm with a forearm and a hand; a state carrying
+// `walking` (walkTo's) draws meta('feet') for lint's foot-slide. actor.puppet, actor.stage and
+// actor.cycleOf(name) are what reach, lookAt and walkTo read.
 //
 // A puppet derives everything from its payload: poses named like an emote win over the house table, cycles
 // are its own, and the conventional parts (head, eye, mouth, tail, body, arm-l / arm-r) are what idle,
@@ -74,6 +78,7 @@ import { cel } from './tree.js';
 import BIPED from '../packs/poses/biped.json' with { type: 'json' };
 import { pluckPerSyllable, voice as voiceEvent } from '../recipes/score.js';
 import { alignOf, alignSpan, spokenOf } from './align.js';
+import { feetMeta, reach, reachIn } from './ik.js';
 
 const RAD = Math.PI / 180;
 const TWOS = FPS / 2;                     // drawn twos: 6 states a second
@@ -123,6 +128,12 @@ export function actorOf(src, spec = {}) {
     place: spec.place ?? base.place,
     put: spec.put ?? base.put ?? ((d, x, y, s, o = {}) => d.mark((k) => revealList(k, actor.place(x, y, s, o)), spec.dur ?? 0.5)),
     say: spec.say ?? ((text, t0, o) => speak(actor, base, spec, text, t0, o)),
+    // 4.0 K5: the puppet (null for a code cel or a builder), the stage fit ({ xf, local, k }: the drawing's
+    // matrix on the stage, a stage point in the drawing, the stage units per drawing unit at a size) and a
+    // cycle's frame count and rate ({ n, fps, advance? }, or null), for core/ik.js.
+    puppet: base.pup ?? null,
+    stage: base.stage ?? null,
+    cycleOf: base.cycleOf ?? (() => null),
   });
   // A puppet's vocabulary is worked out when first asked for; a code cel or a builder has none.
   Object.defineProperty(actor, 'vocabulary', { get: () => base.vocabulary?.() ?? NO_VOCABULARY, enumerable: true });
@@ -148,6 +159,7 @@ function stager(name, box, ground, spec, selfFlip = false) {
     const [a, b, c, d, e, f] = xfOf(x, y, s, o), det = a * d - b * c;
     return [(d * (px - e) - c * (py - f)) / det, (-b * (px - e) + a * (py - f)) / det];
   };
+  const k = (s) => H * s / units;
   const placed = (x, y, s, o, kids) => group({ name: `actor:${name}`, xf: xfOf(x, y, s, o), cache: 'never' }, [
     ...kids,
     o.fallback ? meta('actor-cycle', { actor: name, cycle: o.fallback }) : null,
@@ -161,7 +173,7 @@ function stager(name, box, ground, spec, selfFlip = false) {
   const wrapPlaced = (x, y, s, o, kids) => (o.shadow
     ? group({ name: `actor:${name}:grounded` }, [floorShadow(x, y, s, o), placed(x, y, s, o, kids)])
     : placed(x, y, s, o, kids));
-  return { xfOf, local, wrapPlaced, top: FEET - H };
+  return { xfOf, local, k, wrapPlaced, top: FEET - H };
 }
 
 const pick = (inputs, o) => {
@@ -252,9 +264,19 @@ function fromPuppet(p, spec) {
     expressions: Object.freeze(Object.keys(VOCABULARY.expressions).filter((n) => d.poses?.[n] || fits(n, VOCABULARY.expressions[n]))),
   }));
   const blinkKey = ['sleep', 'shut', 'closed'].find((k) => variants('eye').includes(k));
+  // What core/ik.js needs of this actor inside place() (the actor itself is made from what this returns).
+  const STAGE = Object.freeze({ xf: st.xfOf, local: st.local, k: st.k }), me = { name, puppet: p, stage: STAGE };
 
   return {
     name, box: p.cel.box, ground: p.ground, inputs, make, has, top: st.top, rest: p.rest,
+    pup: p, stage: STAGE,
+    // A cycle's frame count and rate, its own before the vocabulary's; `advance` when its frames carry one.
+    cycleOf(what) {
+      const own = d.cycles?.[what], c = own?.frames?.length ? own : vocabCycle(what);
+      if (!c) return null;
+      const adv = c.frames.map((f) => f.advance);
+      return { n: c.frames.length, fps: c.fps ?? FPS, ...(own && adv.every(Number.isFinite) ? { advance: adv } : {}) };
+    },
     variantKeys: Object.freeze(p.parts.filter((n) => variants(n).length)),
     // Viseme v as the puppet's mouth: its v-th variant, or its last when it has fewer.
     mouthOf(v) {
@@ -319,15 +341,21 @@ function fromPuppet(p, spec) {
         if (has('arm-r')) q['arm-r'] = (q['arm-r'] ?? p.rest['arm-r'] ?? 0) - 40 * o.fright;
       }
       if (o.hand) {
-        // The arm on the hand's side turns so it points at it (arms hang down, +y, at 0 degrees).
-        // A puppet that mirrors itself is aimed in its own, unmirrored, drawing.
+        // The arm on the hand's side turns so it points at it (arms hang down, +y, at 0 degrees), or, with a
+        // forearm, reaches it (4.0 K5). A puppet that mirrors itself is aimed in its own, unmirrored, drawing.
         let [hx, hy] = st.local(x, y, s, o, o.hand);
         if (views && (o.dir ?? p.rest.dir) < 0) hx = 2 * p.ground[0] - hx;
-        const arm = hx >= 0 ? 'arm-r' : 'arm-l';
-        const piv = has(arm) && (views ? p.pivotAt(arm, p.viewOf(o.dir ?? p.rest.dir)) : d.parts[arm].pivot);
-        if (piv) q[arm] = wrap180(Math.atan2(-(hx - piv[0]), hy - piv[1]) / RAD);
+        const side = hx >= 0 ? 'r' : 'l', arm = `arm-${side}`;
+        if (has(arm) && has(`fore-${side}`) && has(`hand-${side}`)) Object.assign(q, reachIn(me, `hand-${side}`, [hx, hy], { ...o, ...q }));
+        else {
+          const piv = has(arm) && (views ? p.pivotAt(arm, p.viewOf(o.dir ?? p.rest.dir)) : d.parts[arm].pivot);
+          if (piv) q[arm] = wrap180(Math.atan2(-(hx - piv[0]), hy - piv[1]) / RAD);
+        }
       }
-      return st.wrapPlaced(x, y, s, o, [make(q)]);
+      // 4.0 K5: reach: { 'hand-r': [x, y], ... } (stage points; elbow: o.elbow) and a walk's feet for lint.
+      if (o.reach) for (const [part, at] of Object.entries(o.reach)) Object.assign(q, reach(me, part, at, { at: [x, y, s], state: { ...o, ...q }, elbow: o.elbow }));
+      const feet = o.walking ? feetMeta(me, [x, y, s], { ...o, ...q }) : null;
+      return st.wrapPlaced(x, y, s, o, feet ? [make(q), feet] : [make(q)]);
     },
   };
 }
@@ -340,6 +368,7 @@ function fromCel(c, spec) {
   const { name, box, inputs } = c.cel, st = stager(name, box ?? [-50, -100, 100, 100], spec.ground ?? [0, 0], spec);
   return {
     name, box, ground: spec.ground ?? [0, 0], inputs, has: () => false, top: st.top,
+    stage: Object.freeze({ xf: st.xfOf, local: st.local, k: st.k }),
     make: (o) => c(pick(inputs, o)),
     place: (x, y, s, o = {}) => st.wrapPlaced(x, y, s, o, [c(pick(inputs, o))]),
   };

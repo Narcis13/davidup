@@ -28,6 +28,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
 | `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
 | `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
+| `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page, a four-line `dialogue` with a stick teacher |
@@ -202,6 +203,7 @@ A.rest, A.variantKeys      // its inputs at rest; the inputs that switch drawing
 A.say('hello there', t0)   // a fragment: mouth per syllable, letters in a bubble, a pluck per syllable
 A.place(x, y, s, state)    // the merged state on the doodle stage (centre x, y; feet at y + .86 s)
 A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its own floor
+A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a stage point (two-bone IK)
 ```
 
 - **`actor:` on every recipe.** Doodle recipes AA to AM take `actor:`
@@ -225,6 +227,16 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   and quantised, so a held pose dedups. `layer(walk, SAM.pose('wave'), {
   parts: ['arm-r', 'fore-r'] })` adds a wave to a walk. Recipes A, G, M, U,
   W, X, Z take `perform:` (the performance, or its script) next to `actor:`.
+- **Reach, look, walk.** `reach(SAM, 'hand-r', [x, y], { at: [ax, ay, s],
+  state })` is two-bone IK (an arm bends `elbow: 'down'`, a leg `front`);
+  `place(..., { ...state, reach: { 'hand-r': [x, y] } })` does the same.
+  `lookAt(SAM, point | otherActor, { at, state, other })` turns the head and
+  slides the pupils (and turns round a puppet facing away). `const w =
+  walkTo(SAM, x0, x1, t0, t1, { s })` then `SAM.place(w.x(t), y, s,
+  w.state(t))`: the planted foot holds still, `w.steps` are the footfalls.
+  Never slide a walk cycle across at a steady speed: lint's `foot-slide`
+  fails it. `stand(SAM, state)` keeps the feet on the ground line in any pose;
+  `dialogue(..., { gaze: true })` has speakers look at each other.
 - **Speech.** `const line = FOX.say('hello there', 1.25)` then `say: line`
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`
@@ -453,11 +465,12 @@ no sign-off, or one still writing 1.5 s before the end (a clip, with
 'crop')`; cues off the 1/12 s grid; `Math.random`, `Date`, filters,
 `shadowBlur` or gradients in the source. From 3.0: a recipe asking an actor
 for a cycle it lacks with the fallback bob on screen over 1 s
-(`actor-cycle`); a look naming a hand the store lacks, or a sign-off falling
-back to the house hand for a glyph (`hand-missing`); a puppet joint off the
-2° grid or out of range, or a pose naming no part (`puppet-joint`); a raw
-colour inside an imported puppet (`roles-raw`); an asset carried as a data
-URL (`inline-asset`, a warning); a pack cel whose store mirror is stale
+(`actor-cycle`); a walking actor whose planted ankle drifts over 2 units a
+frame (`foot-slide`, 4.0 K5); a look naming a hand the store lacks, or a
+sign-off falling back to the house hand for a glyph (`hand-missing`); a
+puppet joint off the 2° grid or out of range, or a pose naming no part
+(`puppet-joint`); a raw colour inside an imported puppet (`roles-raw`); an
+asset carried as a data URL (`inline-asset`, a warning); a pack cel whose store mirror is stale
 (`pack-mirror`, on `hdf lint packs/<pack>.js`). `hdf import` and `hdf svg`
 run `cel-box`, `puppet-joint` and `roles-raw` over every pose and variant
 before anything is written.

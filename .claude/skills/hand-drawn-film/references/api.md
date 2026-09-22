@@ -123,6 +123,17 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `perform(actor, script, o = {})` perform(actor, script, o) => a performance (see the top of this file).
 - `layer(base, extra, o = {})` layer(base, extra, { parts, weight, rest }) => a state or t => state (see the top of this file).
 
+### core/ik.js
+
+- `reach(actor, part, target, o = {})` reach(actor, part, [x, y], { at, state, elbow }) => the limb's two joints (two-bone IK) so its end lands on the point, quantised; a one-segment limb aimed at it (see the top of this file).
+- `lookAt(actor, target, o = {})` lookAt(actor, point | actor, { at, state, other, turn, max }) => { dir?, head?, pupils }: the head turned towards it and the pupils sliding the rest of the way (see the top of this file).
+- `headAt(actor, x, y, s, state = {})` Where an actor's head is on the stage: the middle of its head part's drawing (a code cel: near its top).
+- `partAt(actor, part, [x, y, s], state = {})` Where a part's pivot (a hand's wrist, a foot's ankle) is on the stage at a state.
+- `feetOf(actor, state = {})` feetOf(actor, state) => [-l ankle, -r ankle] in the unmirrored drawing, or null.
+- `strideOf(actor, name = 'walk')` strideOf(actor, cycle) => { n, fps, advance, stride, contacts, strikes }: how far the body travels each frame of a cycle so the planted foot stays put (see the top of this file).
+- `walkTo(actor, x0, x1, t0, t1 = null, o = {})` walkTo(actor, x0, x1, t0, t1, { s, cycle, stand, hold }) => { x(t), state(t), t0, end, steps }: a walk whose planted foot holds still, x following it frame by frame (see the top of this file).
+- `stand(actor, state = {})` stand(actor, state) => state with the lift that puts its lower ankle where the rest pose has it.
+
 ### core/audience.js
 
 - `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them; T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the ...

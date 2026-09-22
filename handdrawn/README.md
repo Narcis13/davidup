@@ -666,6 +666,56 @@ more). The recipes that take `actor:` for a subject or figure (A, G, M, U, W,
 X, Z) take `perform:` too, a performance of that actor or its script, played
 in place of the idle (G's walk; the facing still follows the path).
 
+### Reach, look-at, planted feet
+
+Inverse kinematics where it earns its place: hands, eyes, feet (4.0 K5,
+`core/ik.js`). Everything works in the puppet's own drawing, unmirrored and
+facing +x, on the standard biped names, and hands back a state patch
+quantised on each input's step, so a held reach dedups like a held pose.
+
+```js
+const at = [x, y, s];                                        // where the actor stands on the stage
+reach(SAM, 'hand-r', [700, 380], { at, state });             // { 'arm-r', 'fore-r' }: the wrist on the point
+reach(SAM, 'foot-l', [300, 950], { at, state, elbow: 'front' });   // a leg: leg-, shin-, the ankle
+SAM.place(x, y, s, { ...state, reach: { 'hand-r': [700, 380] } });  // the same, done by place
+lookAt(SAM, [900, 200], { at, state });                      // { dir?, head, 'pupil.x', 'pupil.y' }
+lookAt(SAM, FOX, { at, state, other: [fx, fy, fs, foxState] });   // at the other's head
+const w = walkTo(SAM, -150, 520, 0.5, 3, { s: 260 });        // x0 -> x1 from t0, arriving at t1
+SAM.place(w.x(t), y, 260, w.state(t));                       // w.steps: when each foot lands (a score)
+SAM.place(x, y, s, stand(SAM, act.state(t)));                // the lower ankle on the ground line
+```
+
+`reach` is analytic two-bone IK on shoulder, elbow and wrist (hip, knee and
+ankle). The end lands on the point, or the limb straightens towards it when
+the point is out of reach. `elbow` says which way the middle joint bends:
+`down`, `up`, `front`, `back`, `out` or `in`. An arm bends `down` by default
+and a leg `front` (`out` in the front view). A limb of one segment (the fox's
+arms) is aimed at the point, as `place`'s `hand` always aimed one. `hand` now
+reaches with two bones on a puppet that has a forearm and a hand. `lookAt`
+turns the head towards the point (at most `max`, 30°, and never so far that
+the figure leaves its box) and slides the pupils the rest of the way in the
+head's frame. A puppet facing away turns round (`turn: false` stops it). Front
+on, only the pupils move. `headAt` and `partAt` say where a head or a part's
+pivot is on the stage. `dialogue(..., { gaze: true })` has the speakers look
+at each other.
+
+`strideOf(actor, 'walk')` measures how far the body travels each frame of a
+cycle so the foot on the ground stays put. It uses the cycle's own `advance`
+when the frames carry one (K7). Otherwise it measures the ankles: the planted
+foot is the lower of the feet moving back. `walkTo` deals the cycle's frames
+out over the time (a slow walk holds frames, a quick one skips) and moves x
+with the planted foot frame by frame, the rounding spread thin. It arrives on
+a frame with both feet down, holds it `hold` seconds, then stands. Each
+walking frame goes through `stand`, which lifts or sinks the body so the lower
+ankle is where the rest pose has it. A walking state carries `walking`, so
+`place` adds `meta('feet')` with the ankles on the stage, and lint's
+`foot-slide` fails a frame where every ankle on the ground drifts more than 2
+units along it. A cycle slid across at a steady speed fails; `walkTo` passes
+(`films/walk-on.js`: sam walks on, looks up at a balloon and takes its
+string; the fox looks at the teapot's handle and reaches it). A code cel or a
+doodle builder has no skeleton: `reach` gives `{}`, `lookAt` only turns it,
+and `walkTo` slides it at `speed`.
+
 ### Puppets from SVG
 
 A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported

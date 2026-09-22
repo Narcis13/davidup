@@ -19,6 +19,8 @@
 //            neighbours), so the copy wraps to fit it and two bubbles up at once never cross
 //   audience a key of AUDIENCES (or a record): the reading speed, the hold of the last line, the letter size
 //   hold     seconds the last line stays after its last word (by default the audience's: see actor.say)
+//   gaze     true (4.0 K5): each actor also looks at the other's head (core/ik.js lookAt: the head turns and
+//            the pupils slide), not only faces its way; needs `where` (or the where handed to state)
 //
 // A line's bubble stays up through the reply (so a question and its answer are on screen together, their
 // bubbles leaning towards each other) and goes when that actor speaks again or the reply ends; the last line
@@ -29,6 +31,7 @@
 import { FPS } from './curves.js';
 import { audienceOf, wordCount } from './audience.js';
 import { group } from './list.js';
+import { lookAt } from './ik.js';
 
 const onGrid = (s) => Math.ceil(s * FPS - 1e-6) / FPS;
 const nameOf = (a) => a.name;
@@ -40,7 +43,7 @@ export function dialogue(turns, o = {}) {
   turns.forEach((turn, k) => {
     if (!Array.isArray(turn) || typeof turn[0] !== 'function' || typeof turn[0].say !== 'function') throw new TypeError(`dialogue: turn ${k} must be [actor, text, options?]`);
   });
-  const { t0 = 0, gap = null, audience = 'general', hold = null, where: stage = null, ...say } = o;
+  const { t0 = 0, gap = null, audience = 'general', hold = null, where: stage = null, gaze = false, ...say } = o;
   if (!Number.isFinite(t0)) throw new TypeError(`dialogue: t0 must be a number, got ${t0}`);
   const A = audienceOf(audience);
 
@@ -123,6 +126,10 @@ export function dialogue(turns, o = {}) {
       const { lines, info } = sched(), out = {};
       const dir = facing(actor, t, where);
       if (dir !== null) Object.assign(out, actor.look(dir));
+      if (gaze && dir !== null) {
+        const k = turnAt(t), other = actor === turns[k][0] ? addressee(k) : turns[k][0], a = placeOf(where, actor), b = placeOf(where, other);
+        Object.assign(out, lookAt(actor, other, { at: a, state: { ...(a[3] ?? {}), ...out }, other: [b[0], b[1], b[2], b[3] ?? {}] }));
+      }
       lines.forEach((l, k) => {
         if (turns[k][0] !== actor || t < info[k].t0 - 1e-9 || t >= info[k].until - 1e-9) return;
         const emote = turns[k][2]?.emote;

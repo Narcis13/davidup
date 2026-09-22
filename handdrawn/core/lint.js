@@ -33,6 +33,7 @@ export const RULES = Object.freeze({
   'pack-mirror': "a pack cel's store mirror is missing, or its sha no longer matches what the cel draws",
   'hand-missing': 'the look names a hand the store lacks, or the sign-off falls back to the house hand for a glyph',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
+  'foot-slide': 'a walking actor\'s planted ankle drifts more than 2 units between frames (walk it with walkTo)',
 });
 
 // Warnings: worth saying, not worth failing a film for. `hdf lint` prints them and still exits 0.
@@ -48,6 +49,8 @@ export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3, whiteboard: 12 
 export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
 export const SIGN_OFF_LEAD = 1.5;  // seconds the finished sign-off must hold before the end
 const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1, MAX_BOB = 1;
+export const SLIDE_MAX = 2;        // stage units a planted ankle may drift between two frames of a walk
+const PLANT_TOL = 0.03;            // an ankle within this share of the figure's height of the ground is down
 
 const lookName = (l) => resolveLook(l).name;
 const wordAllowance = (l) => { const lk = resolveLook(l); return lk.words ?? WORDS[lk.name.split('~')[0]] ?? 0; };
@@ -111,7 +114,7 @@ export function celOverflow(op) {
 
 // One evaluated shot frame: roles, looks, finishes, scribbles, cels, words, anchors and crop intent.
 function scan(list, look, report) {
-  const got = { looks: 0, finishes: new Set(), scribbles: 0, words: new Set(), anchors: [], crop: false, bobs: new Set(), captions: [] };
+  const got = { looks: 0, finishes: new Set(), scribbles: 0, words: new Set(), anchors: [], crop: false, bobs: new Set(), captions: [], feet: [] };
   const role = (r, lk, where) => {
     if (r === null || r === undefined) return;
     try { resolveRole(r, lk); } catch (e) { report('role', `${where}: ${e.message}`, `${JSON.stringify(r)}@${lookName(lk)}`); }
@@ -133,6 +136,7 @@ function scan(list, look, report) {
           if (isCrop(op)) got.crop = true;
           if (op.tag === 'actor-cycle') got.bobs.add(`${op.data?.actor}|${op.data?.cycle}`);   // core/actor.js fallback
           if (op.tag === 'captions') got.captions.push(op.data ?? {});   // core/captions.js, a voiced say (4.0 V2)
+          if (op.tag === 'feet' && op.data?.at) got.feet.push(op.data);   // core/ik.js, a walking actor (4.0 K5)
           break;
         case 'group': {
           if (op.cel && op.box) {
@@ -170,6 +174,15 @@ function anchorBoxes(list, data) {
   return boxes;
 }
 
+// foot-slide between two frames' feet metas: the ankles down in both (near the ground), and the least any of
+// them moves along the ground (a heel rolling up is not a slide); a walk whose every planted ankle moves more
+// than SLIDE_MAX slides. Both feet in the air (a jump) is not a slide.
+function footSlide(a, b, report) {
+  const tol = PLANT_TOL * (b.h || 1), down = (f, k) => Math.abs(f.at[k][1] - f.ground) <= tol;
+  const moves = [0, 1].filter((k) => a.at[k] && b.at[k] && down(a, k) && down(b, k)).map((k) => Math.abs(b.at[k][0] - a.at[k][0]));
+  if (moves.length && Math.min(...moves) > SLIDE_MAX) report(Math.min(...moves));
+}
+
 const anchorLabel = (d) => (d.cel !== undefined ? `cel '${d.cel}'` : d.name !== undefined ? `'${d.name}'` : 'anchor');
 
 // inspect(film) => { findings, shots } where shots summarise each play for `hdf board`:
@@ -181,6 +194,7 @@ export function inspect(film) {
     const s = { name, f0: p.f0, n: p.ks.length === 1 ? 1 : node.n, dur: node.dur, look: null, anchor: true, recipe: node.recipe, camera: node.camera, finishes: new Set(), words: new Set() };
     let looked = false, size = null;
     const bobs = new Map();   // 'actor|cycle' => { n, i }: frames the fallback bob was drawn, and the first
+    let walkers = new Map();  // actor => its feet meta in the frame before (4.0 K5 foot-slide)
     p.ks.forEach((k, j) => {
       const i = p.i(k);
       const report = (rule, detail, key) => F.add(rule, name, i, detail, key);
@@ -199,6 +213,12 @@ export function inspect(film) {
       got.finishes.forEach((x) => s.finishes.add(x));
       got.words.forEach((w) => s.words.add(w));
       got.bobs.forEach((b) => { const e = bobs.get(b); if (e) e.n++; else bobs.set(b, { n: 1, i }); });
+      const walking = new Map(got.feet.map((f) => [f.actor, f]));
+      for (const [who, f] of walking) {
+        const g = walkers.get(who);
+        if (g && j > 0 && p.ks[j - 1] === k - 1) footSlide(g, f, (d) => report('foot-slide', `actor '${who}' slides a planted foot ${d.toFixed(1)} units between frames ${i - 1} and ${i} of its ${f.cycle ?? 'walk'} (at most ${SLIDE_MAX}): walk it with walkTo, or give it a cycle that plants its feet`, who));
+      }
+      walkers = walking;
       for (const c of got.captions) {
         if (c.by === 'estimate' && c.span > SYNC_MAX) W.add('caption-sync', name, i, `'${c.id}' is captioned from an estimate of its word timing over ${(+c.span).toFixed(1)} s (at most ${SYNC_MAX} s): hdf align ${c.id} --text "..." times it from the recording`, c.id);
       }

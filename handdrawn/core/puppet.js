@@ -9,6 +9,8 @@
 //   fox.pose('wave', k)              // rest -> wave by k: joints lerp, variants switch at k >= 0.5
 //   fox.cycle('walk', t)             // the frame on the 1/12 s grid, wrapping
 //   fox.liftOf('gallop', t)          // how far that frame lifts the puppet (a retargeted cycle), up positive
+//   fox.worldOf('arm-r', state)      // the part's matrix in the drawing at a state (4.0 K5), origin its pivot
+//   fox.inkOf('head', state)         // the box its own drawing covers there
 //
 // Parts are drawn in key order (painter's), each as a group whose `xf` turns it about its pivot: a part
 // nests inside its parent, but keeps its place in the global order, so a tail listed before the body is
@@ -267,8 +269,8 @@ function build(d, id) {
     const w = d.parts[n].when;
     return !w || Object.entries(w).every(([k, vs]) => vs.map(String).includes(String(q[k] ?? rest[k])));
   };
-  // A turned or scaled part draws direct, as place() does; a part at rest or slid stays a cacheable layer.
-  const partGroup = (n, q, R) => {
+  // A part's xf in its parent: translate(pivot) . translate(slide) . rotate . scale; `moved` when it turns or scales.
+  const localXf = (n, q, R) => {
     const ang = variantKeys[n] ? 0 : angleOf(n, q);
     const [px, py] = R.pivot[n], [qx, qy] = parent[n] === undefined ? [0, 0] : R.pivot[parent[n]];
     let m = translate(px - qx, py - qy), scaled = false;
@@ -283,9 +285,14 @@ function build(d, id) {
       if (mv.keep) { if (mv.sx) sy = 1 / sx; else sx = 1 / sy; }
       if (sx !== 1 || sy !== 1) { m = mmul(m, scale(sx, sy)); scaled = true; }
     }
+    return { m, moved: !!ang || scaled };
+  };
+  // A turned or scaled part draws direct, as place() does; a part at rest or slid stays a cacheable layer.
+  const partGroup = (n, q, R) => {
+    const { m, moved } = localXf(n, q, R);
     const kids = kidOrder[n].filter((s) => s.kid === undefined || shown(s.kid, q))
       .map((s) => (s.kid === undefined ? ownOps(n, q, R) : partGroup(s.kid, q, R)));
-    return group({ name: n, xf: m, ...(ang || scaled ? { cache: 'never' } : {}) }, kids);
+    return group({ name: n, xf: m, ...(moved ? { cache: 'never' } : {}) }, kids);
   };
 
   const ground = d.ground ?? [0, 0];
@@ -347,6 +354,26 @@ function build(d, id) {
   make.liftOf = liftOf;
   make.pose = (pose, k = 1, extra) => make({ ...poseOf(pose, k), ...extra });
   make.cycle = (cycle, t, extra) => make({ ...frameOf(cycle, t), ...extra });
+  // Forward kinematics (4.0 K5): a part's matrix in the drawing at a state (its origin is its pivot), through
+  // every part above it; mirror: false leaves out a negative dir's mirror, so the matrix is the unmirrored
+  // drawing's, facing +x, as reach and lookAt work.
+  make.worldOf = (n, q = rest, { mirror = true } = {}) => {
+    if (!at.has(n)) throw new Error(`puppet ${name}: no part '${n}' (has ${names.join(', ')})`);
+    const s = { ...rest, ...q }, dir = s.dir ?? rest.dir, R = rig.get(viewOf(dir));
+    const chain = [];
+    for (let c = n; c !== undefined; c = parent[c]) chain.unshift(c);
+    let m = mirror && views && dir < 0 ? [-1, 0, 0, 1, 2 * ground[0], 0] : [1, 0, 0, 1, 0, 0];
+    for (const c of chain) m = mmul(m, localXf(c, s, R).m);
+    return m;
+  };
+  // The box a part's own drawing (not its child parts) covers in the drawing at a state, or null.
+  make.inkOf = (n, q = rest, o = {}) => {
+    const s = { ...rest, ...q }, R = rig.get(viewOf(s.dir ?? rest.dir));
+    const ops = ownOps(n, s, R);
+    return ops.length ? bounds(ops, make.worldOf(n, s, o)) : null;
+  };
+  // A part's parent, or undefined for a root.
+  make.parentOf = (n) => parent[n];
   return make;
 }
 
@@ -407,6 +434,9 @@ function mirror(d, id) {
   make.poseOf = none('poses');
   make.frameOf = none('cycles');
   make.liftOf = () => 0;
+  make.worldOf = () => [1, 0, 0, 1, 0, 0];
+  make.inkOf = () => null;
+  make.parentOf = () => undefined;
   make.pose = none('poses');
   make.cycle = none('cycles');
   // Every mirrored input set, as { key: inputs }.
