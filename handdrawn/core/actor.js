@@ -21,6 +21,7 @@
 //                                   actor further back stands on something; paint the far one first)
 //   actor.put(d, x, y, s, o)        the same, added to a doodle d as a mark the pen reveals
 //   actor.say(text, t0, o)          a line of speech from t0 (shot seconds)               -> fragment
+//   actor.mouth(id, t, t0)          the mouth of the recording `id` at t (4.0 V3), started at t0 -> state
 //
 // A state is a plain object of inputs, so states merge with spread and the later one wins: a recipe writes
 // idle first and a cycle last. Stage conventions are the v1 cast's (recipes/doodle.js): centred at (x, y),
@@ -59,6 +60,13 @@
 // follow the sample's word timing (core/align.js alignOf, the copy `text` or, when text is empty, the
 // alignment's own), and events(t) is the voice itself, not plucks. The timing is read on first use, so a
 // line built at a film's top level waits for the player to fetch its wav.
+// 4.0 V3: a voiced line's mouth is the recording's own (core/mouth.js mouthFrom: the voice band's energy a
+// frame, or the Rhubarb track `hdf align <id> --mouth` stored), a letter A to H or X a frame; the fragment's
+// shape(t) is that letter, mouth(t) it as one of the four drawn mouths, state(t) it as the puppet's own
+// mouth variant (a variant named by the letter, else by how many mouths the puppet has: mouthIndex).
+// actor.mouth(id, t, t0 = 0) is the same mouth for a line with no bubble and no captions: { mouth } from the
+// first voiced frame to the last, {} outside them or for an actor with no mouth part (the score places the
+// voice itself, voice(id, t0)).
 // 4.0 T9: the copy may run to several lines ('\n', or wrapped at `width`, 11 sizes by default), the bubble
 // sized from the lines; `kind` is the bubble's (speech, thought, shout, whisper, caption: core/marks.js);
 // `audience` sets the letter size (48 by its text scale) and the hold (its dwell, and at least the line's
@@ -78,6 +86,7 @@ import { cel } from './tree.js';
 import BIPED from '../packs/poses/biped.json' with { type: 'json' };
 import { pluckPerSyllable, voice as voiceEvent } from '../recipes/score.js';
 import { alignOf, alignSpan, spokenOf } from './align.js';
+import { mouthAt, mouthFrom, mouthIndex } from './mouth.js';
 import { feetMeta, reach, reachIn } from './ik.js';
 
 const RAD = Math.PI / 180;
@@ -128,6 +137,13 @@ export function actorOf(src, spec = {}) {
     place: spec.place ?? base.place,
     put: spec.put ?? base.put ?? ((d, x, y, s, o = {}) => d.mark((k) => revealList(k, actor.place(x, y, s, o)), spec.dur ?? 0.5)),
     say: spec.say ?? ((text, t0, o) => speak(actor, base, spec, text, t0, o)),
+    mouth: spec.mouth ?? ((id, t, t0 = 0) => {
+      if (!base.has('mouth') || !base.mouthFor) return {};
+      const M = mouthFrom(id), k = Math.floor((t - t0) * FPS + 1e-9);
+      if (k < M.from || k >= M.to) return {};
+      const m = base.mouthFor(M.shapes[k]);
+      return m === undefined ? {} : { mouth: m };
+    }),
     // 4.0 K5: the puppet (null for a code cel or a builder), the stage fit ({ xf, local, k }: the drawing's
     // matrix on the stage, a stage point in the drawing, the stage units per drawing unit at a size) and a
     // cycle's frame count and rate ({ n, fps, advance? }, or null), for core/ik.js.
@@ -283,6 +299,14 @@ function fromPuppet(p, spec) {
       const ks = variants('mouth');
       return ks.length ? variant('mouth', ks[Math.min(v, ks.length - 1)]) : undefined;
     },
+    // A mouth shape (A to H, X: core/mouth.js) as the puppet's mouth: a variant named by the letter (X falling
+    // back to A), else the index mouthIndex gives for its count.
+    mouthFor(shape) {
+      const ks = variants('mouth');
+      if (!ks.length) return undefined;
+      const named = [shape, shape === 'X' ? 'A' : null].find((k) => k && ks.includes(k));
+      return variant('mouth', named ?? ks[mouthIndex(shape, ks.length)]);
+    },
     idle(t, seed = 0) {
       const j = Math.floor(t * TWOS + 1e-9), u = j / TWOS, ph = seed * 1.7;
       const out = {};
@@ -431,10 +455,11 @@ function speak(actor, base, spec, text, t0, o = {}) {
     get until() { return line().until; },
     get syllables() { return line().sp.syllables; },
     mouth: (t) => line().mouth(t),
+    shape: (t) => line().shape(t),
     state(t) {
       const v = line().mouth(t);
       if (v === null || !talks) return {};
-      const m = base.mouthOf?.(v);
+      const m = vid ? base.mouthFor?.(line().shape(t)) : base.mouthOf?.(v);
       return m === undefined ? {} : { mouth: m };
     },
     draw: (t, x, y, s, q) => line().draw(t, x, y, s, q),
@@ -453,7 +478,12 @@ function lineOf(actor, base, spec, text, t0, o, vid) {
   // been up for its reading time.
   const hold = o.hold ?? (aud ? Math.max(aud.dwell, t0 + wordCount(text) / aud.read - sp.end) : 0.75);
   const until = sp.end + hold, talks = base.has('mouth');
-  const mouth = A ? sp.mouth : (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : sp.steps[Math.floor((t - t0) * FPS + 1e-9)] ?? 0);
+  // A recorded line's mouth is the recording's (4.0 V3): its letter a frame, shut before the track starts or
+  // after it ends; as one of the four drawn mouths for mouth(t). A synth line cycles its visemes.
+  const M = A ? mouthFrom(vid) : null;
+  const shape = (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : M ? mouthAt(M, t - t0) ?? 'X' : null);
+  const mouth = A ? (t) => { const s = shape(t); return s === null ? null : mouthIndex(s, 4); }
+    : (t) => (t < t0 - 1e-9 || t >= sp.end - 1e-9 ? null : sp.steps[Math.floor((t - t0) * FPS + 1e-9)] ?? 0);
   // The copy in lines: '\n' breaks, and a line wider than `width` wraps (4.0 T9). One line letters as it always
   // has; several are one lettering, centred, the bubble sized from the widest.
   const L = layout(text, { size, w: o.width ?? size * 11, align: 'center' }).lines;
@@ -477,7 +507,7 @@ function lineOf(actor, base, spec, text, t0, o, vid) {
     reach.splice(0, 4, Math.max(0, -b[0]), Math.max(0, -b[1]), Math.max(0, b[0] + b[2] - bw), Math.max(0, b[1] + b[3] - bh));
   }
   return {
-    text, sp, until, mouth,
+    text, sp, until, mouth, shape,
     draw(t, x, y, s, q = {}) {
       if (t < t0 - 1e-9 || t >= until - 1e-9) return null;
       const dir = (q.dir ?? 1) < 0 ? -1 : 1, head = [x + dir * 0.15 * s, y + base.top * s], tip = [head[0], head[1] - 0.14 * s];

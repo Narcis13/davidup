@@ -34,6 +34,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
+| `hello.js` | doodlePastel | lip sync: the fox says a recorded "Hello there!" with its mouth following the Rhubarb track stored on the sample (shut on the "th"); sam repeats it without a bubble through `actor.mouth` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page, a four-line `dialogue` with a stick teacher |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
 | `four-looks.js` | riso, screen, pencil, ink | recipes N O P U W A S, riso cards as plates, a look per shot |
@@ -271,8 +272,14 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
   the spoken word, and is drawn with `CAPS.draw(t, { W, H })` in the shot.
   With no recording, `captions(['line one', 'line two'], { t0, audience })`
   shows a page per string at the audience's reading pace.
-  `FOX.say(null, t0, { voice: id })` speaks the recording: its letters and
-  mouth follow the timing, and `line.events(t)` is the voice itself.
+  `FOX.say(null, t0, { voice: id })` speaks the recording: its letters
+  follow the timing, and `line.events(t)` is the voice itself.
+- **Lip sync.** A voiced say's mouth is the recording's own. By default it
+  comes from the voice band's energy, one letter A to H or X per 1/12 s.
+  `hdf align <id> --mouth` stores Rhubarb's track if `rhubarb` is on PATH,
+  and otherwise stores the energy track. `actor.mouth(id, t, t0)` moves a
+  mouth with no bubble; put `voice(id, t0)` in the score. A puppet that draws
+  its own mouths names them `A` to `H`.
   Captions do not count as words. Lint warns `caption-sync` on an estimate
   over 3 s.
 - **Turnarounds.** A puppet with `views` turns through `look(dir)` and on a

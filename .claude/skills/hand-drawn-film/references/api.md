@@ -296,6 +296,15 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `wordsOf(text)` The copy's words, split on white space; punctuation stays on the word it touches ("light." is one word).
 - `spokenOf(A, t0 = 0)` spokenOf(A, t0) => text.js speech()'s shape for a recorded line starting at t0: { syllables: [{ text, from, to, t, dur }], letters (a time per char), dur, end } and mouth(t), the viseme at shot time t (null outside the line).
 
+### core/mouth.js
+
+- `mouthFrom(id)` mouthFrom(id) => { id, by, shapes, from, to }: the stored track on the sample's entry when it has one, else the energy track made from its wav (once per process).
+- `energyMouth(x, sr = SR)` energyMouth(samples, sr) => { by: 'energy', shapes } (a string, a letter a frame).
+- `cuesMouth(cues, sec, by = 'json')` cuesMouth([{ start, end, value }], sec, by) => { by, shapes }: each frame takes the cue that covers most of it, except that a shut mouth (A) held for a quarter of a frame or more wins it, so a quick m, b or p still closes the lips on ...
+- `mouthAt(M, t)` The letter at t seconds into the sample, or null before it or past its last frame.
+- `mouthIndex(shape, n)` A letter as a mouth variant index for a puppet with n of them.
+- `MOUTH_SHAPES` The letters a track is written in, A to H and X for rest.
+
 ### core/captions.js
 
 - `captions(src, o = {})` captions(id | alignment | [copy], { t0, text, size, lines, box, hold, reveal, role, mark, sheet, hand, audience, gap, name }) => a strip that letters a recorded line as it is spoken (or copy at the audience's reading pace, a page per ...

@@ -201,7 +201,7 @@ export const alignSpan = (A) => (A.words.length ? A.words[A.words.length - 1].t1
 // to, t, dur }], letters (a time per char), dur, end } and mouth(t), the viseme at shot time t (null outside
 // the line). A word's syllables share its spoken span and its letters arrive across it; a space or a stop
 // appears as the word before it ends. The mouth cycles VISEMES over each syllable and rests shut between
-// words (V3 puts the recording's own energy there).
+// words. A voiced actor.say draws the recording's own mouth instead (4.0 V3, core/mouth.js).
 export function spokenOf(A, t0 = 0) {
   const text = A.text, words = wordsOf(text), syllables = [], letters = new Array(text.length).fill(t0 + (A.words[0]?.t0 ?? 0));
   words.forEach((w, k) => {

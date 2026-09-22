@@ -37,6 +37,7 @@ export { doodle, pen } from './doodle.js';
 export { pentHz, renderScore, toWav16, setPcm, voiceSpans, DUCK_DB } from './synth.js';
 export { readWav, decodeWav, voicedSpan } from './wav.js';
 export { alignOf, estimateAlign, fitWords, wordsOf, spokenOf } from './align.js';
+export { mouthFrom, energyMouth, cuesMouth, mouthAt, mouthIndex, MOUTH_SHAPES } from './mouth.js';
 export { captions } from './captions.js';
 export { note, burst, voice, plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
 export { registerClip, registerClips, clipFromStore, clipOf, pose, traced, gap, airborne } from '../engines/traced.js';

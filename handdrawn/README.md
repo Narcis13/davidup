@@ -963,6 +963,53 @@ you say otherwise), and the underline walks it at the audience's reading speed
 with `gap` seconds (the audience's dwell) between strings. `audience` also
 sizes the letters (44 by its `text` scale) on voiced captions.
 
+### Lip sync from a recording
+
+A voiced line moves the mouth with the recording (4.0 V3), not with a
+syllable cycle. `mouthFrom(id)` is the sample's mouth track, one letter per
+1/12 s from the start of the sample. The letters are the Preston Blair set as
+Rhubarb Lip Sync names them: A shut (m b p), B a little open on clenched
+teeth (most consonants), C open, D wide, E slightly rounded, F puckered (oo w),
+G teeth on the lip (f v), H the tongue up (l), X at rest. With nothing stored,
+the track is made from the wav at render time, the same in Node and the
+player. It measures the energy in the voice band (300 Hz to 2.5 kHz), four
+windows to a frame. A frame all under the floor rests (X). A window that dips
+between louder ones shuts the mouth (A). Otherwise the frame's level opens it
+(B, C, D), scaled to the loud part of the take so that a quiet recording
+opens as wide as a loud one. `hdf align --mouth` stores a better track on the
+entry (`mouth`):
+
+```bash
+hdf align hello-there --mouth              # Rhubarb (on PATH, or RHUBARB=<path>) with the copy as its dialog
+hdf align hello-there --mouth --json cues.json   # any tool's [{ start, end, value }] or { mouthCues }
+hdf align hello-there --mouth --estimate   # store the energy track as it is
+hdf align hello-there --mouth --show       # what a render would use; writes nothing
+```
+
+When a cue is laid on the grid, a frame takes the cue that covers most of it.
+A shut cue of a quarter frame or more wins the frame outright, so a quick m,
+b or p still closes the lips. `--recognizer phonetic` gives Rhubarb its
+language-free recogniser for a line that is not in English. With Rhubarb
+missing, the energy track is stored and the command says so.
+
+```js
+const HELLO = FOX.say('Hello there!', 0.75, { voice: 'hello-there' });
+FOX.place(x, y, s, { ...FOX.emote('happy'), ...HELLO.state(t) });   // the recording's mouth over the emote
+SAM.place(x2, y, s, { ...SAM.mouth('hello-there', t, 2.5) });        // the same line, no bubble; score it with voice(id, 2.5)
+```
+
+The puppet's mouth variants decide how a letter is drawn. A variant named by
+the letter wins, so a puppet that draws the set names its mouths `A` to `H`.
+Otherwise `mouthIndex(shape, n)` maps the letter by how many mouths the puppet
+has. The fox has four (0 shut, 1 a little open, 2 wide, 3 a smile), and with
+so few, clenched teeth count as shut, so the fox closes on consonants. The
+stick face has six, including its oo. A puppet with eight takes A to H as 0 to
+7. A say fragment's `shape(t)` is the letter, and `mouth(t)` is the letter as
+one of the four drawn mouths. `actor.mouth(id, t, t0)` returns `{}` before
+the first voiced frame and after the last, so the emote's mouth comes back.
+`films/hello.js`: the fox says a recorded "Hello there!" and shuts its mouth
+on the "th", then sam answers with the same recording on six mouths.
+
 ### Speech, bubbles and dialogue
 
 `actor.say(text, t0, o)` (S9) letters a line in a bubble over the speaker's

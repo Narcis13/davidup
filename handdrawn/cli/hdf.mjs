@@ -58,6 +58,9 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     word timing for a sample, stored on its entry: a transcriber (faster-whisper or
                                     whisper-timestamped under $HDF_PYTHON) laid onto the copy, any tool's words
                                     (--json), or the estimate; captions(id) and say(..., { voice: id }) read it
+          <id> --mouth [--json cues.json] [--estimate] [--show] [--recognizer phonetic]
+                                    the mouth track: Rhubarb (on PATH or $RHUBARB), a tool's cues, or the energy
+                                    track; a voiced say and actor.mouth(id, t) read it
   import  <file> --kind cutout|clip|puppet|hand|stock|motif|sample --name <id> [--credit] [--source] [--licence] [--tags]
                                     any payload into the asset store (assets/catalogue.json + assets/blobs)
                                     --v2 <photos.js|clips.js> migrates a 2.0 data module: one entry per record

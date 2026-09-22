@@ -29,6 +29,7 @@ import { mkPath } from './list.js';
 import { peek, register, setReader } from './store.js';
 import { setPcmReader } from './synth.js';
 import { checkAlign } from './align.js';
+import { checkMouth } from './mouth.js';
 
 // The store next to the package (handdrawn/assets) unless a command names another root.
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
@@ -56,7 +57,7 @@ export const SCHEMAS = {
   hand: { payload: 'json', fields: { glyphs: posInt }, checkPayload: checkHand },
   stock: { payload: 'raster', box: true, fields: { w: posInt, h: posInt } },
   motif: { payload: 'json', box: true, checkPayload: checkMotif },
-  sample: { payload: 'audio', fields: { sec: { ...posNum, opt: true }, align: { opt: true, why: 'word timing (hdf align): { text, by, words: [[text, t0, t1], ...] }', ok: (v) => !checkAlign(v).length } } },
+  sample: { payload: 'audio', fields: { sec: { ...posNum, opt: true }, align: { opt: true, why: 'word timing (hdf align): { text, by, words: [[text, t0, t1], ...] }', ok: (v) => !checkAlign(v).length }, mouth: { opt: true, why: "mouth shapes (hdf align --mouth): { by, shapes: 'XBDCA...' }, a letter per 1/12 s", ok: (v) => !checkMouth(v).length } } },
 };
 
 // The blob's extension for a payload: rasters keep the bytes they came in as (so a migrated cutout is the
@@ -268,8 +269,8 @@ export function recordOf(st, id) {
   if (s.payload === 'raster') {
     return { ...prov, w: e.w, h: e.h, src: st.payloadPath(e), ...(e.sil ? { sil: mkPath(e.sil.sub) } : {}), ...(e.colours ? { colours: e.colours } : {}) };
   }
-  // The copy (desc) and the word timing (4.0 V2) ride along, so alignOf reads them in Node and the player.
-  if (s.payload === 'audio') return { ...prov, src: st.payloadPath(e), ...(e.sec ? { sec: e.sec } : {}), ...(e.desc ? { desc: e.desc } : {}), ...(e.align ? { align: e.align } : {}) };
+  // The copy (desc), the word timing (4.0 V2) and the mouth track (V3) ride along, so alignOf reads them in Node and the player.
+  if (s.payload === 'audio') return { ...prov, src: st.payloadPath(e), ...(e.sec ? { sec: e.sec } : {}), ...(e.desc ? { desc: e.desc } : {}), ...(e.align ? { align: e.align } : {}), ...(e.mouth ? { mouth: e.mouth } : {}) };
   return { ...prov, ...st.json(e) };
 }
 
