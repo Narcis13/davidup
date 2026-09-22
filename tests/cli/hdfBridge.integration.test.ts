@@ -127,6 +127,53 @@ describe("hdf-to-davidup --sprites", () => {
   });
 });
 
+// 4.0 D3: a hand as a font. `hdf hand --export-ttf` sweeps the hand's centre lines by its pen into a TrueType file,
+// registered as a font asset, and davidup's own text path (FontLibrary + fillText) letters a title in it.
+describe("hdf-to-davidup --fonts", () => {
+  it("--dry-run names the film's hand, from --look too", () => {
+    const plain = bun("hdf-to-davidup.ts", "walk-on", "--dry-run", "--fonts", "--no-video", "--no-sheets");
+    expect(plain.code, plain.err).toBe(0);
+    expect(plain.out).toMatch(/^hdf-house-font {2}font {2}hdf hand --export-ttf house {2}\(family hdf-house\)$/m);
+    const looked = bun("hdf-to-davidup.ts", "walk-on", "--look", "paperInk~hand:test", "--dry-run", "--fonts", "--no-video", "--no-sheets");
+    expect(looked.out).toMatch(/^hdf-test-font {2}font {2}hdf hand --export-ttf test/m);
+  });
+
+  it("registers the test hand as a font, and a text item set in it draws the hand, not the bundled face", async () => {
+    const root = await project();
+    const { code, out, err } = bun("hdf-to-davidup.ts", "walk-on", "--project", root, "--fonts", "test", "--no-video", "--no-sheets");
+    expect(code, err).toBe(0);
+    expect(out).toMatch(/hdf-test-font {2}font {2}assets\/hdf\/hdf-test-font\.ttf {2}\(family hdf-test\)/);
+    const asset = (await listAssets(root)).find((a) => a.id === "hdf-test-font");
+    expect(asset).toMatchObject({ type: "font", family: "hdf-test", src: "assets/hdf/hdf-test-font.ttf" });
+
+    const store = new CompositionStore();
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store, skiaCanvas: skia as never });
+      if (!r.ok) throw new Error(`${name}: ${r.error.message}`);
+      return r.result as Record<string, unknown>;
+    };
+    await call("create_composition", { width: 640, height: 200, fps: 12, duration: 1, background: "#ffffff" });
+    await call("register_asset", { id: "hand", type: "font", src: join(root, "assets/hdf/hdf-test-font.ttf"), family: "hdf-test" });
+    await call("add_layer", { id: "t", z: 0 });
+    await call("add_text", { layerId: "t", id: "title", text: "Hamburgefonstiv", font: "hand", fontSize: 64, color: "#000000", x: 20, y: 60 });
+    const ink = async () => {
+      const png = Buffer.from((await call("render_preview_frame", { time: 0, format: "png" })).image as string, "base64");
+      const img = await skia.loadImage(png), c = new skia.Canvas(img.width, img.height), g = c.getContext("2d");
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, img.width, img.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i]! < 128) n++;
+      return { png, n };
+    };
+    const inHand = await ink();
+    expect(inHand.n).toBeGreaterThan(1500);
+    await call("update_item", { id: "title", props: { font: "font:default" } });
+    const bundled = await ink();
+    expect(bundled.n).toBeGreaterThan(1500);
+    expect(inHand.png.equals(bundled.png)).toBe(false);
+  });
+});
+
 describe("davidup-hdf-clip", () => {
   it("renders the film a video item names and points its asset at the mp4", async () => {
     const root = await project();

@@ -10,6 +10,10 @@
 //                                 a sprite sheet (`hdf sprite --film --alpha`),
 //                                 registered with its `sheet`, so add_sprite
 //                                 with `cycle: "walk"` walks it, no video
+//   hdf-<hand>-font       font    with --fonts (4.0 D3): the hand the film
+//                                 letters in (or the hands named) as a
+//                                 TrueType font (`hdf hand --export-ttf`),
+//                                 family `hdf-<hand>`, for add_text's `font`
 //
 // Re-running replaces those assets in place. Place the video with `add_video`
 // (or the editor) like any other clip.
@@ -17,6 +21,7 @@
 // USAGE
 //   bun run scripts/hdf-to-davidup.ts <film.js|name> --project <dir|name> [--look <preset>]
 //   bun run scripts/hdf-to-davidup.ts <film.js|name> --project <dir> --sprites [--no-video] [--no-sheets]
+//   bun run scripts/hdf-to-davidup.ts <film.js|name> --project <dir> --fonts [--no-video] [--no-sheets]
 //
 // FLAGS
 //   --project   a davidup project directory, or a project's name in the
@@ -28,18 +33,20 @@
 //               puppets and its module's `cast` export), or the ones named
 //   --states s  the states each sprite draws (default idle,walk,happy)
 //   --h px      a sprite frame's height (default 300)
-//   --no-video  skip the render (sprites only)
+//   --fonts [a,b]  the film's hand as a font, or the hands named (store ids,
+//               or house)
+//   --no-video  skip the render (sprites and fonts only)
 //   --dry-run   print the assets it would register; renders nothing, writes nothing
 //   --help      this text
 
 import {
-  BridgeError, describe, filmCast, filmInfo, filmPath, frameCount, modelSheet, parseArgs, projectRoot,
+  BridgeError, describe, filmCast, filmHand, filmInfo, filmPath, frameCount, handFont, modelSheet, parseArgs, projectRoot,
   registerFiles, renderFilm, runMain, shown, slug, spriteSheet, type Planned,
 } from "./hdf-bridge.ts";
 import { join } from "node:path";
 
 const USAGE = `usage: bun run scripts/hdf-to-davidup.ts <film.js|name> --project <dir|name>
-         [--look <preset>] [--frames N] [--no-sheets] [--sprites [a,b]] [--states s] [--h px] [--no-video] [--dry-run]
+         [--look <preset>] [--frames N] [--no-sheets] [--sprites [a,b]] [--states s] [--h px] [--fonts [a,b]] [--no-video] [--dry-run]
 `;
 
 async function main(): Promise<number> {
@@ -72,6 +79,8 @@ async function main(): Promise<number> {
     if (!sprites.length) throw new BridgeError(`--sprites: ${film.name} has no cast (store puppets, or a \`cast\` export)`);
   }
 
+  const fonts = flags.fonts === undefined ? [] : flags.fonts === true ? [await filmHand(path, look)] : String(flags.fonts).split(",").filter(Boolean);
+
   if (dry) {
     process.stdout.write(
       [
@@ -79,6 +88,7 @@ async function main(): Promise<number> {
         ...(video ? [`${videoId}  video  hdf render ${shown(path)}${look ? ` --look ${look}` : ""}${frames !== undefined ? ` --frames ${frames}` : ""}`] : []),
         ...puppets.map((p) => `hdf-${slug(p)}-model  image  hdf sheet store ${p} --poses`),
         ...sprites.map((p) => `hdf-${slug(p)}-sprite  image  hdf sprite ${p} --film ${shown(path)} --alpha${states ? ` --states ${states}` : ""}`),
+        ...fonts.map((h) => `hdf-${slug(h)}-font  font  hdf hand --export-ttf ${h}  (family hdf-${slug(h)})`),
       ].join("\n") + "\n",
     );
     return 0;
@@ -90,7 +100,8 @@ async function main(): Promise<number> {
     const s = await spriteSheet(p, { film: path, look, states, h });
     planned.push({ id: `hdf-${slug(p)}-sprite`, type: "image", file: s.png, sheet: s.sheet });
   }
-  if (!planned.length) throw new BridgeError("nothing to register (--no-video with no sheets and no --sprites)");
+  for (const h of fonts) planned.push({ id: `hdf-${slug(h)}-font`, type: "font", file: await handFont(h), family: `hdf-${slug(h)}` });
+  if (!planned.length) throw new BridgeError("nothing to register (--no-video with no sheets, no --sprites and no --fonts)");
   const done = await registerFiles(join(root!, "composition.json"), planned);
   const lines = done.flatMap(({ asset, warnings }) => [describe(asset), ...warnings.map((w) => `  warning: ${w}`)]);
   process.stdout.write(`${shown(join(root!, "composition.json"))}\n${lines.map((l) => `  ${l}`).join("\n")}\n`);

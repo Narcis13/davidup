@@ -181,6 +181,19 @@ export async function filmCast(path: string, look?: string): Promise<string[]> {
   return Object.keys(await castOf(film, path)).sort();
 }
 
+/** The hand a film letters in (its look's, `--look` modifiers too): a store id, or `house`. */
+export async function filmHand(path: string, look?: string): Promise<string> {
+  const { loadFilm } = await import("../handdrawn/cli/load.mjs");
+  const { handOf } = await import("../handdrawn/core/looks.js");
+  const film = await loadFilm(path, { look });
+  return (handOf(film.look) as { name?: string } | null)?.name ?? "house";
+}
+
+/** `hdf hand --export-ttf <id>` (4.0 D3); returns the .ttf. */
+export async function handFont(hand: string): Promise<string> {
+  return printed(await hdf(["hand", "--export-ttf", hand, "--out", HDF_OUT]), ".ttf");
+}
+
 /** `hdf sheet store <id> --poses`; returns the model sheet's path. */
 export async function modelSheet(puppet: string): Promise<string> {
   return printed(await hdf(["sheet", "store", puppet, "--poses"]), ".jpg");
@@ -217,9 +230,11 @@ export function projectRoot(ref: string): string {
 
 export interface Planned {
   id: string;
-  type: "video" | "image";
+  type: "video" | "image" | "font";
   /** The file to copy in. */
   file: string;
+  /** A font's CSS family (4.0 D3). */
+  family?: string;
   /** An image that is a sprite sheet (4.0 D2). */
   sheet?: SpriteSheet;
 }
@@ -253,7 +268,7 @@ export async function registerFiles(compositionFile: string, planned: Planned[])
   for (const p of planned) {
     const src = `${ASSET_DIR}/${slug(p.id)}${extname(p.file)}`;
     copyFileSync(p.file, join(root, src));
-    const r = await dispatchTool(REGISTER, { id: p.id, type: p.type, src, ...(p.sheet ? { sheet: p.sheet } : {}) }, deps);
+    const r = await dispatchTool(REGISTER, { id: p.id, type: p.type, src, ...(p.sheet ? { sheet: p.sheet } : {}), ...(p.family ? { family: p.family } : {}) }, deps);
     if (!r.ok) throw new BridgeError(`register_asset ${p.id}: ${r.error.message}${r.error.hint ? ` (${r.error.hint})` : ""}`);
     const asset = store.getAsset(p.id)!;
     const at = doc.assets.findIndex((a: { id?: string }) => a?.id === p.id);
@@ -277,6 +292,7 @@ export function describe(asset: Asset): string {
     const s = asset.sheet;
     extra.push(`${s.count} frames of ${s.frameWidth}x${s.frameHeight}`, `cycles ${Object.keys(s.cycles ?? {}).join(", ")}`);
   }
+  if (asset.type === "font") extra.push(`family ${asset.family}`);
   return `${asset.id}  ${asset.type}  ${asset.src}${extra.length ? `  (${extra.join(", ")})` : ""}`;
 }
 

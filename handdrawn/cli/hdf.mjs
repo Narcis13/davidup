@@ -93,6 +93,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
   hand    --font <file.ttf|otf> --name <id> [--glyphs latin,cyrillic,greek,symbols] [--px 400] [--licence OFL]
                                     [--credit] [--root dir] [--no-sheet]   a font as a hand: each glyph it has drawn and
                                     traced to its centre lines (serifs pruned); no --licence is 'unknown' (lint credit)
+  hand    --export-ttf <id|house> [--family] [--pen 4.5] [--no-composites] [--text '...'] [--out dir]
+                                    a hand as a TrueType font: out/<id>.ttf (its strokes swept by the pen, composed
+                                    glyphs as composites) and out/<id>-ttf.png, the font over the hand lettered
+                                    (scripts/hdf-to-davidup.ts --fonts registers it as a davidup font)
   sheet   --hand <id>               a hand's page beside the house's: every glyph (house fallbacks marked), pangrams, its pen
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   remove  <id...> [--root dir]      drop entries from the store, with their sheets and any blob no other entry shares

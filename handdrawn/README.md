@@ -360,6 +360,27 @@ off the house's, to eyeball on the sheet. Without `--licence` the hand is
 `unknown`, and lint `credit` fails any film that letters in it (or names any
 asset so licensed); a free font is usually `OFL`.
 
+And the other way (4.0 D3): `hdf hand --export-ttf <id> [--family] [--pen 4.5]
+[--no-composites] [--text '...']` writes a stored hand (or `house`) as
+`out/<id>.ttf`, a TrueType font anything that sets type can use: davidup's
+text item, a word processor. Each glyph is its centre lines as `handText`
+draws them (slanted, corners overshot, entries hooked, seeded per stroke) swept
+by the pen (4.5 em units, `handText`'s own): a round cap at each end and at
+each join that turns more than 20°, a wedge at a gentler one, and a four-sided
+run along each step as wide as the hand's pressure at its middle, as the pen
+presses. The pieces overlap and all wind one way, so TrueType's non-zero fill
+is their union with no boolean work. The em is 1000 units (10 per em unit),
+ascender 950 and descender -300 (a line of 1.25, `layout`'s), the advance the
+glyph's plus the hand's track. A composed glyph (4.0 T2) that is one base and
+marks moved into place is a composite of the base's glyph and the marks' own
+(unencoded `mark.<name>` glyphs), so `ă` is `a` and a breve; a mark fitted to
+its base or squashed over a capital, and `æ`, are outlines. Characters
+the hand would letter as `?` are left out, so a type setter falls back to
+another face; `.notdef` is the hand's `?`. `core/ttf.js` writes the tables
+(glyf, loca, cmap format 4, hmtx, name, OS/2, post): opentype.js writes CFF
+with no composites, so there is no dependency. `out/<id>-ttf.png` is the proof,
+a line set in the font by skia above the same line lettered by `handText`.
+
 Paths are flattened polylines, so they transform, project, measure and hash
 trivially: `circle ellipse rect roundRect poly line cubic spline arc`, plus
 `xf box len at inside resample union`.
@@ -1384,6 +1405,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf board <film> [--cols 4] [--chapter N] [--shots]` | the time tree as text plus one storyboard card per shot; in a film with chapters, one card per chapter (its title card written, span, shots, cuts, recipes, lint), `--chapter N` that chapter's shots, `--shots` every shot |
 | `hdf sheet <film> <cel>` | the cel at 3 scales × input extremes × every look, silhouette, 240 px |
 | `hdf sprite <puppet\|stick:<name>> [--states idle,walk,happy] [--fps 12] [--h 300] [--alpha] [--dir 1] [--cols N] [--idle 2] [--look] [--film <film>]` | a cast member as a sprite sheet for davidup's sprite item (4.0 D2): `out/<id>-sprite[-alpha].png`, each state a run of equal cells (a cycle one loop at `--fps`, a travelling one standing on its planted foot; a pose or expression one held frame), and `<id>-sprite.json` beside it (`frameWidth`, `frameHeight`, `columns`, `count`, `fps`, `cycles` with a walk's `speed` in px/s, `anchor` at the feet, `frames`). The puppet is a store id, `stick:<name>[:<build>]`, a payload `.json`, or with `--film` a member of that film's cast (its store puppets and its `cast` export) |
+| `hdf hand --export-ttf <id\|house> [--family] [--pen 4.5] [--no-composites] [--text '...'] [--out dir]` | a hand as a TrueType font (4.0 D3): `out/<id>.ttf`, each glyph its centre lines swept by the pen (pressure, slant, overshoot and hook as `handText` pens them), composed glyphs as composites; `out/<id>-ttf.png` the proof, the font set by skia over the hand lettered |
 | `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip → `assets/sheets/<id>.jpg` |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
@@ -1425,6 +1447,10 @@ bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox-clip
 bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox --alpha
 #   fox plays hdf-fox-wave  video  assets/hdf/hdf-fox-wave.mov  (1080x1080, 3s, alpha, sound)
 
+# the hand the film letters in, as a font for davidup's text items (--fonts a,b for others)
+bun run scripts/hdf-to-davidup.ts walk-on --look 'paperInk~hand:test' --project ~/videos/promo --fonts --no-video --no-sheets
+#   hdf-test-font  font  assets/hdf/hdf-test-font.ttf  (family hdf-test)
+
 # the cast as sprite sheets, no video: each member an image with its `sheet`
 bun run scripts/hdf-to-davidup.ts walk-on --project ~/videos/promo --sprites --no-video --no-sheets
 #   hdf-fox-sprite  image  assets/hdf/hdf-fox-sprite.png  (33 frames of 234x300, cycles idle, walk, happy)
@@ -1456,6 +1482,13 @@ without the feet sliding, and a second sprite on the same sheet with
 `cycle: "happy"` takes over at the walk's `exit`. `--states`, `--h` and
 `--no-video` shape it. `examples/hdf-sprite/agent.mjs` does that as an agent
 does, over the MCP protocol.
+
+With `--fonts [a,b]` (4.0 D3) the hand the film letters in (its look's, a
+`--look` modifier too; `house` when none) or the hands named are written by
+`hdf hand --export-ttf` and registered as `hdf-<hand>-font`, a font asset of
+family `hdf-<hand>`: `add_text` with `font: "hdf-<hand>-font"` sets a title in
+the film's own hand through davidup's text path. `examples/hdf-font/agent.mjs`
+does that as an agent, and saves the frame beside the proof.
 
 ---
 

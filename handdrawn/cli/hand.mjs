@@ -12,6 +12,9 @@
 //                                                        every set by default, the font drawing those it has; --px 400)
 //   hdf hand --template --letter test > out/sample.jpg   a page filled in by a stored hand, as a 300 dpi JPEG
 //                                                        (the latin page; --pages symbols or marks for another)
+//   hdf hand --export-ttf narcis                         a stored hand as a TrueType font (4.0 D3): out/narcis.ttf, and
+//                                                        out/narcis-ttf.png, a line set in it over the same line lettered
+//                                                        (--family, --pen 4.5 em units, --no-composites, --text '...')
 //   ... --root ../other                                  into (or from) a store that is not handdrawn/assets
 //
 // Reading a sheet writes the hand into the store, its page next to the house's (assets/sheets/<id>.jpg, as
@@ -19,12 +22,14 @@
 // the latin page, out/hand-<id>-trace-<page>.jpg for the others). Each photo's page is read off its code, in any
 // order. Boxes left blank, and pages not photographed, are drawn by the house hand, glyph by glyph; the report
 // names the blank boxes.
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FontLibrary, loadImage } from 'skia-canvas';
+import { TTF_PEN, handFont } from '../core/handttf.js';
+import { ttfBytes } from '../core/ttf.js';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
-import { GLYPHS, MARKS, asHand } from '../core/glyphs.js';
+import { GLYPHS, MARKS, asHand, houseHand } from '../core/glyphs.js';
 import { FONT_MARKS, GLYPH_SETS, emScale, fontHandRecord, pressureOf, setsOf, strays } from '../core/fonthand.js';
 import { MAPS, hersheyHand, mapFor, mergeHand } from '../core/hershey.js';
 import {
@@ -33,7 +38,7 @@ import {
 import { group, poly, stroke } from '../core/list.js';
 import { LOOKS, modifyLook } from '../core/looks.js';
 import { hash32, rng } from '../core/rand.js';
-import { handText } from '../core/text.js';
+import { handText, measure } from '../core/text.js';
 import { place } from '../core/tree.js';
 import { putPayload } from './import.mjs';
 import { parseArgs } from './hdf.mjs';
@@ -201,6 +206,7 @@ export async function run(args, flags) {
       flags: { licence: 'own', credit: data.credit, tags: 'hand,synthetic', ...flags },
     });
   }
+  if (flags.exportTtf !== undefined) return exportTtf(flags);
   if (flags.hershey !== undefined) return hershey(flags);
   if (flags.font !== undefined) return font(flags);
   if (!args.length) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <page.jpg ...> --name <id>, hdf hand --hershey <file.jhf> --name <id>, hdf hand --font <file.ttf> --name <id>, or hdf hand --synth <id>');
@@ -271,6 +277,50 @@ async function hershey(flags) {
   process.stdout.write(`${report}\n`);
   if (flags.sheet !== false) await handSheetFile(id, flags);
   return code;
+}
+
+// ---------- the hand as a font (4.0 D3) ----------
+
+export const PROOF_TEXT = 'Hamburgefonstiv 0123 ăîșț!?';
+
+// The proof: the line set in the font by skia (davidup's text path: FontLibrary and fillText) on top, the same
+// line lettered by handText in the hand below it, the pen as wide as the font's, the wobble and second ink off.
+export function ttfProof(file, hand, { text = PROOF_TEXT, size = 96, pen = TTF_PEN } = {}) {
+  const alias = `hdf-ttf-${hash32('ttf', resolve(file), readFileSync(file).length).toString(36)}`;
+  FontLibrary.use(alias, [resolve(file)]);
+  const H = asHand(hand), pad = Math.round(size * 0.4), w = Math.ceil(measure(text, size, H) + 2 * pad), h = Math.ceil(2 * pad + size * 2.6);
+  const canvas = skiaCanvas(w, h), g = canvas.getContext('2d');
+  g.fillStyle = '#fbf8f1'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#1b1a17'; g.font = `${size}px "${alias}"`; g.textBaseline = 'alphabetic';
+  g.fillText(text, pad, pad + size);
+  const look = modifyLook(LOOKS.paperInk, [['hand', H.name]], { [H.name]: H });
+  paint([handText(text, pad, pad + size * 2.3, { size, hand: H, ink2: null, w: size * pen / 100 })], { look, W: w, H: h, onto: canvas, seed: 1 });
+  return canvas;
+}
+
+// --export-ttf <id> [--family] [--pen] [--no-composites] [--text]: a stored hand (or the house) as out/<id>.ttf.
+async function exportTtf(flags) {
+  const id = flags.exportTtf === true ? '' : String(flags.exportTtf);
+  if (!id) throw new UsageError('hand: need --export-ttf <hand>, e.g. hdf hand --export-ttf narcis');
+  let rec;
+  if (id === 'house') rec = null;
+  else {
+    const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
+    if (!st.has(id) || st.entry(id).kind !== 'hand') throw new UsageError(`hand: no hand '${id}' in the store`);
+    rec = { ...st.json(id), name: id, credit: st.entry(id).credit, licence: st.entry(id).licence };
+  }
+  const pen = flags.pen === undefined ? TTF_PEN : Number(flags.pen);
+  if (!(pen > 0 && pen <= 20)) throw new UsageError(`hand: --pen ${flags.pen} (the pen's width in em units, a size is 100; 4.5 is handText's)`);
+  const family = flags.family === undefined || flags.family === true ? id : String(flags.family);
+  const got = handFont(rec ?? houseHand(), { family, pen, composites: flags.composites !== false });
+  const bytes = ttfBytes(got.font), file = join(outDir(flags), `${id}.ttf`);
+  writeFileSync(file, bytes);
+  const outlines = got.font.glyphs.length - 1 - got.composites - got.marks;
+  process.stdout.write(`${file}  ${family}: ${got.chars.length} characters (${outlines} outlines, ${got.composites} composites of ${got.marks} marks), ${(bytes.length / 1024).toFixed(0)} KB\n`);
+  const proof = join(outDir(flags), `${id}-ttf.png`);
+  await ttfProof(file, rec ?? houseHand(), { pen, ...(typeof flags.text === 'string' ? { text: flags.text } : {}) }).toFile(proof);
+  process.stdout.write(`${proof}  the font set by skia (top) over the hand lettered by handText\n`);
+  return 0;
 }
 
 // ---------- a font (4.0 T4) ----------

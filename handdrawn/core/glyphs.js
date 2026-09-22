@@ -327,6 +327,10 @@ function compose([base, ...marks], H) {
   const over = H.stroke?.overshoot ?? 0, box = inkBox(s) ?? [0, -48, w, 0], [x0, y0, x1, y1] = box, bw = x1 - x0, bh = y1 - y0, tall = y0 < TALL;
   const [, rTop, , rBottom] = over > 0 ? inkBox(s, over) ?? box : box;   // the ink as the pen draws it: marks clear it
   let top = rTop, level = rTop;
+  // parts (4.0 D3): the glyph as a base character and marks moved into place, for a font to write as a composite
+  // glyph; only when the base is one character drawn as it stands (an i or a j losing its dot is ı or ȷ).
+  const one = seq.length === 1 && sx === 1 && !b.turn && !b.dy, dotless = { i: 'ı', j: 'ȷ' }[seq[0]];
+  let parts = one && (!b.dotless || (dotless && !H.glyphs[dotless])) ? [{ ch: b.dotless ? dotless : seq[0] }] : null;
   for (const m of marks) {
     const [name, at0, o = {}] = typeof m === 'string' ? [m] : m, at = at0 ?? MARKS[name].at;
     const mine = H.marks?.[name], ms = mine?.s ?? MARKS[name].s, mb = inkBox(ms);
@@ -351,8 +355,9 @@ function compose([base, ...marks], H) {
     else if (Array.isArray(at)) { tx = x0 + at[0] * bw; ty = y0 + at[1] * bh; }
     else throw new Error(`COMPOSE: mark '${name}' at '${at}' (expected above | below | attach | ogonek | through | [fx, fy])`);
     for (const pts of ms) s.push(mapPts(pts, (x, y) => [tx + dx + (x - mcx) * kx, ty + dy + (y - mcy) * ky]));
+    parts?.push({ mark: name, kx, ky, x: tx + dx - mcx * kx, y: ty + dy - mcy * ky });
   }
-  return { w, s, k: 1, own };
+  return parts ? { w, s, k: 1, own, parts } : { w, s, k: 1, own };
 }
 
 // The characters of str a hand draws with house glyphs (a hand fitted from a sheet may miss some).

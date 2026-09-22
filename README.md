@@ -586,6 +586,13 @@ sprites on the same sheet and hand over with `exit` / `enter`.
 `hdf sprite` in `handdrawn/` draws a puppet's states into one; see
 [`examples/hdf-sprite/agent.mjs`](./examples/hdf-sprite/agent.mjs).
 
+**A handwriting font.** `hdf hand --export-ttf <id>` in `handdrawn/` writes a
+hand (a person's handwriting read off a photographed sheet, a Hershey font,
+the house hand) as a TrueType font, so a `text` item letters in the same hand
+as a hand-drawn film; `scripts/hdf-to-davidup.ts <film> --project <dir>
+--fonts` registers it as a `font` asset. See
+[`examples/hdf-font/agent.mjs`](./examples/hdf-font/agent.mjs).
+
 Audio/video metadata is filled in by `ffprobe` on `register_asset` when
 available; without it the asset still registers (with a warning). The
 browser asset loader understands `global:assets/...` and `global:fonts/...`

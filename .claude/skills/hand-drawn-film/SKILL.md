@@ -501,6 +501,7 @@ image asset. Run from the repo root:
 bun run scripts/hdf-to-davidup.ts fox-and-teapot --project <dir|name> [--look risoPop] [--dry-run]
 bun run scripts/davidup-hdf-clip.ts <project>/composition.json <video-item-id> [--film <film>] [--alpha [mov|webm]]
 bun run scripts/hdf-to-davidup.ts walk-on --project <dir> --sprites [sam] [--states idle,walk,happy] [--no-video]
+bun run scripts/hdf-to-davidup.ts <film> --project <dir> --fonts [narcis,house] [--no-video] [--no-sheets]
 ```
 
 The first renders and registers `hdf-<film>` (video) and `hdf-<puppet>-model`
@@ -531,6 +532,15 @@ stage by an `x` tween at the cycle's `speed`; a second sprite on the sheet
 takes over (`exit` / `enter`) to stop and be happy.
 `examples/hdf-sprite/agent.mjs` is the pattern. A performance (reach, look
 at, lip sync) stays a film.
+
+**A title in the hand.** When davidup sets the words (a title card, lower
+thirds, captions in a composition), `hdf hand --export-ttf <id>` writes the
+hand as `out/<id>.ttf`, its strokes swept by the pen, and `--fonts` on
+`hdf-to-davidup.ts` registers the film's hand (or the ones named) as
+`hdf-<id>-font`; `add_text` with that `font` letters in the same hand as the
+film. Look at `out/<id>-ttf.png` (the font above the lettering) first. The font
+is still: no wobble, no draw-on. Words that write themselves stay a film.
+`examples/hdf-font/agent.mjs` is the pattern.
 
 ## Procedure
 

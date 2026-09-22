@@ -389,3 +389,6 @@ so davidup's render keeps it: an overlay clip.
 registers it as `hdf-<name>-sprite`, an image with a `sheet`; a davidup sprite
 on it takes `cycle` (a state by name) or a tweenable `frame`. The cast is the
 film's store puppets and its module's `cast` export (name -> actor or puppet).
+`hdf-to-davidup.ts --fonts [a,b]` writes the film's hand (or those named, store
+ids or `house`) with `hdf hand --export-ttf` and registers `hdf-<hand>-font`, a
+font asset of family `hdf-<hand>`, for `add_text`'s `font`.
