@@ -78,7 +78,12 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `film({ name, look, timeline, score, format: ar = '1:1', assets = {}, audience = 'general' } = {})` The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ...
 - `frame(f, i, { ar } = {})` frame(film, i, { ar }) => { list, look, shot, t, k } for drawn frame i (0 <= i < film.n).
 - `describe(f)` Indented text: the tree with durations and spans, cels per shot, then the cues.
-- `cues(f)` { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], end }. Times come from frame counts, so they sit on the grid.
+- `cues(f)` { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], chapters: [{ n, title, t0, dur }], end }.
+- `chapterSeq(title, kids, { card = null, hold: h = 0 } = {})` A chapter (4.0 E1): a seq that carries a title, so the board, grid, render and lint can take a film a chapter at a time.
+- `chapters(f)` chapters(film) => [{ n, title, card, f0, frames, t0, dur, node }] in the order they play (n from 1): every chapter() in the tree, where it starts in the whole film and how long it lasts.
+- `chapterAt(f, i, list = chapters(f))` The chapter a whole-film frame falls in, or null (a title before the first, the sign-off after the last).
+- `chapterFilm(f, k)` chapterFilm(film, k): chapter k (from 1) as an excerpt, with `chapter` the entry chapters() gives.
+- `excerpt(f, f0, n)` excerpt(film, f0, n): frames f0 .. f0 + n - 1 of the film as a film of n frames.
 
 ### core/puppet.js
 
@@ -425,6 +430,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `bez([p0, p1, p2, p3], u)` A point on a cubic Bezier [p0, c0, c1, p1] at u. <sub>recipes/shots.js</sub>
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>
+- `chapter(head, ...nodes)` chapter(title | { title, sub, actor, audience, hand, card, hold, ... <sub>recipes/teach.js</sub>
 - `ellipseRot(x, y, rx, ry, rot = 0, n = 64)` An ellipse turned by rot about its centre. <sub>recipes/shots.js</sub>
 - `flower` A flower to label (AO's default): petals, a centre, a stem, a leaf, roots. <sub>recipes/teach.js</sub>
 - `hog(d, x, y, s, o = {})` The hedgehog of v1 held-once and night-shift: gouache body, quill wash, brush outline, dot eyes, a scarf (the anchor colour). <sub>recipes/doodle.js</sub>

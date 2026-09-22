@@ -19,9 +19,11 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
                                     [--alpha [mov|webm]]   no stock, transparency kept: <film>-alpha.mov (ProRes 4444)
                                     or .webm (VP9), an overlay clip for davidup (scripts/davidup-hdf-clip.ts --alpha)
-  grid    <film.js> [--n 24] [--width 480]
+                                    [--chapter N]   chapter N only (from 1), to <film>-ch<N>.*, with its stretch of the score
+  grid    <film.js> [--n 24] [--width 480] [--chapter N]
   only    <film.js> 0,37,74
-  board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg)
+  board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg): a card per shot,
+                                    or per chapter in a film with chapters ([--chapter N] its shots, [--shots] every shot)
   sheet   <film.js> <cel>           cel at 3 scales x input extremes x every look, silhouette, 240 px
   sheet   store <id> [--pose p] [--cycle c]   a puppet in the store: every pose, every variant, the cycle as a strip
                                     (a motif: the drawing at 3 scales in every look)
@@ -29,7 +31,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     cycles, credits on one page (assets/sheets/<id>-model.jpg)
   sheet   store <id> --vocabulary [--look]   the biped vocabulary's poses, expressions and cycles that apply to it
                                     (packs/poses/biped.json; assets/sheets/<id>-vocabulary.jpg)
-  lint    <film.js>                 review checklist over lists; exits 1 on any finding
+  lint    <film.js>                 review checklist over lists; exits 1 on any finding (a line per chapter after)
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json; --alpha: <film>-alpha.json

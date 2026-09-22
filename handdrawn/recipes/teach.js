@@ -4,6 +4,7 @@
 //   labelled({ subject, labels })               AO  leader-line labels arriving in order, the camera nudging to each
 //   counting({ items, n })                      AP  objects appearing one by one with digits and a tally
 //   compare({ left, right, sign })              AQ  a split frame, two subjects, the sign drawn last
+//   chapter(title, ...nodes)                        a chapter: its title card (AN), the nodes, a hold (4.0 E1)
 //
 // They time themselves: `dur` defaults to what the copy needs for the audience (`audience:`, a key of
 // AUDIENCES: how big the letters are, how fast the pen writes, how fast the viewer reads, how long a thing
@@ -24,10 +25,11 @@ import {
   fill, stroke, group, circle, ellipse, line, poly, spline, place, cel, ramp, ease, reveal, handText, cam,
 } from '../core/index.js';
 import { bounds, withProps } from '../core/list.js';
+import { chapterSeq } from '../core/tree.js';
 import { audienceOf } from '../core/audience.js';
 import { writing } from '../core/write.js';
 import { writer } from '../packs/hands.js';
-import { recipe, actorFigure } from './recipe.js';
+import { recipe, actorFigure, onGrid } from './recipe.js';
 
 const lerp = (a, b, u) => a + (b - a) * u;
 const words = (s) => String(s ?? '').split(/\s+/).filter(Boolean).length;
@@ -148,6 +150,28 @@ export const titleCard = recipe('AN', 'title', {
     hand,
   ];
 }, { anchor: { name: 'title' }, cast: false });
+
+// ---------- chapters (4.0 E1) ----------
+
+// chapter(title | { title, sub, actor, audience, hand, card, hold, ... }, ...nodes): a lesson's chapter, a seq
+// of a title card, the nodes and a hold. The card is titleCard with the chapter's title and whatever else the
+// options carry (sub, actor, audience, hand, side, ...), named 'card: <title>'; `card` gives a node of your
+// own instead, options merged into the default, or false for none. `hold` seconds (on the grid) of the last
+// node's last frame close the chapter, a beat before the next title: by default the audience's dwell, and at
+// least its cut floor (so a hold is never a shot lint calls too short); 0 for none. The board, `hdf grid
+// --chapter n`, `hdf render --chapter n` and lint's chapter lines take the film a chapter at a time; a lesson
+// runs up to 180 s, a chapter every 20 to 40 s.
+export function chapter(head, ...nodes) {
+  const o = typeof head === 'string' ? { title: head } : { ...head };
+  const { title, card, hold, ...rest } = o;
+  if (typeof title !== 'string' || !title.trim()) throw new TypeError('chapter: needs a title');
+  const A = audienceOf(rest.audience);
+  const made = card === false ? null
+    : card?.kind ? card
+      : titleCard({ name: `card: ${title}`, title, ...rest, ...(card ?? {}) });
+  const h = hold ?? onGrid(Math.max(A.dwell, A.cutFloor));
+  return chapterSeq(title, nodes, { card: made, hold: h });
+}
 
 // ---------- AO. labelled ----------
 

@@ -15,11 +15,11 @@ const decoded = new WeakMap();
 const records = new WeakMap();
 
 // asset id -> decoded image for a film loaded through loadFilm (empty for any other film).
-export const imagesOf = (film) => decoded.get(film) ?? new Map();
+export const imagesOf = (film) => decoded.get(film) ?? decoded.get(film?.whole) ?? new Map();   // an excerpt reads its whole film's
 
 // asset id -> record ({ name, w, h, sil, src, ... } as `hdf photo` writes it) for a film loaded through
 // loadFilm: the store entries its `assets` named, resolved. A 2.0 film's own object, unchanged.
-export const assetsOf = (film) => records.get(film) ?? film?.assets ?? {};
+export const assetsOf = (film) => records.get(film) ?? records.get(film?.whole) ?? film?.assets ?? {};
 
 // film.assets is either the 2.0 object ({ id: record }) or a list of store references: an id, or
 // { id, from: '<dir>' } for a store that is not handdrawn/assets (`from` is read relative to the film).

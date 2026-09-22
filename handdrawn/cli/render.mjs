@@ -4,17 +4,18 @@
 //   out/<film>-final.mp4  picture + sound     out/<film>-sheet.jpg  two tiles per second
 // It also records every frame's list hash and a thumbnail per hash, the baseline for `hdf changed`.
 // --frames N renders the first N frames only, to out/<film>-<N>f.* so a full render's files are left alone.
+// --chapter N (4.0 E1) renders chapter N only (chapters(film), from 1), to out/<film>-ch<N>.*: its frames are
+//   the whole film's, its sound the whole score's stretch under it; with --frames, the chapter's first N frames.
 // --alpha [mov|webm] (4.0 D1): no stock (paper() and night() draw nothing), encoded with its alpha as
 //   out/<film>-alpha.mov (ProRes 4444, the default) or .webm (VP9), the sound muxed into -final.mov / .webm;
 //   the contact sheet shows the frames on a checkerboard. The overlay clip for a davidup composition.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { cues } from '../core/tree.js';
-import { FPS } from '../core/curves.js';
+import { excerpt, localCues } from '../core/tree.js';
 import { filmAudio, toWav16 } from '../core/synth.js';
 import { ALPHA_CODECS, alphaArgs, ffmpegSink, h264Args } from './ffmpeg.mjs';
-import { contactSheet, outDir, variant } from './sheets.mjs';
+import { chapterOf, contactSheet, outDir, variant } from './sheets.mjs';
 import { defaultWorkers, produceFrames } from './frames.mjs';
 import { tracker } from './changed.mjs';
 import { UsageError } from './load.mjs';
@@ -39,12 +40,12 @@ export function alphaCodec(v) {
 
 export async function run([path], flags, { loadFilm }) {
   const codec = alphaCodec(flags.alpha), ext = codec ? `.${codec}` : '.mp4';
-  let film = await loadFilm(path);
+  let film = chapterOf(await loadFilm(path), flags.chapter);
   const cut = flags.frames;
   if (cut !== undefined && (!Number.isInteger(cut) || cut < 1)) throw new UsageError(`render: --frames takes a whole number of frames >= 1 (got ${cut})`);
-  if (cut !== undefined && cut < film.n) film = Object.freeze({ ...film, n: cut, dur: cut / FPS });
+  if (cut !== undefined && cut < film.n) film = excerpt(film, 0, cut);
   const workers = flags.workers ?? defaultWorkers();
-  const base = join(outDir(flags), variant(film, flags) + (cut !== undefined ? `-${film.n}f` : ''));
+  const base = join(outDir(flags), variant(film, flags) + (flags.chapter !== undefined ? `-ch${flags.chapter}` : '') + (cut !== undefined ? `-${film.n}f` : ''));
   const opts = { look: flags.look, alpha: !!codec, ar: flags.ar, width: flags.width, workers, cacheMb: flags.cacheMb ?? 512, diskCache: flags.diskCache };
   const sheet = contactSheet(film, { ar: flags.ar, width: flags.width, alpha: !!codec });
   const hashes = tracker(film, base, { ar: flags.ar, outW: sheet.outW, outH: sheet.outH });
@@ -67,7 +68,8 @@ export async function run([path], flags, { loadFilm }) {
   hashes.write();
   if (process.stderr.isTTY) process.stderr.write('\r');
   const s = (performance.now() - t0) / 1000, { size, stats } = result;
-  const lines = [`${base}${ext}  ${film.n} frames  ${size.outW}x${size.outH}  ${s.toFixed(1)}s (${(film.n / s).toFixed(1)} fps)  workers ${stats.workers}  dups ${stats.dups}`];
+  const at = film.chapter ? `  chapter ${film.chapter.n} '${film.chapter.title}' from ${film.chapter.t0.toFixed(2)}s` : '';
+  const lines = [`${base}${ext}  ${film.n} frames${at}  ${size.outW}x${size.outH}  ${s.toFixed(1)}s (${(film.n / s).toFixed(1)} fps)  workers ${stats.workers}  dups ${stats.dups}`];
 
   const audio = flags.sound === false ? null : filmAudio(film);
   if (audio) {
@@ -78,7 +80,7 @@ export async function run([path], flags, { loadFilm }) {
       '-c:v', 'copy', ...mux, '-shortest', `${base}-final${ext}`]);
     lines.push(`${base}.wav  ${audio.events.length} events`, `${base}-final${ext}`);
   }
-  await sheet.write(`${base}-sheet.jpg`, { cues: cues(film), events: audio?.events ?? [] });
+  await sheet.write(`${base}-sheet.jpg`, { cues: localCues(film), events: audio?.events ?? [] });
   lines.push(`${base}-sheet.jpg`);
   process.stdout.write(lines.join('\n') + '\n');
   return 0;

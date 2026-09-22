@@ -197,6 +197,13 @@ The long method for finding the idea in an object is v1's
 Recipes AN to AQ live in `handdrawn/recipes/teach.js` and are re-exported
 from `shots.js`. `films/lesson.js` runs all four on the whiteboard.
 
+- **Chapters (E1).** `chapter(title | { title, card, hold, ...titleCard
+  options }, ...nodes)`: AN (named `card: <title>`), the nodes, then a hold of
+  the last frame (the audience's dwell, at least its cut floor: general 0.5 s,
+  beginner 1, kids-9 1.5, kids-7 2, kids-5 2.5). A chapter is 20 to 40 s; a
+  card for a one-word title at kids-9 is about 2 s. `films/chapters.js` has
+  three.
+
 - **They time themselves.** `dur` defaults to what the copy needs for
   `audience:` (`general`, `beginner`, `kids-9`, `kids-7`, `kids-5`; the table
   is `AUDIENCES`): the pen writes at `write` characters a second, the viewer

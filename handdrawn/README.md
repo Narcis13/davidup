@@ -183,6 +183,34 @@ Durations must sit on the 1/12 s grid (0.25, 0.5, 11/12 are fine; 0.3 is
 not); `seq` throws at construction otherwise. Transition kinds: `dissolve
 wipe blot iris mosaic flash flicker`, plus the other fx (below).
 
+**Chapters (4.0 E1).** A lesson runs up to 180 s, cut into chapters of 20 to
+40 s. `chapter(title, ...nodes)` (from `recipes/shots.js`) is a `seq` of a
+title card (`titleCard`, named `card: <title>`), the nodes, and a hold of the
+last node's last frame:
+
+```js
+timeline: seq(
+  chapter({ title: 'the moon', actor: SAM, audience }, labelled({ ... }), counting({ ... })),
+  chapter({ title: 'phases', sub: 'eight of them', actor: SAM, audience, hold: 1 }, cycleShot),
+  chapter({ title: 'quiz', card: false }, quizShot),   // card: a node of your own, options for titleCard, or false
+  signOffShot({ a: 'sam', b: 'says hi' }),
+)
+```
+
+The options other than `card` and `hold` go to the title card (`sub`, `actor`,
+`audience`, `hand`, `side`, ...). `hold` defaults to the audience's dwell, at
+least its cut floor, so the beat between chapters is never a shot lint calls
+too short; `0` for none. Marking a seq a chapter changes no frame (the core
+form is `chapterSeq(title, nodes, { card, hold })`), and chapters do not nest.
+`chapters(film)` lists them (`n` from 1, `f0`, `frames`, `t0`, `dur`), the
+score's cues carry them as `chapters: [{ n, title, t0, dur }]`, and
+`chapterFilm(film, n)` is one chapter as a film of its own: an excerpt whose
+frames are the whole film's, pixel for pixel, and whose sound is the whole
+score's stretch under it. `hdf board` gives a card per chapter, `hdf grid
+--chapter n` and `hdf render --chapter n` take one, and lint ends with a line
+per chapter. A chapter's title card is its own word allowance, like the
+sign-off.
+
 ### Look: the interpreter
 
 The same list renders as ink on paper, riso dots or graphite by changing one
@@ -323,6 +351,9 @@ shot. Subjects are functions, so any cel rides any recipe:
 | Y | `patternSampler` | pencil | a 4 × 4 grid of lattices, one cell per frame |
 | Z | `enso` | pencil | a brush circle draws itself round a figure |
 | AA–AM | `becomesVehicle livesInside doesItsJob timeOnIt nightFalls printsOnALine lightEscapes alongTheEdge insideTheTube looksBack getaway caughtLetGo sunrise` | doodle | gags on a cut-out photo: it becomes a boat, someone lives inside, it pours, night falls, the prints hang on a line… |
+
+The teaching set (4.0 E2): AN `titleCard`, AO `labelled`, AP `counting`, AQ
+`compare`, and `chapter` (E1) that opens each chapter of a lesson with AN.
 
 `CARDS` exports three sample riso cards that O, P and Q use by default.
 Timing notes for each recipe are in `references/recipes.md`.
@@ -983,10 +1014,10 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 
 | command | does |
 |---|---|
-| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N] [--alpha [mov\|webm]]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*`. `--alpha` draws on no stock (the `~alpha` look modifier on every look the film pins) and keeps the transparency: `<film>-alpha.mov` (ProRes 4444) or `.webm` (VP9), `-final.mov` / `.webm` with sound, the contact sheet on a checkerboard; `golden --alpha` is a golden of its own |
-| `hdf grid <film> [--n 24] [--width 480]` | n frames spread over the film in one JPEG |
+| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N] [--chapter N] [--alpha [mov\|webm]]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*`. `--chapter N` draws chapter N only, to `<film>-ch<N>.*`, with its stretch of the score (with `--frames`, that chapter's first N frames). `--alpha` draws on no stock (the `~alpha` look modifier on every look the film pins) and keeps the transparency: `<film>-alpha.mov` (ProRes 4444) or `.webm` (VP9), `-final.mov` / `.webm` with sound, the contact sheet on a checkerboard; `golden --alpha` is a golden of its own |
+| `hdf grid <film> [--n 24] [--width 480] [--chapter N]` | n frames spread over the film (or one chapter, `<film>-ch<N>-grid.jpg`) in one JPEG |
 | `hdf only <film> 0,37,74` | single frames as full-size PNGs |
-| `hdf board <film> [--cols 4]` | the time tree as text plus one storyboard card per shot |
+| `hdf board <film> [--cols 4] [--chapter N] [--shots]` | the time tree as text plus one storyboard card per shot; in a film with chapters, one card per chapter (its title card written, span, shots, cuts, recipes, lint), `--chapter N` that chapter's shots, `--shots` every shot |
 | `hdf sheet <film> <cel>` | the cel at 3 scales × input extremes × every look, silhouette, 240 px |
 | `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip → `assets/sheets/<id>.jpg` |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
@@ -1201,6 +1232,12 @@ of naming in the store (`hdf import --v2`); a film built in memory (a test, a
 sketch) is welcome to keep its pixels. It also warns (`caption-sync`) on
 captions or a voiced `say` timed by the estimate over more than 3 s: `hdf
 align <id>` fixes that.
+
+It warns (`length`) on a film over 180 s, a film over 40 s in no chapters, and
+a chapter over 40 s. A film in chapters ends its lint with a line per chapter:
+`chapter 2 'counting'  9.42-15.92s  6.50s  2 shots  1 cut  AN AP  lint clean`
+(its span, its shots and the cuts inside it, a hold not counted as either, the
+recipes it uses, and the findings on its frames).
 
 Each finding names the shot, frame, rule and fix. Taste (one idea per shot,
 composition, timing, cuts, riso density) is the review list in `SKILL.md`.

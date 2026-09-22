@@ -8,9 +8,9 @@ import { format } from '../core/fit.js';
 import { skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
 import { norm } from '../core/list.js';
-import { seedList } from '../core/tree.js';
+import { chapterFilm, seedList } from '../core/tree.js';
 import { voiceSpans } from '../core/synth.js';
-import { imagesOf } from './load.mjs';
+import { imagesOf, UsageError } from './load.mjs';
 
 // A canvas sized for the film at an output width, and a function drawing frame i on it.
 export function frameCanvas(film, { ar, width } = {}) {
@@ -54,6 +54,13 @@ export function tileSheet(tiles, { cols = 4, gap = 16, label = 0 } = {}) {
 // gallop-risoPop-16x9, fox-wave-alpha.
 export const variant = (film, flags) => `${film.name}${flags.look ? '-' + flags.look : ''}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}${flags.alpha ? '-alpha' : ''}`;
 
+// --chapter N (4.0 E1): the film's chapter N as an excerpt (chapters(film), from 1); a usage error for a film
+// without it. Without the flag, the film.
+export function chapterOf(film, k) {
+  if (k === undefined) return film;
+  try { return chapterFilm(film, k); } catch (e) { throw new UsageError(`--chapter: ${e.message}`); }
+}
+
 export const outDir = (flags) => { const d = resolve(flags.out ?? 'out'); mkdirSync(d, { recursive: true }); return d; };
 
 function parseFrames(spec, n) {
@@ -79,8 +86,9 @@ export async function only([path, list], flags, { loadFilm }) {
 }
 
 // n frames spread evenly over the film (first and last included), six to a row, each with a label bar.
+// --chapter N: over that chapter only (out/<film>-ch<N>-grid.jpg), labelled with the whole film's frames.
 export async function grid([path], flags, { loadFilm }) {
-  const film = await loadFilm(path);
+  const film = chapterOf(await loadFilm(path), flags.chapter), from = film.from ?? 0;
   const n = Math.min(flags.n ?? 24, film.n), tileW = flags.width ?? 480, bar = Math.round(tileW * 0.075);
   const { canvas: tile, size, draw } = frameCanvas(film, { ar: flags.ar, width: tileW });
   const cols = Math.min(6, n), rows = Math.ceil(n / cols), th = size.outH + bar;
@@ -94,9 +102,9 @@ export async function grid([path], flags, { loadFilm }) {
     const f = draw(i), x = (j % cols) * size.outW, y = Math.floor(j / cols) * th;
     g.drawImage(tile, x, y);
     g.fillStyle = '#f0f0f0';
-    g.fillText(`${String(i).padStart(3, '0')}  ${(i / FPS).toFixed(2)}s  ${f.shot}`, x + 5, y + size.outH + bar / 2);
+    g.fillText(`${String(from + i).padStart(3, '0')}  ${((from + i) / FPS).toFixed(2)}s  ${f.shot}`, x + 5, y + size.outH + bar / 2);
   }
-  const file = join(outDir(flags), `${variant(film, flags)}-grid.jpg`);
+  const file = join(outDir(flags), `${variant(film, flags)}${flags.chapter !== undefined ? `-ch${flags.chapter}` : ''}-grid.jpg`);
   await sheet.toFile(file, { quality: 0.9 });
   process.stdout.write(`${file}\n`);
   return 0;

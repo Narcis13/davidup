@@ -109,6 +109,28 @@ export function hold(dur, child) {
   return Object.freeze({ kind: 'hold', dur, n: frames(dur, 'hold'), child });
 }
 
+// A chapter (4.0 E1): a seq that carries a title, so the board, grid, render and lint can take a film a
+// chapter at a time. Frames are the seq's own: marking a seq a chapter changes no pixel. `card` is the chapter's
+// title card (the recipes' chapter() makes one with titleCard), put first; `hold` seconds of the last node's
+// last frame end it. Chapters do not nest. recipes/teach.js chapter(title, ...nodes) is the author's form.
+export function chapterSeq(title, kids, { card = null, hold: h = 0 } = {}) {
+  if (typeof title !== 'string' || !title.trim()) throw new TypeError('chapter: needs a title');
+  kids = nodes(kids, `chapter '${title}'`);
+  const inner = [];
+  kids.forEach((k) => visitNodes(k, (n) => { if (n.chapter) inner.push(n.chapter.title); }));
+  if (inner.length) throw new TypeError(`chapter '${title}': chapters do not nest ('${inner[0]}' is inside it)`);
+  const all = [...(card ? nodes([card], `chapter '${title}' card`) : []), ...kids];
+  if (h) all.push(hold(h, all.at(-1)));
+  const s = seq(...all);
+  return Object.freeze({ ...s, chapter: Object.freeze({ title, card: card ? all[0].name ?? null : null, hold: h }) });
+}
+
+// Every node under (and including) node, once per place it sits in the tree.
+function visitNodes(node, fn) {
+  fn(node);
+  for (const c of [node.child, node.a, node.b, ...(node.kids ?? [])]) if (c) visitNodes(c, fn);
+}
+
 // A transition between two shots the timeline also plays: seq(a, cut('iris', 0.5, a, b), b). The cut shows `a`
 // frozen at its last frame under `b` at its first, revealed by fx(kind, { p }); it does not play either shot, so
 // a timeline with only the cut drops them (lint rule cut-orphan).
@@ -201,19 +223,82 @@ function evalNode(node, k, ctx, look) {
   }
 }
 
-// frame(film, i, { ar }) => { list, look, shot, t, k } for drawn frame i (0 <= i < film.n).
+// frame(film, i, { ar }) => { list, look, shot, t, k } for drawn frame i (0 <= i < film.n). An excerpt's frame
+// i is its whole film's frame from + i, drawn exactly as the whole film draws it (shots see the whole film's i).
 export function frame(f, i, { ar } = {}) {
   if (!Number.isInteger(i) || i < 0 || i >= f.n) throw new RangeError(`frame ${i} outside 0..${f.n - 1} of film ${f.name}`);
-  const ctx = { film: f, i, target: ar ? format(ar) : f.format, hit: null };
-  const list = evalNode(f.timeline, i, ctx, undefined);
+  const g = i + (f.from ?? 0);
+  const ctx = { film: f, i: g, target: ar ? format(ar) : f.format, hit: null };
+  const list = evalNode(f.timeline, g, ctx, undefined);
   const { name, k, look } = ctx.hit;
   return { list, look, shot: name, t: k / FPS, k };
 }
 
+// ---------- chapters and excerpts ----------
+
+// chapters(film) => [{ n, title, card, f0, frames, t0, dur, node }] in the order they play (n from 1): every
+// chapter() in the tree, where it starts in the whole film and how long it lasts. A film with none has [].
+// A chapter inside a par starts where the par does; one held or cut into is not a play of its own.
+export function chapters(f) {
+  const out = [];
+  const visit = (node, f0) => {
+    if (node.chapter) {
+      out.push({ n: out.length + 1, title: node.chapter.title, card: node.chapter.card, f0, frames: node.n, t0: f0 / FPS, dur: node.n / FPS, node });
+      return;
+    }
+    switch (node.kind) {
+      case 'seq': { let at = f0; for (const c of node.kids) { visit(c, at); at += c.n; } break; }
+      case 'par': node.kids.forEach((c) => visit(c, f0)); break;
+      case 'look': visit(node.child, f0); break;
+      default: break;
+    }
+  };
+  visit(f.timeline, 0);
+  return out;
+}
+
+// The chapter a whole-film frame falls in, or null (a title before the first, the sign-off after the last).
+export function chapterAt(f, i, list = chapters(f)) {
+  return list.find((c) => i >= c.f0 && i < c.f0 + c.frames) ?? null;
+}
+
+// excerpt(film, f0, n): frames f0 .. f0 + n - 1 of the film as a film of n frames. Its frames are the whole
+// film's, pixel for pixel; `from` says where it starts, `whole` is the film it came from (for the score).
+export function excerpt(f, f0, n) {
+  const whole = f.whole ?? f, at = (f.from ?? 0) + f0;
+  if (!Number.isInteger(f0) || !Number.isInteger(n) || f0 < 0 || n < 1 || f0 + n > f.n) throw new RangeError(`excerpt ${f0}+${n} outside 0..${f.n} of film ${f.name}`);
+  return Object.freeze({ ...f, n, dur: n / FPS, from: at, whole });
+}
+
+// chapterFilm(film, k): chapter k (from 1) as an excerpt, with `chapter` the entry chapters() gives.
+export function chapterFilm(f, k) {
+  const all = chapters(f);
+  if (!all.length) throw new RangeError(`film ${f.name} has no chapters`);
+  const c = all[k - 1];
+  if (!Number.isInteger(k) || !c) throw new RangeError(`film ${f.name} has chapters 1..${all.length}, not ${k}`);
+  return Object.freeze({ ...excerpt(f, c.f0, c.frames), chapter: c });
+}
+
+// An excerpt's cues in its own time: what overlaps its window, shifted so it starts at 0 (a shot or chapter
+// under way at the start keeps its whole length, starting before 0). The whole film's cues for a whole film.
+export function localCues(f) {
+  const c = cues(f), t0 = (f.from ?? 0) / FPS, t1 = t0 + f.n / FPS, eps = 1e-9;
+  if (!f.whole) return c;
+  const within = (x) => x.t0 < t1 - eps && x.t0 + x.dur > t0 + eps;
+  return {
+    shots: c.shots.filter(within).map((s) => ({ ...s, t0: s.t0 - t0 })),
+    cuts: c.cuts.filter((t) => t > t0 + eps && t < t1 - eps).map((t) => t - t0),
+    chapters: c.chapters.filter(within).map((x) => ({ ...x, t0: x.t0 - t0 })),
+    end: f.n / FPS,
+  };
+}
+
 // ---------- artefacts ----------
 
-// { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], end }. Times come from frame counts, so they sit on the grid.
+// { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], chapters: [{ n, title, t0, dur }], end }. Times come from
+// frame counts, so they sit on the grid. An excerpt's cues are its whole film's (the score is the whole film's).
 export function cues(f) {
+  f = f.whole ?? f;
   const shots = [], cuts = new Set();
   const visit = (node, f0) => {
     const t0 = f0 / FPS, dur = node.n / FPS;
@@ -227,7 +312,8 @@ export function cues(f) {
     }
   };
   visit(f.timeline, 0);
-  return { shots, cuts: [...cuts].sort((a, b) => a - b).map((x) => x / FPS), end: f.n / FPS };
+  const chaps = chapters(f).map((c) => ({ n: c.n, title: c.title, t0: c.t0, dur: c.dur }));
+  return { shots, cuts: [...cuts].sort((a, b) => a - b).map((x) => x / FPS), chapters: chaps, end: f.n / FPS };
 }
 
 const sec = (n) => `${(n / FPS).toFixed(2)}s`;
@@ -250,6 +336,7 @@ function celsOf(node, f, f0, ks) {
 export function describe(f) {
   const out = [`film ${f.name}  ${sec(f.n)}  ${f.n} frames @${FPS}  ${f.format.ar} ${f.format.W}x${f.format.H}  look ${lookName(f.look)}`];
   const span = (f0, n) => `[${(f0 / FPS).toFixed(2)}-${((f0 + n) / FPS).toFixed(2)}]`;
+  let chapterNo = 0;
   const visit = (node, f0, depth, ks) => {
     const pad = '  '.repeat(depth + 1), head = `${pad}${node.kind.padEnd(5)}`;
     switch (node.kind) {
@@ -260,7 +347,8 @@ export function describe(f) {
         break;
       }
       case 'seq': case 'par': {
-        out.push(`${head} ${sec(node.n)}  ${node.n}f  ${span(f0, node.n)}`);
+        const ch = node.chapter ? `  chapter ${++chapterNo} '${node.chapter.title}'` : '';
+        out.push(`${head} ${sec(node.n)}  ${node.n}f  ${span(f0, node.n)}${ch}`);
         let at = f0;
         for (const c of node.kids) { visit(c, at, depth + 1, ks); if (node.kind === 'seq') at += c.n; }
         break;

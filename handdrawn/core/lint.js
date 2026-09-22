@@ -9,7 +9,7 @@ import { bounds, mmul, norm } from './list.js';
 import { fallbacks, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
 import { JOINT, VIEW_DIRS, movesOf, puppet } from './puppet.js';
-import { cues, evalShot, frame } from './tree.js';
+import { chapterAt, chapters, cues, evalShot, frame } from './tree.js';
 import { scoreEvents, voiceSpans } from './synth.js';
 
 export const RULES = Object.freeze({
@@ -20,7 +20,7 @@ export const RULES = Object.freeze({
   anchor: "the anchor is missing from a shot, or names nothing it draws",
   scribble: 'more than two scribbled parts in a frame',
   'cel-box': 'a cel draws outside its declared box',
-  words: "a shot's words exceed the look's allowance (the sign-off does not count)",
+  words: "a shot's words exceed the look's allowance (the sign-off and a chapter's title card do not count)",
   'cut-long': 'a cut longer than 1 s',
   'cut-adjacent': 'two cuts in a row',
   'cut-orphan': "a cut's outgoing or incoming shot never plays: cut(kind, dur, a, b) is only the transition, write seq(a, cut(kind, dur, a, b), b)",
@@ -47,7 +47,9 @@ export const RULES = Object.freeze({
 export const WARNINGS = Object.freeze({
   'inline-asset': 'an asset carried in the film as a data URL instead of named in the store',
   'caption-sync': 'captions (or a voiced line) timed by the estimate over more than 3 s: hdf align <id> refines it',
+  length: 'a film over 180 s, a film over 40 s in no chapters, or a chapter over 40 s (4.0 E1: a chapter every 20 to 40 s)',
 });
+export const FILM_MAX = 180, CHAPTER_MAX = 40;   // s: the explainer's length norm (4.0 E1)
 export const SYNC_MAX = 3;         // s of estimated word timing before caption-sync warns
 
 // Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins, then
@@ -206,6 +208,9 @@ export function inspect(film, { audience } = {}) {
   const A = audienceOf(audience ?? film.audience ?? 'general'), aud = typeof (audience ?? film.audience) === 'string' ? audience ?? film.audience : 'general';
   const onScreen = new Map();   // text-dwell and text-contrast: str => Map(film frame => { shot, c: contrast | null })
   const sizes = new Map();      // text-size: str => its largest x-height at 240 px, where (written on, it grows)
+  // A chapter's title card (4.0 E1) is its own allowance: it carries the chapter's title as the sign-off
+  // carries the signature, so its words do not count, whatever the look allows.
+  const cards = new Set(chapters(film).filter((c) => c.card).map((c) => c.node.kids[0]));
   for (const p of plays(film)) {
     const { node } = p, name = node.name;
     const s = { name, f0: p.f0, n: p.ks.length === 1 ? 1 : node.n, dur: node.dur, look: null, anchor: true, recipe: node.recipe, camera: node.camera, finishes: new Set(), words: new Set() };
@@ -272,7 +277,7 @@ export function inspect(film, { audience } = {}) {
     const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.lookObj ? wordAllowance(s.lookObj, A) : 0;
     const by = s.lookObj && resolveLook(s.lookObj).words === undefined && A.words != null ? `audience ${aud}` : `look ${s.look}`;
     delete s.lookObj;
-    if (words > allow) F.add('words', name, p.f0, `${words} words (${[...s.words].map((w) => `"${w}"`).join(', ')}); ${by} allows ${allow} outside the sign-off`, 'words');
+    if (words > allow && !cards.has(node)) F.add('words', name, p.f0, `${words} words (${[...s.words].map((w) => `"${w}"`).join(', ')}); ${by} allows ${allow} outside the sign-off`, 'words');
     shots.push(s);
   }
   readRules(onScreen, A, aud, F);
@@ -604,6 +609,38 @@ export function lintSource(src) {
   return out;
 }
 
+// length: the norm for a lesson is up to 180 s, cut into chapters of 20 to 40 s; a short film needs none.
+export function warnLength(film) {
+  const out = [], chs = chapters(film), W = (shot, frame, detail) => out.push({ rule: 'length', warn: true, shot, frame, detail });
+  if (film.dur > FILM_MAX + 1e-9) W(null, 0, `the film runs ${film.dur.toFixed(2)} s (at most ${FILM_MAX} s)`);
+  if (!chs.length && film.dur > CHAPTER_MAX + 1e-9) W(null, 0, `the film runs ${film.dur.toFixed(2)} s in no chapters: over ${CHAPTER_MAX} s, cut it into chapter(title, ...) of 20 to ${CHAPTER_MAX} s`);
+  for (const c of chs) if (c.dur > CHAPTER_MAX + 1e-9) W(null, c.f0, `chapter ${c.n} '${c.title}' runs ${c.dur.toFixed(2)} s (at most ${CHAPTER_MAX} s): split it`);
+  return out;
+}
+
+// Per chapter (4.0 E1): where it plays, its shots (holds and transitions not counted), the cuts inside it,
+// the recipes it uses and the findings on its frames. [] for a film without chapters.
+export function chapterReport(film, findings = []) {
+  const chs = chapters(film);
+  if (!chs.length) return [];
+  const c = cues(film), eps = 1e-9;
+  return chs.map((ch) => {
+    // A hold starts no new picture, so the boundary into one is not a cut.
+    const t1 = ch.t0 + ch.dur, inside = (t) => t > ch.t0 + eps && t < t1 - eps && !c.shots.some((s) => s.hold && Math.abs(s.t0 - t) < 1e-6);
+    const shots = c.shots.filter((s) => !s.hold && !s.cut && s.t0 >= ch.t0 - eps && s.t0 < t1 - eps);
+    const recipes = [...new Set(recipesIn(ch.node))];
+    const own = findings.filter((f) => f.frame !== null && f.frame !== undefined && chapterAt(film, f.frame, chs) === ch);
+    return { n: ch.n, title: ch.title, card: ch.card, f0: ch.f0, frames: ch.frames, t0: ch.t0, dur: ch.dur, shots: shots.length, cuts: c.cuts.filter(inside).length, recipes, findings: own.length };
+  });
+}
+const recipesIn = (node) => (node.kind === 'shot' ? (node.recipe ? [node.recipe] : []) : [node.child, ...(node.kids ?? [])].filter(Boolean).flatMap(recipesIn));
+
+// `chapter 2 'counting'  12.50-24.00s  11.50s  3 shots  2 cuts  AN AP  lint clean`
+export function formatChapter(r) {
+  const f = r.findings ? `${r.findings} finding${r.findings > 1 ? 's' : ''}` : 'lint clean';
+  return `chapter ${r.n} '${r.title}'  ${r.t0.toFixed(2)}-${(r.t0 + r.dur).toFixed(2)}s  ${r.dur.toFixed(2)}s  ${r.shots} shot${r.shots === 1 ? '' : 's'}  ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.recipes.length ? `  ${r.recipes.join(' ')}` : ''}  ${f}`;
+}
+
 // Warnings about the film's assets: every one it carries inline as a data URL. The store holds a payload
 // once, addressed by content (`hdf import --v2 <module>` moves a 2.0 photos.js or clips.js into it), and the
 // film names ids instead -- which is also what lets `hdf find` and a shared licence reach them. A film built
@@ -626,7 +663,7 @@ export function lint(film, o = {}) {
 // caption-sync from the frames).
 export function lintAll(film, { source, audience } = {}) {
   const got = inspect(film, { audience });
-  return { findings: [...(source ? lintSource(source) : []), ...got.findings], warnings: [...warnAssets(film), ...got.warnings] };
+  return { findings: [...(source ? lintSource(source) : []), ...got.findings], warnings: [...warnAssets(film), ...warnLength(film), ...got.warnings] };
 }
 
 // `file:shot:frame  rule  detail` (source findings put the line in the frame slot as L<n>; a warning says so).

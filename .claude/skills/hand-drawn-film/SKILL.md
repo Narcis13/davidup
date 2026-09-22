@@ -1,6 +1,6 @@
 ---
 name: hand-drawn-film
-description: Make a 10 to 40 second film that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AQ), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
+description: Make a 10 to 40 second film (a lesson up to 180 seconds, in chapters) that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AQ), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
 ---
 
 # Hand-drawn film 3.0
@@ -27,6 +27,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `mini.js` | paperInk | the smallest complete film: a cel, a shot, a sign-off, a score |
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
 | `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
+| `chapters.js` | whiteboard | a lesson in three `chapter(title, ...)`s: each opens on its title card and holds a beat; the board is a card per chapter, `hdf render --chapter 2` renders one alone |
 | `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
@@ -415,7 +416,8 @@ once, then act on what you saw.
    on screen, cels from the packs and the store. Placeholders are fine: a
    recipe with its default subject is a shot. Then
    `hdf board work/<film>/<film>.js`: it prints the tree and writes
-   `out/<film>-board.jpg`, one card per shot. **Look once.**
+   `out/<film>-board.jpg`, one card per shot (per chapter in a lesson;
+   `--chapter n` for that chapter's shots). **Look once.**
 4. **Cels.** Write the cels no pack or store has (usually one or two). Each
    declares `box`, `inputs` and `desc`, is centred on its origin (or stands
    on `y = 0`), and draws only roles. For each:
@@ -474,6 +476,18 @@ asset carried as a data URL (`inline-asset`, a warning); a pack cel whose store 
 (`pack-mirror`, on `hdf lint packs/<pack>.js`). `hdf import` and `hdf svg`
 run `cel-box`, `puppet-joint` and `roles-raw` over every pose and variant
 before anything is written.
+
+**Length.** A film is 10 to 40 s. A lesson runs up to 180 s, cut into
+chapters of 20 to 40 s: `chapter({ title, sub, actor, audience }, ...nodes)`
+(from `recipes/shots.js`) is a seq that opens on a title card (AN, its words
+not counted against the look) and ends on a hold (the audience's dwell, at
+least its cut floor; `hold: 0` for none; `card: false` or a node of your
+own). The board gives a card per chapter; `hdf grid --chapter n` and `hdf
+render --chapter n` work on one chapter at a time (out/<film>-ch<n>.*, its
+frames the whole film's and its sound the whole score's under it), so a
+fix to chapter 3 is looked at and rendered in seconds; lint ends with a line
+per chapter and warns (`length`) on a chapter over 40 s or a long film with
+none. The score's cues carry `chapters: [{ n, title, t0, dur }]`.
 
 For a lesson, name the audience on the film: `film({ ..., audience:
 'kids-7' })` (general, beginner, kids-9, kids-7, kids-5; 4.0 T10). Lint then

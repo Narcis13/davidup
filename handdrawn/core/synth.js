@@ -6,6 +6,7 @@
 //   (not scaled by master), cut at dur when given; everything else ducks 9 dB under its voiced part.
 // Nothing here reads Date, Math.random or global state; a voice's samples come from the reader the host
 // installs (core/assets.js in Node, the player's preload in the browser).
+import { FPS } from './curves.js';
 import { rng } from './rand.js';
 import { cues } from './tree.js';
 import { decodeWav, voicedSpan } from './wav.js';
@@ -187,9 +188,16 @@ export function scoreEvents(film) {
   return { events, master: Array.isArray(got) ? undefined : got?.master };
 }
 
+// An excerpt (4.0 E1: hdf render --chapter) sounds as its stretch of the whole film does: the whole score is
+// rendered and cut, so a note or a voice under way at its start is heard, and the events are shifted into it.
 export function filmAudio(film) {
   const s = scoreEvents(film);
-  return s && { events: s.events, samples: renderScore(s.events, film.dur, { master: s.master }) };
+  if (!s) return null;
+  if (!film.whole) return { events: s.events, samples: renderScore(s.events, film.dur, { master: s.master }) };
+  const t0 = film.from / FPS, all = renderScore(s.events, film.whole.dur, { master: s.master });
+  const a = Math.round(t0 * SR), samples = all.slice(a, a + Math.round(film.dur * SR));
+  const events = s.events.filter((e) => e.t >= t0 - 1e-9 && e.t < t0 + film.dur - 1e-9).map((e) => ({ ...e, t: e.t - t0 }));
+  return { events, samples };
 }
 
 // 16-bit PCM WAV bytes (mono unless channels says otherwise; interleaved input).

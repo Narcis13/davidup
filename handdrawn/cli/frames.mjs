@@ -55,7 +55,9 @@ async function pool(path, film, opts, onFrame) {
   const chunk = opts.chunk ?? Math.max(1, Math.min(12, Math.ceil(film.n / workers)));
   const ranges = [];
   for (let a = 0; a < film.n; a += chunk) ranges.push([a, Math.min(film.n, a + chunk)]);
-  const workerOpts = { look: opts.look, alpha: opts.alpha, ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers) };
+  // An excerpt (--chapter) is the whole film's frames from `from`: each worker cuts the same one from its own load.
+  const window = film.whole ? [film.from, film.n] : null;
+  const workerOpts = { look: opts.look, alpha: opts.alpha, ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers), window };
   const url = new URL('./worker.mjs', import.meta.url);
   const pending = new Map();
   const stats = { dups: 0, workers };
