@@ -22,7 +22,7 @@ export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf, mix, tint, shade, alpha } from './looks.js';
 export { houseHand, asHand, fallbacks, unknowns, withHand } from './glyphs.js';
-export { handText, textOnPath, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, syllablesOf, speech, VISEMES, glyphUnits } from './text.js';
+export { handText, textOnPath, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, wordBox, syllablesOf, speech, VISEMES, glyphUnits } from './text.js';
 export { reveal, penAt } from './tools.js';
 export { writeOn, revealed, writing } from './write.js';
 export { writingHand, writer, toolFor } from '../packs/hands.js';
@@ -31,6 +31,7 @@ export { FX, chalkLook } from './fx.js';
 export {
   cross, hex, hexCells, hexLattice, aster, dotBurst, speedLines, loops, construction,
   seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, bubble, BUBBLE_KINDS, thread, cam, whip,
+  EMPHASIS, underline, circleAround, arrowTo, highlight, strike, bracket, starburst, callout, tickMark, crossMark, question,
 } from './marks.js';
 export { pin, on, onAll, silhouette, shadow, photo, photoFront, mask, rim, backdrop, nightfall, glow } from './photo.js';
 export { doodle, pen } from './doodle.js';

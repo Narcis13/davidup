@@ -33,6 +33,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
+| `marked.js` | whiteboard | the teacher's pen: the hand writes a sentence, then underlines a word, circles another and writes a label with an arrow, each mark drawing on in turn (`wordBox`, `underline`, `circleAround`, `callout`) |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `hello.js` | doodlePastel | lip sync: the fox says a recorded "Hello there!" with its mouth following the Rhubarb track stored on the sample (shut on the "th"); sam repeats it without a bubble through `actor.mouth` |
 | `quiz-time.js` | whiteboard | sound effects and a bed: a bright `bed` under the lesson ducking under two narrated lines, the marker squeaking a word at a time (`writerSounds`), a whoosh on the cut (`hits`), a pop per option, a tick per wrong answer, a ding on the right one, the eraser's rows (`eraserSounds`), the bed's `stop` and `sting` |
@@ -324,6 +325,12 @@ To have a drawn hand write something (4.0 T6), give the same node to
 `writer(node, t, { same options, look })`: the hand holds the look's tool
 (`toolFor`: a marker on the whiteboard), comes in, lifts between words and
 leaves. `penAt(p, node)` is the tip at any reveal progress.
+To mark something up (4.0 T7), `core/marks.js` has `underline`,
+`circleAround`, `arrowTo`, `highlight`, `strike`, `bracket`, `starburst`,
+`callout`, `tickMark`, `crossMark` and `question`. Each takes a box, a point or
+a group with a `.box`, and `wordBox(g, 'word')` gives one word of lettering.
+Each draws on with `p` or joins a `writeOn` card: give the marks orders past
+the lettering's (1e6, 2e6, ...) and they come in turn. Marks are not words.
 
 | engine | what the frame is | example |
 |---|---|---|

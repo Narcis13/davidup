@@ -3,7 +3,7 @@
 import { FPS } from './curves.js';
 import { asHand, currentHand, glyph, HOUSE_DRIFT, HOUSE_STROKE, houseHand } from './glyphs.js';
 import { advance, layoutWith, LINE_H, opLayout, penOf } from './layout.js';
-import { at, bounds, circle, fill, group, len, meta, mkPath, text, stroke, withProps } from './list.js';
+import { at, bounds, circle, fill, group, len, meta, mkPath, mmul, text, stroke, withProps } from './list.js';
 import { handOf } from './looks.js';
 import { hash32, rng } from './rand.js';
 import { reveal } from './tools.js';
@@ -148,6 +148,40 @@ export function glyphUnits(op, o = {}) {
     }
   });
   return out;
+}
+
+// wordBox(lettered, word, { nth }) => [x, y, w, h]: the ink of one word of lettering (no pen width), for a
+// mark to go round (4.0 T7: underline(wordBox(g, 'light'))). lettered is a lettered group (textBox, handText,
+// or any group holding one: the first found); word its index (from 0, across the lines) or the word itself,
+// matched without case or the punctuation round it (nth: which of several, from 0). In the coordinates of
+// the group's kids, as textBox's .box is.
+export function wordBox(lettered, word, { nth = 0 } = {}) {
+  const find = (op) => (op?.op === 'group' && typeof op.name === 'string' && op.name.startsWith('text:') ? op : op?.kids?.reduce((a, k) => a ?? find(k), null) ?? null);
+  const g = find(lettered);
+  if (!g) throw new TypeError('wordBox: no lettering (a text:<copy> group) in what was given');
+  const units = glyphUnits(g.name.slice(5)), bare = (w) => w.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  const words = [];
+  units.forEach((u) => { if (!/\s/.test(u.ch)) words[u.word] = (words[u.word] ?? '') + u.ch; });
+  let idx = word;
+  if (typeof word === 'string') {
+    const hits = words.flatMap((w, i) => (bare(w) === bare(word) ? [i] : []));
+    idx = hits[nth];
+    if (idx === undefined) throw new TypeError(`wordBox: no '${word}'${nth ? ` (#${nth})` : ''} in "${g.name.slice(5)}"`);
+  }
+  if (!Number.isInteger(idx) || !words[idx]) throw new TypeError(`wordBox: no word ${idx} in "${g.name.slice(5)}" (${words.length} words)`);
+  const ink = [];
+  const visit = (ops, m) => {
+    for (const op of ops) {
+      const hit = op.op === 'stroke' && typeof op.name === 'string' && /^g(\d+)\.\d+$/.exec(op.name);
+      if (hit) { if (units[+hit[1]]?.word === idx) ink.push(bounds([{ ...op, w: 0 }], m)); }
+      else if (op.kids) visit(op.kids, op.op === 'group' ? mmul(m, op.xf) : m);
+    }
+  };
+  visit(g.kids, [1, 0, 0, 1, 0, 0]);
+  const b = ink.filter(Boolean);
+  if (!b.length) throw new TypeError(`wordBox: word ${idx} ('${words[idx]}') draws nothing`);
+  const x0 = Math.min(...b.map((q) => q[0])), y0 = Math.min(...b.map((q) => q[1]));
+  return [x0, y0, Math.max(...b.map((q) => q[0] + q[2])) - x0, Math.max(...b.map((q) => q[1] + q[3])) - y0];
 }
 
 // textBox(str, [x, y, w, h], { size, align, valign, lineH, maxLines, wrap, role, tool, w, ink2, seed, name,

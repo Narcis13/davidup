@@ -262,6 +262,27 @@ text(copy, x, y, { size: 40, width: 300 })         // the op wraps too; w on a t
 draw, and `bounds()` of a `text` op is measured the same way (in the shot's
 hand), so the `cel-box` rule judges lettering by its ink.
 
+The teacher's pen (4.0 T7, `core/marks.js`) marks up lettering or anything
+drawn. A target is a box, a point, or a group with a `.box` (`textBox`,
+`bullets`, another mark); `wordBox(lettered, 'light')` is one word's ink, by
+the word or its index. Each mark is a group `mark:<kind>` of pen strokes (in
+the look's pen and the shot's hand, so they overshoot and hook like its
+lettering). It draws on with `p` and is seeded by its `name`, so an unnamed
+mark wobbles the same wherever it goes. Its `.box` is what it draws. Its
+strokes come in `order` (1e6 by default), so on a card with lettering it
+comes after the words: give each mark its own order (1e6, 2e6, ...) and one
+`writeOn` writes the words and then the marks, each in turn. Marks are not
+words; a callout's copy is.
+
+```js
+underline(wordBox(g, 'light'), p, { wavy, double })   circleAround(target, p, { pad, turns })
+arrowTo(from, to, { curve: 0.2, head: 'open' | 'closed' | 'none', p })   // boxes: edge to edge
+highlight(target, p)    // a marker band, multiplied: draw it before the copy
+strike(target, p, { double })     bracket(target, 'left' | 'right' | 'top' | 'bottom', p, { kind: 'curly' | 'square' | 'round' })  // .tip
+starburst(at, p, { n })   tickMark(at, p)   crossMark(at, p)   question(at, 120, p)   // a big drawn ?
+callout('a star', target, { leader: 'dot' | 'arrow' | 'line' | 'none', box | dir, reach, p })   // .copy
+```
+
 Accented letters are composed, not drawn twice: `ă` is the hand's `a` and a
 breve. `MARKS` in `core/glyphs.js` holds fourteen marks (acute, grave,
 circumflex, umlaut, tilde, breve, caron, ring, cedilla, comma-below, ogonek,
@@ -1464,14 +1485,14 @@ handdrawn/
     glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation, signs, ß ð þ...: 104 glyphs), 14 marks, composed accents
     hershey.js     Hershey JHF fonts read into hand records (4.0 T3): parseJhf, the ascii / greek / cyrillic maps, mergeHand
     fonthand.js    any font as a hand (4.0 T4): the glyph sets, emScale, pressureOf, strays (cli/hand.mjs draws the glyphs)
-    text.js        handText, layout, textBox, bullets, measureBox, signOff, squiggleText
+    text.js        handText, layout, textBox, bullets, wordBox, measureBox, signOff, squiggleText
     layout.js      line breaking and boxes from a hand's advances and ink (list.js bounds reads it)
     spline.js      the cardinal spline's arithmetic (glyphs.js builds on it at load)
     fx.js          the raster effects
     raster.js      the cached renderer
     synth.js       the offline score renderer and WAV writer
     lint.js        the rules
-    marks.js       motifs (seedDot, ripples, hexLattice, aster, tornEdge, thread, ...) and the camera
+    marks.js       motifs (seedDot, ripples, hexLattice, aster, tornEdge, thread, ...), bubbles, emphasis marks (4.0 T7) and the camera
     photo.js       pin, on, rim, shadow, mask, photoFront, nightfall, glow
     doodle.js      the self-drawing doodle builder
     sources.js     procedural image sources (the sand bed)

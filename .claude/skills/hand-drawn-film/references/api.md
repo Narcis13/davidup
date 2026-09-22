@@ -187,6 +187,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `measureBox(str, size, o = {})` measureBox(str, size, { w, lineH, wrap, maxLines, look | hand }) => [x, y, w, h]: the ink box the copy needs, first baseline at y = 0, pen starting at x = 0 (x and y are the ink's offsets from there).
 - `textBox(str, bx, o = {})` textBox(str, [x, y, w, h], { size, align, valign, lineH, maxLines, wrap, role, tool, w, ink2, seed, name, look | hand }) => a handText group of the copy wrapped into the box ('\n' honoured, valign 'top' by default), its .box the bounds ...
 - `bullets(items, bx, o = {})` bullets(items, [x, y, w, h], { marker: 'dot' | 'dash' | 'number' | 'check', start, size, gap, lineH, role, markerRole, ink2, look | hand, ...
+- `wordBox(lettered, word, { nth = 0 } = {})` wordBox(lettered, word, { nth }) => [x, y, w, h]: the ink of one word of lettering (no pen width), for a mark to go round (4.0 T7: underline(wordBox(g, 'light'))).
 - `syllablesOf(word)` A word's syllables as vowel groups: each ends where its vowel group does, the last takes the tail.
 - `speech(str, t0 = 0)` A line of speech on the 1/12 s grid from t0: each syllable is one viseme cycle (VISEMES, a step each), a space rests the mouth a step, a comma or a full stop two.
 - `VISEMES` The mouth over one syllable, a step (1/12 s) each: shut, wide, smiling, a little open (a puppet's mouth variants 0..3).
@@ -253,6 +254,18 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `thread(x, seed, { role = 'accents.0', w = 1.2, H = 1080 } = {})` A thin line wandering down the frame (v1 thread).
 - `cam({ x, y, zoom = 1, rot = 0, W = 1080, H = 1080 }, kids)` A camera over kids: the point (x, y) lands at the frame centre, zoomed and turned (v1 cam).
 - `whip(t, dur, { inn = 0.17, out = 0.17, dist = 520 } = {})` A horizontal camera offset for motion-matched cuts: leaves right over the last `out` seconds, arrives from the left over the first `inn` (v1 whip).
+- `EMPHASIS` The marks below, each a group named mark:<kind>. They are pen strokes (a highlight is a marker's band) in the look's pen and the shot's hand, so they overshoot and hook as its lettering does, and they are not words: lint counts only a ...
+- `underline(target, p, o)` underline(target, p, { role, w, gap, wavy, double, seed, name, order }) => a line drawn left to right under the target's box, a little long at the end and lifting off as a quick hand's does; wavy: a squiggle; double: a second, shorter ...
+- `circleAround(target, p, o)` circleAround(target, p, { role, w, pad, turns, seed, name, order }) => a loop drawn round the target's box (clearing its corners, pad beyond): an ellipse from the upper left, clockwise, a little over once round (turns, 1.12) so its end ...
+- `arrowTo(from, to, o = {})` arrowTo(from, to, { curve, head: 'open' | 'closed' | 'none', size, gap, p, role, w, seed, name, order }) => a shaft from `from` to `to` (points, or boxes: it leaves and arrives at their edges, `gap` off them), bowed by curve (a fraction ...
+- `highlight(target, p, o)` highlight(target, p, { role, alpha, seed, name, order }) => a highlighter's band across the target's box, laid left to right in the marker tool and multiplied, so the copy shows through: draw it before the copy.
+- `strike(target, p, o)` strike(target, p, { role, w, at, double, seed, name, order }) => a line struck through the target's box at `at` of its height (0.58: through lower case), running a little past both ends, tilted a touch.
+- `bracket(target, side = 'left', p, o)` bracket(target, side, p, { kind: 'curly' | 'square' | 'round', pad, depth, role, w, seed, name, order }) => a brace along one side of the target's box ('left' by default), its ends turned towards the box; .tip is its outermost middle ...
+- `starburst(at, p, o)` starburst(at, p, { n, r, len, role, w, seed, name, order }) => rays round a point (or out from round a box), long and short in turn, drawn one after another: the "look here!" of a comic.
+- `callout(str, at, o = {})` callout(str, at, { box, leader: 'dot' | 'arrow' | 'line' | 'none', size, width, dir, reach, curve, align, role, textRole, ink2, look | hand, p, seed, name, order }) => a label and a leader from it to `at` (a point, or a box: the leader ...
+- `tickMark(at, p, o)` tickMark(at, p, { size, role, w, seed, name, order }) => a check mark, size tall (40), round a point or on a box's middle: a short stroke down, then a long one up.
+- `crossMark(at, p, o)` crossMark(at, p, { size, role, w, seed, name, order }) => an X, size tall (40), round a point or on a box's middle: the stroke down to the right, then the one down to the left.
+- `question(at, s, p, o)` question(at, s, p, { role, w, hand, seed, name, order }) => a big drawn ?, s tall (120), centred on a point or a box's middle, from the shot's hand (or o.hand), in pen strokes that are not lettering: a mark, not a word.
 
 ### core/photo.js
 

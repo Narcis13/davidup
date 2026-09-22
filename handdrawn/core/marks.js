@@ -1,9 +1,14 @@
 // Marks, lattices and motifs from v1 core.js, as functions returning ops (or lists). Recipes and films
 // place them; the look colours them through roles. Randomness comes from the `seed` argument, so a mark
-// only changes when its arguments do. Also the camera: cam() and whip() are list-level.
-import { circle, clip, ellipse, fill, group, line, mkPath, poly, rect, roundRect, stroke, translate, mmul, rotate, scale, xf } from './list.js';
+// only changes when its arguments do. Also the teacher's pen (4.0 T7: underline, circleAround, arrowTo, ...)
+// and the camera: cam() and whip() are list-level.
+import { bounds, circle, clip, ellipse, fill, group, line, mkPath, poly, rect, roundRect, stroke, translate, mmul, rotate, scale, withProps, xf } from './list.js';
 import { grain } from './finish.js';
-import { rng } from './rand.js';
+import { currentHand, glyph, houseHand } from './glyphs.js';
+import { hash32, rng } from './rand.js';
+import { splinePts } from './spline.js';
+import { textBox } from './text.js';
+import { reveal } from './tools.js';
 
 const TAU = Math.PI * 2;
 
@@ -282,6 +287,272 @@ export function thread(x, seed, { role = 'accents.0', w = 1.2, H = 1080 } = {}) 
   let px = x;
   for (let y = -10; y <= H + 10; y += 24) { px += (q() - 0.5) * 26; pts.push(px, y); }
   return stroke(poly(pts, false), role, { w, wobble: 0, alpha: 0.8, name: 'thread' });
+}
+
+// ---------- emphasis: the teacher's pen (4.0 T7) ----------
+
+// The marks below, each a group named mark:<kind>. They are pen strokes (a highlight is a marker's band) in
+// the look's pen and the shot's hand, so they overshoot and hook as its lettering does, and they are not
+// words: lint counts only a callout's copy.
+export const EMPHASIS = Object.freeze(['underline', 'circleAround', 'arrowTo', 'highlight', 'strike', 'bracket', 'starburst', 'callout', 'tickMark', 'crossMark', 'question']);
+
+// A target's box [x, y, w, h]: a box, a group that knows its box (textBox, bullets, a callout), or any op or
+// list (its bounds). A point [x, y] is a box with no size.
+function boxOf(target, who) {
+  if (Array.isArray(target) && target.length === 4 && target.every(Number.isFinite)) return target;
+  if (Array.isArray(target) && target.length === 2 && target.every(Number.isFinite)) return [target[0], target[1], 0, 0];
+  if (target && typeof target === 'object' && Array.isArray(target.box) && target.op === 'group') return target.box;
+  const b = target && typeof target === 'object' ? bounds(target) : null;
+  if (!b) throw new TypeError(`${who}: target must be a box [x, y, w, h], a point [x, y] or something drawn, got ${JSON.stringify(target)?.slice(0, 80)}`);
+  return b;
+}
+
+// (p, o) or (o): the draw-on progress may come as a number or as o.p.
+const progress = (p, o) => (typeof p === 'number' ? [p, o ?? {}] : [(p ?? {}).p ?? 1, p ?? {}]);
+
+// The seed of a mark: its own, else its kind and name, so an unnamed mark wobbles the same wherever it goes
+// and two marks of a kind differ only when named apart.
+const seedOf = (kind, o) => o.seed ?? hash32('mark', kind, o.name ?? '');
+
+// A pen width for a mark round something h tall.
+const penFor = (h, o) => o.w ?? Math.min(8, Math.max(2, h * 0.06));
+
+// A mark's group drawn on to p, props (tip, ...) set on it and its .box what it draws when done (so bounds and
+// lint see the whole mark while it draws on). Its fills (a closed head, a leader's dot) come with its last
+// stroke: until then they are left out.
+function drawnOn(g, p, extra = {}) {
+  const props = { ...extra, box: bounds(g.kids) };
+  if (p >= 1) return withProps(g, props);
+  const bare = withProps(g, { kids: g.kids.filter((k) => k.op !== 'fill') });
+  return withProps(reveal(Math.max(0, p), bare), props);
+}
+
+// The mark's group, drawn on to p: its strokes come in `order` (o.order, 1e6 by default, so a mark on a card
+// with lettering is drawn after the words), each after the last.
+function markGroup(kind, o, seed, p, parts, props) {
+  const base = o.order ?? 1e6;
+  const kids = parts.filter(Boolean).map((op, k) => (op.op === 'stroke' && op.order === undefined ? withProps(op, { order: base + k }) : op));
+  return drawnOn(group({ name: `mark:${kind}`, seed }, kids), p, props);
+}
+
+// A pen stroke of a mark: points [[x, y], ...] through a spline (tension 0.5) or straight (o.straight).
+function penLine(pts, role, o, seed, name, extra = {}) {
+  const path = o.straight ? poly(pts, false) : mkPath([{ pts: splinePts(pts, { n: 6 }), closed: false }]);
+  const s = { w: o.w, seed, name, ...extra };
+  if (o.wobble !== undefined) s.wobble = o.wobble;
+  if (o.tool) s.tool = o.tool;
+  return stroke(path, role, s);
+}
+
+// underline(target, p, { role, w, gap, wavy, double, seed, name, order }) => a line drawn left to right under
+// the target's box, a little long at the end and lifting off as a quick hand's does; wavy: a squiggle; double:
+// a second, shorter line under the first.
+export function underline(target, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(target, 'underline'), seed = seedOf('underline', o), r = rng(seed), role = o.role ?? 'accents.0';
+  const pen = penFor(h, o), gap = o.gap ?? Math.max(pen * 1.5, h * 0.1), y0 = y + h + gap, x0 = x - w * 0.02, x1 = x + w * 1.04;
+  const one = (dy, from, to, k) => {
+    const n = o.wavy ? Math.max(4, Math.round((to - from) / Math.max(12, h * 0.28))) * 2 : 4, pts = [];
+    for (let i = 0; i <= n; i++) {
+      const u = i / n, wave = o.wavy ? (i % 2 ? 1 : -1) * Math.max(3, h * 0.07) : 0;
+      pts.push([from + (to - from) * u, y0 + dy + wave + (r() - 0.5) * h * 0.04 - u * u * h * 0.05]);
+    }
+    return penLine(pts, role, { ...o, w: pen }, hash32(seed, k), `underline${k || ''}`);
+  };
+  return markGroup('underline', o, seed, p, [one(0, x0, x1, 0), o.double && one(pen * 2.4, x + w * 0.06, x + w * 0.9, 1)]);
+}
+
+// circleAround(target, p, { role, w, pad, turns, seed, name, order }) => a loop drawn round the target's box
+// (clearing its corners, pad beyond): an ellipse from the upper left, clockwise, a little over once round
+// (turns, 1.12) so its end runs past its start, starting inside and ending outside, tilted a touch.
+export function circleAround(target, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(target, 'circleAround'), seed = seedOf('circleAround', o), r = rng(seed), role = o.role ?? 'accents.0';
+  const pad = o.pad ?? Math.max(6, Math.min(w, h) * 0.25), rx = w / 2 * 1.3 + pad, ry = h / 2 * 1.35 + pad, cx = x + w / 2, cy = y + h / 2;
+  const turns = o.turns ?? 1.12, a0 = -Math.PI * 0.8 + (r() - 0.5) * 0.4, tilt = (r() - 0.5) * 0.12, n = 40, pts = [];
+  const ph = r() * TAU, ca = Math.cos(tilt), sa = Math.sin(tilt);
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, a = a0 + u * turns * TAU, k = 0.95 + 0.09 * u + 0.025 * Math.sin(ph + u * TAU * 2);
+    const ex = Math.cos(a) * rx * k, ey = Math.sin(a) * ry * k;
+    pts.push([cx + ex * ca - ey * sa, cy + ex * sa + ey * ca]);
+  }
+  return markGroup('circleAround', o, seed, p, [penLine(pts, role, { ...o, w: penFor(h, o) }, hash32(seed, 0), 'loop')]);
+}
+
+// Where the line from box b's middle towards (tx, ty) leaves b grown by pad (b a point: the point).
+function edgeToward(b, pad, tx, ty) {
+  const [x, y, w, h] = b, cx = x + w / 2, cy = y + h / 2;
+  if (!w && !h) return [cx, cy];
+  const dx = tx - cx, dy = ty - cy, hw = w / 2 + pad, hh = h / 2 + pad;
+  if (!dx && !dy) return [cx, cy];
+  const k = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
+  return [cx + dx * k, cy + dy * k];
+}
+
+// The two barbs of an arrow head at (x, y) heading a, each len long.
+const barbs = (x, y, a, L, spread = 0.45) => [
+  [x - Math.cos(a - spread) * L, y - Math.sin(a - spread) * L], [x, y], [x - Math.cos(a + spread) * L, y - Math.sin(a + spread) * L],
+];
+
+// arrowTo(from, to, { curve, head: 'open' | 'closed' | 'none', size, gap, p, role, w, seed, name, order }) =>
+// a shaft from `from` to `to` (points, or boxes: it leaves and arrives at their edges, `gap` off them), bowed
+// by curve (a fraction of its length to the left of its run; 0.2, 0 straight, negative the other way), then
+// its head: two barbs (open) or a triangle (closed), drawn after the shaft. .from and .to are its ends.
+export function arrowTo(from, to, o = {}) {
+  const p = o.p ?? 1, seed = seedOf('arrowTo', o), r = rng(seed), role = o.role ?? 'accents.0';
+  const A = boxOf(from, 'arrowTo'), B = boxOf(to, 'arrowTo'), pen = o.w ?? 3, gap = o.gap ?? pen * 3;
+  const ac = [A[0] + A[2] / 2, A[1] + A[3] / 2], bc = [B[0] + B[2] / 2, B[1] + B[3] / 2];
+  const a = edgeToward(A, A[2] || A[3] ? gap : 0, ...bc), b = edgeToward(B, B[2] || B[3] ? gap : 0, ...ac);
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = (b[1] - a[1]) / L, ny = -(b[0] - a[0]) / L, bow = (o.curve ?? 0.2) * L;
+  const mx = (a[0] + b[0]) / 2 + nx * bow, my = (a[1] + b[1]) / 2 + ny * bow, pts = [];
+  for (let i = 0; i <= 12; i++) {
+    const u = i / 12, v = 1 - u, j = i && i < 12 ? (r() - 0.5) * pen * 0.3 : 0;
+    pts.push([v * v * a[0] + 2 * u * v * mx + u * u * b[0] + j, v * v * a[1] + 2 * u * v * my + u * u * b[1] + j]);
+  }
+  const head = o.head ?? 'open', size = o.size ?? Math.max(pen * 5, Math.min(40, L * 0.14)), heading = Math.atan2(b[1] - pts[11][1], b[0] - pts[11][0]);
+  const tip = barbs(b[0], b[1], heading, size);
+  const parts = [penLine(pts, role, { ...o, w: pen }, hash32(seed, 0), 'shaft')];
+  if (head === 'open') parts.push(penLine(tip, role, { ...o, w: pen, straight: true }, hash32(seed, 1), 'head'));
+  else if (head === 'closed') parts.push(stroke(poly(tip, true), role, { w: pen, seed: hash32(seed, 1), name: 'head' }), fill(poly(tip, true), role, { name: 'headFill' }));
+  else if (head !== 'none') throw new TypeError(`arrowTo: head '${head}' (open, closed, none)`);
+  return markGroup('arrowTo', o, seed, p, parts, { from: a, to: b });
+}
+
+// highlight(target, p, { role, alpha, seed, name, order }) => a highlighter's band across the target's box,
+// laid left to right in the marker tool and multiplied, so the copy shows through: draw it before the copy.
+export function highlight(target, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(target, 'highlight'), seed = seedOf('highlight', o), r = rng(seed), band = o.w ?? h * 0.78;
+  const yc = y + h * 0.56, tilt = (r() - 0.5) * h * 0.1, x0 = x - band * 0.15, x1 = x + w + band * 0.15;
+  const pts = [[x0, yc + tilt], [x0 + (x1 - x0) * 0.5, yc + (r() - 0.5) * h * 0.05], [x1, yc - tilt]];
+  const s = { tool: 'marker', w: band, wobble: o.wobble ?? 1, seed: hash32(seed, 0), blend: 'multiply', name: 'band' };
+  if (o.alpha !== undefined) s.alpha = o.alpha;
+  return markGroup('highlight', o, seed, p, [stroke(mkPath([{ pts: splinePts(pts, { n: 6 }), closed: false }]), o.role ?? 'accents.2', s)]);
+}
+
+// strike(target, p, { role, w, at, double, seed, name, order }) => a line struck through the target's box at
+// `at` of its height (0.58: through lower case), running a little past both ends, tilted a touch.
+export function strike(target, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(target, 'strike'), seed = seedOf('strike', o), r = rng(seed), role = o.role ?? 'accents.0', pen = penFor(h, o);
+  const one = (dy, k) => {
+    const yc = y + h * (o.at ?? 0.58) + dy, tilt = (r() - 0.3) * h * 0.12;
+    return penLine([[x - w * 0.04, yc + tilt], [x + w * 0.5, yc + (r() - 0.5) * h * 0.04], [x + w * 1.04, yc - tilt]], role, { ...o, w: pen }, hash32(seed, k), `strike${k || ''}`);
+  };
+  return markGroup('strike', o, seed, p, [one(0, 0), o.double && one(pen * 2.6, 1)]);
+}
+
+const SIDES = ['left', 'right', 'top', 'bottom'];
+
+// bracket(target, side, p, { kind: 'curly' | 'square' | 'round', pad, depth, role, w, seed, name, order }) =>
+// a brace along one side of the target's box ('left' by default), its ends turned towards the box; .tip is
+// its outermost middle point, where a label or an arrow leaves from.
+export function bracket(target, side = 'left', p, o) {
+  [p, o] = progress(p, o);
+  if (!SIDES.includes(side)) throw new TypeError(`bracket: side '${side}' (${SIDES.join(', ')})`);
+  const [x, y, w, h] = boxOf(target, 'bracket'), seed = seedOf('bracket', o), r = rng(seed), role = o.role ?? 'accents.0';
+  const kind = o.kind ?? 'curly', vert = side === 'left' || side === 'right', L = vert ? h : w;
+  const pad = o.pad ?? Math.max(6, L * 0.05), d = o.depth ?? Math.min(36, Math.max(10, L * 0.12));
+  // In the brace's own frame: u along the side, v out from the box.
+  const shapes = {
+    curly: [[0, 0], [0.06, 0.42], [0.4, 0.5], [0.47, 0.6], [0.5, 1], [0.53, 0.6], [0.6, 0.5], [0.94, 0.42], [1, 0]],
+    square: [[0, 0], [0, 1], [1, 1], [1, 0]],
+    round: Array.from({ length: 9 }, (_, i) => [i / 8, Math.sin(i / 8 * Math.PI)]),
+  };
+  if (!shapes[kind]) throw new TypeError(`bracket: kind '${kind}' (${Object.keys(shapes).join(', ')})`);
+  const place = ([u, v]) => {
+    const U = u * L + (r() - 0.5) * 1.5, V = v * d + (r() - 0.5) * 1.5;
+    return side === 'left' ? [x - pad - V, y + U] : side === 'right' ? [x + w + pad + V, y + U] : side === 'top' ? [x + U, y - pad - V] : [x + U, y + h + pad + V];
+  };
+  const pts = shapes[kind].map(place), tip = place([0.5, 1]);
+  return markGroup('bracket', o, seed, p, [penLine(pts, role, { ...o, w: penFor(Math.min(L, 120), o), straight: kind === 'square' }, hash32(seed, 0), 'brace')], { tip });
+}
+
+// starburst(at, p, { n, r, len, role, w, seed, name, order }) => rays round a point (or out from round a box),
+// long and short in turn, drawn one after another: the "look here!" of a comic.
+export function starburst(at, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(at, 'starburst'), seed = seedOf('starburst', o), q = rng(seed), role = o.role ?? 'accents.0';
+  const n = o.n ?? 10, rx = o.r ?? (w ? w / 2 * 1.15 + 8 : 30), ry = o.r ?? (h ? h / 2 * 1.15 + 8 : 30), L = o.len ?? Math.max(16, Math.min(rx, ry) * 0.7);
+  const cx = x + w / 2, cy = y + h / 2, a0 = q() * TAU, rays = [];
+  for (let k = 0; k < n; k++) {
+    const a = a0 + k / n * TAU + (q() - 0.5) * 0.25, l = L * (k % 2 ? 0.6 : 1) * (0.85 + q() * 0.3), c = Math.cos(a), s = Math.sin(a);
+    rays.push(penLine([[cx + c * rx, cy + s * ry], [cx + c * (rx + l), cy + s * (ry + l)]], role, { ...o, w: o.w ?? 3, straight: true }, hash32(seed, k), `ray${k}`));
+  }
+  return markGroup('starburst', o, seed, p, rays);
+}
+
+// callout(str, at, { box, leader: 'dot' | 'arrow' | 'line' | 'none', size, width, dir, reach, curve, align,
+// role, textRole, ink2, look | hand, p, seed, name, order }) => a label and a leader from it to `at` (a point,
+// or a box: the leader stops at its edge). The copy is written into `box`, or into one `width` wide (320) whose
+// middle sits `reach` (170) from at in direction dir (radians; -PI/4, up and to the right); it is lettered
+// (a text: group, so lint counts its words) before the leader is drawn. .copy is the copy's ink box, for an
+// arrowTo or another mark to start from.
+export function callout(str, at, o = {}) {
+  const p = o.p ?? 1, seed = seedOf('callout', o), role = o.role ?? 'accents.0', size = o.size ?? 40, base = o.order ?? 1e6;
+  const T = boxOf(at, 'callout'), tc = [T[0] + T[2] / 2, T[1] + T[3] / 2];
+  let bx = o.box;
+  if (!bx) {
+    const width = o.width ?? 320, dir = o.dir ?? -Math.PI / 4, reach = o.reach ?? 170, bh = size * 1.3;
+    const ex = tc[0] + Math.cos(dir) * (reach + T[2] / 2), ey = tc[1] + Math.sin(dir) * (reach + T[3] / 2);
+    bx = [ex - width / 2, ey - bh / 2, width, bh];
+  }
+  const copyO = { size, align: o.align ?? 'center', valign: 'middle', role: o.textRole ?? 'ink', ink2: o.ink2 ?? null, seed: hash32(seed, 'copy'), order: base };
+  for (const k of ['look', 'hand', 'maxLines']) if (o[k] !== undefined) copyO[k] = o[k];
+  const copy = textBox(str, bx, copyO), cb = copy.box;
+  const leader = o.leader ?? 'dot', parts = [copy];
+  if (leader !== 'none') {
+    if (!['dot', 'arrow', 'line'].includes(leader)) throw new TypeError(`callout: leader '${leader}' (dot, arrow, line, none)`);
+    const lo = { role, w: o.w ?? Math.max(2, size * 0.07), curve: o.curve ?? 0.15, head: leader === 'arrow' ? 'open' : 'none', gap: size * 0.2, seed: hash32(seed, 'leader'), order: base + 5e5 };
+    if (o.wobble !== undefined) lo.wobble = o.wobble;
+    const arrow = arrowTo(cb, T[2] || T[3] ? T : [tc[0], tc[1]], lo);
+    parts.push(...arrow.kids);
+    if (leader === 'dot') parts.push(fill(circle(arrow.to[0], arrow.to[1], Math.max(3, lo.w * 1.3), 16), role, { name: 'dot' }));
+  }
+  return drawnOn(group({ name: 'mark:callout', seed }, parts), p, { copy: cb });
+}
+
+// tickMark(at, p, { size, role, w, seed, name, order }) => a check mark, size tall (40), round a point or on
+// a box's middle: a short stroke down, then a long one up. (tick is the sound, recipes/sfx.js.)
+export function tickMark(at, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(at, 'tickMark'), seed = seedOf('tickMark', o), r = rng(seed), s = o.size ?? (h || 40), cx = x + w / 2, cy = y + h / 2;
+  const pts = [[cx - s * 0.45, cy + s * 0.02], [cx - s * 0.15 + (r() - 0.5) * s * 0.05, cy + s * 0.38], [cx + s * 0.2, cy - s * 0.05], [cx + s * 0.55, cy - s * 0.55]];
+  return markGroup('tickMark', o, seed, p, [penLine(pts, o.role ?? 'accents.0', { ...o, w: penFor(s, o), straight: true }, hash32(seed, 0), 'tick')]);
+}
+
+// crossMark(at, p, { size, role, w, seed, name, order }) => an X, size tall (40), round a point or on a box's
+// middle: the stroke down to the right, then the one down to the left. (cross is v1's plus-sign path.)
+export function crossMark(at, p, o) {
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(at, 'crossMark'), seed = seedOf('crossMark', o), r = rng(seed), s = o.size ?? (h || 40), cx = x + w / 2, cy = y + h / 2, hs = s / 2;
+  const j = () => (r() - 0.5) * s * 0.08, pen = penFor(s, o), role = o.role ?? 'accents.0';
+  return markGroup('crossMark', o, seed, p, [
+    penLine([[cx - hs + j(), cy - hs + j()], [cx + hs + j(), cy + hs + j()]], role, { ...o, w: pen, straight: true }, hash32(seed, 0), 'a'),
+    penLine([[cx + hs + j(), cy - hs + j()], [cx - hs + j(), cy + hs + j()]], role, { ...o, w: pen, straight: true }, hash32(seed, 1), 'b'),
+  ]);
+}
+
+// question(at, s, p, { role, w, hand, seed, name, order }) => a big drawn ?, s tall (120), centred on a
+// point or a box's middle, from the shot's hand (or o.hand), in pen strokes that are not lettering: a mark,
+// not a word.
+export function question(at, s, p, o) {
+  if (typeof s !== 'number') [s, p, o] = [undefined, s, p];
+  [p, o] = progress(p, o);
+  const [x, y, w, h] = boxOf(at, 'question'), seed = seedOf('question', o), size = s ?? (h || 120), H = o.hand ?? currentHand() ?? houseHand();
+  const g = glyph('?', H);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const pts of g.s) for (let i = 0; i < pts.length; i += 2) { x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]); y0 = Math.min(y0, pts[i + 1]); y1 = Math.max(y1, pts[i + 1]); }
+  const k = size / Math.max(1, y1 - y0), cx = x + w / 2, cy = y + h / 2, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const role = o.role ?? 'accents.0', pen = penFor(size, o);
+  const parts = g.s.map((pts, si) => {
+    const out = new Array(pts.length);
+    for (let i = 0; i < pts.length; i += 2) { out[i] = cx + (pts[i] - mx) * k; out[i + 1] = cy + (pts[i + 1] - my) * k; }
+    const st = { w: pen, seed: hash32(seed, si), name: `q${si}` };
+    if (o.wobble !== undefined) st.wobble = o.wobble;
+    return stroke(mkPath([{ pts: out, closed: false }]), role, st);
+  });
+  return markGroup('question', o, seed, p, parts);
 }
 
 // ---------- camera ----------
