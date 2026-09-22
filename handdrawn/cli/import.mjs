@@ -112,7 +112,8 @@ async function fields(kind, bytes, abs, name) {
     return { units: data.units, box: box4(data.box) ?? puppetBox(data) };
   }
   if (kind === 'motif') return { box: bounds(parse(JSON.stringify(data))) ?? [0, 0, 0, 0] };
-  return { glyphs: Object.keys(data.glyphs).length };
+  const marks = Object.keys(data.marks ?? {}).length;
+  return { glyphs: Object.keys(data.glyphs).length, ...(marks ? { marks } : {}) };
 }
 
 function json(bytes, abs) {

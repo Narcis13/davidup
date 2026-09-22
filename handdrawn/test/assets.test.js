@@ -64,6 +64,12 @@ test('payload validators read the shapes of plan 1.2, 1.4 and the clip format', 
   assert.deepEqual(validatePayload('clip', { ...CLIP, n: 3 }), ['frames: 2 of them, n says 3']);
   assert.deepEqual(validatePayload('hand', { glyphs: { a: { w: 44, s: [] } } }), ['glyphs.a.s: strokes, each a flat [x0, y0, x1, y1, ...] or [[x, y], ...]']);
   assert.deepEqual(validatePayload('motif', []), ['motif: a non-empty serialised op list']);
+  // T2: a hand's marks, keyed by a mark's name, strokes like a glyph's.
+  assert.deepEqual(validatePayload('hand', { ...HAND, marks: { breve: { s: [[10, -60, 22, -54, 34, -60]] } } }), []);
+  assert.deepEqual(validatePayload('hand', { ...HAND, marks: { hacek: { s: [[0, 0, 1, 1]] }, acute: { s: [] } } }), [
+    'marks.hacek: no such mark (acute, grave, circumflex, umlaut, tilde, breve, caron, ring, cedilla, comma-below, ogonek, stroke, macron, dot-above)',
+    'marks.acute.s: strokes, each a flat [x0, y0, x1, y1, ...] or [[x, y], ...]',
+  ]);
 });
 
 test('import: the payload lands in the store, the entry is the truth, and it is idempotent', async () => {

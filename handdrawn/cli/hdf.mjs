@@ -68,8 +68,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--licence] [--credit] [--source] [--tags] [--no-sheet]
                                     an SVG into the store: parts from <g id>, pivots, variants, poses, cycles
                                     (rules in core/svg.js); prints the colour table, writes the sheet
-  hand    --template [--paper a4|letter] [--pages latin,symbols] > out/hand-template.pdf   the hand sheet to
-                                    print and fill in, both pages unless --pages says (--letter <hand>: a page
+  hand    --template [--paper a4|letter] [--pages latin,symbols,marks] > out/hand-template.pdf   the hand sheet
+                                    to print and fill in, all three pages unless --pages says (--letter <hand>: a page
                                     filled in by a stored hand, as a JPEG; the latin one unless --pages says)
   hand    <page.jpg ...> --name <id> [--thr 0.6] [--credit] [--root dir] [--no-sheet]   photos of filled-in pages
                                     into the store as a hand: glyphs traced, pen fitted from the latin page's last

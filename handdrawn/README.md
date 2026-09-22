@@ -262,6 +262,29 @@ text(copy, x, y, { size: 40, width: 300 })         // the op wraps too; w on a t
 draw, and `bounds()` of a `text` op is measured the same way (in the shot's
 hand), so the `cel-box` rule judges lettering by its ink.
 
+Accented letters are composed, not drawn twice: `ă` is the hand's `a` and a
+breve. `MARKS` in `core/glyphs.js` holds fourteen marks (acute, grave,
+circumflex, umlaut, tilde, breve, caron, ring, cedilla, comma-below, ogonek,
+stroke, macron, dot-above) and `COMPOSE` says which base takes which, filled
+from Unicode's decomposition for every letter of Latin-1 and Latin Extended-A,
+with the exceptions written out: `ł ø đ ħ ŧ` struck through, the Czech
+apostrophe carons `ď ť ľ`, Latvian commas, Romanian `ș ț`, `ı` and an `i` or
+`j` that loses its dot under an accent, `ő ű` with two acutes. An accent sits
+above the base's measured ink top (lower-set on a capital, clear of a quick
+pen's overshoot), a comma under the baseline, a cedilla or ogonek hanging from
+the ink, and a second accent stacks on the first. Typographic quotes, dashes,
+`…`, `æ œ ĳ` and `¿ ¡` are written with the glyphs they come from; `ß ð þ Þ ŋ
+Ŋ ĸ ſ « »` are house glyphs. A mark comes from the hand when it has one (the
+`marks` page of the hand sheet), else the house's; either way the advance is
+the base's, so `measure` and layout see a composed glyph like any other.
+Anything else that decomposes into a base and known marks (pinyin's `ǎ`)
+composes too; an unknown mark is dropped.
+
+```js
+handText('mulțumesc, pa', 40, 80, { size: 48 })   // ț is t plus comma-below
+fallbacks('Dvořák', 'narcis')                     // what the house draws for a hand: letters or marks it lacks
+```
+
 Paths are flattened polylines, so they transform, project, measure and hash
 trivially: `circle ellipse rect roundRect poly line cubic spline arc`, plus
 `xf box len at inside resample union`.
@@ -1404,7 +1427,7 @@ handdrawn/
     looks.js       colour maths, the six presets, derive / duotone / pastel / withLook
     finish.js      finishes as geometry (hatch, halftone, dots, graphite, wash), riso plates, the stock
     tools.js       pen, brush, pencil, chalk, crayon, marker, gouache; reveal
-    glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation and signs: 94 glyphs)
+    glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation, signs, ß ð þ...: 104 glyphs), 14 marks, composed accents
     text.js        handText, layout, textBox, bullets, measureBox, signOff, squiggleText
     layout.js      line breaking and boxes from a hand's advances and ink (list.js bounds reads it)
     spline.js      the cardinal spline's arithmetic (glyphs.js builds on it at load)

@@ -10,6 +10,7 @@ import { actorOf } from '../core/actor.js';
 import { puppet } from '../core/puppet.js';
 import { register } from '../core/store.js';
 import mini from '../films/mini.js';
+import { synthHand } from '../cli/hand.mjs';
 
 // A clean scratch film: every shot has paper, an anchor cel in frame, one finish; it ends on a sign-off
 // that is complete by t = 0.4 of a 2 s shot.
@@ -195,6 +196,17 @@ test('hand-missing: a look names a hand no store has, or the sign-off falls back
   assert.equal(g.shot, 'end');
   register({ whole: { name: 'whole', glyphs: { a: { w: 44, s: [[4, -40, 40, 0]] }, b: { w: 44, s: [[4, -72, 4, 0]] } } } });
   assert.deepEqual(rules(film({ name: 'scratch', look: 'paperInk~hand:whole', timeline: seq(scene('a'), end()) })), []);
+  // T2: a Romanian sign-off is clean in the house hand and in a hand with its own marks; a hand with the
+  // letters and no marks letters the comma of ț in the house's.
+  const ro = shot('end', 2, ({ t, CX, CY }) => [
+    paper(), meta('anchor', { name: 'signOff' }),
+    signOff('mulțumesc', 'pa', { x: CX, y: CY, size: 80, pA: ramp(0, 0.2, t), pB: ramp(0.2, 0.4, t) }),
+  ]);
+  register({ ro: synthHand('ro'), bare: { ...synthHand('bare'), marks: undefined } });
+  assert.deepEqual(rules(film({ name: 'scratch', look: 'paperInk', timeline: seq(scene('a'), ro) })), []);
+  assert.deepEqual(rules(film({ name: 'scratch', look: 'paperInk~hand:ro', timeline: seq(scene('a'), ro) })), []);
+  const bare = one(film({ name: 'scratch', look: 'paperInk~hand:bare', timeline: seq(scene('a'), ro) }), 'hand-missing');
+  assert.match(bare.detail, /the sign-off letters 'ț' in the house hand/);
 });
 
 test('inspect summarises shots for the board; hold and par plays are covered', () => {

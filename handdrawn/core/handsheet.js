@@ -5,7 +5,8 @@
 // The sheet is a frame FRAME mm wide and tall, centred on A4 or letter, with a thick black L at each corner
 // (the one at the top left has a square key beside it, so a photo taken sideways still reads). A sheet has
 // pages (PAGES): latin, 62 boxes (a-z, A-Z, 0-9) and a last row for the pen: three lines drawn left to right, a
-// circle, a square, a zigzag, a long S; symbols, 32 boxes of punctuation and signs. Each box has its baseline,
+// circle, a square, a zigzag, a long S; symbols, 32 boxes of punctuation and signs; marks, the 14 marks accented
+// letters are composed from (4.0 T2) and the 10 letters that are no base with a mark. Each box has its baseline,
 // x-height and cap line in light blue and a small grey exemplar. A page is told by its code, filled squares
 // along the bottom edge (latin has none, so sheets printed before pages existed read as latin).
 // Every box is laid out in em units (UNIT mm each), the 100-unit em of core/glyphs.js, so what is written on
@@ -15,7 +16,7 @@
 // PPU pixels per em unit, threshold against the box's own paper, thin to a skeleton (core/skeleton.js), trace
 // strokes, scale to the em. The pen profile is fitted from the last row: wobble, hook and pressure from the
 // lines, overshoot and rounding from the square, tremor from the lines' high-frequency residual.
-import { GLYPHS } from './glyphs.js';
+import { GLYPHS, MARKS } from './glyphs.js';
 import { components, distanceTransform, degrees, prune, simplify, traceSkeleton, zhangSuen } from './skeleton.js';
 
 export const PAPERS = Object.freeze({ a4: [210, 297], letter: [215.9, 279.4] });   // mm
@@ -24,11 +25,16 @@ export const MARK = Object.freeze({ arm: 12, thick: 3, key: [5, 5, 4] });       
 export const UNIT = 0.2;                                                          // mm per em unit
 export const CHARS = Object.freeze([...'abcdefghijklmnopqrstuvwxyz', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'0123456789']);
 export const SYMBOLS = Object.freeze([...'.,:;\'"-!?&()[]/+=%°×÷→←↑↓~*_#@$€']);
+// The marks page: a box per mark (named as in MARKS, written over a small letter's place), then the letters.
+export const MARK_BOXES = Object.freeze([...Object.keys(MARKS), ...'ßðþÞŋŊĸſ«»']);
 // The pages of the sheet: index is the page's code (bit k set: the k-th square filled), pen whether it has the pen row.
 export const PAGES = Object.freeze({
   latin: Object.freeze({ index: 0, chars: CHARS, pen: true }),
   symbols: Object.freeze({ index: 1, chars: SYMBOLS, pen: false }),
+  marks: Object.freeze({ index: 2, chars: MARK_BOXES, pen: false }),
 });
+// The strokes a box's exemplar shows: a mark's, or a glyph's.
+const exemplar = (ch) => (MARKS[ch] ?? GLYPHS[ch]).s;
 export const CODE = Object.freeze({ x: 20, y: 241, side: 5, step: 8, bits: 3 });   // mm: the code squares, left to right
 const pageOf = (page) => {
   const p = PAGES[page];
@@ -119,6 +125,10 @@ export function drawTemplate(ctx, paper = 'a4', page = 'latin') {
     'Write each character once in its box, standing on the blue baseline, small letters up to the dashed line,',
     'capitals and figures up to the dotted one, in a dark pen. Last row: three lines left to right, a circle, a square,',
     'a zigzag and a long S over the faint guides. Photograph the whole sheet, flat, with all four black corners in it.',
+  ] : page === 'marks' ? [
+    'Write each accent alone where it sits on a small letter: above the dashed line, cedilla, comma and ogonek under',
+    'the baseline, the stroke across the middle (named under each box); then the letters on the baseline. Dark pen.',
+    'Photograph the whole sheet, flat, with all four black corners and the squares along the bottom in the picture.',
   ] : [
     'Write each mark once in its box where it sits in a sentence, as the grey exemplar shows: on the baseline,',
     'brackets from the dotted line down to the faint one, + = × ÷ and arrows halfway to the dashed line. Dark pen.',
@@ -142,10 +152,14 @@ export function drawTemplate(ctx, paper = 'a4', page = 'latin') {
     guide(-72, GUIDE, [0.3, 0.7]);
     guide(24, FAINT, [0.3, 0.9]);
     ctx.setLineDash([]);
+    if (MARKS[b.ch]) {   // a mark's box is named under it, in the gap the reader never samples
+      ctx.fillStyle = LABEL; ctx.font = '1.8px sans-serif';
+      ctx.fillText(b.ch, b.x + 0.5, b.y + b.h + 2.1);
+    }
     // The exemplar: the house glyph, small, in the top left corner.
     ctx.strokeStyle = EXEMPLAR;
     ctx.lineWidth = 0.22;
-    for (const s of GLYPHS[b.ch].s) {
+    for (const s of exemplar(b.ch)) {
       ctx.beginPath();
       for (let i = 0; i < s.length; i += 2) {
         const [x, y] = emToFrame(b, 4 + s[i] * 0.2, -64 + s[i + 1] * 0.2);

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GLYPHS, glyph } from '../core/glyphs.js';
+import { asHand, COMPOSE, fallbacks, GLYPHS, glyph, MARKS } from '../core/glyphs.js';
+import { synthHand } from '../cli/hand.mjs';
 import { handText, signOff, measure, syllablesOf, speech, VISEMES } from '../core/text.js';
 import { reveal, trim } from '../core/tools.js';
 import { group, stroke, line, hashList, walk } from '../core/list.js';
@@ -14,7 +15,72 @@ const total = (node) => strokes(node).reduce((a, s) => a + s.path.sub.reduce((b,
 test('the font covers a-z, A-Z, 0-9 and the punctuation set', () => {
   for (const ch of "abcdefghijklmnopqrstuvwxyz0123456789.,:'-!?& ") assert.ok(GLYPHS[ch], ch);
   assert.equal(glyph('§').s, GLYPHS['?'].s);
-  assert.equal(glyph('É').s, GLYPHS.E.s);          // accents fall back to the base letter
+  assert.deepEqual(glyph('É').s.slice(0, GLYPHS.E.s.length), GLYPHS.E.s);   // an accent is the base letter and its mark (T2)
+});
+
+// T2: accented letters composed from a base and a mark, in any hand.
+const inkOf = (strokes) => {
+  const xs = strokes.flatMap((p) => p.filter((_, i) => i % 2 === 0)), ys = strokes.flatMap((p) => p.filter((_, i) => i % 2));
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+};
+test('composed glyphs: every letter of Latin-1 and Latin Extended-A (and ș ț) letters as its base and its marks', () => {
+  const letters = [];
+  for (let c = 0xc0; c <= 0x17f; c++) letters.push(String.fromCharCode(c));
+  for (const ch of [...letters, ...'șțȘȚ']) {
+    if (ch === '×' || ch === '÷') continue;
+    const g = glyph(ch);
+    assert.ok(GLYPHS[ch] || COMPOSE[ch], `${ch} is drawn or composed`);
+    assert.notEqual(g.s, GLYPHS['?'].s, ch);
+    assert.equal(g.own, true, `${ch}: the house draws all of it`);
+  }
+  // a base, then its mark; the advance is the base's.
+  for (const [ch, base, n] of [['ă', 'a', 1], ['ș', 's', 1], ['ł', 'l', 1], ['ü', 'u', 2], ['ő', 'o', 2], ['ǻ', 'a', 2]]) {
+    const g = glyph(ch);
+    assert.equal(g.w, GLYPHS[base].w, ch);
+    assert.deepEqual(g.s.slice(0, GLYPHS[base].s.length), GLYPHS[base].s, `${ch} starts with its ${base}`);
+    assert.equal(g.s.length - GLYPHS[base].s.length, n, `${ch}: marks`);
+  }
+  // Above marks clear the base's ink top, x-height or cap height as measured; below ones sit under the baseline.
+  const top = (c) => inkOf(GLYPHS[c].s)[1], markInk = (ch, base) => inkOf(glyph(ch).s.slice(GLYPHS[base].s.length));
+  assert.ok(markInk('é', 'e')[3] <= top('e') - 8, 'é: its acute over the x-height');
+  assert.ok(markInk('É', 'E')[3] <= top('E') - 6, 'É: its acute over the cap height');
+  assert.ok(markInk('É', 'E')[1] > markInk('é', 'e')[1] - 30, 'on a capital the mark is lower-set (squashed)');
+  assert.ok(markInk('ǻ', 'a')[1] < markInk('å', 'a')[1] - 8, 'a second above mark stacks over the first');
+  assert.ok(markInk('ș', 's')[1] >= 8, 'ș: the comma under the baseline');
+  assert.ok(markInk('ç', 'c')[1] >= -2 && markInk('ç', 'c')[1] <= 2, 'ç: the cedilla hangs from the ink');
+  const ms = (ch, base) => inkOf(glyph(ch).s.slice(GLYPHS[base].s.length));
+  assert.ok(ms('ł', 'l')[1] > -60 && ms('ł', 'l')[3] < -12, 'ł: the stroke through the middle');
+  assert.ok(ms('ø', 'o')[3] - ms('ø', 'o')[1] > 55, 'ø: the stroke runs past the bowl');
+  // i and j lose their dot under an above mark; ı is the dotless i itself; į keeps it.
+  assert.equal(glyph('î').s.length, 2);
+  assert.equal(glyph('ı').s.length, 1);
+  assert.equal(glyph('į').s.length, 3);
+  // Written as others: quotes, dashes, the ellipsis, ligatures, the inverted marks.
+  assert.deepEqual(glyph('’').s, GLYPHS["'"].s);
+  assert.equal(glyph('…').s.length, 3);
+  assert.equal(glyph('æ').s.length, GLYPHS.a.s.length + GLYPHS.e.s.length);
+  assert.ok(inkOf(glyph('¿').s)[3] > 15, '¿ hangs under the baseline, turned');
+  // Beyond the table: Unicode's decomposition (pinyin's ǎ); an unknown mark is dropped; no base, '?'.
+  assert.equal(glyph('ǎ').s.length, GLYPHS.a.s.length + 1);
+  assert.equal(glyph('ạ').s.length, GLYPHS.a.s.length);
+  assert.equal(glyph('ж').s, GLYPHS['?'].s);
+  assert.equal(glyph('ă'), glyph('ă'), 'memoised: one glyph, one strokes array for layout to measure');
+  assert.equal(Object.keys(MARKS).length, 14);
+});
+
+test('a Romanian sign-off letters in the house hand and in the test hand, each with its own marks', () => {
+  const n = (node) => strokes(node).length;
+  assert.equal(n(handText('mulțumesc', 0, 0, { ink2: null })), n(handText('multumesc', 0, 0, { ink2: null })) + 1);
+  assert.equal(measure('mulțumesc', 40), measure('multumesc', 40), 'a mark takes no room');
+  const T = asHand(synthHand('test'));
+  assert.deepEqual(fallbacks('mulțumesc pa', T), []);
+  assert.equal(n(handText('mulțumesc', 0, 0, { hand: T, ink2: null })), n(handText('multumesc', 0, 0, { hand: T, ink2: null })) + 1);
+  const comma = (H) => glyph('ț', H).s.at(-1);
+  assert.notDeepEqual(comma(T), comma(), "the test hand's comma, not the house's");
+  // A hand with letters and no marks composes with the house's marks, and says so.
+  const bare = asHand({ name: 'bare', glyphs: T.glyphs });
+  assert.deepEqual(fallbacks('mulțumesc pa', bare), ['ț']);
+  assert.equal(glyph('t', bare).own, true);
 });
 
 // T1: the house hand can write a sentence.

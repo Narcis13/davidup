@@ -3,9 +3,9 @@
 // drawn with its pen), then "photographed": warped in perspective onto a dark table, lit unevenly, grained.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asHand, glyph, GLYPHS } from '../core/glyphs.js';
+import { asHand, glyph, GLYPHS, MARKS } from '../core/glyphs.js';
 import {
-  BOX, CHARS, CODE, FRAME, MARK, PAGES, SYMBOLS, UNIT, emToFrame, findMarks, fitProfile, frameOrigin, glyphBoxes, homography, markCentroids,
+  BOX, CHARS, CODE, FRAME, MARK, MARK_BOXES, PAGES, SYMBOLS, UNIT, emToFrame, findMarks, fitProfile, frameOrigin, glyphBoxes, homography, markCentroids,
   PAPERS, readSheet, sample, SHAPES, cellToFrame, ROW,
 } from '../core/handsheet.js';
 import { components, distanceTransform, prune, traceSkeleton, zhangSuen } from '../core/skeleton.js';
@@ -73,14 +73,18 @@ test('template: a PDF for A4 and letter; 62 boxes in em units, four marks, the p
   // T1: the symbols page, 32 boxes in the same grid, every one a house glyph; each page told by its code.
   const pdf = await templatePdf('a4'), one = await templatePdf('a4', ['latin']);
   const pages = (b) => (b.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length;
-  assert.deepEqual([pages(pdf), pages(one)], [2, 1]);
+  assert.deepEqual([pages(pdf), pages(one)], [3, 1]);
   const sym = glyphBoxes('symbols');
   assert.deepEqual(sym.map((b) => b.ch), SYMBOLS);
   assert.equal(new Set([...CHARS, ...SYMBOLS]).size, 94);
-  assert.deepEqual([...CHARS, ...SYMBOLS, ' '].sort(), Object.keys(GLYPHS).sort(), 'every house glyph is on a page');
+  const extra = MARK_BOXES.filter((c) => !MARKS[c]);
+  assert.deepEqual([...CHARS, ...SYMBOLS, ...extra, ' '].sort(), Object.keys(GLYPHS).sort(), 'every house glyph is on a page');
+  // T2: the marks page, 14 marks and 10 letters, each mark a MARKS name.
+  assert.deepEqual(glyphBoxes('marks').map((b) => b.ch), [...Object.keys(MARKS), ...extra]);
+  for (const b of glyphBoxes('marks')) assert.ok(b.y + b.h < ROW.y, b.ch);
   for (const b of sym) assert.ok(b.y + b.h < ROW.y && GLYPHS[b.ch], b.ch);
-  assert.throws(() => glyphBoxes('cyrillic'), /page 'cyrillic' \(expected latin \| symbols\)/);
-  assert.deepEqual(Object.values(PAGES).map((p) => p.index), [0, 1]);
+  assert.throws(() => glyphBoxes('cyrillic'), /page 'cyrillic' \(expected latin \| symbols \| marks\)/);
+  assert.deepEqual(Object.values(PAGES).map((p) => p.index), [0, 1, 2]);
   const codeRight = CODE.x + (CODE.bits - 1) * CODE.step + CODE.side;
   assert.ok(CODE.x > MARK.arm + 2 && codeRight < FRAME[0] - MARK.arm - 2, 'the code clears the bottom marks');
   assert.ok(CODE.y > ROW.y + ROW.h * UNIT && CODE.y + CODE.side < FRAME[1], 'the code sits below the pen row');
@@ -225,6 +229,29 @@ test('reading the symbols page: told by its code, every mark traced, merged with
   const h = asHand(both);
   for (const ch of "it's 3 + 4 = 7 (yes!)") if (ch !== ' ') assert.equal(glyph(ch, h).own, true, ch);
   assert.deepEqual(handFromSheet(read, 'marks').stroke, {}, 'the symbols page alone: the house pen');
+});
+
+// T2: the marks page, keystoned, reads as marks by its code; the marks go into the hand's marks, the letters into
+// its glyphs, and a hand made of it and the latin page letters accents with the marks it wrote.
+test('reading the marks page: its marks become the hand\'s own accents', () => {
+  const c = letterSheet(TEST, { page: 'marks' }), sheet = lumOf(c.getContext('2d').getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  const read = readSheet(photograph(sheet, UPRIGHT));
+  assert.equal(read.page, 'marks');
+  assert.deepEqual(read.missing, []);
+  const hand = handFromSheet([read, readSheet(sheetOf())], 'accented');
+  assert.deepEqual(Object.keys(hand.marks).sort(), Object.keys(MARKS).sort());
+  assert.equal(Object.keys(hand.glyphs).length, 62 + 10);
+  // Where each mark was written is kept: accents above the x-height, the comma and cedilla under the baseline.
+  const ys = (m) => hand.marks[m].s.flatMap((s) => s.filter((_, i) => i % 2));
+  for (const m of ['acute', 'breve', 'umlaut', 'dot-above']) assert.ok(Math.max(...ys(m)) < -44, `${m} down to ${Math.max(...ys(m))}`);
+  for (const m of ['comma-below', 'cedilla', 'ogonek']) assert.ok(Math.min(...ys(m)) > -8, `${m} up to ${Math.min(...ys(m))}`);
+  const h = asHand(hand);
+  for (const ch of 'mulțumesc pa ăâîșț éüñ') if (ch !== ' ') assert.equal(glyph(ch, h).own, true, ch);
+  // ă's breve is the hand's traced breve, moved: the same points, offset by one vector.
+  const drawn = glyph('ă', h).s.at(-1), own = h.marks.breve.s[0];
+  assert.equal(drawn.length, own.length);
+  for (let i = 2; i < own.length; i++) assert.ok(Math.abs((drawn[i] - own[i]) - (drawn[i % 2] - own[i % 2])) < 1e-9, 'a translation');
+  assert.equal(handFromSheet(readSheet(sheetOf()), 'plain').marks, undefined, 'no marks page, no marks field');
 });
 
 test('reading: blank boxes are missing (the house stands in); a blank pen row fits nothing', () => {

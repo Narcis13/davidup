@@ -1,12 +1,12 @@
 // hdf hand: hands into the store (plan 1.4). A hand is the glyphs a look letters in and the pen profile its
 // strokes are drawn with; `--look 'risoPop~hand:<id>'` letters and draws a film in it.
 //
-//   hdf hand --template > out/hand-template.pdf         the sheet to print, both pages (A4; --paper letter for US
-//                                                        letter; --pages latin for the letters alone)
-//   hdf hand latin.jpg symbols.jpg --name narcis         photos of the filled-in pages -> the hand 'narcis'
+//   hdf hand --template > out/hand-template.pdf         the sheet to print, all three pages (A4; --paper letter for
+//                                                        US letter; --pages latin for the letters alone)
+//   hdf hand latin.jpg symbols.jpg marks.jpg --name narcis   photos of the filled-in pages -> the hand 'narcis'
 //   hdf hand --synth test                                a deterministic hand made from the house one (tests, goldens)
 //   hdf hand --template --letter test > out/sample.jpg   a page filled in by a stored hand, as a 300 dpi JPEG
-//                                                        (the latin page; --pages symbols for the other)
+//                                                        (the latin page; --pages symbols or marks for another)
 //   ... --root ../other                                  into (or from) a store that is not handdrawn/assets
 //
 // Reading a sheet writes the hand into the store, its page next to the house's (assets/sheets/<id>.jpg, as
@@ -19,7 +19,7 @@ import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
-import { GLYPHS, asHand } from '../core/glyphs.js';
+import { GLYPHS, MARKS, asHand } from '../core/glyphs.js';
 import {
   FRAME, PAGES, PAPERS, SHAPES, UNIT, cellToFrame, drawTemplate, emToFrame, frameOrigin, glyphBoxes, readSheet, sample,
 } from '../core/handsheet.js';
@@ -45,26 +45,29 @@ export const SYNTH = Object.freeze({
 const r1 = (v) => Math.round(v * 10) / 10;
 
 // The house glyphs perturbed by a seeded rng: each glyph a little narrower and taller, each stroke pushed by
-// two slow waves (about 2.5 em units), so every letter is recognisably itself and none is the house's.
+// two slow waves (about 2.5 em units), so every letter is recognisably itself and none is the house's. The
+// house marks (4.0 T2) follow the glyphs, pushed by waves a third as big, so the hand composes its own accents.
 export function synthHand(id) {
-  const r = rng(hash32('hand', id)), glyphs = {};
+  const r = rng(hash32('hand', id)), glyphs = {}, marks = {};
+  const wave = (pts, sx, sy, k) => {
+    const a = (1.8 + r() * 1.4) * k, f1 = 0.04 + r() * 0.05, f2 = 0.04 + r() * 0.05, p1 = r() * 6.3, p2 = r() * 6.3, out = new Array(pts.length);
+    for (let i = 0; i < pts.length; i += 2) {
+      const x = pts[i], y = pts[i + 1];
+      out[i] = r1(x * sx + a * Math.sin(y * f1 + p1));
+      out[i + 1] = r1(y * sy + a * 0.7 * Math.sin(x * f2 + p2));
+    }
+    return out;
+  };
   for (const [ch, g] of Object.entries(GLYPHS)) {
     if (!g.s.length) { glyphs[ch] = { w: g.w, s: [] }; continue; }   // the space
     const sx = 0.9 + r() * 0.08, sy = 1.04 + r() * 0.08;
-    glyphs[ch] = {
-      w: r1(Math.max(8, g.w * sx)),
-      s: g.s.map((pts) => {
-        const a = 1.8 + r() * 1.4, f1 = 0.04 + r() * 0.05, f2 = 0.04 + r() * 0.05, p1 = r() * 6.3, p2 = r() * 6.3, out = new Array(pts.length);
-        for (let i = 0; i < pts.length; i += 2) {
-          const x = pts[i], y = pts[i + 1];
-          out[i] = r1(x * sx + a * Math.sin(y * f1 + p1));
-          out[i + 1] = r1(y * sy + a * 0.7 * Math.sin(x * f2 + p2));
-        }
-        return out;
-      }),
-    };
+    glyphs[ch] = { w: r1(Math.max(8, g.w * sx)), s: g.s.map((pts) => wave(pts, sx, sy, 1)) };
   }
-  return { kind: 'hand', name: id, glyphs, ...SYNTH, stroke: { ...SYNTH.stroke }, credit: 'synthesised from the house hand by `hdf hand --synth`', licence: 'own' };
+  for (const [m, g] of Object.entries(MARKS)) {
+    const sx = 0.9 + r() * 0.2, sy = 0.9 + r() * 0.2;
+    marks[m] = { s: g.s.map((pts) => wave(pts, sx, sy, 1 / 3)) };
+  }
+  return { kind: 'hand', name: id, glyphs, marks, ...SYNTH, stroke: { ...SYNTH.stroke }, credit: 'synthesised from the house hand by `hdf hand --synth`', licence: 'own' };
 }
 
 // ---------- the template ----------
@@ -83,7 +86,7 @@ export async function templatePdf(paper = 'a4', pages = Object.keys(PAGES)) {
   return canvas.toBuffer('pdf');
 }
 
-// --pages latin,symbols -> ['latin', 'symbols'], every page when not given.
+// --pages latin,marks -> ['latin', 'marks'], every page when not given.
 export function pagesOf(flag) {
   if (flag === undefined) return Object.keys(PAGES);
   const pages = String(flag).split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
@@ -100,11 +103,13 @@ export function letterSheet(hand, { paper = 'a4', page = 'latin', dpi = 300, w =
   const [pw, ph] = PAPERS[paper], k = dpi / 25.4, [ox, oy] = frameOrigin(paper), H = asHand(hand);
   const canvas = skiaCanvas(Math.round(pw * k), Math.round(ph * k)), ctx = canvas.getContext('2d');
   ctx.save(); ctx.scale(k, k); drawTemplate(ctx, paper, page); ctx.restore();
-  const list = [];
-  for (const b of glyphBoxes(page)) {
-    if (skip.includes(b.ch)) continue;
-    const [x, y] = emToFrame(b, 12, 0);
-    list.push(handText(b.ch, ox + x, oy + y, { size: 100 * UNIT, hand: H, ink2: null }));
+  const list = [], boxes = glyphBoxes(page).filter((b) => !skip.includes(b.ch));
+  // A mark is lettered as a glyph of its own (a private-use character): the hand's strokes, else the house's.
+  const pua = (i) => String.fromCharCode(0xe000 + i), marks = boxes.filter((b) => MARKS[b.ch]);
+  const MH = asHand({ ...H, glyphs: Object.fromEntries(marks.map((b, i) => [pua(i), { w: 60, s: (H.marks[b.ch] ?? MARKS[b.ch]).s }])) });
+  for (const b of boxes) {
+    const [x, y] = emToFrame(b, 12, 0), m = marks.indexOf(b);
+    list.push(handText(m >= 0 ? pua(m) : b.ch, ox + x, oy + y, { size: 100 * UNIT, hand: m >= 0 ? MH : H, ink2: null }));
   }
   for (const c of PAGES[page].pen ? SHAPES : []) {
     const [x, y] = cellToFrame(c, 0, 0);
@@ -132,12 +137,15 @@ export function lumOf(rgba, w, h) {
 const FIELDS = ['wobble', 'overshoot', 'hook', 'pressure', 'tremor', 'rounding'];
 
 // Read sheet pages (one readSheet() result, or a list of them) as a hand record: the glyphs written on every
-// page, the profile fitted from the page with the pen row (speed is not on a sheet: the house's).
+// page, the marks off the marks page (4.0 T2: the accents it composes with), the profile fitted from the page
+// with the pen row (speed is not on a sheet: the house's).
 export function handFromSheet(read, id, { credit = '' } = {}) {
-  const reads = [read].flat(), glyphs = Object.assign({}, ...reads.map((r) => r.glyphs));
+  const reads = [read].flat(), all = Object.entries(Object.assign({}, ...reads.map((r) => r.glyphs)));
+  const glyphs = Object.fromEntries(all.filter(([c]) => !MARKS[c]));
+  const marks = Object.fromEntries(all.filter(([c]) => MARKS[c]).map(([c, g]) => [c, { s: g.s }]));
   const profile = reads.find((r) => r.profile.found.length)?.profile ?? {};
   const stroke = Object.fromEntries(FIELDS.filter((k) => profile[k] !== undefined).map((k) => [k, profile[k]]));
-  return { kind: 'hand', name: id, glyphs, stroke, credit, licence: 'own' };
+  return { kind: 'hand', name: id, glyphs, ...(Object.keys(marks).length ? { marks } : {}), stroke, credit, licence: 'own' };
 }
 
 // The photo straightened (3 px per mm) with every trace over it in red and blank boxes crossed out.
@@ -166,7 +174,7 @@ export async function run(args, flags) {
     const paper = flags.paper === undefined ? 'a4' : String(flags.paper).toLowerCase();
     if (!PAPERS[paper]) throw new UsageError(`hand: --paper ${paper} (expected ${Object.keys(PAPERS).join(' | ')})`);
     const pages = flags.letter && flags.pages === undefined ? ['latin'] : pagesOf(flags.pages);
-    if (flags.letter && pages.length > 1) throw new UsageError('hand: --letter writes one page as a JPEG; say which with --pages latin or --pages symbols');
+    if (flags.letter && pages.length > 1) throw new UsageError('hand: --letter writes one page as a JPEG; say which with --pages latin, symbols or marks');
     if (process.stdout.isTTY) throw new UsageError(`hand: --template writes ${flags.letter ? 'a JPEG' : 'a PDF'} to stdout; redirect it, e.g. hdf hand --template > out/hand-template.${flags.letter ? 'jpg' : 'pdf'}`);
     let bytes;
     if (flags.letter) {

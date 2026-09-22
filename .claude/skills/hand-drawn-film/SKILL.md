@@ -352,17 +352,21 @@ beside the copy reads it. `hdf dev` shows every text box with `B`.
 
 ## Hands: the film in the user's handwriting
 
-A hand is a store asset: up to 94 glyphs plus a pen profile (wobble, overshoot,
-hook, pressure, speed). `look.hand` is the house hand unless a look says
-`~hand:<id>`; then every `handText`, sign-off, doodle reveal and pen stroke
-of the film is in that hand (hatching and ruled lines stay).
+A hand is a store asset: up to 104 glyphs and 14 accent marks plus a pen
+profile (wobble, overshoot, hook, pressure, speed). `look.hand` is the house
+hand unless a look says `~hand:<id>`; then every `handText`, sign-off, doodle
+reveal and pen stroke of the film is in that hand (hatching and ruled lines
+stay). Accented letters (Romanian, French, German, Spanish, Polish, Czech,
+Nordic, Turkish: all of Latin-1 and Latin Extended-A) are composed from the
+hand's base letter and a mark, so copy can be written as the brief spells it.
 
 ```bash
-hdf hand --template > out/hand-template.pdf      # two pages, A4 (--paper letter); print them
+hdf hand --template > out/hand-template.pdf      # three pages, A4 (--paper letter); print them
 #   page latin: 62 boxes on the baseline in their own pen, then the last row: three lines left to
 #   right, a circle, a square, a zigzag, a long S; page symbols: 32 boxes of punctuation and signs
-#   (' " : ; ( ) [ ] / + = % ° × ÷ → ← ↑ ↓ ~ * _ # @ $ € ...); each photographed flat, corner marks in
-hdf hand latin.jpg symbols.jpg --name narcis     # traces every glyph, fits the pen; out/hand-narcis-trace*.jpg
+#   (' " : ; ( ) [ ] / + = % ° × ÷ → ← ↑ ↓ ~ * _ # @ $ € ...); page marks: the 14 accents alone and
+#   ß ð þ Þ ŋ Ŋ ĸ ſ « » (skip it and the house's accents stand in); each photographed flat, corner marks in
+hdf hand latin.jpg symbols.jpg marks.jpg --name narcis   # traces every glyph and mark, fits the pen; out/hand-narcis-trace*.jpg
 hdf sheet --hand narcis                          # house | narcis, every glyph (house fallbacks marked), pangrams
 hdf render work/<film>/<film>.js --look 'doodlePastel~hand:narcis'      # or pin it in film({ look })
 ```

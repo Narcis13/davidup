@@ -93,7 +93,10 @@ test('a glyph the hand lacks falls back to house, per glyph, and is listed', () 
   assert.equal(glyph('a', thin).own, true);
   assert.equal(glyph('b', thin).own, false);
   assert.equal(glyph('b', thin).s, GLYPHS.b.s);
-  assert.equal(glyph('á', thin).own, true, 'accents still fall to the base letter in the hand');
+  // T2: an accent is the hand's letter and a mark, the house's when the hand has none (so not all its own).
+  assert.deepEqual(glyph('á', thin).s[0], thin.glyphs.a.s[0], "á is built on the hand's a");
+  assert.equal(glyph('á', thin).own, false, 'with the house acute');
+  assert.equal(glyph('á', asHand({ ...thin, marks: { acute: { s: [[20, -60, 12, -50]] } } })).own, true, 'its own acute');
   assert.deepEqual(fallbacks('a ba!', thin), ['b', '!']);
   assert.deepEqual(fallbacks('mini film', TEST), []);
   assert.deepEqual(fallbacks('anything at all'), []);

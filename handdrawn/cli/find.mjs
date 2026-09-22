@@ -63,7 +63,7 @@ function inputs(st, e) {
     case 'stock': return `${e.w}x${e.h} px`;
     case 'clip': return `${e.n} poses @ ${e.fps} fps, h ${Math.round(e.h)}`;
     case 'puppet': return puppet(st, e);
-    case 'hand': return `${e.glyphs} glyphs`;
+    case 'hand': return `${e.glyphs} glyphs${e.marks ? `, ${e.marks} marks` : ''}`;
     case 'sample': return e.sec ? `${e.sec} s` : 'wav';
     default: return `box ${(e.box ?? []).map(Math.round).join(' ')}`;
   }

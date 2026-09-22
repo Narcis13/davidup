@@ -34,8 +34,8 @@ import { LOOKS, modifyLook, resolveLook } from '../core/looks.js';
 import { VIEW_DIRS, puppet } from '../core/puppet.js';
 import { hash32 } from '../core/rand.js';
 import { handText, measure } from '../core/text.js';
-import { asHand, glyph, GLYPHS, houseHand } from '../core/glyphs.js';
-import { SHAPES, SYMBOLS, UNIT } from '../core/handsheet.js';
+import { asHand, glyph, GLYPHS, houseHand, MARKS } from '../core/glyphs.js';
+import { MARK_BOXES, SHAPES, SYMBOLS, UNIT } from '../core/handsheet.js';
 import { cel, frame, place } from '../core/tree.js';
 import { outDir, paint, tileSheet } from './sheets.mjs';
 import { imagesOf, UsageError } from './load.mjs';
@@ -362,10 +362,12 @@ async function modelSheetFile(make, entry, st, flags) {
 
 // ---------- a hand beside the house ----------
 
-const HAND_W = 1600, PANGRAMS = ['The quick brown fox jumps over the lazy dog.', 'Pack my box with five dozen liquor jugs!', '0123456789  Sphinx of black quartz, judge my vow.'];
+const HAND_W = 1600, PANGRAMS = ['The quick brown fox jumps over the lazy dog.', 'Pack my box with five dozen liquor jugs!', '0123456789  Sphinx of black quartz, judge my vow.',
+  'Mulțumesc! Übermäßig, déjà vu, año, żółć, Ångström, Øre, Dvořák.'];
 
 // handPage(hand) => { list, W, H }: one hand on a page: its name, its pen profile, every glyph (the ones it
-// lacks drawn by the house, in the guide colour and listed), three pangrams, and the pen row of the hand sheet
+// lacks drawn by the house, in the guide colour and listed, and the marks it composes accents with), three
+// pangrams and a line of accents, and the pen row of the hand sheet
 // (a line, a circle, a square, a zigzag, a long S) for the pen to draw in the hand's look.
 export function handPage(rec) {
   const H = asHand(rec), house = H === houseHand(), list = [paper()], M = 60, st = H.stroke;
@@ -374,7 +376,7 @@ export function handPage(rec) {
   const prof = `wobble ${st.wobble}, overshoot ${st.overshoot}, hook ${st.hook}, pressure ${st.pressure.join(' ')}, tremor ${st.tremor}, rounding ${st.rounding}`;
   list.push(handText(prof, M, y + 140, { size: 26, hand: H, ink2: null }));
   y += 170;
-  const chars = [...Object.keys(GLYPHS).filter((c) => /[0-9A-Za-z]/.test(c)).sort((a, b) => rank(a) - rank(b)), ...SYMBOLS];
+  const chars = [...Object.keys(GLYPHS).filter((c) => /[0-9A-Za-z]/.test(c)).sort((a, b) => rank(a) - rank(b)), ...SYMBOLS, ...MARK_BOXES.filter((c) => !MARKS[c])];
   const per = 14, cw = (HAND_W - 2 * M) / per, ch = 112, lacks = [];
   chars.forEach((c, i) => {
     const own = glyph(c, H).own;
@@ -385,7 +387,9 @@ export function handPage(rec) {
   });
   y += Math.ceil(chars.length / per) * ch + 10;
   list.push(handText(lacks.length ? `the house draws ${lacks.join(' ')}` : house ? 'the house hand' : 'every glyph its own', M, y + 30, { size: 26, hand: H, ink2: null, role: lacks.length ? 'guide' : 'ink' }));
-  y += 60;
+  const noMarks = Object.keys(MARKS).filter((m) => !H.marks[m]);
+  if (!house) list.push(handText(noMarks.length ? `accents: the house's ${noMarks.join(' ')}` : 'accents: its own marks', M, y + 62, { size: 26, hand: H, ink2: null, role: noMarks.length ? 'guide' : 'ink' }));
+  y += house ? 60 : 92;
   for (const p of PANGRAMS) { list.push(handText(p, M, y + 64, { size: 56, hand: H, ink2: null })); y += 86; }
   y += 20;
   let x = M;
@@ -419,7 +423,7 @@ export async function handSheetFile(id, flags = {}) {
   const file = st.sheetPath(id);
   mkdirSync(dirname(file), { recursive: true });
   await tileSheet(tiles, { cols: 2, label: 18 }).toFile(file, { quality: 0.9 });
-  const lacks = Object.keys(GLYPHS).filter((c) => c.trim() && !glyph(c, asHand(rec)).own);
+  const H = asHand(rec), lacks = [...Object.keys(GLYPHS).filter((c) => c.trim() && !glyph(c, H).own), ...Object.keys(MARKS).filter((m) => !H.marks[m])];
   process.stdout.write(`${file}  house | ${id}${lacks.length ? `  (the house draws ${lacks.join(' ')})` : ''}\n`);
   return 0;
 }

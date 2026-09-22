@@ -30,6 +30,7 @@ import { peek, register, setReader } from './store.js';
 import { setPcmReader } from './synth.js';
 import { checkAlign } from './align.js';
 import { checkMouth } from './mouth.js';
+import { MARKS } from './glyphs.js';
 
 // The store next to the package (handdrawn/assets) unless a command names another root.
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
@@ -54,7 +55,7 @@ export const SCHEMAS = {
   cutout: { payload: 'raster', box: true, fields: { w: posInt, h: posInt, sil: path, colours: colourTable } },
   clip: { payload: 'json', box: true, fields: { n: posInt, fps: posNum, h: posNum }, checkPayload: checkClip },
   puppet: { payload: 'json', box: true, fields: { units: posNum }, checkPayload: checkPuppet },
-  hand: { payload: 'json', fields: { glyphs: posInt }, checkPayload: checkHand },
+  hand: { payload: 'json', fields: { glyphs: posInt, marks: { ...posInt, opt: true } }, checkPayload: checkHand },
   stock: { payload: 'raster', box: true, fields: { w: posInt, h: posInt } },
   motif: { payload: 'json', box: true, checkPayload: checkMotif },
   sample: { payload: 'audio', fields: { sec: { ...posNum, opt: true }, align: { opt: true, why: 'word timing (hdf align): { text, by, words: [[text, t0, t1], ...] }', ok: (v) => !checkAlign(v).length }, mouth: { opt: true, why: "mouth shapes (hdf align --mouth): { by, shapes: 'XBDCA...' }, a letter per 1/12 s", ok: (v) => !checkMouth(v).length } } },
@@ -156,6 +157,14 @@ function checkHand(d) {
     if (!gl || !posNum.ok(gl.w)) bad.push(`glyphs.${c}.w: the advance in the 100-unit em, > 0`);
     if (!Array.isArray(gl?.s) || (!gl.s.length && c.trim()) || !gl.s.every((st) => Array.isArray(st) && (flat(st) || pairs(st)))) {
       bad.push(`glyphs.${c}.s: strokes, each a flat [x0, y0, x1, y1, ...] or [[x, y], ...]`);
+    }
+  }
+  // 4.0 T2: the marks it composes accented letters with, each strokes like a glyph's, keyed by a MARKS name.
+  if (d.marks !== undefined) {
+    if (!d.marks || typeof d.marks !== 'object' || Array.isArray(d.marks)) bad.push(`marks: an object keyed by mark (${Object.keys(MARKS).join(', ')})`);
+    else for (const [m, mk] of Object.entries(d.marks)) {
+      if (!MARKS[m]) bad.push(`marks.${m}: no such mark (${Object.keys(MARKS).join(', ')})`);
+      else if (!Array.isArray(mk?.s) || !mk.s.length || !mk.s.every((st) => Array.isArray(st) && (flat(st) || pairs(st)))) bad.push(`marks.${m}.s: strokes, each a flat [x0, y0, x1, y1, ...] or [[x, y], ...]`);
     }
   }
   for (const k of ['track', 'slant', 'baselineDrift']) if (d[k] !== undefined && !isNum(d[k])) bad.push(`${k}: a number (em units; slant in degrees)`);
