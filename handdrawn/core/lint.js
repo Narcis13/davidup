@@ -10,6 +10,7 @@ import { fallbacks, unknowns, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
 import { JOINT, VIEW_DIRS, movesOf, puppet } from './puppet.js';
 import { chapterAt, chapters, cues, evalShot, frame } from './tree.js';
+import { peek } from './store.js';
 import { scoreEvents, voiceSpans } from './synth.js';
 
 export const RULES = Object.freeze({
@@ -402,8 +403,13 @@ function signOffIn(list) {
 }
 
 // hand-missing, first half: every look the film names (its own, lookOn, a shot's) whose '~hand:<id>' is in
-// neither the film's assets nor a store that was read.
+// neither the film's assets nor a store that was read. credit: a film renders no asset whose licence is unknown,
+// neither one it names in assets nor a hand a look letters in (4.0 T4: a font made a hand with no --licence).
 function handRule(film, F) {
+  const unknown = (id, what) => F.add('credit', null, 0, `${what} '${id}' has licence unknown; say what it is (hdf import ... --licence, hdf hand ... --licence) or use another`, id);
+  for (const [id, a] of Array.isArray(film.assets) ? film.assets.map((a) => (typeof a === 'string' ? a : a?.id)).map((id) => [id, peek(id)]) : Object.entries(film.assets ?? {})) {
+    if (a?.licence === 'unknown') unknown(id, a.glyphs ? 'hand' : 'asset');
+  }
   const names = new Set([film.look?.name]);
   const visit = (node) => {
     if (!node || typeof node !== 'object') return;
@@ -415,7 +421,9 @@ function handRule(film, F) {
   for (const name of names) {
     for (const [kind, id] of parseLookName(name ?? '').mods) {
       if (kind !== 'hand') continue;
-      try { handRecord(id, assets, name); } catch (e) { F.add('hand-missing', null, 0, e.message, `look|${id}`); }
+      let h;
+      try { h = handRecord(id, assets, name); } catch (e) { F.add('hand-missing', null, 0, e.message, `look|${id}`); continue; }
+      if (h.licence === 'unknown') unknown(id, 'hand');
     }
   }
 }

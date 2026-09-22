@@ -25,7 +25,7 @@ handdrawn/assets/
   needs `--force` and comes back on the next `hdf donate --manifest`.
   `hdf gc [--dry]` deletes blobs no entry points at (a replaced payload's
   old bytes).
-- `licence` is closed: `CC0 | CC-BY | CC-BY-SA | PD | own | unknown`.
+- `licence` is closed: `CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`.
   `--licence` defaults to `unknown`. Record `credit` and `source` at import;
   `hdf find` prints them, and the film's delivery repeats them.
 - Every kind has a validator in `core/assets.js` that `hdf import`, `hdf
@@ -292,6 +292,30 @@ house's marks, since a Hershey hand has none. Vendored in
 | `hershey-romans` | `romans.jhf` (Roman simplex) | ASCII |
 | `hershey-script` | `scripts.jhf` (Script simplex, joined) | ASCII |
 | `hershey-cyrillic` | `cyrillic.jhf` (Cyrillic complex) | А–Я а–я but Й (composed), digits, punctuation |
+
+**Any font (4.0 T4).** `hdf hand --font <file.ttf|otf> --name <id> [--glyphs
+latin,cyrillic,greek,symbols] [--px 400] [--licence OFL] [--credit]` draws each
+character of the sets (all four by default) that the font itself has with
+skia-canvas at 400 px (a character skia would take from another face is
+reported as lacking, not traced) and traces it as a sheet box is traced
+(`core/handsheet.js traceGlyph`, `core/fonthand.js`). The skeleton keeps a
+two-pixel diagonal (Lü and Wang's rule), and `serifs()` (`core/skeleton.js`)
+drops a pair of thin spurs across a stroke's end (thinner than 0.75 of the
+font's pen, which is its `l`'s width, and up to two pens long). Cross bars and
+the bars of an x stay. Only a round piece is a dot, so a comma keeps its tail.
+The em is scaled from the traced centre lines of `H` and `z`, the geometric
+mean of the scales that would put them on 72 and 48, the H's foot on the
+baseline. The advance is the font's, so the track is 0. The stroke profile is
+`{ hook: 0, pressure }`, with pressure the length-weighted ink width at 0.1,
+0.5 and 0.9 along the strokes. The wobble is left to the look's pen (a stored
+0 would turn it off). Spacing accents (´, the backtick, ˆ ¨ ˜ ˘ ˇ ˚ ¸ ˛ ¯ ˙) become the
+hand's marks, and the font's own accented letters win over composed ones. The
+report gives each set's count, what the font lacks, glyphs traced blank, and
+the glyphs whose stroke count is more than two off the house's (`strays`).
+The credit defaults to `<family>, traced from <file> by hdf hand --font`.
+Without `--licence` the licence is `unknown`, and lint `credit` fails any
+film that letters in the hand. The same rule fails a film naming any asset
+whose licence is `unknown`.
 
 ## Clips, skeletons, retargeting, the phone
 

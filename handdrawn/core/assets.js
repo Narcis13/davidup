@@ -36,7 +36,7 @@ import { MARKS } from './glyphs.js';
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
 
 export const KINDS = ['cutout', 'clip', 'puppet', 'hand', 'stock', 'motif', 'sample'];
-export const LICENCES = ['CC0', 'CC-BY', 'CC-BY-SA', 'PD', 'own', 'unknown'];
+export const LICENCES = ['CC0', 'CC-BY', 'CC-BY-SA', 'OFL', 'PD', 'own', 'unknown'];
 
 // 40 hex over the payload bytes (a string is hashed as utf8), the blob's name and the entry's `sha`.
 export const sha = (bytes) => createHash('sha1').update(bytes).digest('hex');

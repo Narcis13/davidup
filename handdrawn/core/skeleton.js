@@ -17,8 +17,12 @@ function ring(m, w, h, i) {
 }
 
 // Zhang-Suen thinning, then the staircase corners it leaves removed so every line is 8-connected and one
-// pixel wide (a pixel whose two set 4-neighbours turn a corner, when removing it disconnects nothing).
-export function zhangSuen(mask, w, h) {
+// pixel wide (a pixel whose two set 4-neighbours turn a corner, when removing it disconnects nothing). Zhang-Suen
+// deletes a diagonal band two pixels thick outright, which a stroke thinned from far wider ink can pass through (one
+// bar of a font's x drawn at 400 px); diagonal: true keeps it, as Lu and Wang (1986) do, by deleting no pixel with
+// fewer than three neighbours (4.0 T4). The corner pass then thins what that leaves.
+export function zhangSuen(mask, w, h, { diagonal = false } = {}) {
+  const least = diagonal ? 3 : 2;
   const m = Uint8Array.from(mask, (v) => (v ? 1 : 0)), del = [];
   for (let changed = true; changed;) {
     changed = false;
@@ -28,7 +32,7 @@ export function zhangSuen(mask, w, h) {
         if (!m[i]) continue;
         const [n, ne, e, se, s, sw, W, nw] = ring(m, w, h, i), p = [n, ne, e, se, s, sw, W, nw];
         const b = n + ne + e + se + s + sw + W + nw;
-        if (b < 2 || b > 6) continue;
+        if (b < least || b > 6) continue;
         let a = 0;
         for (let k = 0; k < 8; k++) if (!p[k] && p[(k + 1) % 8]) a++;
         if (a !== 1) continue;
@@ -287,4 +291,45 @@ export function components(mask, w, h) {
     out.push(c);
   }
   return out;
+}
+
+// A font's serifs off its skeleton (4.0 T4). A serif is a pair of thin spurs across the end of a stem: at a
+// junction whose branches are one long one (past far pixels) and two or more spurs (branches to an end within far
+// pixels) whose ink is under thin pixels wide on average (dt: distanceTransform() of the ink), the spurs go. An f's
+// cross bar has its stem going on both ways, a t's a stub above it that is no thin spur, and the two bars of an x
+// cross at junctions joined by a stub, so each keeps its bars. Returns a new skeleton.
+export function serifs(skel, w, h, dt, { far, thin }) {
+  const sk = Uint8Array.from(skel), nb = degrees(sk, w, h), clump = new Int32Array(w * h).fill(-1);
+  const kill = [];
+  for (let i = 0; i < sk.length; i++) {
+    if (!sk[i] || nb[i] < 3 || clump[i] >= 0) continue;
+    const c = i, stack = [i], out = new Set();                  // a junction clump, and the pixels just off it
+    clump[i] = c;
+    while (stack.length) {
+      const j = stack.pop();
+      for (const q of neighbours(sk, w, h, j)) {
+        if (nb[q] >= 3) { if (clump[q] < 0) { clump[q] = c; stack.push(q); } } else out.add(q);
+      }
+    }
+    // Each branch off the clump, walked out to an end, another junction, or far + 1 pixels.
+    const branches = [], taken = new Set();
+    for (const p of out) {
+      if (taken.has(p)) continue;
+      const path = [p];
+      taken.add(p);
+      let prev = -1, cur = p, end = nb[p] === 1;
+      while (!end && path.length <= far) {
+        const next = neighbours(sk, w, h, cur).filter((q) => q !== prev && clump[q] !== c && !path.includes(q) && !(taken.has(q) && q !== cur));
+        if (!next.length || nb[next[0]] >= 3) break;
+        prev = cur; cur = next[0]; path.push(cur); taken.add(cur);
+        end = nb[cur] === 1;
+      }
+      for (const q of out) if (!taken.has(q) && neighbours(sk, w, h, p).includes(q)) taken.add(q);   // the same branch, touching the clump twice
+      branches.push({ path, spur: end && path.length <= far, long: path.length > far });
+    }
+    const spurs = branches.filter((b) => b.spur && b.path.reduce((t, k) => t + 2 * dt[k] - 1, 0) / b.path.length < thin);
+    if (spurs.length >= 2 && branches.length === spurs.length + 1 && branches.some((b) => b.long)) for (const b of spurs) kill.push(...b.path);
+  }
+  for (const k of kill) sk[k] = 0;
+  return sk;
 }

@@ -8,6 +8,8 @@
 //   hdf hand --hershey scripts.jhf --name hershey-script  a Hershey font as a hand (4.0 T3; --map ascii | greek |
 //                                                        cyrillic when the file's name does not say; --merge <id>
 //                                                        adds its glyphs to a stored hand, the hand's own kept)
+//   hdf hand --font Inter.ttf --name inter --licence OFL  a font as a hand (4.0 T4; --glyphs latin,cyrillic,greek,symbols,
+//                                                        every set by default, the font drawing those it has; --px 400)
 //   hdf hand --template --letter test > out/sample.jpg   a page filled in by a stored hand, as a 300 dpi JPEG
 //                                                        (the latin page; --pages symbols or marks for another)
 //   ... --root ../other                                  into (or from) a store that is not handdrawn/assets
@@ -20,12 +22,13 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadImage } from 'skia-canvas';
+import { FontLibrary, loadImage } from 'skia-canvas';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { GLYPHS, MARKS, asHand } from '../core/glyphs.js';
+import { FONT_MARKS, GLYPH_SETS, emScale, fontHandRecord, pressureOf, setsOf, strays } from '../core/fonthand.js';
 import { MAPS, hersheyHand, mapFor, mergeHand } from '../core/hershey.js';
 import {
-  FRAME, PAGES, PAPERS, SHAPES, UNIT, cellToFrame, drawTemplate, emToFrame, frameOrigin, glyphBoxes, readSheet, sample,
+  FRAME, PAGES, PAPERS, SHAPES, UNIT, cellToFrame, drawTemplate, emToFrame, frameOrigin, glyphBoxes, readSheet, sample, traceGlyph,
 } from '../core/handsheet.js';
 import { group, poly, stroke } from '../core/list.js';
 import { LOOKS, modifyLook } from '../core/looks.js';
@@ -199,7 +202,8 @@ export async function run(args, flags) {
     });
   }
   if (flags.hershey !== undefined) return hershey(flags);
-  if (!args.length) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <page.jpg ...> --name <id>, hdf hand --hershey <file.jhf> --name <id>, or hdf hand --synth <id>');
+  if (flags.font !== undefined) return font(flags);
+  if (!args.length) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <page.jpg ...> --name <id>, hdf hand --hershey <file.jhf> --name <id>, hdf hand --font <file.ttf> --name <id>, or hdf hand --synth <id>');
   const id = flags.name === undefined || flags.name === true ? '' : String(flags.name);
   if (!id) throw new UsageError('hand: need --name <id> for the hand, e.g. hdf hand latin.jpg symbols.jpg --name narcis');
   if (id === 'house') throw new UsageError("hand: 'house' is the package's own hand; name yours something else");
@@ -265,6 +269,106 @@ async function hershey(flags) {
     flags: { tags: 'hand,hershey', ...flags, source, licence, credit },
   });
   process.stdout.write(`${report}\n`);
+  if (flags.sheet !== false) await handSheetFile(id, flags);
+  return code;
+}
+
+// ---------- a font (4.0 T4) ----------
+
+export const FONT_PX = 400, FONT_SPUR = 2, FONT_ROUND = 0.6;
+const r1f = (v) => Math.round(v * 10) / 10;
+
+// A font file as a hand: every character of the sets the font itself draws (skia-canvas falls back to another face
+// for one it lacks, and the text's runs say which face drew it), each drawn black on white at px pixels, traced as
+// the sheet reader traces a box (thin serif spurs up to spur pen widths pruned, only round pieces read as dots)
+// and scaled to the em by the font's own cap height and x-height (emScale) as its H and z trace, the H's foot on the
+// baseline. Returns { hand, family, drawn: { set: n }, lacks: { set: [ch] }, blank: [ch], strays }.
+export function fontHand(file, { name = 'font', sets = Object.keys(GLYPH_SETS), px = FONT_PX, spur = FONT_SPUR, round = FONT_ROUND, diagonal = true, credit, licence = 'unknown' } = {}) {
+  const alias = `hdf-font-${hash32('font', resolve(file)).toString(36)}`;
+  FontLibrary.use(alias, [resolve(file)]);
+  const g = skiaCanvas(8, 8).getContext('2d');
+  g.font = `${px}px "${alias}"`;
+  const runs = (ch) => g.measureText(ch).lines?.[0]?.runs ?? [];
+  const faceOf = (ch) => runs(ch)[0]?.family;
+  // The font's own face: the one that draws most of what was asked for (skia names it from the font's metadata).
+  const asked = sets.flatMap((s) => GLYPH_SETS[s]), votes = new Map();
+  for (const ch of asked) { const f = faceOf(ch); if (f) votes.set(f, (votes.get(f) ?? 0) + 1); }
+  const family = [...votes].sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!family) throw new Error(`${basename(file)}: no glyphs drawn; is it a font file?`);
+  const own = (ch) => faceOf(ch) === family;
+  // The scale: first from the ink of an H and a z (or the font's metrics), then from their traced centre lines, since
+  // a stroke is drawn about its centre and the house's capitals run from 72 to the baseline down theirs (a z's bars
+  // and an H's stems end flat, so each traces half a pen inside its ink; an x's bars run out to the ink's corners).
+  // base: the H's centre line's foot, which goes on the baseline.
+  const Hc = ['H', 'Н', 'Η'].find(own), xc = ['z', 'н', 'π'].find(own), metrics = runs(asked.find(own))[0];
+  let k = emScale(Hc ? g.measureText(Hc).actualBoundingBoxAscent : -metrics.capHeight, xc ? g.measureText(xc).actualBoundingBoxAscent : -metrics.xHeight);
+  let ppu = 1 / k, base = 0, pen = 0;
+  const pad = 8;
+  const trace = (ch) => {
+    const m = g.measureText(ch), L = Math.ceil(m.actualBoundingBoxLeft), A = Math.ceil(m.actualBoundingBoxAscent);
+    const w = Math.max(1, L + Math.ceil(m.actualBoundingBoxRight)) + 2 * pad, h = Math.max(1, A + Math.ceil(m.actualBoundingBoxDescent)) + 2 * pad;
+    const c = skiaCanvas(w, h), cx = c.getContext('2d');
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+    cx.fillStyle = '#000'; cx.font = g.font; cx.fillText(ch, pad + L, pad + A);
+    const t = traceGlyph(lumOf(cx.getImageData(0, 0, w, h).data, w, h), [-(pad + L) * k, -(pad + A) * k, w * k, h * k], { ppu, spur, round, pen, diagonal });
+    return t && { ...t, s: t.s.map((st) => st.map((v, i) => r1f(i % 2 ? v - base : v - t.dx))), adv: r1f(m.width * k) };
+  };
+  // The font's pen: the width of its l (or another plain stem), so a glyph that is only a dot (. ·) or two (¨) has one.
+  const stem = ['l', 'I', 'і', 'ι', '|'].find(own), ref = stem && trace(stem);
+  pen = ref ? ref.pen * ppu : 0;
+  const span = (ch) => { const ys = ch ? trace(ch)?.s.flat().filter((_, i) => i % 2) : null; return ys?.length ? [Math.min(...ys), Math.max(...ys)] : null; };
+  const Hs = span(Hc), xs = span(xc);
+  if (Hs && xs && Hs[1] - Hs[0] > 0 && xs[1] - xs[0] > 0) {
+    const f = emScale((Hs[1] - Hs[0]) / k, (xs[1] - xs[0]) / k) / k;
+    k *= f; ppu = 1 / k; base = Hs[1] * f;
+  }
+  const glyphs = {}, traced = [], drawn = {}, lacks = {}, blank = [];
+  if (own(' ') || !faceOf(' ')) glyphs[' '] = { w: r1f(g.measureText(' ').width * k), s: [] };
+  for (const set of sets) {
+    drawn[set] = 0; lacks[set] = [];
+    for (const ch of GLYPH_SETS[set]) {
+      if (glyphs[ch]) continue;
+      if (!own(ch)) { lacks[set].push(ch); continue; }
+      const t = trace(ch);
+      if (!t) { blank.push(ch); continue; }
+      glyphs[ch] = { w: Math.max(1, t.adv), s: t.s };
+      traced.push(t); drawn[set]++;
+    }
+  }
+  const marks = {};
+  for (const [m, ch] of Object.entries(FONT_MARKS)) {
+    const t = own(ch) ? trace(ch) : null;
+    if (t) marks[m] = { s: t.s };
+  }
+  const hand = fontHandRecord({ name, glyphs, marks, pressure: pressureOf(traced), credit: credit ?? `${family}, traced from ${basename(file)} by hdf hand --font`, licence });
+  return { hand, family, drawn, lacks, blank, strays: strays(glyphs) };
+}
+
+// --font <file> --name <id> [--glyphs] [--px] [--licence]: a font into the store as a hand. Without --licence the
+// hand is 'unknown' (a warning, and lint 'credit' fails a film that letters in it).
+async function font(flags) {
+  const file = flags.font === true ? '' : String(flags.font);
+  if (!file) throw new UsageError('hand: need --font <file.ttf|otf>, e.g. hdf hand --font ../fonts/Inter-Regular.ttf --name inter --licence OFL');
+  if (!existsSync(file)) throw new UsageError(`hand: no file ${file}`);
+  const id = flags.name === undefined || flags.name === true ? '' : String(flags.name);
+  if (!id) throw new UsageError('hand: need --name <id> for the hand, e.g. hdf hand --font Inter-Regular.ttf --name inter');
+  if (id === 'house') throw new UsageError("hand: 'house' is the package's own hand; name yours something else");
+  let sets;
+  try { sets = setsOf(flags.glyphs); } catch (e) { throw new UsageError(`hand: ${e.message}`); }
+  const px = flags.px === undefined ? FONT_PX : Number(flags.px);
+  if (!(px >= 50 && px <= 2000)) throw new UsageError(`hand: --px ${flags.px} (the size glyphs are drawn at, 50 to 2000)`);
+  const licence = flags.licence === undefined || flags.licence === true ? 'unknown' : String(flags.licence);
+  const got = fontHand(file, { name: id, sets, px, licence, ...(flags.credit === undefined || flags.credit === true ? {} : { credit: String(flags.credit) }) });
+  const { hand } = got;
+  const code = await putPayload({
+    kind: 'hand', name: id, bytes: Buffer.from(JSON.stringify(hand) + '\n'), abs: resolve(`${id}.hand.json`),
+    flags: { tags: 'hand,font', ...flags, source: basename(file), licence, credit: hand.credit },
+  });
+  const n = Object.keys(hand.glyphs).length, m = Object.keys(hand.marks ?? {}).length;
+  process.stdout.write(`${n} glyphs from ${got.family} (${sets.map((s) => `${s} ${got.drawn[s]}/${GLYPH_SETS[s].length}`).join(', ')}), ${m} marks; pressure ${hand.stroke.pressure.join('/')}\n`);
+  for (const s of sets) if (got.lacks[s].length && got.drawn[s]) process.stdout.write(`the font lacks ${got.lacks[s].length} ${s}: ${got.lacks[s].slice(0, 40).join(' ')}${got.lacks[s].length > 40 ? ' ...' : ''}\n`);
+  if (got.blank.length) process.stdout.write(`drawn blank: ${got.blank.join(' ')}\n`);
+  if (got.strays.length) process.stdout.write(`eyeball on the sheet (strokes vs the house's): ${got.strays.map((x) => `${x.ch} ${x.n}/${x.house}`).join(', ')}\n`);
   if (flags.sheet !== false) await handSheetFile(id, flags);
   return code;
 }

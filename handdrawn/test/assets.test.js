@@ -35,7 +35,7 @@ const HAND = { glyphs: { a: { w: 44, s: [[[0, 0], [40, 0]]] } }, track: 6 };
 
 test('every kind has a schema and a licence list that is closed', () => {
   assert.deepEqual(KINDS, ['cutout', 'clip', 'puppet', 'hand', 'stock', 'motif', 'sample']);
-  assert.deepEqual(LICENCES, ['CC0', 'CC-BY', 'CC-BY-SA', 'PD', 'own', 'unknown']);
+  assert.deepEqual(LICENCES, ['CC0', 'CC-BY', 'CC-BY-SA', 'OFL', 'PD', 'own', 'unknown']);
   assert.equal(sha('hello').length, 40);
   assert.equal(sha(Buffer.from('hello')), sha('hello'));
 });

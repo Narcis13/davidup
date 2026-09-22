@@ -140,7 +140,7 @@ cards and badges.
 is the payload. Kinds: `cutout` (a photo cut out, with its silhouette and
 colours), `clip` (traced poses, with a skeleton when rigged), `puppet`,
 `hand`, `stock`, `motif`, `sample`. Every entry has a closed `licence`
-(`CC0 | CC-BY | CC-BY-SA | PD | own | unknown`) and a credit.
+(`CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`) and a credit.
 
 ```bash
 hdf find teapot                    # id, kind, licence, what it takes, its check sheet, its credit
@@ -395,6 +395,22 @@ hdf hand --hershey assets/src/hershey/romans.jhf --merge hershey-cyrillic --name
 
 Lint `hand-missing` also fails a sign-off with letters no glyph draws, which
 letter as `?` (Cyrillic in a Latin hand or in the house's).
+
+**Any font: `hdf hand --font`.** The user's favourite font, still drawn by
+the pen: every glyph the font has is traced to its centre lines (serifs
+pruned) and lettered with the look's wobble. Diacritics, Cyrillic and Greek
+come with it when the font has them. Say the licence (free fonts are usually
+`OFL`); a hand left `unknown` fails lint `credit` in any film that uses it.
+
+```bash
+hdf hand --font ~/Library/Fonts/Nunito-Regular.ttf --name nunito --licence OFL      # every set the font has
+hdf hand --font JetBrainsMono-Bold.ttf --glyphs cyrillic,symbols --name mono-ru --licence OFL
+```
+
+Look at the sheet it draws (`assets/sheets/<id>.jpg`) before using it. The
+report lists glyphs whose stroke count is far off the house's: a serif that
+stayed as a spur, a bar lost. A heavy serif face (Georgia, Times) keeps some
+slab serifs; a plain sans traces cleanest.
 
 ## Motion: retargeting and the phone
 

@@ -79,6 +79,9 @@ const USAGE = `usage: hdf <command> [args] [flags]
   hand    --hershey <file.jhf> --name <id> [--map ascii|greek|cyrillic] [--merge <hand>] [--root dir] [--no-sheet]
                                     a Hershey font as a hand (licence PD; assets/src/hershey has romans, scripts and
                                     cyrillic); --merge adds its glyphs to a stored hand, the hand's own kept
+  hand    --font <file.ttf|otf> --name <id> [--glyphs latin,cyrillic,greek,symbols] [--px 400] [--licence OFL]
+                                    [--credit] [--root dir] [--no-sheet]   a font as a hand: each glyph it has drawn and
+                                    traced to its centre lines (serifs pruned); no --licence is 'unknown' (lint credit)
   sheet   --hand <id>               a hand's page beside the house's: every glyph (house fallbacks marked), pangrams, its pen
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   remove  <id...> [--root dir]      drop entries from the store, with their sheets and any blob no other entry shares

@@ -17,7 +17,7 @@
 // strokes, scale to the em. The pen profile is fitted from the last row: wobble, hook and pressure from the
 // lines, overshoot and rounding from the square, tremor from the lines' high-frequency residual.
 import { GLYPHS, MARKS } from './glyphs.js';
-import { components, distanceTransform, degrees, prune, simplify, traceSkeleton, zhangSuen } from './skeleton.js';
+import { components, distanceTransform, degrees, prune, serifs, simplify, traceSkeleton, zhangSuen } from './skeleton.js';
 
 export const PAPERS = Object.freeze({ a4: [210, 297], letter: [215.9, 279.4] });   // mm
 export const FRAME = Object.freeze([180, 250]);                                  // mm, outer corners of the marks
@@ -331,12 +331,16 @@ const median = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) =>
 const r1 = (v) => Math.round(v * 10) / 10;
 const r2 = (v) => Math.round(v * 100) / 100;
 
-// The skeleton of an ink raster with its pen width in pixels (2 x the median distance to paper - 1).
-function skeletonOf(ink, w, h) {
-  const dt = distanceTransform(ink, w, h), raw = zhangSuen(ink, w, h), ds = [];
+// The skeleton of an ink raster with its pen width in pixels (2 x the median distance to paper - 1; known when the
+// caller knows it). Whiskers up to a pen width long are pruned, and with spur (4.0 T4) a font's serifs: spurs up to
+// spur pen widths long whose ink is under THIN of the pen's width, in pairs at a stroke's end (serifs()).
+export const THIN = 0.75;
+function skeletonOf(ink, w, h, spur = 0, known = 0, diagonal = false) {
+  const dt = distanceTransform(ink, w, h), raw = zhangSuen(ink, w, h, { diagonal }), ds = [];
   for (let i = 0; i < raw.length; i++) if (raw[i]) ds.push(dt[i]);
-  const pen = Math.max(1, 2 * median(ds) - 1);
-  return { dt, sk: prune(raw, w, h, Math.max(2, Math.round(pen))), pen };
+  const pen = known || Math.max(1, 2 * median(ds) - 1), len = Math.max(2, Math.round(pen));
+  const sk = prune(raw, w, h, len);
+  return { dt, sk: spur > 0 ? serifs(sk, w, h, dt, { far: Math.round(spur * pen), thin: THIN * pen }) : sk, pen };
 }
 
 // ---------- glyphs ----------
@@ -344,36 +348,49 @@ function skeletonOf(ink, w, h) {
 // One glyph box's raster (sampled over the box's em rectangle) -> { w, s } in the 100-unit em, or null when
 // the box is empty. Strokes longest first, each starting at its upper end (then its left); a loop starts at
 // its top and closes; dots come back as small circles; the glyph is centred in an advance 6 units wider than
-// its ink (16 at least). rect is the em rectangle the raster covers.
-export function traceGlyph(raster, rect, { ppu = PPU, ratio } = {}) {
+// its ink (16 at least). rect is the em rectangle the raster covers. The options are for a font (4.0 T4): spur,
+// thin branches pruned, in pen widths (a font's serifs; see skeletonOf); dot, the largest piece read as a dot, in pen
+// widths, and round, the least its short side may be of its long one (a font's comma is no dot); pen, the pen's
+// width in pixels when known (so a glyph that is only a dot has one), else measured off the glyph; diagonal,
+// zhangSuen's. The result's widths are each stroke's ink width at 0.1, 0.5 and 0.9 along it in em units as it is
+// drawn (null for a loop or a dot), its lens the strokes' lengths in em units.
+export function traceGlyph(raster, rect, { ppu = PPU, ratio, spur = 0, dot = 2.4, round = 0, pen: known = 0, diagonal = false } = {}) {
   const { w, h } = raster, ink = inkOf(raster, { ratio });
   let n = 0;
   for (const v of ink) n += v;
   if (n < 12 * ppu * ppu) return null;
-  const { dt, sk, pen } = skeletonOf(ink, w, h);
+  const { dt, sk, pen } = skeletonOf(ink, w, h, spur, known, diagonal);
   const em = ([x, y]) => [rect[0] + (x + 0.5) / ppu, rect[1] + (y + 0.5) / ppu];
   // Dots: ink pieces no bigger than a couple of pen widths.
   const dots = [];
   for (const c of components(ink, w, h)) {
     const size = Math.max(c.box[2] - c.box[0], c.box[3] - c.box[1]) + 1;
-    if (size > 2.4 * pen + 2) continue;
+    if (size > dot * pen + 2 || Math.min(c.box[2] - c.box[0], c.box[3] - c.box[1]) + 1 < round * size) continue;
     let sx = 0, sy = 0;
     for (const i of c.px) { sx += i % w; sy += Math.floor(i / w); sk[i] = 0; }
     dots.push({ c: em([sx / c.area, sy / c.area]), r: Math.max(0.8, (size / ppu - pen / ppu) / 2) });
   }
+  const widths = [], lens = [];
+  const widthAt = (px, u) => {                                 // the ink's width about a point u along a stroke
+    const k = Math.round(u * (px.length - 1)), near = px.slice(Math.max(0, k - 2), k + 3);
+    return r1(near.reduce((t, [x, y]) => t + 2 * dt[y * w + x] - 1, 0) / near.length / ppu);
+  };
   const strokes = traceSkeleton(sk, w, h, { dt, minLen: Math.max(3, pen) }).map((s) => {
-    let pts = s.pts.map(em);
+    let pts = s.pts.map(em), px = s.pts;
     if (s.closed) {
       const top = pts.reduce((bi, p, i) => (p[1] < pts[bi][1] ? i : bi), 0);
       pts = [...pts.slice(top), ...pts.slice(0, top)];
       pts.push(pts[0]);
     } else {
       const a = pts[0], b = pts.at(-1);
-      if (b[1] + 0.35 * b[0] < a[1] + 0.35 * a[0]) pts.reverse();
+      if (b[1] + 0.35 * b[0] < a[1] + 0.35 * a[0]) { pts.reverse(); px = [...px].reverse(); }
     }
+    widths.push(s.closed ? null : [0.1, 0.5, 0.9].map((u) => widthAt(px, u)));
+    lens.push(r1(s.len / ppu));
     return simplify(pts, 0.5);
   });
   for (const d of dots) {
+    widths.push(null); lens.push(0);
     const pts = [];
     for (let k = 0; k <= 12; k++) pts.push([d.c[0] + d.r * Math.cos(k * Math.PI / 6), d.c[1] + d.r * Math.sin(k * Math.PI / 6)]);
     strokes.push(pts);
@@ -382,7 +399,7 @@ export function traceGlyph(raster, rect, { ppu = PPU, ratio } = {}) {
   let x0 = Infinity, x1 = -Infinity;
   for (const s of strokes) for (const [x] of s) { if (x < x0) x0 = x; if (x > x1) x1 = x; }
   const adv = Math.max(16, Math.round(x1 - x0 + 6)), dx = (adv - (x1 - x0)) / 2 - x0;
-  return { w: adv, s: strokes.map((s) => s.flatMap(([x, y]) => [r1(x + dx), r1(y)])), pen: r1(pen / ppu), dx };
+  return { w: adv, s: strokes.map((s) => s.flatMap(([x, y]) => [r1(x + dx), r1(y)])), pen: r1(pen / ppu), dx, widths, lens };
 }
 
 // ---------- the pen profile ----------

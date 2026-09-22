@@ -299,6 +299,24 @@ store has them as `hershey-romans`, `hershey-script` and `hershey-cyrillic`. A
 hand's own base letter takes Unicode's marks too: `Ё` in `hershey-cyrillic` is
 its `Е` and the house's umlaut.
 
+Any font comes in as a hand too (4.0 T4): `hdf hand --font <file.ttf|otf>
+--name <id> [--glyphs latin,cyrillic,greek,symbols] [--px 400] --licence OFL`
+loads the file with skia-canvas's `FontLibrary`, draws each character the font
+itself has (the text's runs say when skia falls back to another face) black
+on white at 400 px, and traces it as the sheet reader traces a box: Zhang-Suen
+(with Lü and Wang's rule, so a two-pixel diagonal survives: the second bar of
+`×`), whiskers pruned, then `serifs()` (a pair of thin spurs across a stroke's
+end goes; an f's cross bar, a t's, an x's bars stay), the font's pen taken
+from its `l`. The em is scaled from the traced centre lines of its `H` and
+`z`, splitting the difference between the house's cap height (72) and
+x-height (48), the H's foot on the baseline. The advance is the font's (track
+0), the pressure its width profile, hook 0, and the wobble the pen's that
+letters it. Its spacing accents (´ ˘ ˇ ...) become the hand's marks. The report
+names what the font lacks and the glyphs whose stroke count is more than two
+off the house's, to eyeball on the sheet. Without `--licence` the hand is
+`unknown`, and lint `credit` fails any film that letters in it (or names any
+asset so licensed); a free font is usually `OFL`.
+
 Paths are flattened polylines, so they transform, project, measure and hash
 trivially: `circle ellipse rect roundRect poly line cubic spline arc`, plus
 `xf box len at inside resample union`.
@@ -562,7 +580,7 @@ hdf find --kind puppet              # the whole kind
 `assets/blobs/<sha>.{webp,png,json}` holds the payload, so two imports of the
 same file are one blob. `hdf import` validates the payload against its kind's
 schema (`core/assets.js`) before anything is written, and `--licence` is
-closed: `CC0 | CC-BY | CC-BY-SA | PD | own | unknown`.
+closed: `CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`.
 
 A film names store assets instead of inlining them. `fromStore` reads the
 records at the top of the module, `assets` declares the ids for the loader:
@@ -1366,6 +1384,8 @@ read by `core/legible.js textUnits`):
 - `caption-overlap`: two different pieces of text whose ink boxes cross in
   one frame.
 - `cut-floor`: a shot (or hold) shorter than the floor.
+- `credit`: an asset the film names, or a hand a look letters in, whose
+  licence is `unknown` (4.0 T4: a font made a hand without `--licence`).
 
 `hdf import --kind puppet` runs three of them over a payload before it reaches
 the store: `puppet-joint` (a pose or a cycle frame that names nothing, or sets
@@ -1443,6 +1463,7 @@ handdrawn/
     tools.js       pen, brush, pencil, chalk, crayon, marker, gouache; reveal
     glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation, signs, ß ð þ...: 104 glyphs), 14 marks, composed accents
     hershey.js     Hershey JHF fonts read into hand records (4.0 T3): parseJhf, the ascii / greek / cyrillic maps, mergeHand
+    fonthand.js    any font as a hand (4.0 T4): the glyph sets, emScale, pressureOf, strays (cli/hand.mjs draws the glyphs)
     text.js        handText, layout, textBox, bullets, measureBox, signOff, squiggleText
     layout.js      line breaking and boxes from a hand's advances and ink (list.js bounds reads it)
     spline.js      the cardinal spline's arithmetic (glyphs.js builds on it at load)
