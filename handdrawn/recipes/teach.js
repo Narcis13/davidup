@@ -4,6 +4,10 @@
 //   labelled({ subject, labels })               AO  leader-line labels arriving in order, the camera nudging to each
 //   counting({ items, n })                      AP  objects appearing one by one with digits and a tally
 //   compare({ left, right, sign })              AQ  a split frame, two subjects, the sign drawn last
+//   process({ steps, arrows })                  AR  cards with arrows, one a beat (4.0 E3)
+//   cycleDiagram({ steps, travel })             AS  steps on a ring, names along it, a marker going round
+//   numberLine({ from, to, start, jumpTo })     AT  a hop at a time along a line, the leg's +n, the landing ringed
+//   growth({ cel, from, to, count })            AU  a bar rising (or a pictograph stacking), its number counting on
 //   chapter(title, ...nodes)                        a chapter: its title card (AN), the nodes, a hold (4.0 E1)
 //
 // They time themselves: `dur` defaults to what the copy needs for the audience (`audience:`, a key of
@@ -22,7 +26,7 @@
 // film({ audience })), or for a general film the look's (12 a shot on the whiteboard; `look.words` wins).
 // Coordinates are v1's: a 1080 square around (540, 540).
 import {
-  fill, stroke, group, circle, ellipse, line, poly, spline, place, cel, ramp, ease, reveal, handText, cam,
+  fill, stroke, group, circle, ellipse, line, poly, spline, arc, rect, roundRect, at, len, place, cel, ramp, ease, reveal, handText, textOnPath, cam,
 } from '../core/index.js';
 import { bounds, withProps } from '../core/list.js';
 import { chapterSeq } from '../core/tree.js';
@@ -47,6 +51,10 @@ const letters = (str, x, y, o) => handText(String(str), x, y, { ink2: null, ...o
 const writeOn = (p, node) => (p <= 0 ? null : p >= 1 ? node : reveal(p, node));
 // Pops in over 0.25 s from u = 0 (ease out), from 60% of its size, about (x, y).
 const pop = (u, x, y, node) => (u <= 0 ? null : place(x, y, { scale: lerp(0.6, 1, ease.out(Math.min(1, u))) }, direct(node)));
+// E3's pop: the same, but the last sliver of the ease snaps to 1. A list hash rounds a scale of 0.99998 to 1,
+// so the renderer takes that frame for a repeat of the next one, and the two draw differently depending on
+// where a worker's range starts. E2's pop keeps the sliver so its films' frames stay as they were.
+const popIn = (u, x, y, node) => { const k = lerp(0.6, 1, ease.out(Math.min(1, u))); return u <= 0 ? null : place(x, y, { scale: k > 0.9995 ? 1 : k }, direct(node)); };
 // A node with every group in it drawn direct, never as a cached layer. The whiteboard's bullet marker is
 // translucent, and a kept layer (baked through 8-bit unpremultiplied pixels) of it can differ by a level from
 // the same layer replayed on its first sighting, so the same object drawn several times in a frame (the apples)
@@ -342,3 +350,335 @@ export const compare = recipe('AQ', 'compare', {
     o.actor && presenter(o.actor, ctx, { x: mid, feet: 1030, h: o.h, pose: t >= P.s1 ? 'present' : 'think', k: t >= P.s1 ? reach(t, P.s1) : reach(t, P.tl), emote: t >= P.s1 ? 'happy' : 'thinking', seed: o.seed }),
   ];
 }, { anchor: { name: 'compare' }, cast: false });
+
+// ---------- 4.0 E3: process, cycle, number line, growth (AR to AU) ----------
+
+// An arrow along a path: the shaft, then a head at its end turned to the path's last heading, one stroke each,
+// so a reveal draws the shaft and then the head.
+function arrow(path, role, { w = 3, head = 16, seed = 0, name = 'arrow' } = {}) {
+  const e = at(path, len(path)), a = e.heading, h = head;
+  const tip = [[e.x - Math.cos(a - 0.45) * h, e.y - Math.sin(a - 0.45) * h, e.x, e.y, e.x - Math.cos(a + 0.45) * h, e.y - Math.sin(a + 0.45) * h]];
+  return group(name, [
+    stroke(path, role, { w, wobble: 1, seed, name: 'shaft' }),
+    stroke({ sub: tip.map((pts) => ({ pts, closed: false })), box: [e.x - h, e.y - h, 2 * h, 2 * h] }, role, { w, wobble: 0.6, seed: seed + 1, name: 'head' }),
+  ]);
+}
+// A cel (or (ctx, j) => node) drawn centred at (x, y), scaled to fit a d-unit square by its box.
+function fitted(item, ctx, j, x, y, d) {
+  const node = item.cel ? item({}) : item(ctx, j);
+  const [bx, by, bw, bh] = item.cel?.box ?? bounds([node]) ?? [-50, -50, 100, 100], k = d / Math.max(bw, bh, 1);
+  return place(x, y, { scale: k }, place(-(bx + bw / 2), -(by + bh / 2), node));
+}
+// A step as { text, cel }: a string is its text.
+const stepOf = (s) => (typeof s === 'string' ? { text: s } : { ...s });
+// The presenter's x at the side it stands on, and the middle of what is left of the frame for the diagram.
+const standX = (o, left, right) => (o.side === 'right' ? right : left);
+const middleX = (o, x) => x ?? (o.actor ? (o.side === 'right' ? 460 : 620) : 540);
+
+// A seed, the first of AR's default process (seed, sprout, flower).
+export const seed = cel('seed', () => {
+  const body = spline([[0, -26], [18, -8], [16, 16], [0, 26], [-16, 16], [-18, -8]], { closed: true });
+  return [fill(body, 'fills.3', { name: 'body' }), stroke(body, 'ink', { w: 2.6, wobble: 0.8 }), stroke(line(-4, -14, 4, 14), 'shade', { w: 1.8, wobble: 0.6, name: 'seam' })];
+}, { box: [-20, -28, 40, 56], desc: 'a seed' });
+// A sprout with two leaves, the second of AR's default process.
+export const sprout = cel('sprout', () => {
+  const l = poly([[0, -40], [-36, -66], [-60, -52], [-30, -36], [0, -40]]), r = poly([[0, -52], [30, -86], [60, -74], [34, -50], [0, -52]]);
+  return [
+    stroke(spline([[0, 40], [-4, 0], [0, -52]]), 'ink', { w: 3, wobble: 1, name: 'stem' }),
+    fill(l, 'fills.2', { name: 'leafL' }), stroke(l, 'ink', { w: 2.2, wobble: 1 }),
+    fill(r, 'fills.2', { name: 'leafR' }), stroke(r, 'ink', { w: 2.2, wobble: 1 }),
+    stroke(line(-50, 40, 50, 40), 'shade', { w: 2.4, wobble: 2, name: 'soil' }),
+  ];
+}, { box: [-62, -88, 124, 130], desc: 'a sprout, two leaves' });
+
+// ---------- AR. process ----------
+
+// Where the j-th card sits: rows of `cols` across the frame's middle (clear of the teacher), centred on y.
+function processCards(o, s) {
+  const n = o.steps.length, cols = Math.min(n, o.cols ?? (n > 4 ? Math.ceil(n / 2) : n)), rows = Math.ceil(n / cols);
+  const x0 = o.actor && o.side !== 'right' ? 290 : 70, x1 = o.actor && o.side === 'right' ? 790 : 1010, gap = o.gap;
+  const w = Math.min(o.card, (x1 - x0 - gap * (cols - 1)) / cols), h = w * 0.72 + s * 2.7;
+  return o.steps.map((_, j) => {
+    const r = Math.floor(j / cols), c = j % cols, inRow = r < rows - 1 ? cols : n - r * cols;
+    const cx = (x0 + x1) / 2 + (c - (inRow - 1) / 2) * (w + gap), cy = o.y + (r - (rows - 1) / 2) * (h + gap * 1.2);
+    return { x: cx - w / 2, y: cy - h / 2, w, h, cx, cy, row: r };
+  });
+}
+function processPlan(o) {
+  if (!['straight', 'curved'].includes(o.arrows)) throw new TypeError(`process: arrows '${o.arrows}' is not straight or curved`);
+  const A = audienceOf(o.audience), steps = o.steps.map(stepOf), out = [];
+  if (!steps.length) throw new TypeError('process: needs steps');
+  let t = o.at;
+  steps.forEach((st, j) => {
+    const w0 = t + 0.45, w1 = w0 + writeT(st.text ?? '', A), a0 = o.per ? t + o.per - 0.35 : w1 + readT(st.text ?? '', A);
+    out.push({ t0: t, w0, w1, a0 });
+    if (j < steps.length - 1) t = a0 + 0.35;
+  });
+  const last = out[out.length - 1];
+  return { A, steps, cards: out, end: (o.per ? last.a0 : last.w1 + readT(steps[steps.length - 1].text ?? '', A)) + A.dwell };
+}
+// The arrow from card a to card b: across between two in a row, down from under a card to the next row's top.
+function cardArrow(a, b, curved) {
+  const pts = a.row === b.row
+    ? [[a.x + a.w + 10, a.cy], [b.x - 10, b.cy]]
+    : [[a.cx, a.y + a.h + 8], [b.cx, b.y - 12]];
+  const [p, q] = pts, dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy) || 1;
+  if (!curved) return line(p[0], p[1], q[0], q[1]);
+  const bow = Math.min(40, L * 0.3), m = [(p[0] + q[0]) / 2 + (dy / L) * bow, (p[1] + q[1]) / 2 - (dx / L) * bow];
+  return spline([p, m, q], { n: 8 });
+}
+// AR. Process (a card a beat): the steps in order as cards, left to right (in rows of `cols` past four), each
+// card drawn, its picture (`cel`: a cel or (ctx, j) => node) popping in, its text written under it and read,
+// then an arrow ('straight' or 'curved') drawn on to the next. `per` fixes the seconds a step. The teacher
+// points at each card as it arrives, and cheers at the end. steps: [{ text, cel }] or strings.
+export const process = recipe('AR', 'process', {
+  dur: (o) => processPlan(o).end, steps: [{ text: 'seed', cel: seed }, { text: 'sprout', cel: sprout }, { text: 'flower', cel: flower }],
+  arrows: 'curved', per: null, audience: 'general', actor: null, side: 'left', h: 300, y: 500, card: 240, gap: 70, cols: null,
+  size: 40, role: 'ink', frame: 'ink', mark: 'inks.1', at: 0.4, pose: 'point-r', seed: 190,
+}, (ctx, o) => {
+  const P = processPlan(o), { A } = P, t = ctx.t, s = o.size * A.text, cards = processCards(o, s);
+  const kids = P.steps.map((st, j) => {
+    const q = P.cards[j], c = cards[j];
+    if (t < q.t0) return null;
+    const pic = st.cel && popIn(popAt(t, q.t0 + 0.3), c.cx, c.y + c.w * 0.4, fitted(st.cel, ctx, j, 0, 0, c.w * 0.6));
+    const word = st.text && letters(st.text, c.cx, c.y + c.w * 0.72 + s * 0.2, { size: s, align: 'center', valign: 'top', width: c.w - 20, role: o.role, seed: o.seed + 20 + j });
+    const next = cards[j + 1];
+    return group(`step${j}`, [
+      writeOn(ramp(q.t0, q.t0 + 0.35, t), stroke(roundRect(c.x, c.y, c.w, c.h, 18), o.frame, { w: 2.6, wobble: 1.2, seed: o.seed + j, name: 'card' })),
+      pic,
+      word && writeOn(ramp(q.w0, q.w1, t), word),
+      next && t >= q.a0 && writeOn(ramp(q.a0, q.a0 + 0.35, t), arrow(cardArrow(c, next, o.arrows === 'curved'), o.mark, { seed: o.seed + 40 + j })),
+    ]);
+  });
+  const done = t >= P.cards[P.cards.length - 1].w1;
+  return [
+    group({ name: 'process', box: bounds(cards.map((c) => stroke(roundRect(c.x, c.y, c.w, c.h, 18), 'ink', { w: 0 }))) }, kids),
+    o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.cards[P.cards.length - 1].w1) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
+  ];
+}, { anchor: { name: 'process' }, cast: false });
+
+// ---------- AS. cycle diagram ----------
+
+function cyclePlan(o) {
+  const A = audienceOf(o.audience), steps = o.steps.map(stepOf), n = steps.length, out = [];
+  if (n < 2) throw new TypeError('cycleDiagram: needs two steps or more');
+  let t = o.at + (o.centre ? writeT(o.centre, A) + readT(o.centre, A) : 0);
+  const c1 = o.at + (o.centre ? writeT(o.centre, A) : 0);
+  steps.forEach((st) => {
+    const w0 = t + 0.3, w1 = w0 + writeT(st.text ?? '', A), a0 = o.per ? t + o.per - 0.4 : w1 + readT(st.text ?? '', A);
+    out.push({ t0: t, w0, w1, a0 });
+    t = a0 + 0.4;
+  });
+  const lap = o.travel ? o.lap ?? n * Math.max(0.6, A.dwell) : 0, l0 = t + 0.1;
+  return { A, steps, nodes: out, c1, l0, l1: l0 + lap * o.laps, lap, end: (o.travel ? l0 + lap * o.laps : t) + A.dwell };
+}
+// AS. Cycle diagram (a beat a step, then a lap): the steps on a ring (clockwise from `start`, the top), one at
+// a time: a node pops in (its `cel` in it, or a coloured dot), its name lettered along the ring outside it
+// (textOnPath; at the sides, level inside the ring), then an arrow along the ring to the next, the last one
+// closing the loop. With `travel` a marker then goes round `laps` times (a lap in `lap` seconds, default the
+// dwell a step), each node swelling as it passes. `centre` letters a title in the middle first. The teacher
+// points, then cheers once the loop is closed. steps: [{ text, cel }] or strings.
+export const cycleDiagram = recipe('AS', 'cycle', {
+  dur: (o) => cyclePlan(o).end, steps: ['rain', 'river', 'sea', 'cloud'], travel: true, laps: 1, lap: null, per: null, centre: null,
+  audience: 'general', actor: null, side: 'left', h: 300, x: null, y: 520, r: 270, node: 38, start: -Math.PI / 2,
+  size: 44, role: 'ink', ring: 'inks.1', marker: 'accents.0', at: 0.4, pose: 'point-r', seed: 200,
+}, (ctx, o) => {
+  const P = cyclePlan(o), { A } = P, t = ctx.t, s = o.size * A.text, n = P.steps.length, cx = middleX(o, o.x), cy = o.y, R = o.r;
+  const ang = (j) => o.start + (j / n) * Math.PI * 2, pt = (a, r = R) => [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  const gapA = (o.node + 14) / R;
+  // The marker's angle while it travels, and how much each node swells as it passes (0..1).
+  const lapU = o.travel && t >= P.l0 && t < P.l1 ? (t - P.l0) / P.lap : null;
+  const swell = (j) => {
+    if (lapU === null) return 0;
+    const d = ((lapU % 1) * n - j + n) % n;
+    return Math.max(0, 1 - Math.min(d, n - d) * 2.5);
+  };
+  const label = (st, j) => {
+    const a = ang(j), c = Math.cos(a), sn = Math.sin(a), size = s, seed = o.seed + 20 + j;
+    if (Math.abs(c) > 0.8) {
+      // At the sides: level, inside the ring, ending (or starting) a gap from the node.
+      const [nx, ny] = pt(a), y0 = ny + s * 0.3, x = nx - Math.sign(c) * (o.node + 22);
+      return c > 0 ? textOnPath(st.text, line(x - 2000, y0, x, y0), { size, align: 'end', role: o.role, seed, ink2: null })
+        : textOnPath(st.text, line(x, y0, x + 2000, y0), { size, align: 'start', role: o.role, seed, ink2: null });
+    }
+    // Top: on an arc outside, run clockwise, letters standing out; bottom: run the other way, a cap height further out, letters standing in.
+    const top = sn < 0, rb = R + o.node + 14 + (top ? 0 : s * 0.72);
+    return textOnPath(st.text, top ? arc(cx, cy, rb, a - Math.PI / 2, a + Math.PI / 2) : arc(cx, cy, rb, a + Math.PI / 2, a - Math.PI / 2), { size, role: o.role, seed, ink2: null });
+  };
+  const kids = P.steps.map((st, j) => {
+    const q = P.nodes[j];
+    if (t < q.t0) return null;
+    const a = ang(j), [nx, ny] = pt(a), sw = 1 + 0.25 * ease.io(swell(j));
+    const body = st.cel ? fitted(st.cel, ctx, j, 0, 0, o.node * 1.6) : fill(circle(0, 0, o.node * 0.62, 32), `fills.${j % 4}`, { name: 'dot' });
+    const node = [fill(circle(0, 0, o.node, 40), 'paper', { name: 'nodeBg' }), stroke(circle(0, 0, o.node, 40), 'ink', { w: 2.6, wobble: 1, seed: o.seed + j, name: 'node' }), body];
+    const link = arc(cx, cy, R, a + gapA, ang(j + 1) - gapA);
+    return group(`step${j}`, [
+      t >= q.a0 && writeOn(ramp(q.a0, q.a0 + 0.4, t), arrow(link, o.ring, { seed: o.seed + 40 + j, name: 'link' })),
+      popIn(popAt(t, q.t0), nx, ny, place(0, 0, { scale: sw }, node)),
+      st.text && writeOn(ramp(q.w0, q.w1, t), label(st, j)),
+    ]);
+  });
+  const centre = o.centre && writeOn(ramp(o.at, P.c1, t), letters(o.centre, cx, cy + s * 0.3, { size: s, align: 'center', width: R * 1.3, role: o.role, seed: o.seed + 9 }));
+  const [mx, my] = lapU === null ? [0, 0] : pt(ang(0) + (lapU % 1) * Math.PI * 2);
+  const heading = lapU === null ? 0 : ang(0) + (lapU % 1) * Math.PI * 2 + Math.PI / 2, m = o.node * 0.55;
+  const marker = lapU !== null && place(mx, my, { rot: heading }, fill(poly([[m, 0], [-m * 0.7, -m * 0.7], [-m * 0.3, 0], [-m * 0.7, m * 0.7]]), o.marker, { name: 'traveller' }));
+  const done = t >= P.nodes[n - 1].a0 + 0.4;
+  return [
+    group({ name: 'cycle', box: [cx - R - o.node, cy - R - o.node, 2 * (R + o.node), 2 * (R + o.node)] }, [centre && group('centre', [centre]), ...kids]),
+    marker,
+    o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.nodes[n - 1].a0 + 0.4) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
+  ];
+}, { anchor: { name: 'cycle' }, cast: false });
+
+// ---------- AT. number line ----------
+
+// The numbers a hop goes through: start, then each of jumpTo, a unit at a time when `hops` is 'unit'.
+function hopsOf(o) {
+  const targets = [o.jumpTo ?? []].flat(), out = [];
+  let x = o.start ?? o.from;
+  for (const to of targets) {
+    if (!Number.isFinite(to) || to < o.from || to > o.to) throw new TypeError(`numberLine: jumpTo ${to} is not on the line ${o.from} to ${o.to}`);
+    const d = to - x, unit = o.hops === 'unit' && Math.abs(d) <= 12 && Number.isInteger(d);
+    const seg = { from: x, to, hops: [] };
+    if (unit) for (let k = 1; k <= Math.abs(d); k++) seg.hops.push([x + Math.sign(d) * (k - 1), x + Math.sign(d) * k]);
+    else if (d) seg.hops.push([x, to]);
+    out.push(seg);
+    x = to;
+  }
+  return out;
+}
+const signed = (d) => `${d < 0 ? '-' : '+'}${Math.abs(d)}`;
+function linePlan(o) {
+  const A = audienceOf(o.audience), segs = hopsOf(o), marks = marksOf(o), per = o.per ?? A.count;
+  const l1 = o.at + 0.5, n1 = l1 + 1.2, m0 = n1 + 0.2;
+  let t = m0 + 0.25 + A.dwell;
+  const out = segs.map((seg) => {
+    const hops = seg.hops.map(() => { const h = t; t += per; return h; });
+    const lab = t, lab1 = lab + writeT(signed(seg.to - seg.from), A);
+    t = lab1 + readT(signed(seg.to - seg.from), A);
+    return { ...seg, at: hops, lab, lab1 };
+  });
+  return { A, per, marks, l1, n1, m0, segs: out, ring: t, end: t + 0.4 + A.dwell };
+}
+// The numbers written under the line: `marks` (a list, or a step), by default every tick when there are 11 or
+// fewer and they fit the audience's words with the legs' '+n' (12 on a general board), else the ends, the
+// start and where each leg lands.
+function marksOf(o, A = audienceOf(o.audience)) {
+  if (Array.isArray(o.marks)) return o.marks;
+  const out = [], ticks = Math.floor((o.to - o.from) / o.step + 1e-9) + 1, legs = [o.jumpTo ?? []].flat();
+  if (o.marks == null && (ticks > 11 || ticks + legs.length > (A.words ?? 12))) {
+    return [...new Set([o.from, o.start ?? o.from, ...legs, o.to])].sort((a, b) => a - b);
+  }
+  for (let v = o.from; v <= o.to + 1e-9; v += o.marks ?? o.step) out.push(+v.toFixed(6));
+  return out;
+}
+// AT. Number line (a hop a beat): a line from `from` to `to` drawn with a tick every `step` and the numbers
+// (`marks`: a list, or every how many; by default every tick if they fit the audience's words, else the
+// ends, the start and the landings) written under it; a marker (`marker`: a cel or (ctx) => node, default a
+// dot) pops in at `start` (default `from`) and hops to `jumpTo` (a number or a list, one leg each), a unit at
+// a time (`hops: 'unit'`, the audience's counting pace or `per` a hop) or in one leap (`hops: 'one'`), each
+// hop an arc drawn as it goes; each leg's '+n' is written over its arcs, and the number it lands on at the
+// end is ringed. The teacher points, then cheers.
+export const numberLine = recipe('AT', 'number line', {
+  dur: (o) => linePlan(o).end, from: 0, to: 10, step: 1, marks: null, start: 3, jumpTo: 7, hops: 'unit', per: null, marker: null,
+  audience: 'general', actor: null, side: 'left', h: 280, x: null, y: 600, width: 760, size: 40, role: 'ink', mark: 'inks.1',
+  dot: 'accents.0', at: 0.4, pose: 'point-r', seed: 210,
+}, (ctx, o) => {
+  if (!(o.to > o.from) || !(o.step > 0)) throw new TypeError(`numberLine: from ${o.from} to ${o.to} by ${o.step} is not a line`);
+  const P = linePlan(o), { A } = P, t = ctx.t, s = o.size * A.text, cx = middleX(o, o.x);
+  const x0 = cx - o.width / 2, xAt = (v) => x0 + ((v - o.from) / (o.to - o.from)) * o.width, y = o.y;
+  const ticks = [];
+  for (let v = o.from; v <= o.to + 1e-9; v += o.step) ticks.push({ pts: [xAt(v), y - 12, xAt(v), y + 12], closed: false });
+  const axis = [
+    writeOn(ramp(o.at, P.l1, t), stroke(line(x0 - 30, y, x0 + o.width + 30, y), 'ink', { w: 3, wobble: 1, seed: o.seed, name: 'line' })),
+    writeOn(ramp(o.at + 0.2, P.l1, t), stroke({ sub: ticks, box: [x0, y - 12, o.width, 24] }, 'ink', { w: 2.4, wobble: 0.6, seed: o.seed + 1, name: 'ticks' })),
+    group('numbers', P.marks.map((v, j) => {
+      const u = P.l1 + (j / P.marks.length) * (P.n1 - P.l1);
+      return t >= u && writeOn(ramp(u, u + Math.min(0.3, writeT(String(v), A)), t), letters(String(v), xAt(v), y + 24 + s * 0.75, { size: s, align: 'center', role: o.role, seed: o.seed + 10 + j }));
+    })),
+  ];
+  // Where the marker is: at start, then along each hop's arc as it goes (a hop lands a tenth before its beat ends).
+  const arcOf = ([a, b]) => { const xa = xAt(a), xb = xAt(b), hh = Math.min(140, 30 + Math.abs(xb - xa) * 0.5); return [xa, xb, hh]; };
+  const along = ([xa, xb, hh], u) => [lerp(xa, xb, u), y - 18 - Math.sin(Math.PI * u) * hh];
+  let pos = [xAt(o.start ?? o.from), y - 18];
+  const arcs = [], labels = [];
+  P.segs.forEach((seg, g) => {
+    seg.hops.forEach((hop, k) => {
+      const t0 = seg.at[k], u = ramp(t0, t0 + P.per * 0.9, t, ease.io);
+      if (t < t0) return;
+      const A3 = arcOf(hop), pts = Array.from({ length: 17 }, (_, i) => along(A3, i / 16));
+      arcs.push(writeOn(u, arrow(spline(pts), o.mark, { w: 2.6, head: 12, seed: o.seed + 30 + g * 20 + k, name: 'hop' })));
+      pos = along(A3, u);
+    });
+    if (t >= seg.lab && seg.hops.length) {
+      const xa = xAt(seg.from), xb = xAt(seg.to), top = Math.max(...seg.hops.map((h) => arcOf(h)[2]));
+      labels.push(writeOn(ramp(seg.lab, seg.lab1, t), letters(signed(seg.to - seg.from), (xa + xb) / 2, y - 40 - top - s * 0.2, { size: s, align: 'center', role: o.mark, seed: o.seed + 90 + g })));
+    }
+  });
+  const last = P.segs[P.segs.length - 1]?.to ?? o.start ?? o.from;
+  const ringed = t >= P.ring && writeOn(ramp(P.ring, P.ring + 0.4, t), stroke(ellipse(xAt(last), y + 24 + s * 0.45, s * 0.75, s * 0.7, 32), o.dot, { w: 3, wobble: 1.4, seed: o.seed + 99, name: 'ring' }));
+  const marker = t >= P.m0 && popIn(popAt(t, P.m0), pos[0], pos[1] - 4, o.marker ? fitted(o.marker, ctx, 0, 0, -20, 56) : [fill(circle(0, 0, 14, 24), o.dot, { name: 'bead' }), stroke(circle(0, 0, 14, 24), 'ink', { w: 2.4, wobble: 0.6 })]);
+  const done = t >= P.ring;
+  return [
+    group({ name: 'numberLine', box: [x0 - 30, y - 200, o.width + 60, 240 + s] }, [...axis, group('hops', arcs), group('legs', labels), ringed]),
+    marker && group('marker', [marker]),
+    o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.ring) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
+  ];
+}, { anchor: { name: 'numberLine' }, cast: false });
+
+// The seconds into an AT shot at which each hop starts (for the score: a note a hop), from the same options.
+export const hopTimes = (opts = {}) => linePlan({ ...numberLine.defaults, ...opts }).segs.flatMap((g) => g.at);
+
+// ---------- AU. growth ----------
+
+// The values it counts through: from, then every `by` to `to` (by default the step keeping it to 9 numbers).
+function growthPlan(o) {
+  const A = audienceOf(o.audience), span = o.to - o.from;
+  if (!(span > 0)) throw new TypeError(`growth: from ${o.from} to ${o.to} does not grow`);
+  const by = o.by ?? Math.max(1, Math.ceil(span / 8)), vals = [];
+  for (let v = o.from; v < o.to; v += by) vals.push(v);
+  vals.push(o.to);
+  const per = o.per ?? A.count, l1 = o.at + (o.label ? writeT(o.label, A) : 0.3), g0 = l1 + 0.3;
+  return { A, by, vals, per, l1, g0, g1: g0 + (vals.length - 1) * per, end: g0 + (vals.length - 1) * per + readT(`${o.label ?? ''} ${o.to}`, A) + A.dwell };
+}
+// AU. Growth (a value a beat): a baseline with its `label` written under it, then a bar (no `cel`) rising from
+// `from` to `to`, or a pictograph (`cel`: a cel or (ctx, j) => node) stacking one picture a `unit` in columns of
+// `cols`; either way the number above it counts on (`count: false` for none) in steps of `by` (default: at
+// most nine numbers), a step every `per` seconds (the audience's counting pace). `max` is the value the full
+// height stands for (default `to`). The teacher points, then cheers at the top.
+export const growth = recipe('AU', 'growth', {
+  dur: (o) => growthPlan(o).end, cel: null, from: 0, to: 8, by: null, unit: 1, max: null, count: true, label: null, per: null,
+  audience: 'general', actor: null, side: 'left', h: 300, x: null, y: 820, height: 520, width: 150, cols: 2, size: 44,
+  role: 'ink', bar: 'fills.0', at: 0.4, pose: 'point-r', seed: 220,
+}, (ctx, o) => {
+  const P = growthPlan(o), { A } = P, t = ctx.t, s = o.size * A.text, cx = middleX(o, o.x), floor = o.y, max = o.max ?? o.to;
+  // The value now: each step eases up over 0.8 of its beat; the counted number is the last step reached.
+  const k = t < P.g0 ? 0 : Math.min(P.vals.length - 1, Math.floor((t - P.g0) / P.per + 1e-9));
+  const v = k >= P.vals.length - 1 || t < P.g0 ? P.vals[k] : lerp(P.vals[k], P.vals[k + 1], ramp(P.g0 + k * P.per, P.g0 + (k + 0.8) * P.per, t, ease.io));
+  const yOf = (u) => floor - (u / max) * o.height;
+  let body, top;
+  if (!o.cel) {
+    const h = Math.max(0, floor - yOf(v));
+    body = h > 0.5 && [fill(rect(cx - o.width / 2, floor - h, o.width, h), o.bar, { name: 'barFill' }), stroke(rect(cx - o.width / 2, floor - h, o.width, h), 'ink', { w: 2.6, wobble: 0.8, seed: o.seed + 3, name: 'bar' })];
+    top = floor - h;
+  } else {
+    // One picture a unit, in columns of cols from the floor up, each popping in as the count passes it.
+    const n = Math.round((o.to - 0) / o.unit), cell = Math.min(o.height / Math.ceil(n / o.cols), o.width), shown = Math.floor(v / o.unit + 1e-9);
+    const pics = [];
+    for (let j = 0; j < shown; j++) {
+      const r = Math.floor(j / o.cols), c = j % o.cols, px = cx + (c - (o.cols - 1) / 2) * cell, py = floor - cell * (r + 0.5);
+      const tj = P.g0 + ((j + 1) * o.unit - P.vals[0]) / P.by * P.per - P.per;
+      pics.push(popIn(popAt(t, Math.max(P.g0 - 0.25, tj)), px, py, fitted(o.cel, ctx, j, 0, 0, cell * 0.85)));
+    }
+    body = pics;
+    top = floor - cell * Math.ceil(Math.max(1, shown) / o.cols);
+  }
+  const number = o.count && t >= P.g0 - 0.3 && letters(String(P.vals[k]), cx, top - 20, { size: s * 1.3, align: 'center', role: o.role, seed: o.seed + 50 + k });
+  const done = t >= P.g1;
+  return [
+    writeOn(ramp(o.at, o.at + 0.3, t), stroke(line(cx - 200, floor, cx + 200, floor), 'ink', { w: 3, wobble: 1, seed: o.seed, name: 'baseline' })),
+    o.label && writeOn(ramp(o.at, P.l1, t), letters(o.label, cx, floor + s * 1.3, { size: s, align: 'center', role: o.role, seed: o.seed + 1 })),
+    group({ name: 'growth', box: [cx - 200, floor - o.height - s * 1.6, 400, o.height + s * 1.6] }, [body && group('rising', body), number && group('count', [number])]),
+    o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.g1) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
+  ];
+}, { anchor: { name: 'growth' }, cast: false });

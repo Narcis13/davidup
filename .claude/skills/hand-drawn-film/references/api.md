@@ -178,6 +178,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 ### core/text.js
 
 - `handText(a, x, y, o = {})` handText(op, { look | hand }) or handText(str, x, y, { size, role, tool, align, w, ink2, offset, seed, width, lineH, maxLines, wrap, valign, look | hand }) => group of stroke ops.
+- `textOnPath(str, path, o = {})` textOnPath(str, path, { size, offset, align: 'start' | 'center' | 'end', at, role, tool, w, ink2, seed, look | hand }) => a handText group (named text:<str>, so lint counts and reads it) of one line whose glyphs sit along the path by ...
 - `signOff(a, b, { x = 540, y = 540, size = 60, pA = 1, pB = 1, ink = 'ink', ink2 = 'accents.0' } = {})` The film's signature: two dots, then word a, then word b (smaller, below), each revealed in stroke order by pA and pB.
 - `squiggleText(box, lines, seed = 1, { role = 'ink', lineH, amp = 4, w = 1.3, gap = 0.4 } = {})` Illegible handwriting: rows of little arches filling box [x, y, w, h?] (v1 squiggleText).
 - `measure(str, size, look)` Advance width of a string at a size, in logical units, in the look's hand (or a hand record; the hand of the shot being drawn when neither is given).
@@ -395,6 +396,10 @@ Every recipe `R(opts)` returns a shot; `R.layer(ctx, opts)` returns its drawing 
 - `labelled(opts)` **AO** AO. Labelled subject (3 to 8 s): the subject drawn at (x, y) by `scale`, then one label at a time: a dot on the part (`at`), a leader line out to where the word sits (`from`, or `reach` out past the side of the subject the part is on, ... Options: dur, subject, x, y, scale, reach, labels, per, audience, actor, side, h, size, role, leader, nudge, at, pose, seed.
 - `counting(opts)` **AP** AP. Counting (0.5 to 1 s an object): n objects pop in one at a time (`per`, default the audience's counting pace) in rows of `cols`, each with its number written under it; a tally grows at the bottom (`tally: false` for none); with ... Options: dur, items, n, cols, x, y, gap, scale, per, tally, label, audience, actor, side, h, size, role, mark, at, pose, seed.
 - `compare(opts)` **AQ** AQ. Compare (3 to 5 s): a line splits the frame, the left subject pops in (its label written under it), then the right, then the sign between them is drawn last in `role` in a gap left in the line: 'vs' lettered, '=' '>' '<' drawn. Options: dur, left, right, sign, labels, x, y, scale, audience, actor, h, size, role, mark, divider, at, seed.
+- `process(opts)` **AR** AR. Process (a card a beat): the steps in order as cards, left to right (in rows of `cols` past four), each card drawn, its picture (`cel`: a cel or (ctx, j) => node) popping in, its text written under it and read, then an arrow ... Options: dur, steps, arrows, per, audience, actor, side, h, y, card, gap, cols, size, role, frame, mark, at, pose, seed.
+- `cycleDiagram(opts)` **AS** AS. Cycle diagram (a beat a step, then a lap): the steps on a ring (clockwise from `start`, the top), one at a time: a node pops in (its `cel` in it, or a coloured dot), its name lettered along the ring outside it (textOnPath; at the ... Options: dur, steps, travel, laps, lap, per, centre, audience, actor, side, h, x, y, r, node, start, size, role, ring, marker, at, pose, seed.
+- `numberLine(opts)` **AT** AT. Number line (a hop a beat): a line from `from` to `to` drawn with a tick every `step` and the numbers (`marks`: a list, or every how many; by default every tick if they fit the audience's words, else the ends, the start and the ... Options: dur, from, to, step, marks, start, jumpTo, hops, per, marker, audience, actor, side, h, x, y, width, size, role, mark, dot, at, pose, seed.
+- `growth(opts)` **AU** AU. Growth (a value a beat): a baseline with its `label` written under it, then a bar (no `cel`) rising from `from` to `to`, or a pictograph (`cel`: a cel or (ctx, j) => node) stacking one picture a `unit` in columns of `cols`; either ... Options: dur, cel, from, to, by, unit, max, count, label, per, audience, actor, side, h, x, y, height, width, cols, size, role, bar, at, pose, seed.
 
 ### Doodle recipes (recipes/doodle.js, re-exported)
 
@@ -435,11 +440,14 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `flower` A flower to label (AO's default): petals, a centre, a stem, a leaf, roots. <sub>recipes/teach.js</sub>
 - `hog(d, x, y, s, o = {})` The hedgehog of v1 held-once and night-shift: gouache body, quill wash, brush outline, dot eyes, a scarf (the anchor colour). <sub>recipes/doodle.js</sub>
 - `hop(a, b, t, h)` From a to b over t = 0..1 on an arc h high. <sub>recipes/doodle.js</sub>
+- `hopTimes(opts = {})` The seconds into an AT shot at which each hop starts (for the score: a note a hop), from the same options. <sub>recipes/teach.js</sub>
 - `lastFrame(node)` A shot's last frame as a print for printsOnALine (AF): (ctx) => list. <sub>recipes/doodle.js</sub>
 - `lin(a, b, t)` From a to b over t = 0..1 in a straight line. <sub>recipes/doodle.js</sub>
 - `pointsIn(path, n, seed, shrink = 0.85)` Seeded points inside a path (rejection sampling in its box). <sub>recipes/shots.js</sub>
 - `risoCard(plates, { inks = ['inks.0', 'inks.1', 'inks.2'], angles = [0.26, 1.31, 0], cell = 7, seed = 30, box =, ...` A riso card: plates [[kids...] per ink] printed as halftone plates (v1 risoCard). <sub>recipes/shots.js</sub>
+- `seed` A seed, the first of AR's default process (seed, sprout, flower). <sub>recipes/teach.js</sub>
 - `spark(d, x, y, s, o = {})` The spark: a flame with legs (v1 night-shift). Its roles do not change in the chalk pass, so it looks the same in and out of the light. <sub>recipes/doodle.js</sub>
+- `sprout` A sprout with two leaves, the second of AR's default process. <sub>recipes/teach.js</sub>
 
 ## Packs (`handdrawn/packs/<pack>.js`)
 

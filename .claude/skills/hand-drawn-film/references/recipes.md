@@ -194,8 +194,9 @@ The long method for finding the idea in an object is v1's
 
 ## Teaching (explainers, 4.0)
 
-Recipes AN to AQ live in `handdrawn/recipes/teach.js` and are re-exported
-from `shots.js`. `films/lesson.js` runs all four on the whiteboard.
+Recipes AN to AU live in `handdrawn/recipes/teach.js` and are re-exported
+from `shots.js`. `films/lesson.js` runs AN to AQ on the whiteboard,
+`films/growing.js` AR to AU.
 
 - **Chapters (E1).** `chapter(title | { title, card, hold, ...titleCard
   options }, ...nodes)`: AN (named `card: <title>`), the nodes, then a hold of
@@ -235,8 +236,17 @@ from `shots.js`. `films/lesson.js` runs all four on the whiteboard.
 | AO | `labelled({ subject, labels, per })` | per label: 0.3 s leader, the word written, then read (or `per`) | the subject at (`x`, `y`) by `scale` (default: a `flower`); for each `{ text, at, from? }`, a dot on the part, a leader to the word, the word written; words sit `reach` past the side of the subject the part is on, a line and a half apart; the camera eases `nudge` (0.1) towards each label and back to the whole at the end |
 | AP | `counting({ items, n, per, tally, label })` | `per` an object (the audience's `count`, 0.5 to 1 s), then the total written and read | `n` objects (a cel or `(ctx, j) => node`, default `apple`) pop in, in rows of `cols`, each numbered underneath; a tally in `mark` grows below (`tally: false` for none); `label` writes the total ("8 phases"); the teacher points, then cheers |
 | AQ | `compare({ left, right, sign, labels })` | 3 to 6 s: the divider, the left, the right (each read), the sign, then read | a line splits the frame, `left` pops in with its label, then `right`, then the sign (`'<'`, `'>'`, `'='` drawn, `'vs'` lettered) is drawn last in `mark` in a gap in the line; the teacher thinks, then presents the answer |
+| AR | `process({ steps, arrows, per })` | a step a beat: the card 0.35 s, the picture pops at 0.3 s, the text written from 0.45 s and read, the arrow 0.35 s (or `per` a step); then a dwell | `steps` (`[{ text, cel }]` or strings; default seed, sprout, flower) as cards left to right, rows of `cols` past four, clear of the teacher; each card drawn, its `cel` popping in, its text written under it; an arrow (`'straight'` or `'curved'`, in `mark`) drawn on to the next; the teacher points, then cheers |
+| AS | `cycleDiagram({ steps, travel, centre })` | `centre` written and read, then a step a beat (node pops, name written and read, 0.4 s arrow to the next; or `per`), then a lap (`lap`, default n × max(0.6, dwell)) × `laps`, then a dwell | `steps` on a ring of radius `r` clockwise from `start` (the top): a node (its `cel`, or a coloured dot) pops in, its name lettered along the ring outside it with `textOnPath` (at the sides level, inside the ring), an arrow along the ring to the next, the last closing the loop; with `travel` (default) a marker goes round, each node swelling as it passes; the teacher points, then cheers |
+| AT | `numberLine({ from, to, start, jumpTo, hops })` | 0.5 s line, 1.2 s numbers, the marker pops, a dwell, then a hop a beat (the audience's `count`, or `per`), each leg's `+n` written and read, the landing ringed, a dwell | a line from `from` to `to` with a tick every `step`, numbers under it (`marks`: a list or a step; by default every tick if they fit the audience's words, else the ends, the start and the landings); a marker (`marker`: a cel, default a dot) hops from `start` to each of `jumpTo` a unit at a time (`hops: 'one'` for one leap), each hop an arc drawn as it goes; `hopTimes(opts)` gives the hops' start times for the score |
+| AU | `growth({ cel, from, to, count, label })` | `label` written, then a value a beat (the audience's `count`, or `per`) from `from` to `to` in steps of `by` (default at most nine numbers), each rising over 0.8 of its beat, then read and a dwell | a baseline with `label` under it; a bar (no `cel`) rising, or a pictograph stacking a `cel` a `unit` in `cols` columns; the number above it counts on (`count: false` for none); `max` is the value the full `height` stands for; the teacher points, then cheers at the top |
 
-Objects that pop in (AP's items, AQ's subjects) draw direct, never as cached
+A number line's numbers and a growth's counted values are words for lint
+like any lettering: a count from 0 to 8 is nine, and each value must stay up
+for the audience's reading time (the counting pace already does).
+
+Objects that pop in (AP's items, AQ's subjects, AR to AU's pictures, nodes
+and markers) draw direct, never as cached
 layers. The whiteboard's marker is translucent, and a cached layer of it can
 differ by one level from the same drawing replayed, which would make a
 repeated object render differently across worker splits.

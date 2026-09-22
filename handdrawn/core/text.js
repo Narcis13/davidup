@@ -3,7 +3,7 @@
 import { FPS } from './curves.js';
 import { asHand, currentHand, glyph, HOUSE_DRIFT, HOUSE_STROKE, houseHand } from './glyphs.js';
 import { advance, layoutWith, LINE_H, opLayout, penOf } from './layout.js';
-import { bounds, circle, fill, group, meta, mkPath, text, stroke, withProps } from './list.js';
+import { at, bounds, circle, fill, group, len, meta, mkPath, text, stroke, withProps } from './list.js';
 import { handOf } from './looks.js';
 import { hash32, rng } from './rand.js';
 import { reveal } from './tools.js';
@@ -96,6 +96,37 @@ export function handText(a, x, y, o = {}) {
   const props = { name: op.name ?? `text:${str}` };
   if (op.seed !== undefined) props.seed = op.seed;
   return group(props, [...st.under, ...st.main]);
+}
+
+// textOnPath(str, path, { size, offset, align: 'start' | 'center' | 'end', at, role, tool, w, ink2, seed,
+// look | hand }) => a handText group (named text:<str>, so lint counts and reads it) of one line whose glyphs
+// sit along the path by arc length, each turned to the path's heading at its middle: a label round a ring, a
+// name along a river (4.0 T8's first piece, made for E3's cycleDiagram). The letters stand on the path's left
+// as it runs (above a path run left to right), raised `offset` off it; `at` is the arc length the first glyph
+// starts at (default: `align` on the path's length). Run a path right to left to letter under it upright.
+export function textOnPath(str, path, o = {}) {
+  const { offset = 0, align = 'center', at: s0, look, hand, ...rest } = o, H = handFor(hand ?? look);
+  const s = String(str), size = rest.size ?? 48, k = size / 100;
+  const flat = handText(s, 0, 0, { ...rest, size, align: 'left', hand: H });
+  const mid = [];
+  let gx = 0;
+  for (const ch of s) { const g = glyph(ch, H); mid.push(gx + g.w * g.k * k / 2); gx += (g.w * g.k + H.track) * k; }
+  const total = advance(s, size, H), L = len(path);
+  const start = s0 ?? (align === 'center' ? (L - total) / 2 : align === 'end' ? L - total : 0);
+  const kids = flat.kids.map((op) => {
+    const gi = +(/^g(\d+)\./.exec(op.name ?? '')?.[1] ?? NaN);
+    if (!Number.isFinite(gi)) return op;
+    const c = mid[gi], p = at(path, start + c), ca = Math.cos(p.heading), sa = Math.sin(p.heading);
+    return withProps(op, { path: mkPath(op.path.sub.map((sub) => {
+      const pts = new Array(sub.pts.length);
+      for (let i = 0; i < pts.length; i += 2) {
+        const dx = sub.pts[i] - c, dy = sub.pts[i + 1] - offset;
+        pts[i] = p.x + ca * dx - sa * dy; pts[i + 1] = p.y + sa * dx + ca * dy;
+      }
+      return { pts, closed: sub.closed };
+    })) });
+  });
+  return withProps(flat, { kids });
 }
 
 // glyphUnits(op | str, { look | hand }) => [{ ch, word, line }] for each glyph handText letters, by its index

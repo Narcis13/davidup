@@ -352,8 +352,19 @@ shot. Subjects are functions, so any cel rides any recipe:
 | Z | `enso` | pencil | a brush circle draws itself round a figure |
 | AA–AM | `becomesVehicle livesInside doesItsJob timeOnIt nightFalls printsOnALine lightEscapes alongTheEdge insideTheTube looksBack getaway caughtLetGo sunrise` | doodle | gags on a cut-out photo: it becomes a boat, someone lives inside, it pours, night falls, the prints hang on a line… |
 
-The teaching set (4.0 E2): AN `titleCard`, AO `labelled`, AP `counting`, AQ
-`compare`, and `chapter` (E1) that opens each chapter of a lesson with AN.
+The teaching set (4.0 E2, E3): AN `titleCard`, AO `labelled`, AP `counting`,
+AQ `compare`, AR `process` (cards with arrows), AS `cycleDiagram` (steps on a
+ring, their names along it, a marker going round), AT `numberLine` (hops a
+unit at a time, `hopTimes` for the score), AU `growth` (a bar or a pictograph
+rising, its number counting on), and `chapter` (E1) that opens each chapter
+of a lesson with AN. `process` shares its name with Node's global: import it
+as `process as steps` in a film that also reads `process.argv`.
+
+`textOnPath(str, path, { size, offset, align, at })` (core) letters one line
+along any path by arc length, each glyph turned to the heading at its middle,
+standing on the path's left as it runs; round the bottom of a ring, run the
+path left to right beneath it to keep the letters upright. It is a lettered
+group like `handText`'s, so lint counts and reads it.
 
 `CARDS` exports three sample riso cards that O, P and Q use by default.
 Timing notes for each recipe are in `references/recipes.md`.
