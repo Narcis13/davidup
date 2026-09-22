@@ -194,9 +194,9 @@ The long method for finding the idea in an object is v1's
 
 ## Teaching (explainers, 4.0)
 
-Recipes AN to AU live in `handdrawn/recipes/teach.js` and are re-exported
+Recipes AN to AY live in `handdrawn/recipes/teach.js` and are re-exported
 from `shots.js`. `films/lesson.js` runs AN to AQ on the whiteboard,
-`films/growing.js` AR to AU.
+`films/growing.js` AR to AU, `films/asking.js` AV to AY.
 
 - **Chapters (E1).** `chapter(title | { title, card, hold, ...titleCard
   options }, ...nodes)`: AN (named `card: <title>`), the nodes, then a hold of
@@ -240,12 +240,16 @@ from `shots.js`. `films/lesson.js` runs AN to AQ on the whiteboard,
 | AS | `cycleDiagram({ steps, travel, centre })` | `centre` written and read, then a step a beat (node pops, name written and read, 0.4 s arrow to the next; or `per`), then a lap (`lap`, default n × max(0.6, dwell)) × `laps`, then a dwell | `steps` on a ring of radius `r` clockwise from `start` (the top): a node (its `cel`, or a coloured dot) pops in, its name lettered along the ring outside it with `textOnPath` (at the sides level, inside the ring), an arrow along the ring to the next, the last closing the loop; with `travel` (default) a marker goes round, each node swelling as it passes; the teacher points, then cheers |
 | AT | `numberLine({ from, to, start, jumpTo, hops })` | 0.5 s line, 1.2 s numbers, the marker pops, a dwell, then a hop a beat (the audience's `count`, or `per`), each leg's `+n` written and read, the landing ringed, a dwell | a line from `from` to `to` with a tick every `step`, numbers under it (`marks`: a list or a step; by default every tick if they fit the audience's words, else the ends, the start and the landings); a marker (`marker`: a cel, default a dot) hops from `start` to each of `jumpTo` a unit at a time (`hops: 'one'` for one leap), each hop an arc drawn as it goes; `hopTimes(opts)` gives the hops' start times for the score |
 | AU | `growth({ cel, from, to, count, label })` | `label` written, then a value a beat (the audience's `count`, or `per`) from `from` to `to` in steps of `by` (default at most nine numbers), each rising over 0.8 of its beat, then read and a dwell | a baseline with `label` under it; a bar (no `cel`) rising, or a pictograph stacking a `cel` a `unit` in `cols` columns; the number above it counts on (`count: false` for none); `max` is the value the full `height` stands for; the teacher points, then cheers at the top |
+| AV | `questionCard({ text })` | the `?` drawn 0.7 s, its dot pops at 0.2 s, the question written and read, a dwell | a big `?` in `mark` (drawn, so no word for lint) above the question, which is centred, wrapped to `width` and hangs from `y`; the teacher shrugs (`pose`) and looks confused (`emote`) once the mark is down |
+| AW | `quiz({ question, options, answer, pause })` | the question written and read; an option a beat (box 0.3 s, written, half read); `pause` (2.5 dwells, at least 1.5 s); a wrong option crossed every 0.6 s; the answer ringed 0.2 s later; read, a dwell | two to four `options` (strings or `{ text, cel }`) under the question, each with a box; three dots fill in over the pause; the wrong ones are crossed in their box and struck through in `strike`, the `answer` (an index) ticked and ringed in `ring`; the teacher thinks, points, cheers; `quizTimes(opts)` gives `{ ticks, ding, pause }` for the score |
+| AX | `mapRoute({ map, path, label, ends })` | the map drawn over `draw` (1.2 s), the first end written, the journey (`travel`, or the route's length at `speed` 320 units a second, at least 1.5 s), the X 0.35 s, the second end and the label written, read, a dwell | `map` (a cel, default `map` with `MAP_AT`, `(ctx) => node`, or a cutout photo whose `path` is in its 0..1 u, v) drawn on in stroke order (a photo pops); a pin (or a `marker` cel, turned to face the way) travels the spline through `path` with a dashed trail; an X at the end, `ends` written under the ends, `label` lettered along the route's chord on the side it does not bow to |
+| AY | `dialogueShot({ actor, other, lines })` | the dialogue's own timing (T9: each line at the reading pace, held through the reply), then 0.25 s and a dwell | two actors (default two sticks, `sam` and a child `kit`) `h` tall (`[left, right]`, default 330 and 270) with their feet on a `ground` line at `x`, facing each other and looking at the speaker (`gaze`); `lines` are `[speaker, text, { kind, emote, voice }]`, the speaker `0` / `'left'`, `1` / `'right'` or the actor; `dialogueOf(opts)` is the same dialogue for the score (`.events(shot.t0)`); every line counts for `words`, so a long exchange is several shots |
 
 A number line's numbers and a growth's counted values are words for lint
 like any lettering: a count from 0 to 8 is nine, and each value must stay up
 for the audience's reading time (the counting pace already does).
 
-Objects that pop in (AP's items, AQ's subjects, AR to AU's pictures, nodes
+Objects that pop in (AP's items, AQ's subjects, AR to AX's pictures, nodes
 and markers) draw direct, never as cached
 layers. The whiteboard's marker is translucent, and a cached layer of it can
 differ by one level from the same drawing replayed, which would make a

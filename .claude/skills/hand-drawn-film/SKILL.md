@@ -1,6 +1,6 @@
 ---
 name: hand-drawn-film
-description: Make a 10 to 40 second film (a lesson up to 180 seconds, in chapters) that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AU), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
+description: Make a 10 to 40 second film (a lesson up to 180 seconds, in chapters) that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AY), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
 ---
 
 # Hand-drawn film 3.0
@@ -28,6 +28,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
 | `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
 | `growing.js` | whiteboard | the teaching recipes AR to AU: a process in cards, the water cycle on a ring (names along it, a marker going round), hops along a number line, a bar counting on |
+| `asking.js` | whiteboard | the teaching recipes AV to AY: a question card (a big `?`, sam shrugging), a quiz (a pause, the wrong options crossed with a tick each, the answer ringed on a ding from `quizTimes`), a route over a drawn map, two sticks in a `dialogueShot` (its lines in the score from `dialogueOf`) |
 | `chapters.js` | whiteboard | a lesson in three `chapter(title, ...)`s: each opens on its title card and holds a beat; the board is a card per chapter, `hdf render --chapter 2` renders one alone |
 | `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
@@ -214,9 +215,11 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
   turns with the page. `becomesVehicle({ photo: PHOTOS.violin, actor: FOX })`
   is the whole change from the hedgehog to the fox. On A, G, M, U, W, X, Z
   `h` sets the actor's drawn height (`h: 300`); without it a puppet is fitted
-  by its rig box and reads small. On the teaching recipes AN to AU the actor
+  by its rig box and reads small. On the teaching recipes AN to AX the actor
   is the teacher, not the subject: it stands at the side (`side`, `h`) and
-  presents, points, cheers or thinks from the biped vocabulary.
+  presents, points, cheers, thinks or shrugs from the biped vocabulary. AY
+  (`dialogueShot`) stages two actors instead: `actor` on the left, `other` on
+  the right.
 - **Performance.** Direct an actor with a script, not a state per frame:
   `const act = perform(SAM, [[0, 'idle'], [0.5, 'point-r', { dur: 0.25,
   ease: 'out' }], [1.5, { head: 10 }], [2, ['cheer', 'happy'], { anticipate:

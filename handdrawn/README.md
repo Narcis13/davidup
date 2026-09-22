@@ -352,11 +352,16 @@ shot. Subjects are functions, so any cel rides any recipe:
 | Z | `enso` | pencil | a brush circle draws itself round a figure |
 | AA–AM | `becomesVehicle livesInside doesItsJob timeOnIt nightFalls printsOnALine lightEscapes alongTheEdge insideTheTube looksBack getaway caughtLetGo sunrise` | doodle | gags on a cut-out photo: it becomes a boat, someone lives inside, it pours, night falls, the prints hang on a line… |
 
-The teaching set (4.0 E2, E3): AN `titleCard`, AO `labelled`, AP `counting`,
+The teaching set (4.0 E2 to E4): AN `titleCard`, AO `labelled`, AP `counting`,
 AQ `compare`, AR `process` (cards with arrows), AS `cycleDiagram` (steps on a
 ring, their names along it, a marker going round), AT `numberLine` (hops a
 unit at a time, `hopTimes` for the score), AU `growth` (a bar or a pictograph
-rising, its number counting on), and `chapter` (E1) that opens each chapter
+rising, its number counting on), AV `questionCard` (a big drawn `?`, the
+teacher shrugging), AW `quiz` (options, a pause, the wrong ones crossed, the
+right one ringed; `quizTimes` for the tick and the ding), AX `mapRoute` (a
+marker travels a route over a drawn `map` or a cutout photo, the label along
+it), AY `dialogueShot` (two actors on a ground playing T9's `dialogue`;
+`dialogueOf` for the score), and `chapter` (E1) that opens each chapter
 of a lesson with AN. `process` shares its name with Node's global: import it
 as `process as steps` in a film that also reads `process.argv`.
 

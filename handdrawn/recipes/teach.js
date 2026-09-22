@@ -8,6 +8,10 @@
 //   cycleDiagram({ steps, travel })             AS  steps on a ring, names along it, a marker going round
 //   numberLine({ from, to, start, jumpTo })     AT  a hop at a time along a line, the leg's +n, the landing ringed
 //   growth({ cel, from, to, count })            AU  a bar rising (or a pictograph stacking), its number counting on
+//   questionCard({ text })                      AV  a big ? drawn, the question written, the teacher shrugging (4.0 E4)
+//   quiz({ question, options, answer })         AW  options one by one, a pause, the wrong ones crossed, the right one ringed
+//   mapRoute({ map, path, label, ends })        AX  a marker travels a route over a drawn map, the label along it
+//   dialogueShot({ actor, other, lines })       AY  two actors on a ground, facing each other, T9's dialogue as the beat
 //   chapter(title, ...nodes)                        a chapter: its title card (AN), the nodes, a hold (4.0 E1)
 //
 // They time themselves: `dur` defaults to what the copy needs for the audience (`audience:`, a key of
@@ -27,6 +31,7 @@
 // Coordinates are v1's: a 1080 square around (540, 540).
 import {
   fill, stroke, group, circle, ellipse, line, poly, spline, arc, rect, roundRect, at, len, place, cel, ramp, ease, reveal, handText, textOnPath, cam,
+  pin, on, photo, dialogue, actorOf, puppet, stickSource,
 } from '../core/index.js';
 import { bounds, withProps } from '../core/list.js';
 import { chapterSeq } from '../core/tree.js';
@@ -682,3 +687,258 @@ export const growth = recipe('AU', 'growth', {
     o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.g1) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
 }, { anchor: { name: 'growth' }, cast: false });
+
+// ---------- 4.0 E4: question, quiz, map, dialogue (AV to AY) ----------
+
+// The teacher's stand when a recipe does not centre it: at the side, feet on the floor.
+const stand = (o, ctx, extra) => o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, seed: o.seed, ...extra });
+
+// ---------- AV. question card ----------
+
+// A big question mark, h tall, centred at (x, y): the hook (one stroke) and the dot (a fill about the origin,
+// to pop in at `at` after the hook is drawn).
+function questionMark(x, y, h, role, seed) {
+  const P = [[-0.27, -0.26], [-0.2, -0.43], [0, -0.5], [0.22, -0.44], [0.29, -0.25], [0.18, -0.08], [0.02, 0.04], [0, 0.22]];
+  return {
+    hook: stroke(spline(P.map(([u, v]) => [x + u * h, y + v * h]), { n: 8 }), role, { w: Math.max(6, h * 0.075), wobble: 1.4, seed, name: 'hook' }),
+    dot: fill(circle(0, 0, h * 0.06, 24), role, { name: 'point' }), at: [x, y + 0.41 * h],
+  };
+}
+function questionPlan(o) {
+  const A = audienceOf(o.audience), q0 = o.at, q1 = q0 + 0.7, d1 = q1 + 0.2, w0 = d1 + 0.15, w1 = w0 + writeT(o.text, A);
+  return { A, q0, q1, d1, w0, w1, end: w1 + readT(o.text, A) + A.dwell };
+}
+// AV. Question card (3 to 5 s): a big `?` is drawn (the hook, then its dot pops), the question is written on
+// under it (centred, wrapped to `width`, hanging from `y`) and read; the actor at the side shrugs (`pose`) and looks puzzled
+// (`emote`) once the mark is down. The mark is drawn, not lettered, so it is no word for lint.
+export const questionCard = recipe('AV', 'question', {
+  dur: (o) => questionPlan(o).end, text: 'why does the moon change shape?', audience: 'general', actor: null, side: 'right', h: 360,
+  x: null, y: 560, mark: 'accents.0', markH: 340, size: 72, width: 720, role: 'ink', at: 0.25, pose: 'shrug', emote: 'confused', seed: 230,
+}, (ctx, o) => {
+  const P = questionPlan(o), { A } = P, t = ctx.t, s = o.size * A.text, x = middleX(o, o.x);
+  // The question hangs from y (its first line's top there); the mark stands above it.
+  const words = letters(o.text, x, o.y, { size: s, align: 'center', valign: 'top', width: o.width, role: o.role, seed: o.seed + 1 });
+  const top = bounds(words.kids)?.[1] ?? o.y, q = questionMark(x, top - 40 - o.markH * 0.53, o.markH, o.mark, o.seed);
+  return [
+    group({ name: 'question', box: bounds([q.hook, place(...q.at, q.dot), words]) }, [
+      writeOn(ramp(P.q0, P.q1, t), q.hook),
+      popIn(popAt(t, P.q1), ...q.at, q.dot),
+      writeOn(ramp(P.w0, P.w1, t), words),
+    ]),
+    stand(o, ctx, { pose: o.pose, k: reach(t, P.q1), emote: t >= P.q1 ? o.emote : null }),
+  ];
+}, { anchor: { name: 'question' }, cast: false });
+
+// ---------- AW. quiz ----------
+
+const optionOf = (s) => (typeof s === 'string' ? { text: s } : { ...s });
+function quizPlan(o) {
+  const A = audienceOf(o.audience), opts = o.options.map(optionOf), n = opts.length;
+  if (n < 2 || n > 4) throw new TypeError(`quiz: needs two to four options, got ${n}`);
+  if (!Number.isInteger(o.answer) || o.answer < 0 || o.answer >= n) throw new TypeError(`quiz: answer ${o.answer} is not an option's index (0 to ${n - 1})`);
+  const q1 = o.at + writeT(o.question, A);
+  let t = q1 + readT(o.question, A);
+  const rows = opts.map((op) => { const r = { t0: t, w0: t + 0.3, w1: t + 0.3 + writeT(op.text, A) }; t = r.w1 + readT(op.text, A) * 0.5 + 0.2; return r; });
+  const p0 = t, p1 = p0 + (o.pause ?? Math.max(1.5, A.dwell * 2.5));
+  const wrong = opts.map((_, j) => j).filter((j) => j !== o.answer), ticks = wrong.map((_, k) => p1 + k * 0.6);
+  const ding = p1 + wrong.length * 0.6 + 0.2;
+  return { A, opts, q1, rows, p0, p1, wrong, ticks, ding, end: ding + 0.5 + readT(opts[o.answer].text, A) + A.dwell };
+}
+// AW. Quiz (a beat an option, a pause, the answer): the question is written at the top and read, the options
+// (two to four: strings, or { text, cel }) arrive one under another, each with a box to its left (its `cel`
+// popping in beside it), then a pause (`pause` seconds, by default 2.5 dwells, at least 1.5 s) while three dots
+// fill in one by one; the wrong ones are struck through and crossed in their boxes one at a time, then the
+// right one (`answer`, its index) is circled and ticked. The teacher thinks through the pause, points at the
+// answer and cheers. quizTimes(opts) gives the score the strikes (a tick each) and the ding.
+export const quiz = recipe('AW', 'quiz', {
+  dur: (o) => quizPlan(o).end, question: 'which moon is round?', options: ['new', 'half', 'full'], answer: 2, pause: null,
+  audience: 'general', actor: null, side: 'left', h: 300, x: null, y: 250, gap: 130, size: 52, width: 700, role: 'ink',
+  box: 'ink', strike: 'inks.2', ring: 'inks.3', at: 0.3, seed: 240,
+}, (ctx, o) => {
+  const P = quizPlan(o), { A } = P, t = ctx.t, s = o.size * A.text, cx = middleX(o, o.x);
+  const question = letters(o.question, cx, o.y, { size: s * 1.1, align: 'center', valign: 'bottom', width: o.width, role: o.role, seed: o.seed });
+  const qb = bounds(question.kids) ?? [cx - o.width / 2, o.y - s, o.width, s];
+  const rowY = (j) => qb[1] + qb[3] + o.gap * (j + 1) * A.text, bx = cx - o.width / 2 + 20, b = s * 0.8;
+  const rows = P.opts.map((op, j) => {
+    const r = P.rows[j], y = rowY(j);
+    if (t < r.t0) return null;
+    const tx = bx + b + 30 + (op.cel ? b * 1.6 : 0);
+    const word = letters(op.text, tx, y + s * 0.32, { size: s, align: 'left', role: o.role, seed: o.seed + 10 + j });
+    const wb = bounds(word.kids) ?? [tx, y - s * 0.4, s * 2, s * 0.8];
+    const tick = P.wrong.indexOf(j), struck = tick >= 0 && t >= P.ticks[tick], right = j === o.answer && t >= P.ding;
+    const k0 = tick >= 0 ? P.ticks[tick] : P.ding;
+    const mark = struck
+      ? writeOn(ramp(k0, k0 + 0.35, t), group('crossed', [
+        stroke({ sub: [{ pts: [bx + 6, y - b / 2 + 6, bx + b - 6, y + b / 2 - 6], closed: false }, { pts: [bx + b - 6, y - b / 2 + 6, bx + 6, y + b / 2 - 6], closed: false }], box: [bx, y - b / 2, b, b] }, o.strike, { w: 4, wobble: 0.8, seed: o.seed + 30 + j, name: 'cross' }),
+        stroke(line(wb[0] - 10, wb[1] + wb[3] * 0.55, wb[0] + wb[2] + 10, wb[1] + wb[3] * 0.45), o.strike, { w: 4, wobble: 1, seed: o.seed + 40 + j, name: 'strike' }),
+      ]))
+      : right && writeOn(ramp(k0, k0 + 0.5, t), group('answer', [
+        stroke(poly([[bx + 8, y], [bx + b * 0.4, y + b / 2 - 8], [bx + b + 6, y - b / 2 - 10]], false), o.ring, { w: 4.5, wobble: 0.8, seed: o.seed + 50, name: 'tick' }),
+        stroke(ellipse(wb[0] + wb[2] / 2, wb[1] + wb[3] / 2, wb[2] / 2 + 34, wb[3] / 2 + 22, 40), o.ring, { w: 4, wobble: 1.6, seed: o.seed + 51, name: 'ring' }),
+      ]));
+    return group(`option${j}`, [
+      writeOn(ramp(r.t0, r.t0 + 0.3, t), stroke(roundRect(bx, y - b / 2, b, b, 8), o.box, { w: 2.6, wobble: 1, seed: o.seed + 20 + j, name: 'box' })),
+      op.cel && popIn(popAt(t, r.t0 + 0.2), bx + b + 22 + b * 0.7, y, fitted(op.cel, ctx, j, 0, 0, b * 1.3)),
+      writeOn(ramp(r.w0, r.w1, t), word),
+      mark,
+    ]);
+  });
+  // The pause: three dots under the options, filling in one a third of the way.
+  const dy = rowY(P.opts.length - 1) + o.gap * 0.7 * A.text;
+  const dots = t >= P.p0 && t < P.ding && group('pause', [0, 1, 2].map((k) => t >= P.p0 + ((P.p1 - P.p0) * k) / 3 && fill(circle(cx - 40 + k * 40, dy, 9, 16), 'shade', { name: 'wait' })));
+  const box = [cx - o.width / 2, qb[1], o.width, rowY(P.opts.length - 1) + o.gap * 0.5 - qb[1]];
+  const thinking = t >= P.p0 && t < P.p1, pointing = t >= P.p1 && t < P.ding, done = t >= P.ding;
+  return [
+    group({ name: 'quiz', box }, [writeOn(ramp(o.at, P.q1, t), question), ...rows, dots]),
+    stand(o, ctx, { pose: done ? 'cheer' : pointing ? 'point-r' : 'think', k: done ? reach(t, P.ding) : pointing ? reach(t, P.p1) : reach(t, P.p0), emote: done ? 'happy' : thinking ? 'thinking' : null }),
+  ];
+}, { anchor: { name: 'quiz' }, cast: false });
+
+// The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding),
+// and the pause, from the same options, for the score.
+export const quizTimes = (opts = {}) => { const P = quizPlan({ ...quiz.defaults, ...opts }); return { ticks: P.ticks, ding: P.ding, pause: [P.p0, P.p1] }; };
+
+// ---------- AX. map route ----------
+
+// A drawn map to trace a route over (AX's default), 760 by 560 units about its centre: a lake, a river, hills,
+// trees and two houses.
+export const map = cel('map', () => {
+  const sheet = roundRect(-380, -280, 760, 560, 22);
+  const lake = spline([[150, 40], [230, 10], [300, 60], [270, 130], [180, 140], [130, 100]], { closed: true });
+  const house = (x, y, name) => group(name, [
+    fill(rect(x - 26, y - 24, 52, 40), 'fills.3', { name: 'wall' }), stroke(rect(x - 26, y - 24, 52, 40), 'ink', { w: 2.4, wobble: 0.6 }),
+    stroke(poly([[x - 34, y - 22], [x, y - 52], [x + 34, y - 22]], false), 'ink', { w: 2.6, wobble: 0.6, name: 'roof' }),
+  ]);
+  const tree = (x, y, j) => group(`tree${j}`, [stroke(line(x, y, x, y + 26), 'ink', { w: 2.4, wobble: 0.4 }), fill(circle(x, y - 6, 18, 20), 'fills.2', { name: 'crown' }), stroke(circle(x, y - 6, 18, 20), 'ink', { w: 2, wobble: 0.8 })]);
+  const hills = [[-200, -170], [-140, -150], [-80, -176]].map(([x, y]) => ({ pts: [x - 36, y + 24, x, y - 18, x + 36, y + 24], closed: false }));
+  return [
+    stroke(sheet, 'ink', { w: 3, wobble: 1.4, name: 'sheet' }),
+    fill(lake, 'fills.1', { name: 'lake' }), stroke(lake, 'inks.1', { w: 2.6, wobble: 1 }),
+    stroke(spline([[-380, -40], [-260, -70], [-120, -20], [40, -60], [150, 40]], { n: 8 }), 'inks.1', { w: 5, wobble: 1.2, name: 'river' }),
+    stroke({ sub: hills, box: [-236, -194, 192, 66] }, 'shade', { w: 2.6, wobble: 1, name: 'hills' }),
+    ...[[-40, 150], [0, 180], [60, 200], [200, -170], [250, -140]].map(([x, y], j) => tree(x, y, j)),
+    house(-260, 140, 'home'), house(300, -150, 'school'),
+  ];
+}, { box: [-384, -284, 768, 568], desc: 'a drawn map: a lake, a river, hills, trees, two houses' });
+// Where the places on the default map are, in its units (AX's path is in the same units).
+export const MAP_AT = Object.freeze({ home: [-260, 140], school: [300, -150], lake: [215, 75], river: [-120, -20], hills: [-140, -160] });
+
+// The route in frame units, and where the map goes. A cutout photo (hdf photo) is pinned `scale` × 760 wide
+// and its route is in its own 0..1 (u, v); a cel or (ctx) => node is placed by `scale` and its route is in
+// its own units.
+function routeOf(o) {
+  const pts = o.path;
+  if (!Array.isArray(pts) || pts.length < 2 || !pts.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))) throw new TypeError('mapRoute: path needs two [x, y] points or more');
+  const cx = middleX(o, o.x), cy = o.y;
+  if (o.map?.sil && o.map.w) {
+    const pl = pin(o.map, { x: cx, y: cy, w: 760 * o.scale });
+    return { cx, cy, pl, pts: pts.map(([u, v]) => on(pl, u, v)) };
+  }
+  if (typeof o.map !== 'function') throw new TypeError('mapRoute: map is a cel, (ctx) => node or a cutout photo');
+  return { cx, cy, pl: null, pts: pts.map(([u, v]) => [cx + u * o.scale, cy + v * o.scale]) };
+}
+const mapNodeOf = (o, ctx, R) => (R.pl ? photo(R.pl, { shadow: 0 }) : place(R.cx, R.cy, { scale: o.scale }, group('map', [o.map.cel ? o.map({}) : o.map(ctx)])));
+function routePlan(o) {
+  const A = audienceOf(o.audience), m1 = o.at + (o.draw ?? 1.2), e1 = m1 + (o.ends?.[0] ? writeT(o.ends[0], A) : 0) + 0.2;
+  const L = len(spline(routeOf(o).pts, { n: 8 })), g1 = e1 + (o.travel ?? Math.max(1.5, L / o.speed));
+  const x1 = g1 + 0.35, n1 = x1 + (o.ends?.[1] ? writeT(o.ends[1], A) : 0), l1 = n1 + (o.label ? 0.2 + writeT(o.label, A) : 0);
+  return { A, m1, e1, g1, x1, n1, l1, end: l1 + readT([o.ends?.[0], o.ends?.[1], o.label].filter(Boolean).join(' '), A) + A.dwell };
+}
+// The route's label: lettered along the chord from 15% to 85% of the way, left to right so it stands upright,
+// on the side of the chord the route does not bow to (a label on the curve itself bunches on its inside).
+function labelAlong(str, route, right, s, o) {
+  const L = len(route), a = at(route, L * 0.15), b = at(route, L * 0.85), m = at(route, L * 0.5);
+  const [p, q] = right ? [a, b] : [b, a], dx = q.x - p.x, dy = q.y - p.y;
+  const above = dx * (m.y - p.y) - dy * (m.x - p.x) < 0;   // the route's middle is on the chord's left (above it)
+  return textOnPath(str, line(p.x, p.y, q.x, q.y), { size: s, offset: above ? -s * 1.1 : s * 0.5, role: o.role, seed: o.seed + 70, ink2: null });
+}
+// AX. Map route (a map, then a journey): the map is drawn on in stroke order over `draw` seconds (a photo pops
+// in), a start dot and the first of `ends` written by it, then a marker (`marker`: a cel, default a pin)
+// travels the route (`path`, a spline through the points, in the map's units) at `speed` units a second (or
+// over `travel` seconds), a dashed trail drawn behind it; at the end an X is drawn, the second of `ends` written,
+// and `label` lettered along the route (textOnPath, along its chord, on the side it does not bow to).
+// The teacher points, then cheers. map: a cel (default `map`), (ctx) => node, or a cutout photo.
+export const mapRoute = recipe('AX', 'map', {
+  dur: (o) => routePlan(o).end, map, path: [[-260, 165], [-170, 120], [-80, 115], [20, 60], [100, -30], [200, -90], [300, -128]],
+  marker: null, label: 'the way to school', ends: ['home', 'school'], draw: null, travel: null, speed: 320,
+  audience: 'general', actor: null, side: 'left', h: 300, x: null, y: 500, scale: 1, size: 40, role: 'ink',
+  trail: 'accents.0', pin: 'accents.0', at: 0.3, pose: 'point-r', seed: 250,
+}, (ctx, o) => {
+  const P = routePlan(o), { A } = P, t = ctx.t, s = o.size * A.text, M = routeOf(o), mapNode = mapNodeOf(o, ctx, M);
+  const route = spline(M.pts, { n: 8 }), L = len(route), u = ramp(P.e1, P.g1, t, ease.io), here = at(route, u * L);
+  const [p0, p1] = [M.pts[0], M.pts[M.pts.length - 1]], right = p1[0] >= p0[0];
+  const endWord = (j, [x, y], t0) => o.ends?.[j] && t >= t0 && writeOn(ramp(t0, t0 + writeT(o.ends[j], A), t), letters(o.ends[j], x, y + s * 1.5, { size: s, align: 'center', role: o.role, seed: o.seed + 60 + j }));
+  const X = s * 0.45;
+  const drawn = [
+    t >= P.m1 - 0.2 && popIn(popAt(t, P.m1 - 0.2), p0[0], p0[1], fill(circle(0, 0, 10, 20), o.pin, { name: 'start' })),
+    endWord(0, p0, P.m1),
+    t >= P.e1 && writeOn(u, stroke(route, o.trail, { w: 4, wobble: 0.8, dash: [16, 12], seed: o.seed + 2, name: 'trail' })),
+    t >= P.g1 && writeOn(ramp(P.g1, P.x1, t), stroke({ sub: [{ pts: [p1[0] - X, p1[1] - X, p1[0] + X, p1[1] + X], closed: false }, { pts: [p1[0] + X, p1[1] - X, p1[0] - X, p1[1] + X], closed: false }], box: [p1[0] - X, p1[1] - X, 2 * X, 2 * X] }, o.pin, { w: 5, wobble: 0.6, seed: o.seed + 3, name: 'spot' })),
+    endWord(1, p1, P.x1),
+    o.label && t >= P.n1 && writeOn(ramp(P.n1 + 0.2, P.l1, t), labelAlong(o.label, route, right, s, o)),
+  ];
+  // The marker: a pin standing on the route (a cel faces the way it goes), from the start until it arrives.
+  const pinNode = [fill(poly([[0, 0], [-14, -26], [-14, -40], [0, -52], [14, -40], [14, -26]]), o.pin, { name: 'pin' }), stroke(circle(0, -38, 6, 12), 'paper', { w: 3, name: 'eye' })];
+  const moving = t >= P.m1 - 0.2 && t < P.x1;
+  const marker = moving && popIn(popAt(t, P.m1 - 0.2), here.x, here.y, o.marker
+    ? place(0, 0, { flip: Math.cos(here.heading) < 0 }, fitted(o.marker, ctx, 0, 0, -30, 64))
+    : pinNode);
+  const done = t >= P.x1;
+  return [
+    group({ name: 'route', box: bounds([mapNode]) }, [M.pl ? popIn(popAt(t, o.at), M.cx, M.cy, place(-M.cx, -M.cy, mapNode)) : writeOn(ramp(o.at, P.m1, t), mapNode), group('journey', drawn)]),
+    marker && group('marker', [marker]),
+    stand(o, ctx, { pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.x1) : reach(t, o.at), emote: done ? 'happy' : null }),
+  ];
+}, { anchor: { name: 'route' }, cast: false });
+
+// ---------- AY. dialogue shot ----------
+
+// Two actors staged on a ground: [x, y, s] for each (actor.place's stage), s such that its rest pose draws
+// h tall, its feet on the ground line.
+const drawnH = new WeakMap();
+function stageOf(A, x, ground, h) {
+  if (!drawnH.has(A)) { const b = bounds(A(A.idle(0, 0)).kids) ?? A.box; drawnH.set(A, b[3] || 1); }
+  const s = h / (drawnH.get(A) * A.stage.k(1)), m = A.stage.xf(0, 0, 1), [gx, gy] = A.ground;
+  return [x, ground - (m[1] * gx + m[3] * gy + m[5]) * s, s];
+}
+// The default pair when no actors are given: two stick puppets, an adult and a child.
+let PAIR = null;
+const pairOf = () => (PAIR ??= [actorOf(puppet(stickSource({ name: 'sam' }))), actorOf(puppet(stickSource({ name: 'kit', build: 'kid' })))]);
+// The dialogue a dialogue shot plays, worked out once for its options.
+const talks = new WeakMap();
+function talkOf(o) {
+  if (talks.has(o)) return talks.get(o);
+  const [a, b] = o.actor ? [o.actor, o.other ?? pairOf()[1]] : pairOf();
+  if (!b || typeof b.say !== 'function') throw new TypeError('dialogueShot: other must be an actor');
+  if (a.name === b.name) throw new TypeError(`dialogueShot: the two actors are both called ${a.name}`);
+  const hs = [o.h].flat(), where = { [a.name]: stageOf(a, o.x[0], o.ground, hs[0]), [b.name]: stageOf(b, o.x[1], o.ground, hs[1] ?? hs[0]) };
+  const who = (w) => (w === 0 || w === 'left' ? a : w === 1 || w === 'right' ? b : w === a || w === b ? w : (() => { throw new TypeError(`dialogueShot: a line's speaker is 0 or 1 ('left' or 'right') or one of the two actors, got ${w?.name ?? w}`); })());
+  const turns = o.lines.map(([w, text, q]) => [who(w), text, q ?? {}]);
+  const talk = dialogue(turns, { t0: o.at, audience: o.audience, where, gaze: o.gaze, ...(o.gap === null ? {} : { gap: o.gap }) });
+  const out = { a, b, where, talk };
+  talks.set(o, out);
+  return out;
+}
+// AY. Dialogue shot (a line a beat): two actors (`actor` on the left, `other` on the right; by default two
+// stick puppets, sam and a child, kit) stand `h` tall (one for both, or [left, right]) on a ground line at `x`, facing each other, and play
+// `lines` ([speaker, text, { kind, emote, voice, ... }], the speaker 0 or 'left', 1 or 'right', or the actor)
+// as T9's dialogue: each line at the audience's reading pace, its bubble held through the reply, the listener
+// looking at the speaker (`gaze`). dialogueOf(opts) is the same dialogue, for the score (`.events(shot.t0)`).
+// Every line is a word for lint: a long exchange is several shots.
+export const dialogueShot = recipe('AY', 'dialogue', {
+  dur: (o) => talkOf(o).talk.until + 0.25 + audienceOf(o.audience).dwell,
+  lines: [[1, 'why does it change?', { emote: 'confused' }], [0, 'the sun lights half.', { emote: 'happy' }]],
+  actor: null, other: null, audience: 'general', x: [300, 780], ground: 900, h: [330, 270], gaze: true, gap: null, at: 0.4,
+  floor: 'shade', seed: 260,
+}, (ctx, o) => {
+  const { a, b, where, talk } = talkOf(o), t = ctx.t;
+  const figure = (A, j) => A.place(...where[A.name], { ...A.idle(t, o.seed + j), ...talk.state(A, t) });
+  return [
+    stroke(line(40, o.ground, 1040, o.ground), o.floor, { w: 3, wobble: 2, seed: o.seed, name: 'ground' }),
+    group({ name: 'pair', cache: 'never' }, [figure(a, 0), figure(b, 1)]),
+    talk.draw(t),
+  ];
+}, { anchor: { name: 'pair' }, cast: false });
+
+// The dialogue an AY shot with these options plays: its turns, lines and events(t) for the score.
+export const dialogueOf = (opts = {}) => talkOf({ ...dialogueShot.defaults, ...opts }).talk;

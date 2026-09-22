@@ -400,6 +400,10 @@ Every recipe `R(opts)` returns a shot; `R.layer(ctx, opts)` returns its drawing 
 - `cycleDiagram(opts)` **AS** AS. Cycle diagram (a beat a step, then a lap): the steps on a ring (clockwise from `start`, the top), one at a time: a node pops in (its `cel` in it, or a coloured dot), its name lettered along the ring outside it (textOnPath; at the ... Options: dur, steps, travel, laps, lap, per, centre, audience, actor, side, h, x, y, r, node, start, size, role, ring, marker, at, pose, seed.
 - `numberLine(opts)` **AT** AT. Number line (a hop a beat): a line from `from` to `to` drawn with a tick every `step` and the numbers (`marks`: a list, or every how many; by default every tick if they fit the audience's words, else the ends, the start and the ... Options: dur, from, to, step, marks, start, jumpTo, hops, per, marker, audience, actor, side, h, x, y, width, size, role, mark, dot, at, pose, seed.
 - `growth(opts)` **AU** AU. Growth (a value a beat): a baseline with its `label` written under it, then a bar (no `cel`) rising from `from` to `to`, or a pictograph (`cel`: a cel or (ctx, j) => node) stacking one picture a `unit` in columns of `cols`; either ... Options: dur, cel, from, to, by, unit, max, count, label, per, audience, actor, side, h, x, y, height, width, cols, size, role, bar, at, pose, seed.
+- `questionCard(opts)` **AV** AV. Question card (3 to 5 s): a big `?` is drawn (the hook, then its dot pops), the question is written on under it (centred, wrapped to `width`, hanging from `y`) and read; the actor at the side shrugs (`pose`) and looks puzzled ... Options: dur, text, audience, actor, side, h, x, y, mark, markH, size, width, role, at, pose, emote, seed.
+- `quiz(opts)` **AW** AW. Quiz (a beat an option, a pause, the answer): the question is written at the top and read, the options (two to four: strings, or { text, cel }) arrive one under another, each with a box to its left (its `cel` popping in beside it), ... Options: dur, question, options, answer, pause, audience, actor, side, h, x, y, gap, size, width, role, box, strike, ring, at, seed.
+- `mapRoute(opts)` **AX** AX. Map route (a map, then a journey): the map is drawn on in stroke order over `draw` seconds (a photo pops in), a start dot and the first of `ends` written by it, then a marker (`marker`: a cel, default a pin) travels the route ... Options: dur, map, path, marker, label, ends, draw, travel, speed, audience, actor, side, h, x, y, scale, size, role, trail, pin, at, pose, seed.
+- `dialogueShot(opts)` **AY** AY. Dialogue shot (a line a beat): two actors (`actor` on the left, `other` on the right; by default two stick puppets, sam and a child, kit) stand `h` tall (one for both, or [left, right]) on a ground line at `x`, facing each other, ... Options: dur, lines, actor, other, audience, x, ground, h, gaze, gap, at, floor, seed.
 
 ### Doodle recipes (recipes/doodle.js, re-exported)
 
@@ -428,6 +432,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `DOODLE` The set by v1 letter, so scenes.md stays a lookup. <sub>recipes/doodle.js</sub>
 - `FLOWER_AT` Where the flower's parts are, in its own units (place it at (x, y) with `scale` and add them). <sub>recipes/teach.js</sub>
 - `HOG` The hedgehog as an actor: states are hog's own options (dir, eye, run phase), put() is hog itself. <sub>recipes/doodle.js</sub>
+- `MAP_AT` Where the places on the default map are, in its units (AX's path is in the same units). <sub>recipes/teach.js</sub>
 - `ROLES` Roles the doodle cast and props share (quills, tea, star, ...), as role objects. <sub>recipes/doodle.js</sub>
 - `actorFigure(actor, state = {}, h = 140, fit = 'box')` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/recipe.js</sub>
 - `apple` An apple to count (AP's and AQ's default), about 60 units across. <sub>recipes/teach.js</sub>
@@ -436,6 +441,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>
 - `chapter(head, ...nodes)` chapter(title | { title, sub, actor, audience, hand, card, hold, ... <sub>recipes/teach.js</sub>
+- `dialogueOf(opts = {})` The dialogue an AY shot with these options plays: its turns, lines and events(t) for the score. <sub>recipes/teach.js</sub>
 - `ellipseRot(x, y, rx, ry, rot = 0, n = 64)` An ellipse turned by rot about its centre. <sub>recipes/shots.js</sub>
 - `flower` A flower to label (AO's default): petals, a centre, a stem, a leaf, roots. <sub>recipes/teach.js</sub>
 - `hog(d, x, y, s, o = {})` The hedgehog of v1 held-once and night-shift: gouache body, quill wash, brush outline, dot eyes, a scarf (the anchor colour). <sub>recipes/doodle.js</sub>
@@ -443,7 +449,9 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `hopTimes(opts = {})` The seconds into an AT shot at which each hop starts (for the score: a note a hop), from the same options. <sub>recipes/teach.js</sub>
 - `lastFrame(node)` A shot's last frame as a print for printsOnALine (AF): (ctx) => list. <sub>recipes/doodle.js</sub>
 - `lin(a, b, t)` From a to b over t = 0..1 in a straight line. <sub>recipes/doodle.js</sub>
+- `map` A drawn map to trace a route over (AX's default), 760 by 560 units about its centre: a lake, a river, hills, trees and two houses. <sub>recipes/teach.js</sub>
 - `pointsIn(path, n, seed, shrink = 0.85)` Seeded points inside a path (rejection sampling in its box). <sub>recipes/shots.js</sub>
+- `quizTimes(opts = {})` The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding), and the pause, from the same options, for the score. <sub>recipes/teach.js</sub>
 - `risoCard(plates, { inks = ['inks.0', 'inks.1', 'inks.2'], angles = [0.26, 1.31, 0], cell = 7, seed = 30, box =, ...` A riso card: plates [[kids...] per ink] printed as halftone plates (v1 risoCard). <sub>recipes/shots.js</sub>
 - `seed` A seed, the first of AR's default process (seed, sprout, flower). <sub>recipes/teach.js</sub>
 - `spark(d, x, y, s, o = {})` The spark: a flame with legs (v1 night-shift). Its roles do not change in the chalk pass, so it looks the same in and out of the light. <sub>recipes/doodle.js</sub>
