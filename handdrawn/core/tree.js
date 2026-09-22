@@ -148,11 +148,14 @@ export function lookOn(look, child) {
 
 // The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read
 // as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ... } }),
-// audience (4.0 T10: a key of AUDIENCES, the profile lint checks the film against; 'general' by default).
+// audience (4.0 T10: a key of AUDIENCES, the profile lint checks the film against; 'general' by default; with
+// no look, the audience's own, if it has one: kids-5 draws in crayon).
 export function film({ name, look, timeline, score, format: ar = '1:1', assets = {}, audience = 'general' } = {}) {
   if (typeof name !== 'string' || !name) throw new TypeError('film: needs a name');
-  if (!look) throw new TypeError(`film ${name}: needs a look`);
-  try { audienceOf(audience); } catch (e) { throw new TypeError(`film ${name}: ${e.message}`); }
+  let aud;
+  try { aud = audienceOf(audience); } catch (e) { throw new TypeError(`film ${name}: ${e.message}`); }
+  look ??= aud.look ?? undefined;
+  if (!look) throw new TypeError(`film ${name}: needs a look${audience === 'general' ? '' : ` (audience '${typeof audience === 'string' ? audience : 'custom'}' has none of its own)`}`);
   if (Array.isArray(timeline)) timeline = seq(...timeline);
   [timeline] = nodes([timeline], `film ${name}`);
   return Object.freeze({

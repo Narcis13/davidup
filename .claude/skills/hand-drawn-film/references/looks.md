@@ -8,7 +8,7 @@ on warm paper, riso dots, a screen print or graphite by changing one name, and
 why `hdf sheet` can show every cel in every look.
 
 `tools` holds each tool's defaults (the pen is 2.6 wide, 1.6 in
-`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`, 3.2 in `chalkboard`); a stroke without its
+`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`, 3.2 in `chalkboard`, 3.6 in `crayon`, drawn half as thick again); a stroke without its
 own `w` or `wobble` takes them, and under a look with a `hand` the hand's pen
 profile comes first (see Modifiers below). `edition` (0 in every preset) reseeds every shot drawn in
 the look: `withLook('risoPop', { edition: 2 })` is a second print of the same
@@ -49,6 +49,7 @@ never a new hue for depth.
 | `cutout` | printed card on a table: rust, teal, mustard, olive; a thin steady pen (Gilliam) | `#e6dcc4` / `#1e1b26` | flat | card |
 | `whiteboard` | a classroom board: black, blue, red, green markers; light marker fills | `#eceeea` / `#23272e` | marker | board |
 | `chalkboard` | a classroom slate: white chalk, yellow, pink and blue chalks; muted rubbed fills | `#2a3b33` / `#161f1b` | chalk | slate |
+| `crayon` | wax crayons on cream construction paper: a near-black, red, blue and green crayon; bright waxy fills | `#efe3c6` / `#2d3057` | wax | construction |
 
 The flipbook is 45% cream paper, then navy, tan, teal and plum, a third of
 pixels saturated; the boat film is 41% blues; the website 92% cream and
@@ -89,7 +90,7 @@ look: withLook('pencilMinimal', { words: 3 })                           // allow
   in `lookOn`. Lint fails a look op inside a shot (except a print's
   thumbnail marked `inset: true`).
 
-## Modifiers: `~hand:`, `~from:`, `~alpha` and `~ghost:`
+## Modifiers: `~hand:`, `~from:`, `~alpha`, `~ghost:` and `~sheet:`
 
 A preset name may carry modifiers, applied in this order and folded into the
 look's name (so caches never collide): `'risoPop~hand:narcis'`,
@@ -118,6 +119,11 @@ look's name (so caches never collide): `'risoPop~hand:narcis'`,
   keeps it; a hold of a shot keeps that shot's ghost; the first node of a seq
   has what its seq had. `look.ghost` is the field (`withLook(l, { ghost })`).
   Lint reads shots alone, so a ghost's words are not counted.
+- `~sheet:<name>` (4.0 L3): another sheet of paper under any look: a
+  `SHEETS` name (construction paper: cream, sky, pink, mint, butter, lilac,
+  peach, grey), a `PASTELS` name, or any colour (`'crayon~sheet:#c4dcee'`).
+  Only the `paper` role changes; the stock's fade, tooth and fibres are drawn
+  in it.
 - They work in `film({ look })` and a shot's `look` (name the id in
   `assets:`), and as `--look` on any command (found in the store by itself),
   where they also reach the looks shots pin, each keeping its own paper.
@@ -188,6 +194,32 @@ film({ name: 'moon', look: 'chalkboard~ghost:0.15', timeline: seq(a, cut('erase'
   ({ shots }) => ({ events: [chalkTaps(TITLE, { t0: shots[0].t0, wps: 2 })] }) })
 ```
 
+## Crayon
+
+`crayon` (4.0 L3) is for the youngest audience: a film with `audience:
+'kids-5'` and no `look` of its own is drawn in it (`AUDIENCES['kids-5'].look`;
+the other audiences have none, so they still need one). Its stock,
+`construction`, is a sheet of construction paper in the `paper` role (cream;
+`~sheet:<name>` for another), faded a little in places, with a fine tooth of
+pits and ridges and short fibres of the pulp (the fade and fibres the sheet's,
+fixed across cuts). `penTool: 'crayon'` draws every pen stroke, lettering
+included, with the crayon tool at the pen's width (3.6) times `thick` (1.5), its
+three waxy passes half the wobble apart so letters stay legible, in the look's
+hand when it has one. `tooth: 1` makes every crayon line in the look skip the
+paper's tooth: bites of the sheet through the line and crumbs of wax at its
+edges, seeded along the line so a write-on keeps them; a ruled line (`wobble:
+0`) or a hairline under 2 wide has none, and no other preset has the field.
+`tools.crayon` is 7 wide (the finish and `stroke(..., { tool: 'crayon' })`).
+The inks are crayons: `inks.0` a near-black, `inks.1` red, `inks.2` blue,
+`inks.3` green; `fills` are bright. `toolFor('crayon')` is `'crayon'` (the
+writing hand holds one; `squeak(t, { tool: 'crayon' })` is its sound). It
+allows 6 words a shot; kids-5's own allowance is 8.
+
+```js
+film({ name: 'moon', audience: 'kids-5', timeline: [a, b] })     // crayon on cream
+film({ name: 'moon', audience: 'kids-5', look: 'crayon~sheet:sky', timeline: [a, b] })
+```
+
 ## Finishes
 
 A fill gets texture from the look's finish when it asks: `fill(path, role,
@@ -204,6 +236,7 @@ boils between frames: it is seeded by the op's seed.
 | `wash` | doodle | watercolour off register from the line; replaces the flat fill |
 | `marker` | whiteboard | the flat fill and the faint overlaps of each marker pass, in a darker tone of the fill |
 | `chalk` | chalkboard | the flat fill and broad broken passes of a stick's side, in a lighter tone of the fill |
+| `wax` | crayon | the fill at 0.3 (`base`), a crayon going back and forth over it in the same colour with the tooth through it, and flecks of the sheet |
 
 `finish` may also name a finish or carry options: `{ finish: 'hatch' }`,
 `{ finish: { density: 0.16, role: 'inks.0', gap: 7, len: 12, alpha: 0.22,

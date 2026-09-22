@@ -163,6 +163,7 @@ export async function generate() {
   out.push('', '## Tables', '',
     `- looks (\`LOOKS\`): ${Object.keys(core.LOOKS).join(', ')}`,
     `- paper sheets (\`PASTELS\`, for \`pastel(look, name)\`): ${Object.keys(core.PASTELS).join(', ')}`,
+    `- construction paper (\`SHEETS\`, for \`~sheet:<name>\`): ${Object.keys(core.SHEETS).join(', ')}`,
     `- fx kinds (\`fx(kind, args, kids)\`, \`cut(kind, dur, a, b)\`): ${Object.keys(core.FX).join(', ')}`,
     `- easings (\`ease.<name>\`): ${Object.keys(core.ease).join(', ')}`,
     `- sand gestures (\`G.<name>\`): ${Object.keys(core.G).join(', ')}`,

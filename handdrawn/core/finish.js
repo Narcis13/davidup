@@ -5,7 +5,7 @@
 //   a puppet's cel    -> card on a table (puppet.js asCutout), only under a look with a `cutout` field
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
 // Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour), marker
-// (whiteboard), chalk (chalkboard).
+// (whiteboard), chalk (chalkboard), wax (crayon).
 // Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
 // coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
 import { clip, dots, ellipse, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
@@ -59,6 +59,22 @@ export function streaks(box, { angle, gap, role, alpha, w, seed }) {
     sub.push({ pts, closed: false });
   }
   return stroke(mkPath(sub), role, { w, wobble: 0, alpha, seed, name: 'streaks' });
+}
+
+// A crayon colouring in: one line going back and forth across the box at an angle, a row every `gap`, each row
+// bowed a little and slanting on into the next the way a hand does. One crayon stroke op.
+export function scribble(box, { angle = -0.5, gap = 9, role, alpha = 0.8, w = 7, seed = 1 }) {
+  const r = rng(seed), [bx, by, bw, bh] = box, cx = bx + bw / 2, cy = by + bh / 2, R = Math.hypot(bw, bh) / 2;
+  const ca = Math.cos(angle), sa = Math.sin(angle), pts = [];
+  let dir = 1;
+  for (let v = -R + gap * r(); v <= R; v += gap * (0.8 + 0.4 * r()), dir = -dir) {
+    const bow = (r() - 0.5) * gap * 0.6, reach = R * (0.96 + 0.08 * r());
+    for (let k = 0; k <= 4; k++) {
+      const u = dir * reach * (k / 2 - 1), vv = v + bow * Math.sin((Math.PI * k) / 4) + (gap * 0.35 * k) / 4;
+      pts.push(cx + ca * u - sa * vv, cy + sa * u + ca * vv);
+    }
+  }
+  return stroke(mkPath([{ pts, closed: false }]), role, { tool: 'crayon', w, wobble: 1.5, alpha, seed, name: 'scribble' });
 }
 
 // ---------- coverage (riso density, gradients as data) ----------
@@ -180,6 +196,12 @@ const FINISH = {
   chalk: (box, role, seed, o) => [
     withProps(streaks(box, { angle: o.angle ?? -0.6, gap: o.gap ?? 8, role, alpha: o.alpha ?? 0.26, w: o.width ?? 4, seed }), { tool: 'chalk', dash: 30, gap: 7, name: 'rubbed' }),
   ],
+  // crayon: coloured in back and forth over a paler wash of the same colour (finished() lays it at `base`), the
+  // wax skipping the paper's tooth (the look's `tooth`) and flecks of the sheet left between the passes
+  wax: (box, role, seed, o) => [
+    scribble(box, { angle: o.angle ?? -0.5, gap: o.gap ?? 9, role, alpha: o.alpha ?? 0.8, w: o.width ?? 7, seed }),
+    grain(box, Math.min(4000, Math.round((box[2] * box[3]) / (o.grain ?? 70))), 'paper', 0.4, seed + 1, 1.5),
+  ],
 };
 
 // A finished fill: flat colour, then the texture clipped to the same path. `finish` on the op may name
@@ -192,18 +214,20 @@ function finished(op, look) {
   if (kind === 'wash') return [wash(op.path, op.role, { al: o.alpha ?? cov ?? 0.5, off: o.off ?? 5, seed, rim: o.rim ?? true })];
   if (kind === 'flat') return [flat];
   const make = FINISH[kind];
-  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker, chalk or flat)`);
-  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : kind === 'chalk' ? { base: op.role, tint: 0.35 } : 'shade');
-  return [flat, clip(op.path, make(op.path.box, role, seed, o, cov))];
+  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker, chalk, wax or flat)`);
+  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : kind === 'chalk' ? { base: op.role, tint: 0.35 } : kind === 'wax' ? op.role : 'shade');
+  const under = kind === 'wax' ? withProps(flat, { alpha: (flat.alpha ?? 1) * (o.base ?? 0.3) }) : flat;
+  return [under, clip(op.path, make(op.path.box, role, seed, o, cov))];
 }
 
 // The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area;
 // card (paper: 'card') is heavier, with coarser grain and a few fibres; board (paper: 'board') is the whiteboard,
-// slate (paper: 'slate') the chalkboard.
+// slate (paper: 'slate') the chalkboard, construction (paper: 'construction') the crayon look's sheet.
 function stock(op, look, { W, H }, dark) {
   const p = look.palette, frame = [-2, -2, W + 4, H + 4], area = (W * H) / (1080 * 1080), seed = op.seed ?? 5;
   if (!dark && look.paper === 'board') return group({ name: 'paper', screen: true, seed }, board(W, H, seed));
   if (!dark && look.paper === 'slate') return group({ name: 'paper', screen: true, seed }, slate(W, H, seed));
+  if (!dark && look.paper === 'construction') return group({ name: 'paper', screen: true, seed }, construction(W, H, seed));
   const kids = [fill(rect(...frame), dark ? 'night' : 'paper', { name: 'stock' })];
   if (dark) {
     kids.push(grain(frame, Math.round(400 * area), { base: 'night', tint: 1 }, 0.5, seed, 1.6));
@@ -308,6 +332,32 @@ function slate(W, H, seed) {
     fill(rect(ex, y0 + 5 * u - eh, ew, eh * 0.62), { base: 'fills.5', shade: 0.25 }, { name: 'eraser' }),
     fill(rect(ex, y0 + 5 * u - eh * 0.38, ew, eh * 0.38), 'chalkDim', { name: 'eraser-felt' }),
   );
+  return kids;
+}
+
+// Construction paper (4.0 L3): a sheet of one colour (the paper role, so ~sheet:<name> recolours it), faded a
+// little where it lay in the light, its tooth a fine grain of pits and ridges, and short fibres of the pulp in
+// a darker tone. The fade and the fibres are the sheet's (a fixed seed), so they hold across cuts; the tooth is
+// reseeded like any grain. Scaled by the short side.
+function construction(W, H, seed) {
+  const r = rng(23), frame = [-2, -2, W + 4, H + 4], u = Math.min(W, H) / 1080, area = (W * H) / (1080 * 1080);
+  const kids = [fill(rect(...frame), 'paper', { name: 'stock' })];
+  for (let k = 0; k < 3; k++) {
+    const cx = W * (0.15 + 0.7 * r()), cy = H * (0.15 + 0.7 * r()), a = r() * Math.PI, rx = (380 + 320 * r()) * u, ry = (220 + 200 * r()) * u;
+    const c = Math.cos(a), s = Math.sin(a), m = [c, s, -s, c, cx, cy];
+    for (let i = 0; i < 5; i++) {
+      const f = 1 - i * 0.17;   // nested, each a touch smaller: a fade with no edge
+      kids.push(fill(xfPath(ellipse(0, 0, rx * f, ry * f), m), 'light', { alpha: 0.018, name: 'fade' }));
+    }
+  }
+  kids.push(grain(frame, Math.round(5200 * area), { base: 'paper', shade: 0.35 }, 0.1, seed + 1, 1.3));
+  kids.push(grain(frame, Math.round(3200 * area), 'light', 0.22, seed + 2, 1.1));
+  const sub = [];
+  for (let k = 0, n = Math.round(260 * area); k < n; k++) {
+    const x = W * r(), y = H * r(), L = (5 + 9 * r()) * u, a = r() * Math.PI, bend = (r() - 0.5) * L * 0.5;
+    sub.push({ pts: [x, y, x + (Math.cos(a) * L) / 2 - Math.sin(a) * bend, y + (Math.sin(a) * L) / 2 + Math.cos(a) * bend, x + Math.cos(a) * L, y + Math.sin(a) * L], closed: false });
+  }
+  kids.push(stroke(mkPath(sub), { base: 'paper', shade: 0.3 }, { tool: 'pencil', w: 0.9 * u, wobble: 0, alpha: 0.3, seed: 29, name: 'fibres' }));
   return kids;
 }
 

@@ -75,7 +75,7 @@ const TOOLS = {
 };
 const mkLook = (name, palette, finish, paper, tools = {}, more = {}) => deepFreeze({
   name, palette, finish, paper, edition: 0,
-  tools: Object.fromEntries(Object.keys(TOOLS).map((k) => [k, { ...TOOLS[k], ...tools[k] }])),
+  tools: Object.fromEntries(Object.keys({ ...TOOLS, ...tools }).map((k) => [k, { ...TOOLS[k], ...tools[k] }])),
   ...more,
 });
 
@@ -84,8 +84,8 @@ const mkLook = (name, palette, finish, paper, tools = {}, more = {}) => deepFree
 // units), tilt the scale-y of the whole puppet, the camera above the table.
 export const CUTOUT = Object.freeze({ shadow: 0.3, fastener: 3, edge: 0.6, tilt: 0.94 });
 
-// The nine presets (plan 1.4, 3.0 S10, 4.0 L1 and L2): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
-// doodlePastel, cutout, whiteboard, chalkboard.
+// The ten presets (plan 1.4, 3.0 S10, 4.0 L1 to L3): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
+// doodlePastel, cutout, whiteboard, chalkboard, crayon.
 export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
@@ -145,6 +145,14 @@ export const LOOKS = Object.freeze({
     fills: ['#6f8fa8', '#a87f86', '#7f9d72', '#b3a266', '#8d7fa3', '#b08868'], shade: '#7d8c84', light: '#fbfcf5', blush: '#e8a0ab',
     accents: ['#f4d36b', '#f0a3b8', '#96cfe6', '#a6dc92'], inks: ['#eef0e6', '#f4d36b', '#f0a3b8', '#96cfe6'],
   }, 'chalk', 'slate', { pen: { w: 3.2, wobble: 1.1 }, chalk: { w: 3.2, wobble: 1.3, dash: 13, gap: 2.6 } }, { penTool: 'chalk', dust: 1 }),
+  // wax crayons on construction paper, for the youngest audience (kids-5 picks it): a cream sheet with a tooth
+  // (~sheet:<name> for another of SHEETS), crayon drawing every pen line (penTool) half as thick again (thick) and
+  // skipping the tooth (tooth), fills coloured in with a crayon going back and forth, the paper showing through
+  crayon: mkLook('crayon', {
+    paper: '#efe3c6', paperBand: null, ink: '#2e2a3a', night: '#2d3057', chalk: '#fbf6e8', chalkDim: '#a7a2b8', guide: 'rgba(46,42,58,.3)',
+    fills: ['#e8534a', '#3d7fd6', '#f2b632', '#4fae5a', '#f08a3c', '#9468c8'], shade: '#5b4f63', light: '#fffaf0', blush: '#ef7f8e',
+    accents: ['#d8342f', '#2f6fd0', '#2f9a47', '#8a4fc0'], inks: ['#2e2a3a', '#d8342f', '#2f6fd0', '#2f9a47'],
+  }, 'wax', 'construction', { pen: { w: 3.6, wobble: 1.3 }, crayon: { w: 7, wobble: 1.6 } }, { penTool: 'crayon', tooth: 1, thick: 1.5 }),
 });
 
 function deepFreeze(o) {
@@ -173,6 +181,12 @@ const MODS = {
     const a = v === '' ? 0.15 : Number(v);
     if (!(a > 0 && a <= 1)) throw new Error(`look '${name}': ghost wants an alpha in (0, 1], got '${v}'`);
     return withLook(look, { name: `${look.name}~ghost:${a}`, ghost: a });
+  },
+  // Another sheet under the drawing (4.0 L3): a SHEETS name, a PASTELS name, or any colour.
+  sheet: (look, v, assets, name) => {
+    const paper = SHEETS[v] ?? PASTELS[v] ?? v;
+    try { parse(paper); } catch { throw new Error(`look '${name}': sheet wants one of ${Object.keys(SHEETS).join(', ')}, a PASTELS name or a colour, got '${v}'`); }
+    return withLook(look, { name: `${look.name}~sheet:${v}`, palette: { paper } });
   },
 };
 
@@ -244,7 +258,7 @@ export function modifyLook(look, mods, assets, name) {
   let out = resolveLook(look);
   for (const [kind, value] of mods) {
     const label = name ?? `${out.name}~${kind}:${value}`;
-    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => (k === 'alpha' ? k : k === 'ghost' ? `${k}:<alpha>` : `${k}:<id>`)).join(', ')})`);
+    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => (k === 'alpha' ? k : k === 'ghost' ? `${k}:<alpha>` : k === 'sheet' ? `${k}:<name>` : `${k}:<id>`)).join(', ')})`);
     out = MODS[kind](out, value, assets, label);
   }
   return out;
@@ -332,6 +346,8 @@ export function duotone(look, a, b) {
 
 // The doodle palette on another sheet of paper. Sheets measured off the reference film.
 export const PASTELS = Object.freeze({ rose: '#efd2d1', mint: '#d3e6d9', butter: '#efe4b3', sky: '#d2dee8', cream: '#ebe5d4', peach: '#eeccb4', lilac: '#ded4e9', sand: '#c9b07e', night: '#383750' });
+// Construction paper (4.0 L3), the sheets `~sheet:<name>` puts under a look; cream is the crayon look's own.
+export const SHEETS = Object.freeze({ cream: '#efe3c6', sky: '#c4dcee', pink: '#f4c6cc', mint: '#c7e3c8', butter: '#f3e0a0', lilac: '#d9cdea', peach: '#f5cba8', grey: '#d5d3cf' });
 // The look on a pastel sheet: n names a PASTELS paper or is any colour.
 export function pastel(look, n) {
   const paper = PASTELS[n] ?? n;

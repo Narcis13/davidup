@@ -72,6 +72,15 @@ test("mini under --look chalkboard matches its own golden, and lints clean", { s
   assert.equal(l.status, 0, l.stdout + l.stderr);
 });
 
+// 4.0 L3: mini in crayon is a golden of its own (goldens/mini-crayon.json, written on arm64).
+test("mini under --look crayon matches its own golden, and lints clean", { skip: process.platform !== 'darwin' && 'goldens are written on darwin-arm64' }, async () => {
+  assert.ok(existsSync(join(FILMS, 'goldens', 'mini-crayon.json')));
+  const r = hdf('golden', 'films/mini.js', 'check', '--workers', '4', '--look', 'crayon');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const l = hdf('lint', 'films/mini.js', '--look', 'crayon');
+  assert.equal(l.status, 0, l.stdout + l.stderr);
+});
+
 // 4.0 D1: fox-wave on no stock is a golden of its own (goldens/fox-wave-alpha.json).
 test('fox-wave under --alpha matches its own golden', { skip: process.platform !== 'darwin' && 'goldens are written on darwin' }, async () => {
   assert.ok(existsSync(join(FILMS, 'goldens', 'fox-wave-alpha.json')));

@@ -114,11 +114,12 @@ export function heldTool({ tool = 'chalk', ink = 0 } = {}) {
   return Object.freeze({ node: heldToolCel({ tool: i, ink }), grip: [0, 0], tip: [SPEC[tool].grip, 0], name: tool });
 }
 
-// The tool a look writes with: the whiteboard's marker, chalk on the chalkboard or a chalk look, else the pen.
+// The tool a look writes with: the whiteboard's marker, chalk on the chalkboard or a chalk look, a crayon on
+// the crayon look, else the pen.
 export const toolFor = (look) => {
   if (!look) return 'pen';
   const L = resolveLook(look);
-  return L.penTool === 'bullet' ? 'marker' : L.penTool === 'chalk' || L.chalkPass ? 'chalk' : 'pen';
+  return L.penTool === 'bullet' ? 'marker' : L.penTool === 'chalk' || L.chalkPass ? 'chalk' : L.penTool === 'crayon' ? 'crayon' : 'pen';
 };
 
 // writer(node, t, o) => a group: the writing hand on node's pen tip at shot time t, following writeOn(node,

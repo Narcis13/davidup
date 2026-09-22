@@ -154,17 +154,52 @@ function bullet(ctx, op, t, S, look) {
   ctx.globalAlpha = a0;
 }
 
-// Crayon: three wobbly passes with a grainy edge (the flipbook's ripple line).
-function crayon(ctx, op, t) {
-  const w = op.w ?? t.w ?? 4, base = op.seed ?? 1, a0 = ctx.globalAlpha;
+// Crayon: three wobbly passes with a grainy edge (the flipbook's ripple line). Drawn as a look's penTool (the
+// crayon look's) it pens in the look's hand at the pen's width times the look's `thick`, its passes closer (half
+// the wobble apart, not 1.5 units, so lettering stays legible); under a look with `tooth` the wax skips the
+// paper's tooth along it (a hairline under 2 wide is too thin to show it).
+function crayon(ctx, op, t, S, look, asPen = false) {
+  const w = (op.w ?? t.w ?? 4) * (asPen ? look.thick ?? 1 : 1), base = op.seed ?? 1, a0 = ctx.globalAlpha, wob = op.wobble ?? t.wobble ?? 2.5;
+  const path = asPen ? handed(op, look, w).path : op.path, step = asPen ? wob * 0.5 : 1.5;
+  let first = null;
   for (let k = 0; k < 3; k++) {
     ctx.globalAlpha = a0 * (k ? 0.35 : 0.85);
     ctx.lineWidth = w * (k ? 0.7 : 1);
+    const sub = jittered(path, wob + k * step, rng(base + k * 7));
+    if (!k) first = sub;
     ctx.beginPath();
-    tracePath(ctx, { sub: jittered(op.path, (op.wobble ?? 2.5) + k * 1.5, rng(base + k * 7)) });
+    tracePath(ctx, { sub });
     ctx.stroke();
   }
   ctx.globalAlpha = a0;
+  if (look?.tooth && op.wobble !== 0 && w >= 2) tooth(ctx, first, w, look.tooth, base, look);
+}
+
+// The paper's tooth through a crayon line (4.0 L3): wax rides the ridges of construction paper and misses the
+// pits, so bites of the sheet show through the line, two across its width at every step, and crumbs of wax sit
+// just off its edges; from the line's own seed and walked along its length (a line revealed further keeps what
+// it had). amount scales how many.
+function tooth(ctx, lines, w, amount, seed, look) {
+  const r = rng(hash32('tooth', seed)), bites = [], crumbs = [];
+  alongLines(lines, Math.max(1, w * 0.3), r, (x, y, nx, ny) => {
+    for (let k = 0; k < 2; k++) {
+      const b = r(), off = (r() - 0.5) * w * 0.95, z = Math.max(1.1, w * (0.14 + 0.26 * r()));
+      if (b < 0.6 * amount) bites.push(x + nx * off - z / 2, y + ny * off - z / 2, z);
+    }
+    const c = r(), side = r() < 0.5 ? -1 : 1, off = w * (0.45 + 0.3 * r()), z = Math.max(0.9, w * 0.15);
+    if (c < 0.25 * amount) crumbs.push(x + nx * off * side - z / 2, y + ny * off * side - z / 2, z);
+  });
+  const a0 = ctx.globalAlpha, fs = ctx.fillStyle;
+  const put = (b, style, alpha) => {
+    if (!b.length) return;
+    ctx.fillStyle = style; ctx.globalAlpha = a0 * alpha;
+    ctx.beginPath();
+    for (let i = 0; i < b.length; i += 3) ctx.rect(b[i], b[i + 1], b[i + 2], b[i + 2]);
+    ctx.fill();
+  };
+  put(crumbs, ctx.strokeStyle, 0.5);
+  put(bites, resolveRole('paper', look), 0.7);
+  ctx.globalAlpha = a0; ctx.fillStyle = fs;
 }
 
 // Pencil: a thin graphite line and a lighter, looser second pass.
@@ -270,12 +305,9 @@ function chalk(ctx, op, t, S, look, asPen = false) {
   if (after) after();
 }
 
-// Chalk dust (4.0 L2): specks shaken off either side of the line as it goes, and bites of the board showing
-// through it where the stick skipped the tooth, a step of a width at a time, from the line's own seed and walked
-// along its length, so a line revealed further keeps the dust it had. amount scales how many. Bites are drawn in
-// the paper's colour; a ruled line (wobble 0) gets neither.
-function dust(ctx, lines, w, amount, seed, look) {
-  const r = rng(hash32('dust', seed)), step = Math.max(1, w), specks = [[], []], bites = [];
+// visit(x, y, nx, ny) every `step` along each line (its point and unit normal there), the first step of each
+// line a random fraction in, carried across its segments: chalk dust and the crayon's tooth.
+function alongLines(lines, step, r, visit) {
   for (const s of lines) {
     const p = s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts;
     let left = step * r();
@@ -283,16 +315,24 @@ function dust(ctx, lines, w, amount, seed, look) {
       const x0 = p[i - 2], y0 = p[i - 1], dx = p[i] - x0, dy = p[i + 1] - y0, L = Math.hypot(dx, dy);
       if (!L) continue;
       const nx = -dy / L, ny = dx / L;
-      for (let d = left; d < L; d += step) {
-        const a = r(), side = r() < 0.5 ? -1 : 1, off = w * (0.6 + 1.8 * r() * r()), z = Math.max(0.9, w * (0.18 + 0.3 * r())), k = r();
-        const b = r(), bo = (r() - 0.5) * w * 0.8, bz = Math.max(0.8, w * (0.15 + 0.25 * r()));
-        const u = d / L, x = x0 + dx * u, y = y0 + dy * u;
-        if (a < 0.7 * amount) specks[k < 0.65 ? 0 : 1].push(x + nx * off * side - z / 2, y + ny * off * side - z / 2, z);
-        if (b < 0.5 * amount) bites.push(x + nx * bo - bz / 2, y + ny * bo - bz / 2, bz);
-      }
+      for (let d = left; d < L; d += step) { const u = d / L; visit(x0 + dx * u, y0 + dy * u, nx, ny); }
       left = left >= L ? left - L : step - ((L - left) % step);
     }
   }
+}
+
+// Chalk dust (4.0 L2): specks shaken off either side of the line as it goes, and bites of the board showing
+// through it where the stick skipped the tooth, a step of a width at a time, from the line's own seed and walked
+// along its length, so a line revealed further keeps the dust it had. amount scales how many. Bites are drawn in
+// the paper's colour; a ruled line (wobble 0) gets neither.
+function dust(ctx, lines, w, amount, seed, look) {
+  const r = rng(hash32('dust', seed)), specks = [[], []], bites = [];
+  alongLines(lines, Math.max(1, w), r, (x, y, nx, ny) => {
+    const a = r(), side = r() < 0.5 ? -1 : 1, off = w * (0.6 + 1.8 * r() * r()), z = Math.max(0.9, w * (0.18 + 0.3 * r())), k = r();
+    const b = r(), bo = (r() - 0.5) * w * 0.8, bz = Math.max(0.8, w * (0.15 + 0.25 * r()));
+    if (a < 0.7 * amount) specks[k < 0.65 ? 0 : 1].push(x + nx * off * side - z / 2, y + ny * off * side - z / 2, z);
+    if (b < 0.5 * amount) bites.push(x + nx * bo - bz / 2, y + ny * bo - bz / 2, bz);
+  });
   const a0 = ctx.globalAlpha, fs = ctx.fillStyle;
   const put = (b, style, alpha) => {
     if (!b.length) return;
@@ -317,7 +357,7 @@ const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10,
 export const strokeWidth = (op, look) => op.w ?? resolveLook(look).tools[op.tool ?? 'pen']?.w ?? TOOL_W[op.tool ?? 'pen'] ?? 2;
 
 // A pen stroke is drawn by the look's penTool when it names one (the whiteboard's bullet marker, the
-// chalkboard's chalk), with the pen's settings over the tool's own; any other tool is its own.
+// chalkboard's chalk, the crayon look's crayon), with the pen's settings over the tool's own; any other tool is its own.
 export function drawStroke(ctx, op, look, S = 1) {
   const kind = op.tool ?? 'pen', asPen = kind === 'pen' && !!look.penTool, draw = TOOLS[asPen ? look.penTool : kind];
   if (!draw) throw new Error(`stroke: tool '${op.tool}' is not implemented yet (have ${Object.keys(TOOLS).join(', ')})`);

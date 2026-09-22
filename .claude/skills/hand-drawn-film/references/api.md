@@ -180,8 +180,9 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/looks.js
 
-- `LOOKS` The nine presets (plan 1.4, 3.0 S10, 4.0 L1 and L2): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard.
+- `LOOKS` The ten presets (plan 1.4, 3.0 S10, 4.0 L1 to L3): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard, crayon.
 - `PASTELS` The doodle palette on another sheet of paper. Sheets measured off the reference film.
+- `SHEETS` Construction paper (4.0 L3), the sheets `~sheet:<name>` puts under a look; cream is the crayon look's own.
 - `derive(look, { hue = 0, sat = 1, light = 0, from, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of `from` -- a cutout record written by `hdf photo` (or a bare colours list).
 - `duotone(look, a, b)` Two inks on the look's paper, the way the flipbook goes magenta + blue for a beat.
 - `pastel(look, n)` The look on a pastel sheet: n names a PASTELS paper or is any colour.
@@ -235,7 +236,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `writingHand({ tool = 'marker', side = 'r', skin, ink = 0 } = {})` writingHand({ tool: 'pen' | 'marker' | 'chalk' | 'crayon', side: 'r' | 'l', skin, ink }) => the cel of a hand holding that tool, point at (0, 0): a right hand by default, mirrored for 'l' (the arm off to the left).
 - `writer(node, t, o = {})` writer(node, t, o) => a group: the writing hand on node's pen tip at shot time t, following writeOn(node, { t, ...o }) (same options: at, per, wps, lead, lift, exit), coming in from off the frame over the lead, lifted off the surface ...
-- `toolFor(look)` The tool a look writes with: the whiteboard's marker, chalk on the chalkboard or a chalk look, else the pen.
+- `toolFor(look)` The tool a look writes with: the whiteboard's marker, chalk on the chalkboard or a chalk look, a crayon on the crayon look, else the pen.
 - `heldTool({ tool = 'chalk', ink = 0 } = {})` heldTool({ tool, ink }) => { node, grip, tip, name }: what attach(actor, 'hand-r', ...) holds.
 
 ### core/finish.js
@@ -252,6 +253,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `hatch(box, { angle, gap, len, jitter, role, alpha, w, seed })` Short parallel strokes across the box at an angle (v1 hatch), as one stroke op with many subs.
 - `hatchIn(path, { angle = 0.9, gap = 7, len = 14, jitter = 6, role = 'ink', alpha = 0.35, w = 1.2, seed = 1 } = {})` Hatching clipped to a path (v1 hatch(c, path, box, o)): a light or shadow patch laid over a fill.
 - `streaks(box, { angle, gap, role, alpha, w, seed })` Long parallel lines right across the box at an angle, each bowed a little: where one pass of a marker overlaps the last as a fill is coloured in.
+- `scribble(box, { angle = -0.5, gap = 9, role, alpha = 0.8, w = 7, seed = 1 })` A crayon colouring in: one line going back and forth across the box at an angle, a row every `gap`, each row bowed a little and slanting on into the next the way a hand does.
 
 ### core/fx.js
 
@@ -563,8 +565,9 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ## Tables
 
-- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard
+- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard, crayon
 - paper sheets (`PASTELS`, for `pastel(look, name)`): rose, mint, butter, sky, cream, peach, lilac, sand, night
+- construction paper (`SHEETS`, for `~sheet:<name>`): cream, sky, pink, mint, butter, lilac, peach, grey
 - fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, erase, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
 - easings (`ease.<name>`): linear, in, out, io, back, bounce
 - sand gestures (`G.<name>`): pour, sprinkle, finger, palm, dab, comb, fill, move, wind, fly
