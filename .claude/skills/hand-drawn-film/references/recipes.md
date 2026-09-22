@@ -298,6 +298,11 @@ step)` gives a pentatonic pitch. Motifs (`handdrawn`, from
 | speech | `line.events(t0)` from `actor.say()`: one pluck per syllable (`pluckPerSyllable(text, t0)` bare) |
 | narration | `voice(id, t, { gain, dur })`: a recorded line from the store (`--kind sample`); the rest ducks 9 dB under it |
 | voiced speech | `line.events(t0)` from `actor.say(text, t0, { voice: id })`: the recording itself, in place of plucks |
+| a lesson under it | `bed({ mood, key, from, to })`: a chord loop (bright, calm, mystery, march), its bar whole twelfths; `.stop(t)`, `.sting(t)` |
+| a quiz | `pop` per option (`quizTimes(o).options`), `tick` per strike (`.ticks`), `ding` on the answer (`.ding`), `tada` |
+| a cut | `hits(cues.cuts, { kind })`: a whoosh centred on each (or pop, tick, boing, ding, flip) |
+| a writing hand | `writerSounds(node, { t0, tool, ...writeOn's schedule })`: the tool on each unit (marker, chalk, pen, pencil, crayon) |
+| an eraser | `eraserSounds({ t, dur, box, band })`: a scrub a row of `fx('erase')`'s track |
 
 ```js
 score: ({ shots, end }) => {
@@ -308,6 +313,16 @@ score: ({ shots, end }) => {
 
 Master gain is clamped to 0.6. `hdf render` writes the wav and muxes
 `-final.mp4`; nothing to click.
+
+Sound effects (4.0 V4, `recipes/sfx.js`): `pop boing whoosh ding tada tick
+squeak flip erase pencilScratch chalkTap`, each `(t, options) => events`.
+They are built from four synth fields any note or hiss may take: `hz1` (with
+`bend`, `glide: 'exp' | 'linear'`) bends the pitch or the hiss's band, `vib` /
+`vibDepth` wobble it, `sus` holds a note at its gain for that fraction of its
+length, `swell: true` makes a hiss rise and fall with no tail. A bed sits at
+about -36 dBFS under a -17 dBFS voice and ducks 9 dB under it like the rest
+of the score; keep effects off the narration's voiced part if they must be
+heard at full level. `films/quiz-time.js` uses all of it.
 
 A voice is a wav in the store, not a synth voice: make it with `say -o
 line.wav --file-format=WAVE --data-format=LEI16@22050 "..."` (macOS), piper,

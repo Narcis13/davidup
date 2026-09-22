@@ -749,7 +749,8 @@ function quizPlan(o) {
 // popping in beside it), then a pause (`pause` seconds, by default 2.5 dwells, at least 1.5 s) while three dots
 // fill in one by one; the wrong ones are struck through and crossed in their boxes one at a time, then the
 // right one (`answer`, its index) is circled and ticked. The teacher thinks through the pause, points at the
-// answer and cheers. quizTimes(opts) gives the score the strikes (a tick each) and the ding.
+// answer and cheers. quizTimes(opts) gives the score the strikes (a tick each), the ding, the pause, when each
+// option's box arrives (4.0 V4: a pop each) and the end.
 export const quiz = recipe('AW', 'quiz', {
   dur: (o) => quizPlan(o).end, question: 'which moon is round?', options: ['new', 'half', 'full'], answer: 2, pause: null,
   audience: 'general', actor: null, side: 'left', h: 300, x: null, y: 250, gap: 130, size: 52, width: 700, role: 'ink',
@@ -795,8 +796,12 @@ export const quiz = recipe('AW', 'quiz', {
 }, { anchor: { name: 'quiz' }, cast: false });
 
 // The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding),
-// and the pause, from the same options, for the score.
-export const quizTimes = (opts = {}) => { const P = quizPlan({ ...quiz.defaults, ...opts }); return { ticks: P.ticks, ding: P.ding, pause: [P.p0, P.p1] }; };
+// the pause, each option's arrival (a pop each, 4.0 V4) and the shot's own end, from the same options, for the
+// score.
+export const quizTimes = (opts = {}) => {
+  const P = quizPlan({ ...quiz.defaults, ...opts });
+  return { ticks: P.ticks, ding: P.ding, pause: [P.p0, P.p1], options: P.rows.map((r) => r.t0), end: P.end };
+};
 
 // ---------- AX. map route ----------
 

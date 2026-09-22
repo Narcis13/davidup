@@ -323,6 +323,27 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `dyad(t0, dur = 1, { gain = 0.25, root = [-1, 0], third = [0, 2] } = {})` Gallery, sign-off: a long sine dyad with a 1 s release.
 - `pluckPerSyllable(text, t0, { oct = 1, type = 'triangle', gain = 0.14, len = 0.22, seed = 0 } = {})` Speech (actor.say): one pluck on each syllable's onset, the step from the syllable's own letters, so a line always plays the same tune; a line ending in '?' rises on its last syllable.
 
+### recipes/sfx.js
+
+- `pop(t, { gain = 0.22, hz = 380, seed = 31 } = {})` A cork: a sine swept up an octave and a half in 70 ms, and a click.
+- `boing(t, { gain = 0.16, hz = 150, dur = 0.55 } = {})` A spring: a triangle bent up a fifth with a wide vibrato, and a faint octave (dur 0.55 s).
+- `whoosh(t, { dur = 0.45, gain = 0.2, from = 350, to = 2600, down = false, q = 0.9, seed = 41 } = {})` Air going past: noise swelling through a band-pass swept from `from` to `to` Hz (down: the other way).
+- `ding(t, { gain = 0.3, hz = pentHz(2, 2) } = {})` A bell: a sine at hz, a bright partial (2.76 hz) and a faint octave, ringing 1.4 s.
+- `tada(t, { key = 'C', gain = 0.1 } = {})` A fanfare: ta (a short triad), then da (the triad held with its octave), in key (C by default).
+- `tick(t, { gain = 0.18, seed = 91 } = {})` A mark: a short high noise and a click (a wrong answer crossed).
+- `squeak(t, { tool = 'marker', dur = 0.25, gain = 0.2, seed = 51 } = {})` A tool on the surface for dur seconds: marker (a squeal), chalk (a tap, then dust), pen, pencil, crayon.
+- `flip(t, { gain = 0.18, seed = 61 } = {})` A page turning: a swell falling through the band, and the page landing.
+- `erase(t, dur, { strokes = 4, gain = 0.12, seed = 71 } = {})` An eraser scrubbing for dur seconds: a swell a stroke, the band alternately up and down.
+- `pencilScratch(t, dur, { gain = 0.07, seed = 81 } = {})` Graphite on paper for dur seconds: grains every 1/16 s or so, each 50 to 90 ms, their level and band drawn from the seed.
+- `chalkTap(t, { gain = 0.2, seed = 101 } = {})` Chalk meeting the board: a knock, a dry tick and a little dust.
+- `hits(cuts, { kind = 'whoosh', gain, dur = 0.45 } = {})` An accent on each cut. kind a name of HITS or (t, k) => events; a whoosh is centred on the cut.
+- `writerSounds(node, { t0 = 0, tool = 'marker', gain = 0.2, seed = 121, ...sched } = {})` The writer's sound (T6): the tool on the surface for each unit writing(node, sched) puts down, from the end of its lift to the end of its slot, t0 seconds on (the shot's start in film time).
+- `eraserSounds({ t = 0, dur, box = [0, 0, 1080, 1080], band, gain, seed } = {})` The eraser's sound: a stroke per row of fx('erase')'s track over box (default the 1080 frame) with a band (default 0.14 of its short side), as the effect sweeps it from t over dur.
+- `bed({ mood = 'bright', tempo, key = 'C', from = 0, to, gain = 0.07, seed = 7 } = {})` A music bed: an array of synth events (drop it in a score as it is) with bar, tempo (snapped), bars (each bar's start), stop(t) (the bed ending at t, everything released by t + 0.35) and sting(t) (a flourish in its key: an arpeggio up ...
+- `barOf(tempo)` The bar, snapped: a whole number of twelfths (so every downbeat is a frame), four beats a bar.
+- `MOODS` The bed's moods. Each: its tempo, its four chords (root semitones above the key, quality; a minor key flips I's quality), and how a bar is played: chord hits (beats and length in beats), a bass, an arpeggio, a snare.
+- `SFX_TOOLS` The tools a squeak and the writer know.
+
 ### engines/traced.js
 
 - `registerClip(name, data)` Registers (and returns) a clip. Lines are kept longest first, the order `p` draws them on in.
@@ -460,7 +481,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `lin(a, b, t)` From a to b over t = 0..1 in a straight line. <sub>recipes/doodle.js</sub>
 - `map` A drawn map to trace a route over (AX's default), 760 by 560 units about its centre: a lake, a river, hills, trees and two houses. <sub>recipes/teach.js</sub>
 - `pointsIn(path, n, seed, shrink = 0.85)` Seeded points inside a path (rejection sampling in its box). <sub>recipes/shots.js</sub>
-- `quizTimes(opts = {})` The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding), and the pause, from the same options, for the score. <sub>recipes/teach.js</sub>
+- `quizTimes(opts = {})` The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding), the pause, each option's arrival (a pop each, 4.0 V4) and the shot's own end, from the same options, for the score. <sub>recipes/teach.js</sub>
 - `risoCard(plates, { inks = ['inks.0', 'inks.1', 'inks.2'], angles = [0.26, 1.31, 0], cell = 7, seed = 30, box =, ...` A riso card: plates [[kids...] per ink] printed as halftone plates (v1 risoCard). <sub>recipes/shots.js</sub>
 - `seed` A seed, the first of AR's default process (seed, sprout, flower). <sub>recipes/teach.js</sub>
 - `spark(d, x, y, s, o = {})` The spark: a flame with legs (v1 night-shift). Its roles do not change in the chalk pass, so it looks the same in and out of the light. <sub>recipes/doodle.js</sub>

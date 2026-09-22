@@ -887,6 +887,52 @@ Raw events: `note(t, hz, dur, type, gain)`, `burst(t, dur, gain, seed)`,
 `pentHz(octave, step)`. `hdf render` writes the wav and muxes it into
 `-final.mp4`; the contact sheet draws note onsets under the tiles.
 
+### Sound effects and a bed
+
+`recipes/sfx.js` (4.0 V4) is a kit built from the same synth. Each effect is
+`(t, options) => events`:
+
+| effect | sound |
+|---|---|
+| `pop(t)` | a cork: a sine swept up an octave and a half in 70 ms, and a click |
+| `boing(t)` | a spring: a triangle bent up a fifth with a wide vibrato |
+| `whoosh(t, { dur, down })` | noise swelling through a band-pass swept up (or down) |
+| `ding(t)` | a bell: a sine, a 2.76 partial and an octave, ringing 1.4 s |
+| `tada(t, { key })` | a short triad, then the triad held with its octave |
+| `tick(t)` | a short high noise and a click |
+| `squeak(t, { tool, dur })` | a tool on the surface: `marker` (a squeal), `chalk`, `pen`, `pencil`, `crayon` |
+| `flip(t)` | a page turning and landing |
+| `erase(t, dur, { strokes })` | an eraser scrubbing, a swell a stroke |
+| `pencilScratch(t, dur)` | seeded grains of high, narrow noise |
+| `chalkTap(t)` | a knock and a dry tick |
+
+`hits(cues.cuts, { kind })` puts an accent on each cut: by default a whoosh
+centred on it, or pop, tick, boing, ding or flip. `writerSounds(node, { t0,
+tool, ...schedule })` takes the same schedule as `writeOn` / `writer` and
+plays the tool on each unit the hand writes, from the end of its lift.
+`eraserSounds({ t, dur, box, band })` plays one scrub for each row of
+`fx('erase')`'s track.
+
+`bed({ mood, key = 'C', tempo, from, to, gain })` is a chord loop through four
+chords. The moods are `bright` (I V vi IV, triangle hits, eighth-note
+arpeggio), `calm` (sine pads), `mystery` (a minor key, low pads, a few high
+notes) and `march` (square hits on every beat, a snare on 2 and 4). Its bar is
+a whole number of twelfths, so the tempo is snapped (112 becomes 110.77) and
+every downbeat lands on a frame. The result is an array of events, so you can
+drop it into a score as it is, and it carries `bar`, `tempo`, `bars`,
+`stop(t)` (everything released by `t + 0.35`) and `sting(t)` (the tonic
+climbed on the frames, then held). The bed ducks 9 dB under a voice along
+with the rest of the score.
+
+The synth fields behind the kit work on any event, and an event without them
+sounds exactly as before. `hz1` with `bend` and `glide: 'exp' | 'linear'`
+moves a note's pitch, or a hiss's band, from `hz`. `vib` and `vibDepth` add
+vibrato. `sus` holds a note at its gain for that fraction of `dur` before the
+release. `swell: true` makes a hiss rise and fall over `dur` with no tail.
+`films/quiz-time.js` (21 s, whiteboard, kids-9) uses them all: two narrated
+lines over a bright bed in G, the marker, a whoosh, a pop per option, a tick
+per wrong answer, a ding, the eraser, and the sting.
+
 ### Narration
 
 A recorded line is a store sample under a shot (4.0 V1):
@@ -1377,7 +1423,7 @@ handdrawn/
     index.js       the author-facing surface
   assets/        catalogue.json, blobs/<sha>.{webp,json}, src/ (authored payloads), sheets/ (gitignored)
   engines/       traced.js  sim.js  stage3d.js
-  recipes/       shots.js (A–Z)  doodle.js (AA–AM)  score.js (motifs)  book.js (book3)
+  recipes/       shots.js (A–Z)  doodle.js (AA–AM)  score.js (motifs)  sfx.js (effects, bed)  book.js (book3)
   packs/         creatures.js  objects.js  tech.js  manifest.json  sheets/
   player/        player.html  player.js  deps.js  shell.css
   cli/           hdf.mjs and one module per command; roto.py (tracing); jsscan.mjs (donate); apidoc.mjs

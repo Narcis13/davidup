@@ -35,6 +35,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `hello.js` | doodlePastel | lip sync: the fox says a recorded "Hello there!" with its mouth following the Rhubarb track stored on the sample (shut on the "th"); sam repeats it without a bubble through `actor.mouth` |
+| `quiz-time.js` | whiteboard | sound effects and a bed: a bright `bed` under the lesson ducking under two narrated lines, the marker squeaking a word at a time (`writerSounds`), a whoosh on the cut (`hits`), a pop per option, a tick per wrong answer, a ding on the right one, the eraser's rows (`eraserSounds`), the bed's `stop` and `sting` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page, a four-line `dialogue` with a stick teacher |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
 | `four-looks.js` | riso, screen, pencil, ink | recipes N O P U W A S, riso cards as plates, a look per shot |
@@ -274,6 +275,16 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
   shows a page per string at the audience's reading pace.
   `FOX.say(null, t0, { voice: id })` speaks the recording: its letters
   follow the timing, and `line.events(t)` is the voice itself.
+- **Sound effects and a bed.** `recipes/sfx.js`: `pop boing whoosh ding tada
+  tick squeak flip erase pencilScratch chalkTap` are `(t, options) => events`.
+  `hits(cues.cuts)` puts a whoosh on each cut; `writerSounds(node, { t0, tool,
+  ...schedule })` gives a writing hand its tool on every unit it writes, with
+  the same schedule as `writeOn`; `eraserSounds({ t, dur })` gives the eraser a
+  scrub a row. `bed({ mood: 'bright' | 'calm' | 'mystery' | 'march', key,
+  from, to })` is a chord loop whose bar is a whole number of twelfths (the
+  tempo is snapped to it); `b.stop(t)` ends it and `b.sting(t)` closes it. It
+  ducks under a voice with the rest of the score. For a quiz, use
+  `quizTimes(o)` for `.options`, `.ticks` and `.ding`.
 - **Lip sync.** A voiced say's mouth is the recording's own. By default it
   comes from the voice band's energy, one letter A to H or X per 1/12 s.
   `hdf align <id> --mouth` stores Rhubarb's track if `rhubarb` is on PATH,

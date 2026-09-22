@@ -26,7 +26,7 @@ const hdf = (...args) => spawnSync(process.execPath, ['cli/hdf.mjs', ...args], {
 
 test('films/ holds the seven ported films, fox-and-teapot and cutout-fox, each with a golden', async () => {
   const all = await films();
-  assert.deepEqual(all.map((f) => f.name).sort(), ['asking', 'chapters', 'cutout-fox', 'fly-style', 'four-looks', 'fox-and-teapot', 'fox-wave', 'gallop', 'growing', 'held-once', 'hello', 'lesson', 'mini', 'mini-voice', 'moon-book', 'narrated', 'one-year', 'pointing', 'walk-on', 'written']);
+  assert.deepEqual(all.map((f) => f.name).sort(), ['asking', 'chapters', 'cutout-fox', 'fly-style', 'four-looks', 'fox-and-teapot', 'fox-wave', 'gallop', 'growing', 'held-once', 'hello', 'lesson', 'mini', 'mini-voice', 'moon-book', 'narrated', 'one-year', 'pointing', 'quiz-time', 'walk-on', 'written']);
   for (const f of all) assert.ok(existsSync(join(FILMS, 'goldens', `${f.name}.json`)), `no golden for ${f.name}; run hdf golden ${f.file} write --workers 1`);
 });
 

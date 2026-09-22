@@ -2,6 +2,11 @@
 // v1 envelope (note, noiseBurst), so the Node driver and the player play the same samples.
 //   { t, dur, hz, type: 'sine'|'triangle'|'square'|'saw'|'noise'|'hiss', gain = .25, attack = .02, release = 'exp', seed }
 // hiss: seeded white noise through a band-pass at hz (q, default .8), held at gain for dur (v1 sand gestures).
+// 4.0 V4, for sound effects and beds (an event without these fields sounds exactly as before):
+//   hz1, bend = dur, glide = 'exp'|'linear'   a note's pitch (or a hiss's band) moves from hz to hz1 over bend s
+//   vib, vibDepth = .03                        vibrato: vib Hz, depth a fraction of the pitch (notes)
+//   sus (0..1)                                 a note holds at gain for that fraction of dur before its release
+//   swell: true                                a hiss rises and falls over dur (sin^2) instead of open-hold-close
 //   { t, type: 'voice', id, gain = 1, dur }   a recorded line (4.0 V1): the store's sample `id`, mixed at gain
 //   (not scaled by master), cut at dur when given; everything else ducks 9 dB under its voiced part.
 // Nothing here reads Date, Math.random or global state; a voice's samples come from the reader the host
@@ -37,10 +42,12 @@ WAVES.sawtooth = WAVES.saw;
 
 // Gain at time u seconds after onset: linear attack to g, exponential (or linear) release to FLOOR at dur,
 // then held at FLOOR until the oscillator stops TAIL later (exactly what v1's AudioParam ramps do).
-function envelope(u, { gain: g, dur, attack, release }) {
+function envelope(u, { gain: g, dur, attack, release, sus }) {
   if (u < attack) return g * u / attack;
   if (u >= dur) return FLOOR;
-  const r = (u - attack) / (dur - attack);
+  let h = attack;
+  if (sus > 0) { h = attack + Math.min(1, sus) * (dur - attack); if (u < h) return g; }
+  const r = (u - h) / (dur - h);
   return release === 'linear' ? g + (FLOOR - g) * r : g * Math.pow(FLOOR / g, r);
 }
 
@@ -49,11 +56,31 @@ function addNote(out, ev) {
   if (!wave) throw new Error(`synth: unknown type '${ev.type}' (sine, triangle, square, saw, noise, hiss)`);
   if (!(ev.hz > 0)) throw new Error(`synth: ${ev.type} at ${ev.t}s needs hz > 0`);
   if (!(ev.gain > 0)) return;   // a silent note (an exponential release from 0 would be NaN and mute the mix)
-  const env = { gain: ev.gain, dur: Math.max(ev.dur, ev.attack + 1e-3), attack: ev.attack, release: ev.release };
+  const env = { gain: ev.gain, dur: Math.max(ev.dur, ev.attack + 1e-3), attack: ev.attack, release: ev.release, sus: ev.sus };
   const n0 = Math.round(ev.t * SR), n1 = Math.min(out.length, Math.round((ev.t + env.dur + TAIL) * SR)), dt = ev.hz / SR;
+  if (ev.hz1 !== undefined || ev.vib > 0) return addSwept(out, ev, env, wave, n0, n1);
   for (let n = Math.max(0, n0); n < n1; n++) {
     const u = (n - n0) / SR, x = (n - n0) * dt, ph = x - Math.floor(x);
     out[n] += wave(ph, dt) * envelope(u, env);
+  }
+}
+
+// The pitch at u seconds after onset: hz to hz1 over bend seconds (exponentially or linearly), then hz1.
+function pitchAt(u, ev) {
+  if (ev.hz1 === undefined) return ev.hz;
+  const k = Math.min(1, u / (ev.bend ?? ev.dur));
+  return ev.glide === 'linear' ? ev.hz + (ev.hz1 - ev.hz) * k : ev.hz * Math.pow(ev.hz1 / ev.hz, k);
+}
+
+// A note whose pitch moves (4.0 V4): the phase is summed sample by sample, in the same order everywhere, so the
+// player and Node still agree to the bit. The phase runs from the onset even when it is before the score.
+function addSwept(out, ev, env, wave, n0, n1) {
+  const depth = ev.vib > 0 ? ev.vibDepth ?? 0.03 : 0;
+  let x = 0;
+  for (let n = n0; n < n1; n++) {
+    const u = (n - n0) / SR, f = pitchAt(u, ev) * (depth ? 1 + depth * Math.sin(2 * Math.PI * ev.vib * u) : 1), dt = f / SR;
+    if (n >= 0) out[n] += wave(x - Math.floor(x), dt) * envelope(u, env);
+    x += dt;
   }
 }
 
@@ -68,15 +95,22 @@ function addNoise(out, ev) {
 
 // v1's sand hiss: looped noise through a BiquadFilter 'bandpass' (RBJ, 0 dB peak), opened over
 // min(.08, dur / 2), held, closed .12 s after the end. dur is at least .06.
+// With hz1 the band moves as a note's pitch does (the filter recomputed every 32 samples); with swell the level
+// rises and falls over dur (sin^2) and there is no tail.
 function addHiss(out, ev) {
-  const r = rng(ev.seed ?? 5), d = Math.max(ev.dur, 0.06), up = Math.min(0.08, d / 2), n0 = Math.round(ev.t * SR), len = Math.ceil((d + 0.12) * SR);
-  const w0 = 2 * Math.PI * ev.hz / SR, al = Math.sin(w0) / (2 * (ev.q ?? 0.8)), a0 = 1 + al;
-  const b0 = al / a0, b2 = -al / a0, a1 = -2 * Math.cos(w0) / a0, a2 = (1 - al) / a0;
+  const r = rng(ev.seed ?? 5), d = Math.max(ev.dur, 0.06), up = Math.min(0.08, d / 2), n0 = Math.round(ev.t * SR), len = Math.ceil((d + (ev.swell ? 0 : 0.12)) * SR);
+  const coef = (hz) => {
+    const w0 = 2 * Math.PI * hz / SR, al = Math.sin(w0) / (2 * (ev.q ?? 0.8)), a0 = 1 + al;
+    return [al / a0, -al / a0, -2 * Math.cos(w0) / a0, (1 - al) / a0];
+  };
+  let [b0, b2, a1, a2] = coef(ev.hz);
   let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
   for (let i = 0; i < len; i++) {
+    if (ev.hz1 !== undefined && i % 32 === 0) [b0, b2, a1, a2] = coef(pitchAt(i / SR, ev));
     const x = r() * 2 - 1, y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2;
     x2 = x1; x1 = x; y2 = y1; y1 = y;
-    const u = i / SR, g = u < up ? ev.gain * u / up : u < d ? ev.gain : ev.gain * Math.max(0, 1 - (u - d) / 0.12);
+    const u = i / SR, g = ev.swell ? ev.gain * Math.sin(Math.PI * u / d) ** 2
+      : u < up ? ev.gain * u / up : u < d ? ev.gain : ev.gain * Math.max(0, 1 - (u - d) / 0.12);
     const n = n0 + i;
     if (n >= 0 && n < out.length) out[n] += y * g;
   }
@@ -153,6 +187,10 @@ export function event(e) {
   const ev = { ...DEFAULTS, ...e };
   for (const k of ['t', 'dur', 'gain']) if (!Number.isFinite(ev[k])) throw new TypeError(`synth: event ${k} must be a number, got ${JSON.stringify(e)}`);
   if (ev.dur <= 0) throw new RangeError(`synth: event at ${ev.t}s has dur ${ev.dur}`);
+  if (ev.hz1 !== undefined && !(ev.hz1 > 0)) throw new RangeError(`synth: event at ${ev.t}s needs hz1 > 0, got ${ev.hz1}`);
+  if (ev.bend !== undefined && !(ev.bend > 0)) throw new RangeError(`synth: event at ${ev.t}s has bend ${ev.bend}`);
+  if (ev.glide !== undefined && ev.glide !== 'exp' && ev.glide !== 'linear') throw new TypeError(`synth: glide '${ev.glide}' (exp or linear)`);
+  for (const k of ['vib', 'vibDepth', 'sus']) if (ev[k] !== undefined && !(Number.isFinite(ev[k]) && ev[k] >= 0)) throw new RangeError(`synth: event at ${ev.t}s has ${k} ${ev[k]}`);
   return Object.freeze(ev);
 }
 

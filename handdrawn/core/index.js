@@ -40,6 +40,10 @@ export { alignOf, estimateAlign, fitWords, wordsOf, spokenOf } from './align.js'
 export { mouthFrom, energyMouth, cuesMouth, mouthAt, mouthIndex, MOUTH_SHAPES } from './mouth.js';
 export { captions } from './captions.js';
 export { note, burst, voice, plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
+export {
+  pop, boing, whoosh, ding, tada, tick, squeak, flip, erase, pencilScratch, chalkTap, hits, writerSounds, eraserSounds,
+  bed, barOf, MOODS, SFX_TOOLS,
+} from '../recipes/sfx.js';
 export { registerClip, registerClips, clipFromStore, clipOf, pose, traced, gap, airborne } from '../engines/traced.js';
 export { sim, G, cover, scanFill, circlePts, spiralPts, pathOf, pointAt } from '../engines/sim.js';
 export { registerSource } from './sources.js';
