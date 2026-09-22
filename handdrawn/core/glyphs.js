@@ -191,6 +191,8 @@ const EXPLICIT = {
   '¡': [{ ch: '!', turn: true, dy: 24 }], '¿': [{ ch: '?', turn: true, dy: 24 }], '·': [{ ch: '.', dy: -21 }],
   '’': ["'"], '‘': ["'"], '‚': [','], '“': ['"'], '”': ['"'], '„': [{ seq: ',,', join: 2 }],
   '–': ['-'], '—': [{ ch: '-', sx: 1.8 }], '…': ['...'], '\u00a0': [' '],
+  // 4.0 T8: the minus sign, a hyphen as wide as the plus it stands against.
+  '−': [{ ch: '-', sx: 1.4 }],
 };
 
 // A character's decomposition as a COMPOSE entry, or null when it is no drawable base with known marks. The

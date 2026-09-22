@@ -82,7 +82,8 @@ test('fontHand: Inter\'s symbols, the pen from its l, dots and commas, the x\'s 
   const r = fontHand(INTER, { name: 'inter', sets: ['symbols'], licence: 'OFL' }), h = r.hand;
   assert.equal(r.family, 'Inter');
   assert.deepEqual(validatePayload('hand', h), []);
-  assert.deepEqual([r.drawn.symbols, r.lacks.symbols, r.blank], [54, [], []]);
+  // 55 since 4.0 T8 composed the minus sign, which Inter draws for itself.
+  assert.deepEqual([r.drawn.symbols, r.lacks.symbols, r.blank], [55, [], []]);
   assert.equal(h.glyphs[' '].s.length, 0);
   assert.ok(h.glyphs[' '].w > 20);
   assert.equal(h.glyphs['.'].s.length, 1, 'a period is a dot');

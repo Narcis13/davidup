@@ -34,6 +34,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `marked.js` | whiteboard | the teacher's pen: the hand writes a sentence, then underlines a word, circles another and writes a label with an arrow, each mark drawing on in turn (`wordBox`, `underline`, `circleAround`, `callout`) |
+| `sums.js` | whiteboard | numbers: a hand writes `equation('2 + 3 = ?', { answer: 5 })`, five apples pop in (`pictograph`) numbered as they land (`countOn`) with a `tally`, the ? gives way to the 5 as the hand comes back; the months written round a ring with `textRound`, a tally mark each |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `hello.js` | doodlePastel | lip sync: the fox says a recorded "Hello there!" with its mouth following the Rhubarb track stored on the sample (shut on the "th"); sam repeats it without a bubble through `actor.mouth` |
 | `quiz-time.js` | whiteboard | sound effects and a bed: a bright `bed` under the lesson ducking under two narrated lines, the marker squeaking a word at a time (`writerSounds`), a whoosh on the cut (`hits`), a pop per option, a tick per wrong answer, a ding on the right one, the eraser's rows (`eraserSounds`), the bed's `stop` and `sting` |
@@ -331,6 +332,17 @@ To mark something up (4.0 T7), `core/marks.js` has `underline`,
 a group with a `.box`, and `wordBox(g, 'word')` gives one word of lettering.
 Each draws on with `p` or joins a `writeOn` card: give the marks orders past
 the lettering's (1e6, 2e6, ...) and they come in turn. Marks are not words.
+For numbers (4.0 T8), `core/maths.js` has `fraction(a, b)`,
+`equation('2 + 3 = ?', { answer, p })` (spaced as a teacher writes it; the ?
+is a drawn mark and gives way to the answer as p passes 0.5), `tally(n)` (a
+fractional n draws the last mark part way), `numberAxis(a, b, { at })` (the
+line alone; the AT recipe `numberLine` hops along one), `clock(h, m)`,
+`dice(n)`, `coins(n)`, `pictograph(n, cel)` and `countOn(n, t, { per, at })`,
+with `countTimes` to put the objects on the same beat. Each is built round
+`{ x, y }` with a `.box` and draws on (or pops in) with `p`. Labels round a
+circle: `textRound(str, { x, y, r, at, side })`, upright all the way round.
+Several lettered pieces in one `writeOn` write at once unless each has its own
+`order` range (`order: i * 1000`): lettering numbers its strokes from 0.
 
 | engine | what the frame is | example |
 |---|---|---|

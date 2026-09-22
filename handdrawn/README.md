@@ -283,6 +283,28 @@ starburst(at, p, { n })   tickMark(at, p)   crossMark(at, p)   question(at, 120,
 callout('a star', target, { leader: 'dot' | 'arrow' | 'line' | 'none', box | dir, reach, p })   // .copy
 ```
 
+Numbers (4.0 T8, `core/maths.js`) are drawn the way a teacher draws them.
+Each is a group `maths:<kind>` built round `{ x, y }`, its `.box` what it draws
+when done. Drawn things write on with `p` in stroke order (a fill, a die's pip,
+arrives with the stroke before it); coins and pictographs pop in one at a time
+as `p` passes each one's share. Figures are lettering, so lint counts them as
+words; the ticks, pips and tally marks are not.
+
+```js
+equation('2 + 3 = ?', { answer: 5, p })   // p to 0.5 writes it, past 0.5 the ? (a drawn mark) gives way to 5
+equation('-3 + (4*2) = 1/2 x')            // "−3 + (4 × 2) = ½x": spaced, * as ×, digits over digits stacked
+fraction(3, 4, { whole: 2 })   tally(n)   // tally(2.5): two marks and half the third
+numberAxis(0, 10, { at: [3, 7], arrows: true })   clock(3, 40, { numbers: 'quarters' | 'all' | 'none' })
+dice(5)   dice([2, 6])   coins(7, { value: 5, layout: 'row' | 'stack' })   pictograph(3.5, apple)
+countOn(5, t, { t0, per, at: [[x, y], ...] | [x, y] })   countTimes(5, { t0, per })   // objects on the same beat
+textRound('january', { x, y, r, at: -Math.PI / 2, side: 'out' | 'in' })   // upright all the way round a circle
+```
+
+The core number line is `numberAxis`, so it does not clash with the AT recipe
+`numberLine`. Lint measures lettering turned along a path (textOnPath,
+textRound) across its own line: a month standing up the side of a ring is
+judged by its letters' height, not their width.
+
 Accented letters are composed, not drawn twice: `ă` is the hand's `a` and a
 breve. `MARKS` in `core/glyphs.js` holds fourteen marks (acute, grave,
 circumflex, umlaut, tilde, breve, caron, ring, cedilla, comma-below, ogonek,
@@ -1485,7 +1507,7 @@ handdrawn/
     glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation, signs, ß ð þ...: 104 glyphs), 14 marks, composed accents
     hershey.js     Hershey JHF fonts read into hand records (4.0 T3): parseJhf, the ascii / greek / cyrillic maps, mergeHand
     fonthand.js    any font as a hand (4.0 T4): the glyph sets, emScale, pressureOf, strays (cli/hand.mjs draws the glyphs)
-    text.js        handText, layout, textBox, bullets, wordBox, measureBox, signOff, squiggleText
+    text.js        handText, textOnPath, textRound, layout, textBox, bullets, wordBox, measureBox, signOff, squiggleText
     layout.js      line breaking and boxes from a hand's advances and ink (list.js bounds reads it)
     spline.js      the cardinal spline's arithmetic (glyphs.js builds on it at load)
     fx.js          the raster effects
@@ -1493,6 +1515,7 @@ handdrawn/
     synth.js       the offline score renderer and WAV writer
     lint.js        the rules
     marks.js       motifs (seedDot, ripples, hexLattice, aster, tornEdge, thread, ...), bubbles, emphasis marks (4.0 T7) and the camera
+    maths.js       numbers (4.0 T8): fraction, equation, tally, numberAxis, clock, dice, coins, pictograph, countOn
     photo.js       pin, on, rim, shadow, mask, photoFront, nightfall, glow
     doodle.js      the self-drawing doodle builder
     sources.js     procedural image sources (the sand bed)

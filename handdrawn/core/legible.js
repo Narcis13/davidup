@@ -12,7 +12,7 @@
 // role and name, 'paper', 'night', 'image'). sign: inside the
 // sign-off; captions: inside a captions strip, voiced when it follows a recording (not copy read at the
 // audience's pace).
-import { bounds, mmul } from './list.js';
+import { bounds, mapply, mmul } from './list.js';
 import { parse, resolveLook, resolveRole } from './looks.js';
 import { glyphUnits } from './text.js';
 
@@ -24,21 +24,59 @@ const GLYPH = /^g(\d+)\.\d+$/;                 // a lettered stroke: g<glyph>.<s
 
 const scaleOf = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
 
-// A lettered group's x-height in its own units (memoised: lettered groups are frozen and reused).
+// A lettered group's x-height in its own units (memoised: lettered groups are frozen and reused). A glyph's
+// height is its ink's extent across its line: up the page for lettering on a level baseline, and across the
+// local baseline (from the glyphs of its kind either side of it on its line) where it turns more than a little,
+// as it does along a path (4.0 T8: textOnPath, textRound), so a label running down a ring's side is measured
+// by its letters' height, not their width.
 const xMemo = new WeakMap();
+const TURNED = 0.3;   // radians off level before a glyph is measured across its own baseline
+const STEEP = 0.8;    // the same, judged from one neighbour only
 function letteredX(g) {
   if (xMemo.has(g)) return xMemo.get(g);
-  const units = glyphUnits(g.name.slice(5)), per = new Map();
+  const units = glyphUnits(g.name.slice(5)), per = new Map(), pts = new Map();
   const visit = (ops, m) => {
     for (const op of ops) {
       const hit = op.op === 'stroke' && typeof op.name === 'string' && op.name.match(GLYPH);
       if (hit) {
         const b = bounds([{ ...op, w: 0 }], m), gi = +hit[1], u = per.get(gi);
         if (b) per.set(gi, u ? [Math.min(u[0], b[1]), Math.max(u[1], b[1] + b[3])] : [b[1], b[1] + b[3]]);
+        const at = pts.get(gi) ?? [];
+        for (const s of op.path.sub) for (let i = 0; i < s.pts.length; i += 2) at.push(mapply(m, s.pts[i], s.pts[i + 1]));
+        pts.set(gi, at);
       } else if (op.kids) visit(op.kids, op.op === 'group' ? mmul(m, op.xf) : m);
     }
   };
   visit(g.kids, [1, 0, 0, 1, 0, 0]);
+  // The middle of each glyph's ink, and its line's direction there: from the glyph of its kind (an x-height
+  // letter, or a capital or figure) before it on its line to the one after it. Letters of a kind have their middles
+  // the same height off the baseline, so the direction is the baseline's; an ascender beside a descender is not.
+  const kind = (gi) => { const c = units[gi]?.ch ?? ''; return SHORT.has(c) ? 's' : TALL.test(c) ? 't' : null; };
+  const order = [...pts.keys()].sort((a, b) => a - b);
+  const mid = (gi) => { const q = pts.get(gi); return q.reduce((a, p) => [a[0] + p[0] / q.length, a[1] + p[1] / q.length], [0, 0]); };
+  const across = (gi, j) => {
+    const k = kind(gi), line = units[gi]?.line;
+    if (!k) return null;
+    const near = (step) => { for (let i = j + step; i >= 0 && i < order.length && units[order[i]]?.line === line; i += step) if (kind(order[i]) === k) return order[i]; return gi; };
+    // Turned between two of its kind that agree (a neighbour half written has its middle off where it will
+    // be), or, with one only (a short word: 'april' standing up the side of a ring), when that one is steeply
+    // off level: letters of a kind side by side on a level line are never that far apart in height.
+    const g0 = near(-1), g1 = near(1), c = mid(gi);
+    if (g0 === gi && g1 === gi) return null;
+    const dir = (p, q) => Math.atan2(q[1] - p[1], q[0] - p[0]);
+    let ang;
+    if (g0 !== gi && g1 !== gi) {
+      const a = mid(g0), b = mid(g1), in0 = dir(a, c), in1 = dir(c, b);
+      if (Math.abs(in0) < TURNED || Math.abs(in1) < TURNED || Math.abs(Math.atan2(Math.sin(in1 - in0), Math.cos(in1 - in0))) > 0.5) return null;
+      ang = dir(a, b);
+    } else {
+      ang = g0 !== gi ? dir(mid(g0), c) : dir(c, mid(g1));
+      if (Math.abs(ang) < STEEP) return null;
+    }
+    const nx = -Math.sin(ang), ny = Math.cos(ang), d = pts.get(gi).map(([x, y]) => x * nx + y * ny);
+    return [Math.min(...d), Math.max(...d)];
+  };
+  order.forEach((gi, j) => { const t = across(gi, j); if (t) per.set(gi, t); });
   const median = (v) => { v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : null; };
   const of = (test) => [...per].filter(([gi]) => test(units[gi]?.ch ?? '')).map(([, [y0, y1]]) => y1 - y0);
   const short = median(of((c) => SHORT.has(c))), tall = median(of((c) => TALL.test(c)));

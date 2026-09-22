@@ -3,7 +3,7 @@
 import { FPS } from './curves.js';
 import { asHand, currentHand, glyph, HOUSE_DRIFT, HOUSE_STROKE, houseHand } from './glyphs.js';
 import { advance, layoutWith, LINE_H, opLayout, penOf } from './layout.js';
-import { at, bounds, circle, fill, group, len, meta, mkPath, mmul, text, stroke, withProps } from './list.js';
+import { arc, at, bounds, circle, fill, group, len, meta, mkPath, mmul, text, stroke, withProps } from './list.js';
 import { handOf } from './looks.js';
 import { hash32, rng } from './rand.js';
 import { reveal } from './tools.js';
@@ -127,6 +127,22 @@ export function textOnPath(str, path, o = {}) {
     })) });
   });
   return withProps(flat, { kids });
+}
+
+// textRound(str, { x, y, r, at, side: 'out' | 'in', gap, size, ...textOnPath's options }) => one label round a
+// circle of radius r about (x, y), its middle at angle `at` (radians, 0 east, clockwise; -PI/2, the top), upright
+// wherever it is: on the upper half (and the sides) it runs clockwise, on the lower half anticlockwise, so it
+// never reads upside down. side 'out' stands it outside the circle (`gap` off it, a quarter size), 'in'
+// inside: the months round a year, the names round a cycle (4.0 T8). A textOnPath group, so lint reads it.
+export function textRound(str, o = {}) {
+  const { x = 0, y = 0, r = 200, at: a = -Math.PI / 2, side = 'out', gap, ...rest } = o, size = rest.size ?? 48;
+  if (side !== 'out' && side !== 'in') throw new TypeError(`textRound: side '${side}' (out, in)`);
+  // Clockwise the letters stand outward from their baseline, anticlockwise inward: the baseline goes where the
+  // letters' feet must be.
+  const g = gap ?? size * 0.25, cap = size * 0.72, top = Math.sin(a) < 1e-9;
+  const R = top ? (side === 'out' ? r + g : r - g - cap) : (side === 'out' ? r + g + cap : r - g);
+  const path = top ? arc(x, y, R, a - Math.PI, a + Math.PI, 144) : arc(x, y, R, a + Math.PI, a - Math.PI, 144);
+  return textOnPath(str, path, { ...rest, size, align: 'center' });
 }
 
 // glyphUnits(op | str, { look | hand }) => [{ ch, word, line }] for each glyph handText letters, by its index
