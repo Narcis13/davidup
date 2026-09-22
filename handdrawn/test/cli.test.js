@@ -88,7 +88,7 @@ test('sheet store: a puppet in the store gets the check sheet hdf find points at
     assert.equal((await hdf('import', file, '--kind', 'puppet', '--name', 'blob', '--root', root, '--licence', 'own')).code, 0);
     const { code, out } = await hdf('sheet', 'store', 'blob', '--cycle', 'bob', '--root', root);
     assert.equal(code, 0, out);
-    assert.match(out, /blob\.jpg {2}10 looks x 1 state x 3 scales \+ 2 frames of bob$/m);
+    assert.match(out, /blob\.jpg {2}11 looks x 1 state x 3 scales \+ 2 frames of bob$/m);
     assert.ok(existsSync(join(root, 'sheets', 'blob.jpg')));
     // The model sheet of a puppet with no views, head, limbs or poses: what it has, and nothing empty.
     const model = await hdf('sheet', 'store', 'blob', '--poses', '--look', 'risoPop', '--root', root);
@@ -141,7 +141,7 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     assert.equal(code, 0, out);
     assert.match(out, /^#fff1d6\s+19439\s+light\s+map$/m);
     assert.match(out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
-    assert.match(out, /fox\.jpg {2}10 looks x 24 states x 3 scales \+ 8 frames of walk$/m);
+    assert.match(out, /fox\.jpg {2}11 looks x 24 states x 3 scales \+ 8 frames of walk$/m);
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
     // The house fox is the SVG plus the gallop `hdf retarget` wrote into the store; the SVG alone is the rest.

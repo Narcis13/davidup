@@ -180,7 +180,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/looks.js
 
-- `LOOKS` The ten presets (plan 1.4, 3.0 S10, 4.0 L1 to L3): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard, crayon.
+- `LOOKS` The eleven presets (plan 1.4, 3.0 S10, 4.0 L1 to L4): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard, crayon, notebook.
 - `PASTELS` The doodle palette on another sheet of paper. Sheets measured off the reference film.
 - `SHEETS` Construction paper (4.0 L3), the sheets `~sheet:<name>` puts under a look; cream is the crayon look's own.
 - `derive(look, { hue = 0, sat = 1, light = 0, from, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of `from` -- a cutout record written by `hdf photo` (or a bare colours list).
@@ -254,6 +254,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `hatchIn(path, { angle = 0.9, gap = 7, len = 14, jitter = 6, role = 'ink', alpha = 0.35, w = 1.2, seed = 1 } = {})` Hatching clipped to a path (v1 hatch(c, path, box, o)): a light or shadow patch laid over a fill.
 - `streaks(box, { angle, gap, role, alpha, w, seed })` Long parallel lines right across the box at an angle, each bowed a little: where one pass of a marker overlaps the last as a fill is coloured in.
 - `scribble(box, { angle = -0.5, gap = 9, role, alpha = 0.8, w = 7, seed = 1 })` A crayon colouring in: one line going back and forth across the box at an angle, a row every `gap`, each row bowed a little and slanting on into the next the way a hand does.
+- `RULED` The notebook's page (4.0 L4), in units of the frame's short side / 1080: rules `gap` apart from `top` down, the red margin line `margin` in from the left edge, punched holes of radius `hole` centred `holeX` in.
 
 ### core/fx.js
 
@@ -279,6 +280,11 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `tornEdge(y, { amp = 9, seed = 1, freq = 60, W = 1080, H = 1080 } = {})` The frame below a torn paper line at height y (v1 tornEdge).
 - `section(y, role, seed = 1, { W = 1080, H = 1080 } = {})` A new paper colour from a torn edge downward, a soft shadow under the tear, grain (v1 section).
 - `stickyNote(x, y, s, seed, kids = [])` A paper square with a drawing inside, turned a little (v1 stickyNote).
+- `margin(W = 1080, H = 1080)` The strip of a notebook page left of its red margin line, [x, y, w, h] for a W x H frame: where doodles go.
+- `coffeeRing(x, y, r, seed, { role = { base: 'fills.4', mix: ['shade', 0.5] }, alpha = 1, twice = true } = {})` A ring a mug left, r its radius: a broken dark rim where the coffee dried, a faint stain inside, and a fainter second rim a little off where the mug was set down again.
+- `paperClip(x, y, len, a = 0, seed = 1, { role = 'chalkDim', w } = {})` A wire paper clip len long lying along angle a from (x, y), its big loop at the far end: the wire in the look's metal (chalkDim), a highlight along it and its shadow on the page.
+- `marginDoodle(kind, x, y, s, seed = 1, { role = 'ink', w } = {})` marginDoodle(kind, x, y, s, seed, { role, w }) => a small pen doodle about s across, centred on (x, y), in the look's pen (the notebook's felt tip), so it wobbles as the page's lettering does.
+- `MARGIN_DOODLES` The doodles marginDoodle() draws: what a pupil draws in the margin when the lesson is slow.
 - `bubble(box, tail, { kind = 'speech', seed = 1, role = 'ink', paper = 'paper', w = 3, wobble = 2.5, base } = {})` A bubble round box [x, y, w, h] (the copy's box and its margin) with a tail out to the point tail ([x, y], or null for none), filled paper and outlined in pen; the wobble comes from seed, so a bubble only changes when its arguments do.
 - `BUBBLE_KINDS` The bubbles bubble() draws: speech, thought (a cloud and puffs), shout (spikes), whisper (dashed), caption (a strip).
 - `thread(x, seed, { role = 'accents.0', w = 1.2, H = 1080 } = {})` A thin line wandering down the frame (v1 thread).
@@ -565,10 +571,11 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ## Tables
 
-- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard, crayon
+- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard, crayon, notebook
 - paper sheets (`PASTELS`, for `pastel(look, name)`): rose, mint, butter, sky, cream, peach, lilac, sand, night
 - construction paper (`SHEETS`, for `~sheet:<name>`): cream, sky, pink, mint, butter, lilac, peach, grey
-- fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, erase, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
+- fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, erase, flip, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
+- margin doodles (`MARGIN_DOODLES`, for `marginDoodle(kind, ...)`): spiral, star, cube, heart, flower, zigzag
 - easings (`ease.<name>`): linear, in, out, io, back, bounce
 - sand gestures (`G.<name>`): pour, sprinkle, finger, palm, dab, comb, fill, move, wind, fly
 - formats (`FORMATS`): 1:1 1080x1080, 16:9 1920x1080, 9:16 1080x1920

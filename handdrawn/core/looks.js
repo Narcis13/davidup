@@ -84,8 +84,8 @@ const mkLook = (name, palette, finish, paper, tools = {}, more = {}) => deepFree
 // units), tilt the scale-y of the whole puppet, the camera above the table.
 export const CUTOUT = Object.freeze({ shadow: 0.3, fastener: 3, edge: 0.6, tilt: 0.94 });
 
-// The ten presets (plan 1.4, 3.0 S10, 4.0 L1 to L3): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
-// doodlePastel, cutout, whiteboard, chalkboard, crayon.
+// The eleven presets (plan 1.4, 3.0 S10, 4.0 L1 to L4): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
+// doodlePastel, cutout, whiteboard, chalkboard, crayon, notebook.
 export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
@@ -153,6 +153,15 @@ export const LOOKS = Object.freeze({
     fills: ['#e8534a', '#3d7fd6', '#f2b632', '#4fae5a', '#f08a3c', '#9468c8'], shade: '#5b4f63', light: '#fffaf0', blush: '#ef7f8e',
     accents: ['#d8342f', '#2f6fd0', '#2f9a47', '#8a4fc0'], inks: ['#2e2a3a', '#d8342f', '#2f6fd0', '#2f9a47'],
   }, 'wax', 'construction', { pen: { w: 3.6, wobble: 1.3 }, crayon: { w: 7, wobble: 1.6 } }, { penTool: 'crayon', tooth: 1, thick: 1.5 }),
+  // a page of a school notebook: off-white ruled paper, blue rules (the guide role), a red margin (accents.0) and
+  // three punched holes, a narrow felt-tip drawing every pen line (penTool) in navy, red, blue and green (inks.N),
+  // fills coloured in with the felt tip's overlapping lines. Motifs for its margin: coffeeRing, paperClip,
+  // stickyNote, marginDoodle; a page turns with cut('flip', ...)
+  notebook: mkLook('notebook', {
+    paper: '#f8f6ee', paperBand: null, ink: '#1d2b53', night: '#1c2238', chalk: '#f6f4ea', chalkDim: '#9aa0b4', guide: 'rgba(79,134,198,.55)',
+    fills: ['#f7d154', '#7fb8e8', '#f59ab5', '#8fd19e', '#f5a25d', '#b79be0'], shade: '#5c5a66', light: '#ffffff', blush: '#f28c9c',
+    accents: ['#d8342f', '#1f5fc9', '#23924a', '#e08a1c'], inks: ['#1d2b53', '#d8342f', '#1f5fc9', '#23924a'],
+  }, 'felt', 'ruled', { pen: { w: 2.4, wobble: 0.9 }, felt: { w: 2.4, wobble: 0.9 } }, { penTool: 'felt' }),
 });
 
 function deepFreeze(o) {

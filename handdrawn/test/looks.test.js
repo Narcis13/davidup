@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LOOKS, resolveLook, resolveRole, derive, duotone, pastel, hashLook, hsl, mix, parse, parseLookName } from '../core/looks.js';
 
-test('ten presets, each with the full role set', () => {
-  assert.deepEqual(Object.keys(LOOKS), ['paperInk', 'risoPop', 'screenSea', 'pencilMinimal', 'blueprintNight', 'doodlePastel', 'cutout', 'whiteboard', 'chalkboard', 'crayon']);
+test('eleven presets, each with the full role set', () => {
+  assert.deepEqual(Object.keys(LOOKS), ['paperInk', 'risoPop', 'screenSea', 'pencilMinimal', 'blueprintNight', 'doodlePastel', 'cutout', 'whiteboard', 'chalkboard', 'crayon', 'notebook']);
   for (const l of Object.values(LOOKS)) {
     for (const r of ['paper', 'ink', 'chalk', 'night', 'shade', 'light', 'blush', 'fills.0', 'accents.3', 'inks.1']) assert.ok(resolveRole(r, l), `${l.name} ${r}`);
     assert.ok(Object.isFrozen(l.palette.fills));

@@ -1,6 +1,6 @@
 ---
 name: hand-drawn-film
-description: Make a 10 to 40 second film (a lesson up to 180 seconds, in chapters) that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Ten looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, a classroom whiteboard in coloured markers with an eraser, a chalkboard in white and coloured chalks with dust and the ghost of the last lesson, and wax crayons on construction paper for the youngest - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AY), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard or chalkboard explainer, a crayon drawing for small children, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
+description: Make a 10 to 40 second film (a lesson up to 180 seconds, in chapters) that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eleven looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, a classroom whiteboard in coloured markers with an eraser, a chalkboard in white and coloured chalks with dust and the ghost of the last lesson, wax crayons on construction paper for the youngest, and a ruled school notebook page in felt tip with doodles in the margin and pages that turn - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AY), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard, chalkboard or notebook explainer, a crayon drawing for small children, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
 ---
 
 # Hand-drawn film 3.0
@@ -115,7 +115,7 @@ export default film({
 - Randomness is `rng(seed)`; timing is `t` (seconds), `k` (shot frame),
   `i` (global drawn frame). `pulse`, `boil`, `onTwos` quantise idle motion.
 - Timeline: `seq`, `par`, `hold(dur, node)`, `cut(kind, dur, a, b)` (a
-  transition fx: `blot`, `iris`, `dissolve`, `wipe`, `flash`, ...),
+  transition fx: `blot`, `iris`, `dissolve`, `wipe`, `flash`, `erase`, `flip`, ...),
   `lookOn(look, node)`. A shot may also carry `{ look }` itself. A cut is
   only the transition between `a`'s last frame and `b`'s first; both shots
   stay in the `seq`: `seq(a, cut('iris', .5, a, b), b)` (lint `cut-orphan`).
@@ -339,6 +339,7 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
 | whiteboard | `whiteboard` | marker | a classroom board: round-tip markers in black, blue, red, green (`inks.N`) draw every pen line, fills coloured in with marker passes, `fx('erase')` / `cut('erase', ...)` |
 | chalkboard | `chalkboard` | chalk | green-black slate with a wooden ledge: chalk draws every pen line with dust off it, coloured chalks in `inks.1..3` and `accents`, fills rubbed in; `~ghost:0.15` keeps the last shot, half erased, under the next |
 | crayon | `crayon` | wax | wax crayons on construction paper for the youngest (`audience: 'kids-5'` picks it): thick crayon draws every pen line with the paper's tooth through it, fills coloured in back and forth; `~sheet:sky` (cream pink mint butter lilac peach grey, a pastel or a colour) changes the sheet |
+| notebook | `notebook` | felt | a ruled school notebook page (blue rules, a red margin, three punched holes): a narrow felt tip in navy, red, blue, green (`inks.N`) draws every pen line, fills coloured in with close felt lines; `coffeeRing`, `paperClip`, `stickyNote`, `marginDoodle` in the `margin()`; `cut('flip', ...)` turns the page |
 
 `derive`, `duotone`, `pastel`, `withLook` make variants; `~hand:<id>` and
 `~from:<id>` are the two modifiers. Palettes, finishes and riso plates are in
@@ -350,7 +351,9 @@ and labels. `--look 'chalkboard~ghost:0.15'` (or `withLook('chalkboard', {
 ghost: 0.15 })`) lays each shot over the one before it, wiped not quite clean.
 `--look crayon` (or `'crayon~sheet:sky'`) redraws any film in wax crayon on
 construction paper; it allows 6 words a shot, and a film with `audience:
-'kids-5'` and no `look` gets it.
+'kids-5'` and no `look` gets it. `--look notebook` puts any film on a page of
+a school notebook (12 words a shot); `seq(a, cut('flip', 0.5, a, b), b)` turns
+the page to the next shot, `hits(cues.cuts, { kind: 'flip' })` its sound.
 To have a drawn hand write something (4.0 T6), give the same node to
 `writeOn(node, { t, at, per: 'word', wps: 2 })` and, drawn after it,
 `writer(node, t, { same options, look })`: the hand holds the look's tool

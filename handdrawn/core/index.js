@@ -29,11 +29,11 @@ export { handText, textOnPath, textRound, signOff, squiggleText, measure, layout
 export { reveal, penAt } from './tools.js';
 export { writeOn, revealed, writing, strokeStarts } from './write.js';
 export { writingHand, writer, toolFor, heldTool } from '../packs/hands.js';
-export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn, streaks, scribble } from './finish.js';
+export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn, streaks, scribble, RULED } from './finish.js';
 export { FX, chalkLook } from './fx.js';
 export {
   cross, hex, hexCells, hexLattice, aster, dotBurst, speedLines, loops, construction,
-  seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, bubble, BUBBLE_KINDS, thread, cam, whip,
+  seedDot, ripples, dashedRing, dottedArc, plant, tornEdge, section, stickyNote, margin, coffeeRing, paperClip, marginDoodle, MARGIN_DOODLES, bubble, BUBBLE_KINDS, thread, cam, whip,
   EMPHASIS, underline, circleAround, arrowTo, highlight, strike, bracket, starburst, callout, tickMark, crossMark, question,
 } from './marks.js';
 export { fraction, equation, tally, numberAxis, clock, dice, coins, pictograph, countOn, countTimes } from './maths.js';

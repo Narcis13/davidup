@@ -5,7 +5,7 @@
 //   a puppet's cel    -> card on a table (puppet.js asCutout), only under a look with a `cutout` field
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
 // Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour), marker
-// (whiteboard), chalk (chalkboard), wax (crayon).
+// (whiteboard), chalk (chalkboard), wax (crayon), felt (notebook).
 // Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
 // coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
 import { clip, dots, ellipse, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
@@ -202,6 +202,11 @@ const FINISH = {
     scribble(box, { angle: o.angle ?? -0.5, gap: o.gap ?? 9, role, alpha: o.alpha ?? 0.8, w: o.width ?? 7, seed }),
     grain(box, Math.min(4000, Math.round((box[2] * box[3]) / (o.grain ?? 70))), 'paper', 0.4, seed + 1, 1.5),
   ],
+  // notebook: coloured in with a felt tip, close lines at a slant over a paler wash of the colour (finished() lays
+  // it at `base`), darker where each line overlaps the last
+  felt: (box, role, seed, o) => [
+    withProps(streaks(box, { angle: o.angle ?? 0.9, gap: o.gap ?? 4.5, role, alpha: o.alpha ?? 0.5, w: o.width ?? 3, seed }), { tool: 'felt', name: 'coloured' }),
+  ],
 };
 
 // A finished fill: flat colour, then the texture clipped to the same path. `finish` on the op may name
@@ -214,20 +219,24 @@ function finished(op, look) {
   if (kind === 'wash') return [wash(op.path, op.role, { al: o.alpha ?? cov ?? 0.5, off: o.off ?? 5, seed, rim: o.rim ?? true })];
   if (kind === 'flat') return [flat];
   const make = FINISH[kind];
-  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker, chalk, wax or flat)`);
-  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : kind === 'chalk' ? { base: op.role, tint: 0.35 } : kind === 'wax' ? op.role : 'shade');
-  const under = kind === 'wax' ? withProps(flat, { alpha: (flat.alpha ?? 1) * (o.base ?? 0.3) }) : flat;
+  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker, chalk, wax, felt or flat)`);
+  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : kind === 'chalk' ? { base: op.role, tint: 0.35 } : kind === 'wax' ? op.role
+    : kind === 'felt' ? { base: op.role, shade: 0.12 } : 'shade');
+  const base = kind === 'wax' ? o.base ?? 0.3 : kind === 'felt' ? o.base ?? 0.55 : 1;
+  const under = base !== 1 ? withProps(flat, { alpha: (flat.alpha ?? 1) * base }) : flat;
   return [under, clip(op.path, make(op.path.box, role, seed, o, cov))];
 }
 
 // The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area;
 // card (paper: 'card') is heavier, with coarser grain and a few fibres; board (paper: 'board') is the whiteboard,
-// slate (paper: 'slate') the chalkboard, construction (paper: 'construction') the crayon look's sheet.
+// slate (paper: 'slate') the chalkboard, construction (paper: 'construction') the crayon look's sheet, ruled
+// (paper: 'ruled') the notebook's page.
 function stock(op, look, { W, H }, dark) {
   const p = look.palette, frame = [-2, -2, W + 4, H + 4], area = (W * H) / (1080 * 1080), seed = op.seed ?? 5;
   if (!dark && look.paper === 'board') return group({ name: 'paper', screen: true, seed }, board(W, H, seed));
   if (!dark && look.paper === 'slate') return group({ name: 'paper', screen: true, seed }, slate(W, H, seed));
   if (!dark && look.paper === 'construction') return group({ name: 'paper', screen: true, seed }, construction(W, H, seed));
+  if (!dark && look.paper === 'ruled') return group({ name: 'paper', screen: true, seed }, ruled(W, H, seed));
   const kids = [fill(rect(...frame), dark ? 'night' : 'paper', { name: 'stock' })];
   if (dark) {
     kids.push(grain(frame, Math.round(400 * area), { base: 'night', tint: 1 }, 0.5, seed, 1.6));
@@ -358,6 +367,33 @@ function construction(W, H, seed) {
     sub.push({ pts: [x, y, x + (Math.cos(a) * L) / 2 - Math.sin(a) * bend, y + (Math.sin(a) * L) / 2 + Math.cos(a) * bend, x + Math.cos(a) * L, y + Math.sin(a) * L], closed: false });
   }
   kids.push(stroke(mkPath(sub), { base: 'paper', shade: 0.3 }, { tool: 'pencil', w: 0.9 * u, wobble: 0, alpha: 0.3, seed: 29, name: 'fibres' }));
+  return kids;
+}
+
+// The notebook's page (4.0 L4), in units of the frame's short side / 1080: rules `gap` apart from `top` down, the
+// red margin line `margin` in from the left edge, punched holes of radius `hole` centred `holeX` in. margin()
+// in core/marks.js is the strip left of the line, where a film's doodles go.
+export const RULED = Object.freeze({ gap: 38, top: 148, margin: 150, hole: 19, holeX: 58 });
+
+// A page of a school notebook: an off-white sheet, pale blue rules right across it (the guide role) under a
+// clear band at the top, a red margin line (accents.0), three punched holes down the left edge showing the
+// page under this one, and a faint grain. Printed, so ruled (wobble 0) and at a fixed seed: every shot is the
+// same page; only the grain is reseeded. Scaled by the short side; a tall page has more lines, not wider ones.
+function ruled(W, H, seed) {
+  const u = Math.min(W, H) / 1080, frame = [-2, -2, W + 4, H + 4], area = (W * H) / (1080 * 1080), R = RULED;
+  const kids = [fill(rect(...frame), 'paper', { name: 'stock' })];
+  kids.push(grain(frame, Math.round(700 * area), { base: 'paper', shade: 0.4 }, 0.05, seed + 1, 1.2));
+  const rules = [];
+  for (let y = R.top * u; y < H - 8 * u; y += R.gap * u) rules.push({ pts: [-2, y, W + 2, y], closed: false });
+  kids.push(stroke(mkPath(rules), 'guide', { w: 1.5 * u, wobble: 0, seed: 37, name: 'rules' }));
+  const mx = R.margin * u;
+  kids.push(stroke(mkPath([{ pts: [mx, -2, mx, H + 2], closed: false }]), 'accents.0', { w: 1.8 * u, wobble: 0, alpha: 0.7, seed: 41, name: 'margin' }));
+  const r = R.hole * u, holes = [0.14, 0.5, 0.86].map((f) => [R.holeX * u, H * f]);
+  kids.push(
+    fill(mkPath(holes.flatMap(([x, y]) => ellipse(x, y, r, r).sub)), { base: 'paper', shade: 0.26 }, { name: 'holes' }),
+    fill(mkPath(holes.flatMap(([x, y]) => ellipse(x + r * 0.2, y + r * 0.24, r * 0.84, r * 0.84).sub)), { base: 'paper', shade: 0.08 }, { name: 'hole-under' }),
+    stroke(mkPath(holes.flatMap(([x, y]) => ellipse(x, y, r, r).sub)), { base: 'paper', shade: 0.3 }, { w: 1.2 * u, wobble: 0, alpha: 0.6, seed: 43, name: 'hole-rim' }),
+  );
   return kids;
 }
 

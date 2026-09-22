@@ -55,8 +55,8 @@ export const SYNC_MAX = 3;         // s of estimated word timing before caption-
 
 // Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins, then
 // the audience's words (4.0 T10; general has none), then this. A board (white or black) carries a lesson's title
-// and labels; a crayon drawing a word or two of big letters beside the picture.
-export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3, whiteboard: 12, chalkboard: 12, crayon: 6 });
+// and labels; a crayon drawing a word or two of big letters beside the picture; a notebook page a heading and notes.
+export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3, whiteboard: 12, chalkboard: 12, crayon: 6, notebook: 12 });
 export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
 export const SIGN_OFF_LEAD = 1.5;  // seconds the finished sign-off must hold before the end
 const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1, MAX_BOB = 1;

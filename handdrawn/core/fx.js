@@ -7,7 +7,7 @@
 // Offscreen fx (mosaic, nightShot, bleed) draw their kids on a canvas the size of the one being drawn on,
 // under the same transform, then composite in device pixels; inside a cached group that canvas is the
 // group's layer, so they work there too.
-import { mix, withLook, resolveRole } from './looks.js';
+import { alpha as withAlpha, mix, withLook, resolveRole } from './looks.js';
 import { mkPath, rect, walk, xf as xfPath, bounds } from './list.js';
 import { rng } from './rand.js';
 import { tracePath, trim } from './tools.js';
@@ -149,6 +149,27 @@ function drawEraser(ctx, x, y, a, band, look) {
   ctx.restore();
 }
 
+// The part of polygon pts ([x, y, ...]) where n . (x, y) >= c (Sutherland-Hodgman against one line).
+function halfPlane(pts, [nx, ny], c) {
+  const out = [], n = pts.length / 2, side = (i) => nx * pts[2 * i] + ny * pts[2 * i + 1] - c;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, a = side(i), b = side(j);
+    if (a >= 0) out.push(pts[2 * i], pts[2 * i + 1]);
+    if ((a >= 0) !== (b >= 0)) {
+      const u = a / (a - b);
+      out.push(pts[2 * i] + (pts[2 * j] - pts[2 * i]) * u, pts[2 * i + 1] + (pts[2 * j + 1] - pts[2 * i + 1]) * u);
+    }
+  }
+  return out;
+}
+// pts mirrored in the line n . (x, y) = c (n a unit vector).
+const mirror = (pts, [nx, ny], c) => pts.map((v, i) => {
+  const k = i & 1 ? i - 1 : i, d = nx * pts[k] + ny * pts[k + 1] - c;
+  return v - 2 * d * (i & 1 ? ny : nx);
+});
+const polyPath = (ctx, pts) => { ctx.beginPath(); for (let i = 0; i < pts.length; i += 2) ctx[i ? 'lineTo' : 'moveTo'](pts[i], pts[i + 1]); ctx.closePath(); };
+const FLIP_DIRS = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+
 // The raster effects by kind, for fx(kind, args, kids) and cut(kind, dur, a, b); each is (ctx, args, ...).
 export const FX = {
   // Kids faded in by p.
@@ -198,6 +219,58 @@ export const FX = {
       const x = pts[n - 2], y = pts[n - 1], a = n >= 4 ? Math.atan2(y - pts[n - 3], x - pts[n - 4]) : 0;
       drawEraser(ctx, x, y, a, bw, env.look);
     }
+  },
+
+  // A page turning (4.0 L4): the page on top (whatever is already drawn: a cut's `a`) lifts at its edge and folds
+  // over, and the kids (the next page, a cut's `b`) show where it has gone. dir: the way the page moves ('left', a
+  // book's page, by default; 'up' for a pad bound at the top; 'right', 'down'). tilt: how far the lower (or right)
+  // corner leads, 0 for a straight fold. The flap is the page's back, a paper tone with a sheen by the fold where it
+  // curls, and it casts a shadow on the page coming into view. p eases in and out.
+  flip(ctx, { p = 1, dir = 'left', tilt = 0.3 }, renderKids, seed, env) {
+    const m = FLIP_DIRS[dir];
+    if (!m) throw new Error(`fx flip: unknown dir '${dir}' (expected ${Object.keys(FLIP_DIRS).join(', ')})`);
+    const q = clamp01(p);
+    if (q <= 0) return;
+    if (q >= 1) { renderKids(); return; }
+    const { W, H, look } = env, frame = [0, 0, W, 0, W, H, 0, H];
+    let nx = -m[0] + tilt * Math.abs(m[1]), ny = -m[1] + tilt * Math.abs(m[0]);
+    const L = Math.hypot(nx, ny), n = [(nx /= L), (ny /= L)];
+    const at = [0, 1, 2, 3].map((i) => nx * frame[2 * i] + ny * frame[2 * i + 1]), hi = Math.max(...at), lo = Math.min(...at);
+    const c = hi - (hi - lo) * ease.io(q), shown = halfPlane(frame, n, c);
+    const flap = halfPlane(mirror(shown, n, c), [-nx, -ny], -c);
+    let reach = 0;
+    for (let i = 0; i < flap.length; i += 2) reach = Math.max(reach, c - (nx * flap[i] + ny * flap[i + 1]));
+    const u = Math.min(W, H) / 1080, ink = resolveRole('ink', look), fx0 = c * nx, fy0 = c * ny;
+    const band = (d0, d1, stops) => {
+      const g = ctx.createLinearGradient(fx0 + nx * d0, fy0 + ny * d0, fx0 + nx * d1, fy0 + ny * d1);
+      for (const [at, col] of stops) g.addColorStop(at, col);
+      return g;
+    };
+    ctx.save();
+    polyPath(ctx, frame); ctx.clip();
+    if (shown.length >= 6) {
+      ctx.save();
+      polyPath(ctx, shown); ctx.clip();
+      renderKids();
+      ctx.fillStyle = band(0, Math.max(8, Math.min(90 * u, reach * 0.5)), [[0, withAlpha(ink, 0.28)], [1, withAlpha(ink, 0)]]);
+      polyPath(ctx, shown); ctx.fill();
+      ctx.restore();
+    }
+    if (flap.length >= 6 && reach > 0) {
+      ctx.save();
+      ctx.fillStyle = withAlpha(ink, 0.1);
+      ctx.translate(-nx * 7 * u + 3 * u, -ny * 7 * u + 5 * u);
+      polyPath(ctx, flap); ctx.fill();
+      ctx.restore();
+      const back = resolveRole({ base: 'paper', shade: 0.04 }, look), sheen = resolveRole('light', look), shade = resolveRole('shade', look);
+      ctx.fillStyle = back;
+      polyPath(ctx, flap); ctx.fill();
+      ctx.fillStyle = band(0, -reach, [[0, withAlpha(shade, 0.3)], [0.06, withAlpha(sheen, 0.5)], [0.22, withAlpha(sheen, 0)], [1, withAlpha(shade, 0.1)]]);
+      polyPath(ctx, flap); ctx.fill();
+      ctx.strokeStyle = withAlpha(shade, 0.35); ctx.lineWidth = 1.2 * u; ctx.lineJoin = 'round';
+      polyPath(ctx, flap); ctx.stroke();
+    }
+    ctx.restore();
   },
 
   // Kids revealed inside a growing ink blot with a bristly fringe (v1 blot). R = r ?? eased p x reach.

@@ -8,7 +8,7 @@ on warm paper, riso dots, a screen print or graphite by changing one name, and
 why `hdf sheet` can show every cel in every look.
 
 `tools` holds each tool's defaults (the pen is 2.6 wide, 1.6 in
-`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`, 3.2 in `chalkboard`, 3.6 in `crayon`, drawn half as thick again); a stroke without its
+`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`, 3.2 in `chalkboard`, 3.6 in `crayon`, drawn half as thick again, 2.4 in `notebook`); a stroke without its
 own `w` or `wobble` takes them, and under a look with a `hand` the hand's pen
 profile comes first (see Modifiers below). `edition` (0 in every preset) reseeds every shot drawn in
 the look: `withLook('risoPop', { edition: 2 })` is a second print of the same
@@ -50,6 +50,7 @@ never a new hue for depth.
 | `whiteboard` | a classroom board: black, blue, red, green markers; light marker fills | `#eceeea` / `#23272e` | marker | board |
 | `chalkboard` | a classroom slate: white chalk, yellow, pink and blue chalks; muted rubbed fills | `#2a3b33` / `#161f1b` | chalk | slate |
 | `crayon` | wax crayons on cream construction paper: a near-black, red, blue and green crayon; bright waxy fills | `#efe3c6` / `#2d3057` | wax | construction |
+| `notebook` | a ruled school notebook page: navy, red, blue and green felt tips; highlighter-bright fills | `#f8f6ee` / `#1c2238` | felt | ruled |
 
 The flipbook is 45% cream paper, then navy, tan, teal and plum, a third of
 pixels saturated; the boat film is 41% blues; the website 92% cream and
@@ -220,6 +221,47 @@ film({ name: 'moon', audience: 'kids-5', timeline: [a, b] })     // crayon on cr
 film({ name: 'moon', audience: 'kids-5', look: 'crayon~sheet:sky', timeline: [a, b] })
 ```
 
+## Notebook
+
+`notebook` (4.0 L4) is a page of a school notebook. Its stock, `ruled`, is an
+off-white sheet with pale blue rules right across it (the `guide` role, so a
+film's construction lines are drawn in the same blue) below a clear band at
+the top, a red margin line (`accents.0`) and three punched holes down the left
+edge; all of it printed (ruled, fixed seed), so every shot is the same page and
+only the grain is reseeded. Sizes are in `RULED` (rules 38 apart from 148 down,
+the margin 150 in, in units of the frame's short side / 1080): a tall frame
+gets more lines, not wider ones. `penTool: 'felt'` draws every pen stroke,
+lettering included, with the `felt` tool: a narrow fibre tip (2.4), nearly
+opaque and source-over (it caches like the pen), the ink wicking a hair into
+the paper along the line and pooling in a dot at each end of a line, in the
+look's hand when it has one; a ruled or dashed line neither wicks nor pools.
+Inks are felt tips: `inks.0` navy, `inks.1` red, `inks.2` blue, `inks.3` green.
+`toolFor('notebook')` is the pen. It allows 12 words a shot.
+
+The margin's motifs (`core/marks.js`), in roles, so they work in any look:
+`margin(W, H)` is the strip left of the red line, `[0, 0, 150, H]` at 1080;
+`marginDoodle(kind, x, y, s, seed, { role, w })` a small pen doodle about `s`
+across (`MARGIN_DOODLES`: spiral, star, cube, heart, flower, zigzag);
+`coffeeRing(x, y, r, seed, { role, alpha, twice })` the ring a mug left (a
+broken dried rim, a faint stain, a second rim a little off; the coffee is
+`fills.4` mixed halfway to `shade`); `paperClip(x, y, len, a, seed, { role, w
+})` a wire clip lying along angle `a` in `chalkDim` with a glint and a shadow;
+`stickyNote(x, y, s, seed, kids)` as before.
+
+The page turns with `fx('flip', { p, dir, tilt }, kids)`: the page already
+drawn lifts at its edge and folds over, its back a paper tone with a sheen
+where it curls, casting a shadow on the kids coming into view. `dir` is the
+way the page moves (`left`, a book's, by default; `up` for a pad bound at the
+top; `right`, `down`), `tilt` how far the corner leads (0.3; 0 is a straight
+fold); p eases in and out. As a cut, `cut('flip', 0.5, a, b)` turns shot `a`
+over to `b`, in any look.
+
+```js
+film({ name: 'notes', look: 'notebook', timeline: seq(a, cut('flip', 0.5, a, b), b),
+  score: ({ cuts }) => ({ events: [hits(cuts, { kind: 'flip' })] }) })
+shot('a', 3, ({ H }) => [paper(), marginDoodle('star', 75, 260, 60, 1), coffeeRing(880, 860, 120, 2), ...])
+```
+
 ## Finishes
 
 A fill gets texture from the look's finish when it asks: `fill(path, role,
@@ -237,6 +279,7 @@ boils between frames: it is seeded by the op's seed.
 | `marker` | whiteboard | the flat fill and the faint overlaps of each marker pass, in a darker tone of the fill |
 | `chalk` | chalkboard | the flat fill and broad broken passes of a stick's side, in a lighter tone of the fill |
 | `wax` | crayon | the fill at 0.3 (`base`), a crayon going back and forth over it in the same colour with the tooth through it, and flecks of the sheet |
+| `felt` | notebook | the fill at 0.55 (`base`), then close felt-tip lines at a slant in a touch darker tone, darker where they overlap |
 
 `finish` may also name a finish or carry options: `{ finish: 'hatch' }`,
 `{ finish: { density: 0.16, role: 'inks.0', gap: 7, len: 12, alpha: 0.22,

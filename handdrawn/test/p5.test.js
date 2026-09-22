@@ -63,7 +63,7 @@ test('a flat fill with a radial cov is a gradient; plates multiply onto the pape
 
 test('every tool draws, deterministically, and brush reveals by p', () => {
   const path = H.spline([[100, 500], [400, 300], [700, 700], [1000, 500]]);
-  for (const tool of ['pen', 'chalk', 'brush', 'pencil', 'crayon', 'marker', 'gouache']) {
+  for (const tool of ['pen', 'chalk', 'brush', 'pencil', 'crayon', 'marker', 'gouache', 'bullet', 'felt']) {
     const a = px([paper(), stroke(path, 'ink', { tool, w: 8, seed: 4 })]), b = px([paper(), stroke(path, 'ink', { tool, w: 8, seed: 4 })]);
     assert.equal(sha(a), sha(b), tool);
     assert.notEqual(sha(a), sha(px([paper()])), tool);
@@ -77,7 +77,7 @@ test('every tool draws, deterministically, and brush reveals by p', () => {
 test('every fx renders deterministically; transitions reveal b by p', () => {
   const kids = [fill(rect(100, 100, 880, 880), 'fills.1'), fill(circle(540, 540, 200), 'fills.0'), stroke(circle(540, 540, 200), 'ink', { w: 4 })];
   const args = {
-    dissolve: { p: 0.5 }, wipe: { p: 0.5 }, erase: { p: 0.5 }, blot: { p: 0.2 }, iris: { p: 0.4, ring: 'ink' }, mosaic: { s: 30 }, flash: { k: 0.5 },
+    dissolve: { p: 0.5 }, wipe: { p: 0.5 }, erase: { p: 0.5 }, flip: { p: 0.5 }, blot: { p: 0.2 }, iris: { p: 0.4, ring: 'ink' }, mosaic: { s: 30 }, flash: { k: 0.5 },
     flicker: { i: 0 }, nightShot: { lights: [{ x: 400, y: 400, r: 300 }] }, bleed: { amt: 3 }, glow: { r: 200 }, scribble: { amp: 8 },
     photoMask: { sil: circle(540, 540, 150) }, soft: { q: 10, alpha: 0.5 },
   };

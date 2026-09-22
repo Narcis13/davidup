@@ -1,6 +1,6 @@
 // Drawing tools: how a stroke op becomes marks on a canvas. Browser and skia contexts are driven the
 // same way. All jitter comes from the op's seed, so a stroke boils only when its seed or inputs change.
-// Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache, bullet.
+// Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache, bullet, felt.
 import { hash32, rng } from './rand.js';
 import { handOf, resolveLook, resolveRole } from './looks.js';
 import { I, mapply, mkPath, mmul, norm, spline, withProps } from './list.js';
@@ -150,6 +150,32 @@ function bullet(ctx, op, t, S, look) {
     ctx.beginPath();
     tracePath(ctx, { sub: sub.map((s) => ({ pts: s.pts.map((v, i) => v + (i & 1 ? dy : dx)), closed: s.closed })) });
     ctx.stroke();
+  }
+  ctx.globalAlpha = a0;
+}
+
+// Felt-tip (4.0 L4): a narrow fibre tip, nearly opaque and laid over what is under it like the bullet (so it caches
+// like the pen). The ink wicks a hair into the paper along the line (a wider pass at low alpha) and pools where the
+// tip rests, a dot a little wider than the line at each end of a line. A ruled line (wobble 0) or a dashed one
+// neither wicks nor pools. A look with penTool: 'felt' draws every pen stroke with it, in the look's hand.
+function felt(ctx, op, t, S, look) {
+  const r = rng(op.seed ?? 1), w = op.w ?? t.w ?? 2.4, a0 = ctx.globalAlpha, plain = op.wobble === 0 || !!op.dash;
+  if (op.dash) { ctx.setLineDash(op.dash); ctx.lineDashOffset = r() * 40; }
+  const { path, hand } = handed(op, look, w), sub = jittered(path, op.wobble ?? hand?.wobble ?? t.wobble ?? 0.9, r);
+  const line = (alpha, width) => { ctx.globalAlpha = a0 * alpha; ctx.lineWidth = width; ctx.beginPath(); tracePath(ctx, { sub }); ctx.stroke(); };
+  if (!plain) line(0.1, w * 1.8);
+  line(0.94, w);
+  if (!plain) {
+    const fs = ctx.fillStyle;
+    ctx.fillStyle = ctx.strokeStyle; ctx.globalAlpha = a0 * 0.4;
+    ctx.beginPath();
+    for (const s of sub) {
+      const p = s.pts, n = p.length;
+      if (s.closed || n < 4) continue;
+      for (const [x, y] of [[p[0], p[1]], [p[n - 2], p[n - 1]]]) { ctx.moveTo(x + w * 0.62, y); ctx.arc(x, y, w * 0.62, 0, TAU); }
+    }
+    ctx.fill();
+    ctx.fillStyle = fs;
   }
   ctx.globalAlpha = a0;
 }
@@ -350,14 +376,15 @@ function dust(ctx, lines, w, amount, seed, look) {
   };
 }
 
-const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache, bullet };
+const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache, bullet, felt };
 
 // The width a stroke is drawn at: its own w, else the look's setting for its tool, else the tool's default.
-const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10, gouache: 12, bullet: 3.4 };
+const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10, gouache: 12, bullet: 3.4, felt: 2.4 };
 export const strokeWidth = (op, look) => op.w ?? resolveLook(look).tools[op.tool ?? 'pen']?.w ?? TOOL_W[op.tool ?? 'pen'] ?? 2;
 
 // A pen stroke is drawn by the look's penTool when it names one (the whiteboard's bullet marker, the
-// chalkboard's chalk, the crayon look's crayon), with the pen's settings over the tool's own; any other tool is its own.
+// chalkboard's chalk, the crayon look's crayon, the notebook's felt tip), with the pen's settings over the tool's
+// own; any other tool is its own.
 export function drawStroke(ctx, op, look, S = 1) {
   const kind = op.tool ?? 'pen', asPen = kind === 'pen' && !!look.penTool, draw = TOOLS[asPen ? look.penTool : kind];
   if (!draw) throw new Error(`stroke: tool '${op.tool}' is not implemented yet (have ${Object.keys(TOOLS).join(', ')})`);

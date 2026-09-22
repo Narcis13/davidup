@@ -28,7 +28,7 @@ test('whiteboard: board stock, marker finish, the bullet marker as its pen, inks
   const wb = LOOKS.whiteboard;
   assert.deepEqual([wb.paper, wb.finish, wb.penTool], ['board', 'marker', 'bullet']);
   assert.deepEqual(wb.palette.inks, ['#1d1f24', '#1f5fc9', '#d8342f', '#23924a']);
-  assert.deepEqual(Object.keys(LOOKS).filter((n) => LOOKS[n].penTool), ['whiteboard', 'chalkboard', 'crayon']);
+  assert.deepEqual(Object.keys(LOOKS).filter((n) => LOOKS[n].penTool), ['whiteboard', 'chalkboard', 'crayon', 'notebook']);
   assert.ok(!('penTool' in LOOKS.paperInk), 'the other presets carry no such field, so their hashes hold');
   assert.equal(resolveLook('whiteboard'), wb);
   assert.notEqual(hashLook('whiteboard~hand:test'), hashLook('whiteboard'));

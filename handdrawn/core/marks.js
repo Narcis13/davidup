@@ -3,7 +3,7 @@
 // only changes when its arguments do. Also the teacher's pen (4.0 T7: underline, circleAround, arrowTo, ...)
 // and the camera: cam() and whip() are list-level.
 import { bounds, circle, clip, ellipse, fill, group, line, mkPath, poly, rect, roundRect, stroke, translate, mmul, rotate, scale, withProps, xf } from './list.js';
-import { grain } from './finish.js';
+import { grain, RULED } from './finish.js';
 import { currentHand, glyph, houseHand } from './glyphs.js';
 import { hash32, rng } from './rand.js';
 import { splinePts } from './spline.js';
@@ -181,6 +181,106 @@ export function stickyNote(x, y, s, seed, kids = []) {
     stroke(rect(0.5, 0.5, s - 1, s - 1), { base: 'ink', alpha: 0.25 }, { w: 1, wobble: 0, name: 'edge' }),
     ...[kids].flat(),
   ]);
+}
+
+// ---------- the notebook's margin (4.0 L4) ----------
+
+// The strip of a notebook page left of its red margin line, [x, y, w, h] for a W x H frame: where doodles go.
+export const margin = (W = 1080, H = 1080) => [0, 0, RULED.margin * (Math.min(W, H) / 1080), H];
+
+// A ring a mug left, r its radius: a broken dark rim where the coffee dried, a faint stain inside, and a
+// fainter second rim a little off where the mug was set down again. role: the coffee (by default the look's
+// orange fill (fills.4) mixed halfway to its shade, a brown in most looks).
+export function coffeeRing(x, y, r, seed, { role = { base: 'fills.4', mix: ['shade', 0.5] }, alpha = 1, twice = true } = {}) {
+  const q = rng(seed), rim = (cx, cy, rr, a, w, k) => {
+    const sub = [], n = 4 + Math.floor(q() * 3), gap = 0.25 + 0.3 * q();
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * TAU + q() * 0.4, a1 = a0 + ((TAU / n) * (1 - gap * q())), pts = [];
+      for (let j = 0; j <= 12; j++) { const t = a0 + ((a1 - a0) * j) / 12, rj = rr * (1 + (q() - 0.5) * 0.03); pts.push(cx + Math.cos(t) * rj, cy + Math.sin(t) * rj); }
+      sub.push({ pts, closed: false });
+    }
+    return stroke(mkPath(sub), role, { tool: 'pencil', w, wobble: 0.6, alpha: alpha * a, seed: seed + k, name: 'rim' });
+  };
+  const dx = (q() - 0.5) * r * 0.5, dy = (q() - 0.5) * r * 0.5;
+  return group({ name: 'coffeeRing', seed }, [
+    fill(ellipse(x, y, r, r, 60), role, { alpha: alpha * 0.07, name: 'stain' }),
+    fill(ellipse(x + r * 0.2, y + r * 0.25, r * 0.35, r * 0.28, 24), role, { alpha: alpha * 0.06, name: 'pool' }),
+    rim(x, y, r, 0.55, Math.max(1.5, r * 0.05), 1),
+    rim(x, y, r * 0.965, 0.3, Math.max(1, r * 0.02), 2),
+    twice && rim(x + dx, y + dy, r * 1.01, 0.22, Math.max(1, r * 0.03), 3),
+  ]);
+}
+
+// A wire paper clip len long lying along angle a from (x, y), its big loop at the far end: the wire in the
+// look's metal (chalkDim), a highlight along it and its shadow on the page.
+export function paperClip(x, y, len, a = 0, seed = 1, { role = 'chalkDim', w } = {}) {
+  const L = len, r1 = 0.07 * L, r2 = 0.12 * L, r3 = 0.145 * L, y2 = 2 * r2 - r1, c3 = (y2 - 0.12 * L) / 2, off = (y2 - 0.12 * L) / 2;
+  const arc = (cx, cy, r, a0, a1) => Array.from({ length: 13 }, (_, j) => { const t = a0 + ((a1 - a0) * j) / 12; return [cx + Math.cos(t) * r, cy + Math.sin(t) * r]; });
+  const cR1 = 0.86 * L - r1, cL = r2, cR3 = L - r3, pts = [
+    [0.3 * L, r1], [cR1, r1], ...arc(cR1, 0, r1, Math.PI / 2, -Math.PI / 2),
+    [cL, -r1], ...arc(cL, r2 - r1, r2, -Math.PI / 2, -Math.PI * 1.5),
+    [cR3, y2], ...arc(cR3, c3, r3, Math.PI / 2, -Math.PI / 2), [0.16 * L, c3 - r3],
+  ].map(([px, py]) => [px, py - off]);
+  const ww = w ?? Math.max(1.2, L * 0.03), m = mmul(translate(x, y), rotate(a)), path = xf(mkPath([{ pts: pts.flat(), closed: false }]), m);
+  return group({ name: 'paperClip', seed }, [
+    group({ name: 'shadow', xf: translate(ww * 0.8, ww * 1.2) }, [stroke(path, { base: 'ink', alpha: 0.18 }, { tool: 'pencil', w: ww * 1.2, wobble: 0, seed, name: 'wire-shadow' })]),
+    stroke(path, role, { tool: 'pencil', w: ww, wobble: 0, seed, name: 'wire' }),
+    group({ xf: translate(-ww * 0.2, -ww * 0.25) }, [stroke(path, 'light', { tool: 'pencil', w: ww * 0.35, wobble: 0, alpha: 0.7, seed, name: 'glint' })]),
+  ]);
+}
+
+// The doodles marginDoodle() draws: what a pupil draws in the margin when the lesson is slow.
+export const MARGIN_DOODLES = Object.freeze(['spiral', 'star', 'cube', 'heart', 'flower', 'zigzag']);
+
+// marginDoodle(kind, x, y, s, seed, { role, w }) => a small pen doodle about s across, centred on (x, y), in the look's
+// pen (the notebook's felt tip), so it wobbles as the page's lettering does. kind is one of MARGIN_DOODLES.
+export function marginDoodle(kind, x, y, s, seed = 1, { role = 'ink', w } = {}) {
+  const q = rng(seed), h = s / 2, pw = w ?? Math.max(1.4, s * 0.035), subs = [];
+  const put = (pts, closed = false) => subs.push({ pts: pts.flat(), closed });
+  switch (kind) {
+    case 'spiral': {
+      const pts = [], turns = 3 + q();
+      for (let j = 0; j <= 80; j++) { const t = (j / 80) * turns * TAU, r = (h * j) / 80; pts.push([x + Math.cos(t) * r, y + Math.sin(t) * r]); }
+      put(pts); break;
+    }
+    case 'star': {
+      const pts = [];
+      for (let j = 0; j < 5; j++) { const t = -Math.PI / 2 + (j * 2 * TAU) / 5; pts.push([x + Math.cos(t) * h, y + Math.sin(t) * h]); }
+      put(pts, true); break;
+    }
+    case 'cube': {
+      const a = h * 0.62, d = h * 0.38, sq = (ox, oy) => [[ox - a, oy - a], [ox + a, oy - a], [ox + a, oy + a], [ox - a, oy + a]];
+      const f = sq(x - d / 2, y + d / 2), b = sq(x + d / 2, y - d / 2);
+      put(f, true); put(b, true);
+      for (let j = 0; j < 4; j++) put([f[j], b[j]]);
+      break;
+    }
+    case 'heart': {
+      const pts = [];
+      for (let j = 0; j <= 40; j++) {
+        const t = (j / 40) * TAU, hx = 16 * Math.sin(t) ** 3, hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+        pts.push([x + (hx / 17) * h, y - (hy / 17) * h - h * 0.1]);
+      }
+      put(pts, true); break;
+    }
+    case 'flower': {
+      const r = h * 0.22;
+      subs.push({ pts: ellipse(x, y, r, r, 16).sub[0].pts, closed: true });
+      for (let j = 0; j < 6; j++) {
+        const t = (j / 6) * TAU + q() * 0.2, cx = x + Math.cos(t) * h * 0.6, cy = y + Math.sin(t) * h * 0.6, pts = [];
+        for (let k = 0; k <= 16; k++) { const u = (k / 16) * TAU; pts.push([cx + Math.cos(t) * Math.cos(u) * h * 0.38 - Math.sin(t) * Math.sin(u) * h * 0.2, cy + Math.sin(t) * Math.cos(u) * h * 0.38 + Math.cos(t) * Math.sin(u) * h * 0.2]); }
+        put(pts, true);
+      }
+      break;
+    }
+    case 'zigzag': {
+      const pts = [];
+      for (let j = 0; j <= 8; j++) pts.push([x - h + (s * j) / 8, y + (j % 2 ? -h : h) * 0.45]);
+      put(pts); break;
+    }
+    default: throw new Error(`marginDoodle: unknown kind '${kind}' (expected ${MARGIN_DOODLES.join(', ')})`);
+  }
+  return stroke(mkPath(subs), role, { w: pw, seed, name: `doodle:${kind}` });
 }
 
 // The ring pts ([x, y] pairs round a centre) giving way to a tail out to the point tail: the rim point facing

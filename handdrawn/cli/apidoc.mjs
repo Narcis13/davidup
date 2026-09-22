@@ -165,6 +165,7 @@ export async function generate() {
     `- paper sheets (\`PASTELS\`, for \`pastel(look, name)\`): ${Object.keys(core.PASTELS).join(', ')}`,
     `- construction paper (\`SHEETS\`, for \`~sheet:<name>\`): ${Object.keys(core.SHEETS).join(', ')}`,
     `- fx kinds (\`fx(kind, args, kids)\`, \`cut(kind, dur, a, b)\`): ${Object.keys(core.FX).join(', ')}`,
+    `- margin doodles (\`MARGIN_DOODLES\`, for \`marginDoodle(kind, ...)\`): ${core.MARGIN_DOODLES.join(', ')}`,
     `- easings (\`ease.<name>\`): ${Object.keys(core.ease).join(', ')}`,
     `- sand gestures (\`G.<name>\`): ${Object.keys(core.G).join(', ')}`,
     `- formats (\`FORMATS\`): ${Object.entries(core.FORMATS).map(([k, [w, h]]) => `${k} ${w}x${h}`).join(', ')}`,
