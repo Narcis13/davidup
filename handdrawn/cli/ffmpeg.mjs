@@ -11,6 +11,21 @@ export function h264Args(out, { w, h, fps = 12, outFps = 24, crf = 18 }) {
     '-r', String(outFps), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', String(crf), '-movflags', '+faststart', out];
 }
 
+// The same frames with their alpha kept (4.0 D1, `hdf render --alpha`), in the codecs davidup's own alpha
+// export writes: ProRes 4444 in a .mov (a 16-bit alpha plane) or VP9 in a .webm (the alpha as libvpx's side
+// channel, which a browser plays). skia's raw frames are straight (unpremultiplied) RGBA, which is what ffmpeg's
+// rgba input means.
+export const ALPHA_CODECS = Object.freeze(['mov', 'webm']);
+export function alphaArgs(out, { w, h, fps = 12, outFps = 24, codec = 'mov', crf = 18 }) {
+  if (!ALPHA_CODECS.includes(codec)) throw new Error(`alpha: unknown codec '${codec}' (expected ${ALPHA_CODECS.join(' or ')})`);
+  const enc = codec === 'mov'
+    ? ['-c:v', 'prores_ks', '-profile:v', '4444', '-vendor', 'apl0', '-pix_fmt', 'yuva444p10le']
+    : ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-crf', String(crf), '-b:v', '0', '-auto-alt-ref', '0', '-row-mt', '1'];
+  return ['-y', '-hide_banner', '-loglevel', 'error',
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${w}x${h}`, '-framerate', String(fps), '-i', '-',
+    '-r', String(outFps), ...enc, ...(codec === 'mov' ? ['-movflags', '+faststart'] : []), out];
+}
+
 // { write(buf) => Promise, end() => Promise, kill() }. write resolves once ffmpeg can take more.
 export function ffmpegSink(args, { bin = process.env.FFMPEG ?? 'ffmpeg' } = {}) {
   const proc = spawn(bin, args, { stdio: ['pipe', 'ignore', 'pipe'] });

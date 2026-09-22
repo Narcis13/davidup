@@ -108,7 +108,8 @@ interface FfprobeStream {
   r_frame_rate?: string;
   avg_frame_rate?: string;
   pix_fmt?: string;
-  tags?: { alpha_mode?: string };
+  /** Stream tags as the muxer wrote them; key case varies (see alphaModeTag). */
+  tags?: Record<string, string>;
 }
 
 interface FfprobeOutput {
@@ -392,7 +393,7 @@ function parseVideoMetadata(probe: FfprobeOutput, src: string): VideoMetadata {
   // (yuva420p, rgba, …), but WebM (VP8/VP9) carries it out-of-band in the
   // `alpha_mode` stream tag while pix_fmt stays "yuv420p" — so check both.
   const pixFmt = video.pix_fmt;
-  const alphaFromTag = video.tags?.alpha_mode === "1";
+  const alphaFromTag = alphaModeTag(video.tags) === "1";
   if (typeof pixFmt === "string" && pixFmt.length > 0) {
     out.pixelFormat = pixFmt;
     out.hasAlpha = pixelFormatHasAlpha(pixFmt) || alphaFromTag;
@@ -404,6 +405,18 @@ function parseVideoMetadata(probe: FfprobeOutput, src: string): VideoMetadata {
   out.hasAudio = (probe.streams ?? []).some((s) => s.codec_type === "audio");
 
   return out;
+}
+
+/**
+ * The WebM `alpha_mode` tag in whatever case it was written: libvpx's own
+ * encode writes `alpha_mode`, but a stream-copy remux (muxing a sound track
+ * into an alpha clip, as `hdf render --alpha webm` does) writes `ALPHA_MODE`,
+ * and a clip read as opaque would lose its transparency in the render.
+ */
+function alphaModeTag(tags: Record<string, string> | undefined): string | undefined {
+  if (!tags) return undefined;
+  const key = Object.keys(tags).find((k) => k.toLowerCase() === "alpha_mode");
+  return key === undefined ? undefined : tags[key];
 }
 
 /**

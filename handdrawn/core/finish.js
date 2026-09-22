@@ -9,7 +9,7 @@
 // Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
 // coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
 import { clip, dots, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
-import { hashLook, parse as parseColour, resolveLook } from './looks.js';
+import { hashLook, innerLook, parse as parseColour, resolveLook } from './looks.js';
 import { asCutout, cutoutOf } from './puppet.js';
 import { rng } from './rand.js';
 import { handText } from './text.js';
@@ -303,8 +303,10 @@ const envKey = (lk, W, H) => `${hashLook(lk)}:${W}x${H}`;
 export function expandOp(op, look, { W = 1080, H = 1080 } = {}) {
   const lk = resolveLook(look), key = envKey(lk, W, H);
   switch (op.op) {
-    case 'paper': return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, lk.paper === 'night'))];
-    case 'night': return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, true))];
+    case 'paper': if (lk.alpha) return [];   // ~alpha: no stock, the frame stays transparent
+      return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, lk.paper === 'night'))];
+    case 'night': if (lk.alpha) return [];
+      return [rememberLeaf(op, key, () => stock(op, lk, { W, H }, true))];
     case 'fill': return op.finish ? rememberLeaf(op, key, () => finished(op, lk)) : [op];
     case 'text': return rememberLeaf(op, key, () => {
       const g = handText(op, { look: lk }), seeded = withProps(g, { kids: seedList(g.kids, op.seed ?? 1) });
@@ -335,7 +337,7 @@ export function expand(list, look, { W = 1080, H = 1080 } = {}) {
     if (op.op === 'group' && lk.cutout && cutoutOf(op)) return one(expandOp(op, lk, { W, H })[0], lk, key);
     if (needsExpand(op)) return expandOp(op, lk, { W, H });
     if (op.op === 'look') {
-      const inner = resolveLook(op.look), kids = run(op.kids, inner);
+      const inner = innerLook(op.look, lk), kids = run(op.kids, inner);
       return [kids === op.kids ? op : withProps(op, { kids })];
     }
     if (!op.kids) return [op];

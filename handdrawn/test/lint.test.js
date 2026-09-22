@@ -110,6 +110,11 @@ test('sign-off: missing, or still being written 1.5 s before the end', () => {
   // A held sign-off counts too.
   const held = film({ name: 'scratch', look: 'paperInk', timeline: seq(scene('a'), end(1), hold(1.5, end(1))) });
   assert.deepEqual(rules(held), []);
+  // 4.0 D1: a clip (an overlay for a davidup composition) is part of a longer film and signs off in it.
+  const clip = film({ name: 'scratch', look: 'paperInk', timeline: seq(scene('a', () => [meta('intent', 'clip')])) });
+  assert.deepEqual(rules(clip), []);
+  const early = film({ name: 'scratch', look: 'paperInk', timeline: seq(scene('a', () => [meta('intent', 'clip')]), scene('b')) });
+  assert.match(one(early, 'sign-off').detail, /no signOff/, 'only the last frame says so');
 });
 
 test('subject: under the 240 px floor, or cut by the edge without intent', () => {

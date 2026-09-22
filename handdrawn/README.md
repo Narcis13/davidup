@@ -830,7 +830,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 
 | command | does |
 |---|---|
-| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*` |
+| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N] [--alpha [mov\|webm]]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*`. `--alpha` draws on no stock (the `~alpha` look modifier on every look the film pins) and keeps the transparency: `<film>-alpha.mov` (ProRes 4444) or `.webm` (VP9), `-final.mov` / `.webm` with sound, the contact sheet on a checkerboard; `golden --alpha` is a golden of its own |
 | `hdf grid <film> [--n 24] [--width 480]` | n frames spread over the film in one JPEG |
 | `hdf only <film> 0,37,74` | single frames as full-size PNGs |
 | `hdf board <film> [--cols 4]` | the time tree as text plus one storyboard card per shot |
@@ -870,6 +870,10 @@ bun run scripts/hdf-to-davidup.ts fox-and-teapot --project ~/videos/promo [--loo
 
 # a video item that plays a film: render it and point the item's asset at the mp4
 bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox-clip
+
+# an overlay: the film on no stock, its transparency kept (ProRes 4444, or --alpha webm)
+bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox --alpha
+#   fox plays hdf-fox-wave  video  assets/hdf/hdf-fox-wave.mov  (1080x1080, 3s, alpha, sound)
 ```
 
 `--project` takes a project directory or a name from the editor's recents
@@ -880,6 +884,13 @@ from `--film`; the item keeps its box, timing and fit. Both take `--look`,
 register; renders nothing). Re-running replaces the assets in place, so after
 editing a film, run the script again. Place a registered film with `add_video`
 or from the editor like any other clip.
+
+With `--alpha` (4.0 D1) the clip is an overlay: `paper()` and `night()` draw
+nothing, a wash brings its paper in behind the drawing so a doodle body stays
+opaque, and `register_asset` records `hasAlpha`, which davidup's frame
+extraction keeps. `films/fox-wave.js` is the pattern (one character, a soft
+shadow, `meta('intent', 'clip')` so lint wants no sign-off), and
+`examples/hdf-overlay/build.mjs <photos...>` puts it over a slideshow.
 
 ---
 

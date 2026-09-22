@@ -12,7 +12,7 @@
 // draw direct, as do groups containing stock (paper, night draw in screen space; the stock group itself is
 // cached) and groups whose layer would exceed a few viewports.
 import { bounds, hashData, hashList, hashOp, norm, walk } from './list.js';
-import { alpha as withAlpha, hashLook, resolveLook, resolveRole } from './looks.js';
+import { alpha as withAlpha, hashLook, innerLook, resolveLook, resolveRole } from './looks.js';
 import { covAt, expand, expandOp, needsExpand } from './finish.js';
 import { drawFx } from './fx.js';
 import { drawStroke, tracePath } from './tools.js';
@@ -51,6 +51,19 @@ function covStyle(ctx, cov, colour) {
 function drawFill(ctx, op, look) {
   const colour = resolveRole(op.role, look);
   ctx.save();
+  // On no stock (~alpha) a wash brings its paper: the sheet's colour goes in behind what is already drawn,
+  // inside the wash's own path, so the wash multiplies onto paper as it would on the page and a body stays a
+  // body over a photograph. Outside every wash the frame stays transparent; a plain translucent fill (a
+  // shadow) stays translucent.
+  if (look.alpha && op.blend === 'wash' && !look.chalkPass) {
+    ctx.save();
+    ctx.fillStyle = resolveRole('paper', look);
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.beginPath();
+    tracePath(ctx, op.path);
+    ctx.fill(op.rule === 'nonzero' ? 'nonzero' : 'evenodd');
+    ctx.restore();
+  }
   if (op.cov !== undefined && typeof op.cov === 'object') ctx.fillStyle = covStyle(ctx, op.cov, colour);
   else { ctx.fillStyle = colour; if (typeof op.cov === 'number') ctx.globalAlpha *= op.cov; }
   if (op.alpha !== undefined) ctx.globalAlpha *= op.alpha;
@@ -385,7 +398,7 @@ export function createRenderer({ cacheMb = 512, makeCanvas = defaultMakeCanvas()
           break;
         }
         case 'fx': drawFx(ctx, op, (g = ctx, lk = look) => drawList(g, op.kids, lk, env), look, env); break;
-        case 'look': drawList(ctx, op.kids, resolveLook(op.look), env); break;
+        case 'look': drawList(ctx, op.kids, innerLook(op.look, look), env); break;
         case 'meta': break;
         case 'image': drawImage(ctx, op, look, env); break;
         case 'mesh': drawMesh(ctx, op, look, env); break;

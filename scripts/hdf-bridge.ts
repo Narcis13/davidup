@@ -112,12 +112,29 @@ function printed(out: string, ext: string): string {
   return last;
 }
 
-/** `hdf render`; returns the mp4 with sound when the film has a score, else the picture. */
-export async function renderFilm(path: string, opts: { look?: string; frames?: number } = {}): Promise<string> {
+export type AlphaCodec = "mov" | "webm";
+
+/** `--alpha` alone is ProRes 4444 in a .mov, `--alpha webm` VP9; undefined when the flag is absent. */
+export function alphaCodec(v: string | true | undefined): AlphaCodec | undefined {
+  if (v === undefined) return undefined;
+  if (v === true || v === "mov") return "mov";
+  if (v === "webm") return "webm";
+  throw new BridgeError(`--alpha takes mov or webm (got '${v}'; put the arguments before --alpha)`);
+}
+
+/**
+ * `hdf render`; returns the clip with sound when the film has a score, else the picture: an mp4, or with
+ * `alpha` (4.0 D1) a .mov / .webm drawn on no stock, whose transparency davidup keeps.
+ */
+export async function renderFilm(
+  path: string,
+  opts: { look?: string; frames?: number; alpha?: AlphaCodec } = {},
+): Promise<string> {
   const args = ["render", path, "--out", HDF_OUT];
   if (opts.look) args.push("--look", opts.look);
   if (opts.frames !== undefined) args.push("--frames", String(opts.frames));
-  return printed(await hdf(args), ".mp4");
+  if (opts.alpha) args.push("--alpha", opts.alpha);
+  return printed(await hdf(args), opts.alpha ? `.${opts.alpha}` : ".mp4");
 }
 
 /** `hdf sheet store <id> --poses`; returns the model sheet's path. */
@@ -207,6 +224,7 @@ export function describe(asset: Asset): string {
   if (asset.type === "video") {
     if (asset.width && asset.height) extra.push(`${asset.width}x${asset.height}`);
     if (asset.duration !== undefined) extra.push(`${asset.duration}s`);
+    if (asset.hasAlpha) extra.push("alpha");
     if (asset.hasAudio) extra.push("sound");
   }
   return `${asset.id}  ${asset.type}  ${asset.src}${extra.length ? `  (${extra.join(", ")})` : ""}`;

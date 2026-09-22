@@ -204,7 +204,8 @@ export const clip = (path, kids) => mkOp({ op: 'clip', path: needPath(path, 'cli
 export const fx = (kind, args = {}, kids = [], o = {}) => mkOp({ op: 'fx', kind, args, kids: norm(kids), ...o });
 // Kids drawn in another look (lint allows it inside a shot only with inset: true).
 export const lookNode = (look, kids) => mkOp({ op: 'look', look, kids: norm(kids) });
-// Data for lint and the board, never drawn: meta('anchor', { cel } | { name }), meta('intent', 'crop').
+// Data for lint and the board, never drawn: meta('anchor', { cel } | { name }), meta('intent', 'crop'),
+// meta('intent', 'clip') (in the last frame: an overlay clip for davidup, so no sign-off).
 export const meta = (tag, data = {}) => mkOp({ op: 'meta', tag, data });
 
 // group(kids) | group(name, kids, opts) | group({ name, xf, box, cache, ... }, kids)

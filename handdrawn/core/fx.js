@@ -309,6 +309,11 @@ export const FX = {
       g.fillStyle = gr;
       g.beginPath(); g.arc(l.x, l.y, l.r, 0, TAU); g.fill();
     }
+    if (env.look.alpha) {   // no stock: the night darkens what is drawn, not the transparency around it
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = 'destination-in';
+      g.drawImage(ctx.canvas, 0, 0);
+    }
     blitDevice(ctx, M, { op: 'multiply' });
     const L = offscreen(ctx, env, 'night:l', renderKids, chalkLook(env.look)), lc = L.getContext('2d');
     lc.setTransform(1, 0, 0, 1, 0, 0);

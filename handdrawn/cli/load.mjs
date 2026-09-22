@@ -75,7 +75,17 @@ export function readHands(names, assets = {}) {
 // Imports a film module and checks its default export has the shape film() produces. look: a preset name
 // replacing the film's root look (--look), which may carry modifiers read off the film's assets
 // ('doodlePastel~from:teapot'); it is resolved here, once, so renderers downstream never need them.
-export async function loadFilm(path, { look } = {}) {
+// alpha: every look the film pins goes on no stock (`~alpha`), for a render with a transparent background.
+export async function loadFilm(path, { look, alpha } = {}) {
+  const f = await loadLooked(path, look);
+  if (!alpha) return f;
+  const g = mapLooks(f, (l) => modifyLook(l, [['alpha', '']], assetsOf(f)));
+  decoded.set(g, decoded.get(f));
+  records.set(g, assetsOf(f));
+  return g;
+}
+
+async function loadLooked(path, look) {
   if (!path) throw new UsageError('missing <film.js>');
   const abs = resolve(path);
   if (!existsSync(abs)) throw new UsageError(`film not found: ${path}`);

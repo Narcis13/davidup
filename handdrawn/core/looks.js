@@ -157,7 +157,25 @@ const MODS = {
   // The look lettered (and its pens drawn) in a hand from the store; the whole record is part of the look, so
   // two hands hash as two looks and never share a cache.
   hand: (look, id, assets, name) => withLook(look, { name: `${look.name}~hand:${id}`, hand: handRecord(id, assets, name) }),
+  // The look on no stock at all (`hdf render --alpha`): paper() and night() draw nothing, so the drawing sits
+  // on transparency. The paper role keeps its colour: a bubble, an eye white, a knockout still read as paper.
+  alpha: (look) => alphaOf(look),
 };
+
+// A look on no stock, one object per look (so its hash and the layer cache see one look, not one per frame).
+const alphaMemo = new WeakMap();
+function alphaOf(look) {
+  if (look.alpha) return look;
+  let a = alphaMemo.get(look);
+  if (!a) alphaMemo.set(look, (a = withLook(look, { name: `${look.name}~alpha`, alpha: true })));
+  return a;
+}
+
+// The look a lookNode's kids draw in: its own, on no stock when the look around it has none.
+export function innerLook(look, outer) {
+  const inner = resolveLook(look);
+  return outer?.alpha ? alphaOf(inner) : inner;
+}
 
 // A hand by id: 'house', one of the film's assets, or one read from a store (loadFilm reads the hand a look
 // names; a film may name it in fromStore([...]) instead).
@@ -202,7 +220,7 @@ export function modifyLook(look, mods, assets, name) {
   let out = resolveLook(look);
   for (const [kind, value] of mods) {
     const label = name ?? `${out.name}~${kind}:${value}`;
-    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => `${k}:<id>`).join(', ')})`);
+    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => (k === 'alpha' ? k : `${k}:<id>`)).join(', ')})`);
     out = MODS[kind](out, value, assets, label);
   }
   return out;

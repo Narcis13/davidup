@@ -5,7 +5,7 @@ import { loadFilm } from './load.mjs';
 import { frameRenderer } from './frames.mjs';
 
 const { path, opts } = workerData;
-const film = await loadFilm(path, { look: opts.look });
+const film = await loadFilm(path, { look: opts.look, alpha: opts.alpha });
 const r = frameRenderer(film, opts);
 
 parentPort.on('message', ({ range: [a, b] }) => {

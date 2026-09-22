@@ -22,7 +22,7 @@ export const RULES = Object.freeze({
   'cut-long': 'a cut longer than 1 s',
   'cut-adjacent': 'two cuts in a row',
   'cut-orphan': "a cut's outgoing or incoming shot never plays: cut(kind, dur, a, b) is only the transition, write seq(a, cut(kind, dur, a, b), b)",
-  'sign-off': 'no sign-off, or it is still being written 1.5 s before the end',
+  'sign-off': "no sign-off, or it is still being written 1.5 s before the end (a clip, meta('intent', 'clip') in its last frame, needs none)",
   'subject-size': 'the anchor subject is under the readability floor at 240 px',
   'subject-crop': "the anchor subject is cut by the frame edge without meta('intent', 'crop')",
   grid: 'a cue off the 1/12 s grid',
@@ -281,6 +281,15 @@ function timelineRules(film, F) {
   }
 }
 
+// meta('intent', 'clip'): the film is a piece of a longer one (an overlay in a davidup composition, 4.0 D1),
+// which signs off for it.
+function clipIn(list) {
+  let found = false;
+  const visit = (ops) => { for (const op of ops) { if (found) return; if (op.op === 'meta' && op.tag === 'intent' && (op.data === 'clip' || op.data?.kind === 'clip')) found = true; else if (op.kids) visit(op.kids); } };
+  visit(norm(list));
+  return found;
+}
+
 function signOffIn(list) {
   let found = null;
   const visit = (ops) => { for (const op of ops) { if (found) return; if (op.op === 'meta' && op.tag === 'signOff') found = op.data; else if (op.kids) visit(op.kids); } };
@@ -313,6 +322,7 @@ function signOffRule(film, F) {
   let last;
   try { last = frame(film, film.n - 1); } catch { return; }   // a draw error is already a finding
   const sign = signOffIn(last.list);
+  if (!sign && clipIn(last.list)) return;
   if (!sign) { F.add('sign-off', last.shot, film.n - 1, 'no signOff() in the last frame', 'none'); return; }
   const hand = handOf(last.look), missing = hand ? fallbacks(`${sign.a ?? ''}${sign.b ?? ''}`, hand) : [];
   if (missing.length) F.add('hand-missing', last.shot, film.n - 1, `the sign-off letters ${missing.map((c) => `'${c}'`).join(', ')} in the house hand: hand '${hand.name}' has no glyph for ${missing.length > 1 ? 'them' : 'it'}`, 'fallback');

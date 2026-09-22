@@ -206,6 +206,15 @@ describe("probeVideoSync", () => {
     expect(meta?.hasAlpha).toBe(true);
   });
 
+  it("reads the tag in upper case, as a stream-copy remux writes it", () => {
+    const remuxed = WEBM_ALPHA_JSON.replace('"alpha_mode"', '"ALPHA_MODE"');
+    const meta = probeVideoSync("/abs/overlay-final.webm", {
+      ffprobePath: "/bin/ffprobe",
+      spawnSync: () => ({ status: 0, stdout: remuxed }),
+    });
+    expect(meta?.hasAlpha).toBe(true);
+  });
+
   it("returns undefined rather than throwing when ffprobe is missing", () => {
     expect(
       probeVideoSync("/abs/x.webm", {

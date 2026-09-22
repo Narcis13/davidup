@@ -324,3 +324,6 @@ assets (`hdf-<film>` video, `hdf-<puppet>-model` image) in
 <item-id>` renders the film a video item names (`"name": "hdf:<film>"` or
 `--film`) into that item's asset. Both take `--look`, `--frames N` and
 `--dry-run`, and rewrite only the `assets` array of `composition.json`.
+`davidup-hdf-clip.ts --alpha [mov|webm]` renders the film on no stock with its
+transparency (`hdf render --alpha`), and `register_asset` records `hasAlpha`,
+so davidup's render keeps it: an overlay clip.

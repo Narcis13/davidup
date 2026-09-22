@@ -330,13 +330,24 @@ image asset. Run from the repo root:
 
 ```bash
 bun run scripts/hdf-to-davidup.ts fox-and-teapot --project <dir|name> [--look risoPop] [--dry-run]
-bun run scripts/davidup-hdf-clip.ts <project>/composition.json <video-item-id> [--film <film>]
+bun run scripts/davidup-hdf-clip.ts <project>/composition.json <video-item-id> [--film <film>] [--alpha [mov|webm]]
 ```
 
 The first renders and registers `hdf-<film>` (video) and `hdf-<puppet>-model`
 (image) into `<project>/assets/hdf/`; the second renders the film a video
 item names (`"name": "hdf:<film>"`) and points its asset at the mp4. Both
 take `--frames N` for a quick first cut, and re-running replaces in place.
+
+**An overlay.** `--alpha` draws the film on no stock and keeps the
+transparency (ProRes 4444 `.mov`; `--alpha webm` is VP9, which the editor's
+browser preview also plays), so a character stands over a davidup photo or
+video with the picture all round it. Write the clip as a clip: one character,
+no backdrop fill, a soft `shade` shadow at alpha 0.3 if it stands on
+anything, and `meta('intent', 'clip')` in its last frame instead of a
+sign-off (the composition signs off). Washes bring their paper with them, so
+a doodle body stays opaque, with a thin paper edge like a sticker.
+`handdrawn/films/fox-wave.js` is the pattern; `examples/hdf-overlay/` puts it
+over a slideshow of photos.
 
 ## Procedure
 
@@ -391,6 +402,10 @@ or `--ar 9:16` renders another format; `--width 1920` a larger one;
 `--look <preset>` restyles every shot that does not name its own look, and
 a modifier (`~hand:`, `~from:`) reaches the looks shots pin too.
 `--frames N` draws the first N frames only, to `<film>-<N>f.*`.
+`--alpha [mov|webm]` draws on no stock (`paper()` and `night()` draw
+nothing; the `paper` role keeps its colour) to `<film>-alpha.mov` or
+`.webm`, the contact sheet on a checkerboard; `--look 'x~alpha'` is the same
+look for `only`, `grid` or the player.
 
 ## What lint checks, and what it cannot
 
@@ -399,7 +414,8 @@ starting on paper, night or a backdrop; two finishes or a look op in a shot;
 a missing anchor; more than two scribbled parts; a cel drawing outside its
 box; words beyond the look's allowance (0; doodle and cutout 3, spoken words
 included; `look.words` to change it); a cut over 1 s or two cuts in a row;
-no sign-off, or one still writing 1.5 s before the end; an anchor under
+no sign-off, or one still writing 1.5 s before the end (a clip, with
+`meta('intent', 'clip')` in its last frame, needs none); an anchor under
 24 px at 240 px wide, or cut by the frame edge without `meta('intent',
 'crop')`; cues off the 1/12 s grid; `Math.random`, `Date`, filters,
 `shadowBlur` or gradients in the source. From 3.0: a recipe asking an actor

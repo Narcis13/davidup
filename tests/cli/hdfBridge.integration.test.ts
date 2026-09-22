@@ -92,4 +92,26 @@ describe("davidup-hdf-clip", () => {
     // The item itself is untouched.
     expect(JSON.parse(readFileSync(file, "utf8")).items.clip).toEqual(doc.items.clip);
   });
+
+  // 4.0 D1: an overlay. The film is drawn on no stock and registered with its alpha, as ProRes 4444 or VP9.
+  it("--alpha registers a clip with its transparency, as .mov or .webm", async () => {
+    const root = await project();
+    const file = join(root, "composition.json");
+    const doc = JSON.parse(readFileSync(file, "utf8"));
+    doc.items.fox = {
+      type: "video", asset: "fox", name: "hdf:fox-wave", width: 360, height: 360, start: 0, fit: "contain", loop: true,
+      transform: { x: 640, y: 360, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 },
+    };
+    doc.layers[0].items.push("fox");
+    writeFileSync(file, JSON.stringify(doc, null, 2));
+
+    expect(bun("davidup-hdf-clip.ts", file, "fox", "--alpha", "--dry-run").out).toMatch(/hdf render .*fox-wave\.js --alpha mov/);
+    expect(bun("davidup-hdf-clip.ts", file, "fox", "--alpha", "gif").err).toMatch(/--alpha takes mov or webm/);
+    for (const [codec, ext] of [["mov", "prores"], ["webm", "vp9"]] as const) {
+      const { code, out, err } = bun("davidup-hdf-clip.ts", file, "fox", "--frames", "6", "--alpha", codec);
+      expect(code, err).toBe(0);
+      expect(out).toMatch(new RegExp(`fox plays fox {2}video {2}assets/hdf/fox\\.${codec} .*alpha`));
+      expect((await listAssets(root)).find((a) => a.id === "fox")).toMatchObject({ type: "video", hasAlpha: true, codec: ext });
+    }
+  });
 });

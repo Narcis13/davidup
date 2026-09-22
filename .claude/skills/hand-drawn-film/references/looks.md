@@ -88,7 +88,7 @@ look: withLook('pencilMinimal', { words: 3 })                           // allow
   in `lookOn`. Lint fails a look op inside a shot (except a print's
   thumbnail marked `inset: true`).
 
-## Modifiers: `~hand:` and `~from:`
+## Modifiers: `~hand:`, `~from:` and `~alpha`
 
 A preset name may carry modifiers, applied in this order and folded into the
 look's name (so caches never collide): `'risoPop~hand:narcis'`,
@@ -99,6 +99,15 @@ look's name (so caches never collide): `'risoPop~hand:narcis'`,
   lettered and drawn in it; a stroke with `wobble: 0` (hatching, rules) is
   not. Absent, the house hand: byte-identical to 2.0.
 - `~from:<id>`: `derive(look, { from })` with that cutout's colours table.
+- `~alpha` (4.0 D1): no stock. `paper()` and `night()` draw nothing, so the
+  frame is transparent round the drawing; the `paper` role keeps its colour
+  (a bubble, an eye white, a knockout). A wash (`blend: 'wash'`) puts the
+  paper in behind what is already drawn inside its own path before it
+  multiplies, so a watercolour body looks as it does on the page and stays
+  opaque; a plain translucent fill (a shadow) stays translucent. `nightShot`
+  darkens the drawing only. A `lookNode` inside a list inherits it. `hdf
+  render --alpha` (and `loadFilm(path, { alpha: true })`) applies it to
+  every look the film pins.
 - They work in `film({ look })` and a shot's `look` (name the id in
   `assets:`), and as `--look` on any command (found in the store by itself),
   where they also reach the looks shots pin, each keeping its own paper.

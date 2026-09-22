@@ -26,7 +26,7 @@ const hdf = (...args) => spawnSync(process.execPath, ['cli/hdf.mjs', ...args], {
 
 test('films/ holds the seven ported films, fox-and-teapot and cutout-fox, each with a golden', async () => {
   const all = await films();
-  assert.deepEqual(all.map((f) => f.name).sort(), ['cutout-fox', 'fly-style', 'four-looks', 'fox-and-teapot', 'gallop', 'held-once', 'lesson', 'mini', 'mini-voice', 'moon-book', 'narrated', 'one-year']);
+  assert.deepEqual(all.map((f) => f.name).sort(), ['cutout-fox', 'fly-style', 'four-looks', 'fox-and-teapot', 'fox-wave', 'gallop', 'held-once', 'lesson', 'mini', 'mini-voice', 'moon-book', 'narrated', 'one-year']);
   for (const f of all) assert.ok(existsSync(join(FILMS, 'goldens', `${f.name}.json`)), `no golden for ${f.name}; run hdf golden ${f.file} write --workers 1`);
 });
 
@@ -61,6 +61,13 @@ test("mini under --look whiteboard matches its own golden, and lints clean", { s
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const l = hdf('lint', 'films/mini.js', '--look', 'whiteboard');
   assert.equal(l.status, 0, l.stdout + l.stderr);
+});
+
+// 4.0 D1: fox-wave on no stock is a golden of its own (goldens/fox-wave-alpha.json).
+test('fox-wave under --alpha matches its own golden', { skip: process.platform !== 'darwin' && 'goldens are written on darwin' }, async () => {
+  assert.ok(existsSync(join(FILMS, 'goldens', 'fox-wave-alpha.json')));
+  const r = hdf('golden', 'films/fox-wave.js', 'check', '--workers', '4', '--alpha');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
 // S1: --look 'preset~from:<asset>' paints the film in a cutout's own colours. held-once pins a look per scene

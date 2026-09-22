@@ -50,8 +50,9 @@ export function tileSheet(tiles, { cols = 4, gap = 16, label = 0 } = {}) {
   return sheet;
 }
 
-// Output name for a film rendered with --look / --ar, so variants never overwrite each other: gallop-risoPop-16x9.
-export const variant = (film, flags) => `${film.name}${flags.look ? '-' + flags.look : ''}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}`;
+// Output name for a film rendered with --look / --ar / --alpha, so variants never overwrite each other:
+// gallop-risoPop-16x9, fox-wave-alpha.
+export const variant = (film, flags) => `${film.name}${flags.look ? '-' + flags.look : ''}${flags.ar ? '-' + flags.ar.replace(':', 'x') : ''}${flags.alpha ? '-alpha' : ''}`;
 
 export const outDir = (flags) => { const d = resolve(flags.out ?? 'out'); mkdirSync(d, { recursive: true }); return d; };
 
@@ -101,11 +102,20 @@ export async function grid([path], flags, { loadFilm }) {
   return 0;
 }
 
+// A light checkerboard, the way an editor shows transparency, in squares of 8 px.
+function checker(g, w, h, sq = 8) {
+  g.fillStyle = '#e8e8e8';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#c4c4c4';
+  for (let y = 0; y < h; y += sq) for (let x = (y / sq) % 2 ? sq : 0; x < w; x += 2 * sq) g.fillRect(x, y, sq, sq);
+}
+
 // The render's contact sheet: two tiles per second (every sixth drawn frame), twelve to a row, with a strip
 // under each row showing cuts (red lines through tile and strip) and score onsets (dots, higher = higher
 // pitch; noise as a cross) and, when the score speaks, a band of voice bars (4.0 V1: the whole sound faint,
 // its voiced part solid, the sample id on it). add(i, rawRGBA) as frames go by, then write(file, { cues, events }).
-export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, cols = 12 } = {}) {
+// alpha: the frames are transparent (--alpha), so each tile sits on a checkerboard.
+export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, cols = 12, alpha = false } = {}) {
   const size = outputSize(ar ? format(ar) : film.format, width);
   const tileH = Math.round(tileW * size.outH / size.outW);
   const full = skiaCanvas(size.outW, size.outH), fctx = full.getContext('2d');
@@ -116,8 +126,9 @@ export function contactSheet(film, { ar, width, tileW = 160, every = FPS / 2, co
       if (i % every) return;
       fctx.clearRect(0, 0, size.outW, size.outH);   // skia records commands: without a full clear every putImageData is replayed
       fctx.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength), size.outW, size.outH), 0, 0);
-      const t = skiaCanvas(tileW, tileH);
-      t.getContext('2d').drawImage(full, 0, 0, tileW, tileH);
+      const t = skiaCanvas(tileW, tileH), tg = t.getContext('2d');
+      if (alpha) checker(tg, tileW, tileH);
+      tg.drawImage(full, 0, 0, tileW, tileH);
       tiles[i / every] = t;
     },
     async write(file, { cues = { cuts: [] }, events = [] } = {}) {

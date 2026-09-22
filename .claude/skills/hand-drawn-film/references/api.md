@@ -34,7 +34,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `clip(path, kids)` Kids drawn only inside the path.
 - `fx(kind, args = {}, kids = [], o = {})` Kids drawn through a raster effect (FX: dissolve, blot, iris, mosaic, nightShot, glow, scribble, ...).
 - `lookNode(look, kids)` Kids drawn in another look (lint allows it inside a shot only with inset: true).
-- `meta(tag, data = {})` Data for lint and the board, never drawn: meta('anchor', { cel } | { name }), meta('intent', 'crop').
+- `meta(tag, data = {})` Data for lint and the board, never drawn: meta('anchor', { cel } | { name }), meta('intent', 'crop'), meta('intent', 'clip') (in the last frame: an overlay clip for davidup, so no sign-off).
 - `hashList(list)` 16 hex digits over a whole list (what frame dedup and `hdf changed` compare).
 - `bounds(list, m = I)` Union of the ops' boxes in the list's coordinates (through each group's xf).
 - `walk(list, visit, m = I, depth = 0)` Depth first. visit(op, m, depth) sees each op with the matrix of its parent; returning false skips its kids.

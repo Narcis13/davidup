@@ -12,10 +12,13 @@ const USAGE = `usage: hdf <command> [args] [flags]
 
   every command that takes a film also takes [--look <preset>] (replaces the root look);
   a preset may carry modifiers: --look 'doodlePastel~from:teapot' paints it in that cutout's own colours,
-  --look 'paperInk~hand:test' letters it (and draws its pens) in a hand from the store
+  --look 'paperInk~hand:test' letters it (and draws its pens) in a hand from the store,
+  --look 'paperInk~alpha' draws it on no stock
 
   render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir] [--frames N]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
+                                    [--alpha [mov|webm]]   no stock, transparency kept: <film>-alpha.mov (ProRes 4444)
+                                    or .webm (VP9), an overlay clip for davidup (scripts/davidup-hdf-clip.ts --alpha)
   grid    <film.js> [--n 24] [--width 480]
   only    <film.js> 0,37,74
   board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg)
@@ -28,7 +31,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     (packs/poses/biped.json; assets/sheets/<id>-vocabulary.jpg)
   lint    <film.js>                 review checklist over lists; exits 1 on any finding
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
-  golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json
+  golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json; --alpha: <film>-alpha.json
   dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet
@@ -154,7 +157,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
   const { run } = await import(pathToFileURL(file).href);
-  const load = (path) => loadFilm(path, { look: flags.look });
+  const load = (path) => loadFilm(path, { look: flags.look, alpha: !!flags.alpha });
   return (await run(args, flags, { loadFilm: load })) ?? 0;
 }
 

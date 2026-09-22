@@ -29,7 +29,8 @@ export function frameRenderer(film, { ar, width, cacheMb = 512, diskCache } = {}
 }
 
 // produceFrames(path, film, opts, onFrame): calls await onFrame(i, buf, dup) for i = 0..n-1 in order.
-// A dup frame gets the previous frame's buffer. opts: { ar, width, workers, cacheMb, diskCache, chunk }.
+// A dup frame gets the previous frame's buffer. opts: { ar, width, workers, cacheMb, diskCache, chunk, look, alpha }
+// (look and alpha reach the workers, which load the film themselves; the film given here is already loaded with them).
 // Returns { size, stats }.
 export async function produceFrames(path, film, opts, onFrame) {
   const workers = Math.max(1, Math.min(opts.workers ?? defaultWorkers(), film.n));
@@ -54,7 +55,7 @@ async function pool(path, film, opts, onFrame) {
   const chunk = opts.chunk ?? Math.max(1, Math.min(12, Math.ceil(film.n / workers)));
   const ranges = [];
   for (let a = 0; a < film.n; a += chunk) ranges.push([a, Math.min(film.n, a + chunk)]);
-  const workerOpts = { look: opts.look, ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers) };
+  const workerOpts = { look: opts.look, alpha: opts.alpha, ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers) };
   const url = new URL('./worker.mjs', import.meta.url);
   const pending = new Map();
   const stats = { dups: 0, workers };
