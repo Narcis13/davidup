@@ -346,6 +346,10 @@ Every recipe `R(opts)` returns a shot; `R.layer(ctx, opts)` returns its drawing 
 - `darkSection(opts)` **X** X. Dark section devices (1.5 s): dotted arcs every `gap` around a still centre, dot bursts, a chalk figure, stars as grain, an optional caption in chalkDim. Options: dur, x, y, rings, gap, figure, scale, caption, seed.
 - `patternSampler(opts)` **Y** Y. Pattern sampler (1.5 s): a 4 x 4 grid, each cell a different lattice or mark, one more cell per drawn frame. Options: dur, x, y, cell, gap, seed.
 - `enso(opts)` **Z** Z. Enso (1.5 s): a thick brush circle draws itself round a thin figure, then the paper dims to chalk. Options: dur, x, y, r, w, figure, scale, draw, dim, seed.
+- `titleCard(opts)` **AN** AN. Title card (3 to 5 s): after a beat the title is written on (centred, wrapped to `width`) at the pen's pace, a swash underlines it, the `sub` writes under it; the actor, at the side, presents it as the title is finished. Options: dur, title, sub, audience, actor, side, h, x, y, size, width, role, swash, at, pose, seed.
+- `labelled(opts)` **AO** AO. Labelled subject (3 to 8 s): the subject drawn at (x, y) by `scale`, then one label at a time: a dot on the part (`at`), a leader line out to where the word sits (`from`, or `reach` out past the side of the subject the part is on, ... Options: dur, subject, x, y, scale, reach, labels, per, audience, actor, side, h, size, role, leader, nudge, at, pose, seed.
+- `counting(opts)` **AP** AP. Counting (0.5 to 1 s an object): n objects pop in one at a time (`per`, default the audience's counting pace) in rows of `cols`, each with its number written under it; a tally grows at the bottom (`tally: false` for none); with ... Options: dur, items, n, cols, x, y, gap, scale, per, tally, label, audience, actor, side, h, size, role, mark, at, pose, seed.
+- `compare(opts)` **AQ** AQ. Compare (3 to 5 s): a line splits the frame, the left subject pops in (its label written under it), then the right, then the sign between them is drawn last in `role` in a gap left in the line: 'vs' lettered, '=' '>' '<' drawn. Options: dur, left, right, sign, labels, x, y, scale, audience, actor, h, size, role, mark, divider, at, seed.
 
 ### Doodle recipes (recipes/doodle.js, re-exported)
 
@@ -367,17 +371,22 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ### Helpers
 
+- `AUDIENCES` Audiences (until T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the seconds anything new stays before the next thing, count ... <sub>recipes/teach.js</sub>
 - `BOAT` the boat's hull and sail paths <sub>recipes/shots.js</sub>
 - `CARDS` Three sample riso cards (sun over the sea, a big moon, stripes under a disc), the default for recipes that take cards (O, P, Q), so each renders with no arguments; N's iris takes one (`iris: { card: CARDS[0] }`). <sub>recipes/shots.js</sub>
 - `CAST` The doodle characters by name. FOX is the store's puppet as an actor, built the first time it is asked for, and only once the film has read it (fromStore(['fox'])); undefined before that. <sub>recipes/doodle.js</sub>
 - `DOODLE` The set by v1 letter, so scenes.md stays a lookup. <sub>recipes/doodle.js</sub>
+- `FLOWER_AT` Where the flower's parts are, in its own units (place it at (x, y) with `scale` and add them). <sub>recipes/teach.js</sub>
 - `HOG` The hedgehog as an actor: states are hog's own options (dir, eye, run phase), put() is hog itself. <sub>recipes/doodle.js</sub>
 - `ROLES` Roles the doodle cast and props share (quills, tea, star, ...), as role objects. <sub>recipes/doodle.js</sub>
-- `actorFigure(actor, state = {}, h = 140, fit = 'box')` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/shots.js</sub>
+- `actorFigure(actor, state = {}, h = 140, fit = 'box')` An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for dir -1. <sub>recipes/recipe.js</sub>
+- `apple` An apple to count (AP's and AQ's default), about 60 units across. <sub>recipes/teach.js</sub>
+- `audienceOf(a = 'general')` The audience record for a name (or a record passed whole); throws on a name it does not know. <sub>recipes/teach.js</sub>
 - `bez([p0, p1, p2, p3], u)` A point on a cubic Bezier [p0, c0, c1, p1] at u. <sub>recipes/shots.js</sub>
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>
 - `ellipseRot(x, y, rx, ry, rot = 0, n = 64)` An ellipse turned by rot about its centre. <sub>recipes/shots.js</sub>
+- `flower` A flower to label (AO's default): petals, a centre, a stem, a leaf, roots. <sub>recipes/teach.js</sub>
 - `hog(d, x, y, s, o = {})` The hedgehog of v1 held-once and night-shift: gouache body, quill wash, brush outline, dot eyes, a scarf (the anchor colour). <sub>recipes/doodle.js</sub>
 - `hop(a, b, t, h)` From a to b over t = 0..1 on an arc h high. <sub>recipes/doodle.js</sub>
 - `lastFrame(node)` A shot's last frame as a print for printsOnALine (AF): (ctx) => list. <sub>recipes/doodle.js</sub>

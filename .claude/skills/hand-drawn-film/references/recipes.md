@@ -192,6 +192,41 @@ fox; `held-once.js` runs AA to AF with the hedgehog.
 The long method for finding the idea in an object is v1's
 `references/doodle.md`; `held-once.js` is the worked 2.0 example.
 
+## Teaching (explainers, 4.0)
+
+Recipes AN to AQ live in `handdrawn/recipes/teach.js` and are re-exported
+from `shots.js`. `films/lesson.js` runs all four on the whiteboard.
+
+- **They time themselves.** `dur` defaults to what the copy needs for
+  `audience:` (`general`, `beginner`, `kids-9`, `kids-7`, `kids-5`; the table
+  is `AUDIENCES`): the pen writes at `write` characters a second, the viewer
+  reads `read` words a second, each new thing `dwell`s, and letters grow by
+  `text`. Longer copy gets a longer shot, and a younger audience gets a slower
+  one. Pass `dur` to fix it: the timing inside stays put and a longer shot
+  holds at the end. Durations land on the 1/12 s grid.
+- **`actor:` is the teacher**, not the subject. It stands at the side
+  (`side: 'left' | 'right'`, `h` is its rest pose's drawn height), faces us,
+  idles, and takes poses from the biped vocabulary: `present`, `point-r`,
+  `cheer`, `think`. A cast member without a vocabulary just idles. To label an
+  actor, pass it as AO's subject:
+  `subject: (ctx) => actorFigure(A, A.idle(ctx.t), 300, 'drawn')`.
+- **Words.** Every lettered string counts against the look's allowance,
+  digits included. The whiteboard allows 12 a shot, other looks 0 to 3, so set
+  `look.words` (`derive`) when you use them elsewhere. Lettering is written on
+  in stroke order.
+
+| | function | timing | what happens |
+|---|---|---|---|
+| AN | `titleCard({ title, sub })` | 3 to 6 s: `at` (0.25 s), the title written, 0.3 s of swash, the sub written, then read | the title written on, centred and wrapped to `width`; a swash in `swash` (accents.0) underlines it; the sub goes under it; the teacher `present`s as the title finishes and smiles once it is all down |
+| AO | `labelled({ subject, labels, per })` | per label: 0.3 s leader, the word written, then read (or `per`) | the subject at (`x`, `y`) by `scale` (default: a `flower`); for each `{ text, at, from? }`, a dot on the part, a leader to the word, the word written; words sit `reach` past the side of the subject the part is on, a line and a half apart; the camera eases `nudge` (0.1) towards each label and back to the whole at the end |
+| AP | `counting({ items, n, per, tally, label })` | `per` an object (the audience's `count`, 0.5 to 1 s), then the total written and read | `n` objects (a cel or `(ctx, j) => node`, default `apple`) pop in, in rows of `cols`, each numbered underneath; a tally in `mark` grows below (`tally: false` for none); `label` writes the total ("8 phases"); the teacher points, then cheers |
+| AQ | `compare({ left, right, sign, labels })` | 3 to 6 s: the divider, the left, the right (each read), the sign, then read | a line splits the frame, `left` pops in with its label, then `right`, then the sign (`'<'`, `'>'`, `'='` drawn, `'vs'` lettered) is drawn last in `mark` in a gap in the line; the teacher thinks, then presents the answer |
+
+Objects that pop in (AP's items, AQ's subjects) draw direct, never as cached
+layers. The whiteboard's marker is translucent, and a cached layer of it can
+differ by one level from the same drawing replayed, which would make a
+repeated object render differently across worker splits.
+
 ## Timing and editing
 
 - Beat sheet first, as a comment above the timeline: start, duration, shot,

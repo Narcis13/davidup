@@ -1,6 +1,6 @@
 ---
 name: hand-drawn-film
-description: Make a 10 to 40 second film that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
+description: Make a 10 to 40 second film that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM, and the teaching set AN to AQ), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
 ---
 
 # Hand-drawn film 3.0
@@ -26,6 +26,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 |---|---|---|
 | `mini.js` | paperInk | the smallest complete film: a cel, a shot, a sign-off, a score |
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
+| `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
@@ -206,7 +207,9 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   turns with the page. `becomesVehicle({ photo: PHOTOS.violin, actor: FOX })`
   is the whole change from the hedgehog to the fox. On A, G, M, U, W, X, Z
   `h` sets the actor's drawn height (`h: 300`); without it a puppet is fitted
-  by its rig box and reads small.
+  by its rig box and reads small. On the teaching recipes AN to AQ the actor
+  is the teacher, not the subject: it stands at the side (`side`, `h`) and
+  presents, points, cheers or thinks from the biped vocabulary.
 - **Speech.** `const line = FOX.say('hello there', 1.25)` then `say: line`
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`
