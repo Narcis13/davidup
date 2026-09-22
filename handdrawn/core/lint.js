@@ -521,6 +521,9 @@ export function lintPuppet(data, name = data?.name ?? 'puppet') {
   for (const [cn, c] of Object.entries(data?.cycles ?? {})) {
     const frames = Array.isArray(c?.frames) ? c.frames : [];
     if (c?.n !== undefined && c.n !== frames.length) add('puppet-joint', `cycle '${cn}' says n ${c.n} and carries ${frames.length} frames`, `cycle|${cn}`);
+    if (c?.advance !== undefined && !(Array.isArray(c.advance) && c.advance.length === frames.length && c.advance.every(Number.isFinite))) {
+      add('puppet-joint', `cycle '${cn}' has an advance that is not a number a frame (${frames.length})`, `cycle|${cn}|advance`);
+    }
     frames.forEach((fr, j) => {
       for (const [k, v] of Object.entries(fr ?? {})) {
         if (k !== 'lift') joint(`cycle '${cn}' frame ${j}`, k, v);

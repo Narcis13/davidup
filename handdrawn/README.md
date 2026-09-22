@@ -555,6 +555,58 @@ out/pose-me.json --name me` remakes the clip from kept landmarks with nothing
 installed. Film two strides or more so a loop can be found (a single stride is
 kept whole).
 
+The clip keeps its stride (4.0 K7): `advance`, how far the body travels each
+frame in figure heights, read off the planted foot (of the ankles moving back
+against the hip, the lower), so a panning camera or a treadmill does not fool
+it; `hdf clip` prints it beside how far the hips crossed the picture, which
+agree when the camera held still. `hdf retarget` carries it onto the cycle as
+`advance` in the puppet's box heights, scaled by leg length (the puppet's hip
+to ankle over yours), and says what the puppet's own feet make of it (a few
+percent under: the 2 degree grid). `strideOf` and `walkTo` still measure the
+feet where a foot is down, so nothing slides; the clip's advance fills the
+frames with no foot down (a lifted frame: a run's flight) and a puppet with no
+two feet, and `strideOf(...).captured` is the clip's stride to hold the
+measured one against.
+
+### Your face and hands
+
+A phone clip of you talking drives a puppet's face (4.0 K7, `core/face.js`).
+`hdf clip --kind face` runs MediaPipe's face landmarker (`cli/track.py`, its 52
+blendshapes a frame) and stores a *face track*: a clip entry with `track:
+'face'`, twelve channels a frame at 12 fps (jaw, smile, pucker, blink-l,
+blink-r, wide, brow-up, brow-outer, down-l, down-r, look-x, look-y), each less
+the take's resting level, a blink kept as the most of its twelfth of a second.
+`--kind hands` does the same with the hand landmarker: five finger curls per
+hand a frame (1 straight, 0 curled), the hand further left in the picture `l`.
+
+```bash
+ffmpeg -i talk.mov -vf fps=30 work/talk/%04d.png
+hdf clip --kind face work/talk --name me-face        # out/face-me-face.json kept; model in .cache/
+hdf clip --kind hands work/talk --name me-hands      # out/hands-me-hands.json
+hdf stick --name sam --hands fingers                 # hands with open, fist, point and thumb
+```
+
+```js
+const T = fromStore(['me-face', 'me-hands', 'talk']);
+SAM.place(x, y, s, { ...state, ...SAM.face('me-face', t, t0), ...SAM.hands('me-hands', t, t0) });
+score: [voice('talk', t0)]                            // the recording the face was filmed with
+```
+
+`actor.face(id | track, t, t0 = 0, { mirror })` is a state patch: the mouth
+(jaw 0.5 D, 0.3 C, a pucker E or F, a little B, a smile the puppet's happy
+mouth, else X, through the puppet's own mouths as V3 maps them), the eye (both
+blinks its shut eye, one a wink, half-shut `half`, wide `wide`, else `open`,
+each only when it has it), the brows (its own `worried`, `surprised` and
+`angry` scaled by brow-up, brow-outer and down, on their grids) and the pupils
+(the gaze times their slide range); `{}` outside the track or for a code cel.
+`actor.hands(id | track, t, t0, { mirror })` picks, for a hand part with
+variants, the nearest of `open fist point thumb` it has. The picture's left
+drives the drawing's left (`-l`), which for a person and a puppet both facing
+us is the same side of the body; a selfie camera's mirrored picture wants
+`mirror: true`. MediaPipe and the model files are needed once; the kept
+landmarks remake the track with nothing installed. A track draws nothing:
+`registerClip` refuses one.
+
 ### Sand (`engines/sim.js`, see `one-year.js`)
 
 A height field of sand on a light table, stepped at 48 Hz and shaded as
@@ -1284,6 +1336,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf clip <roto.py output> [--js clips.js] [--rig quadruped\|biped]` | a traced clip in the v2 format, with a skeleton per frame when rigged |
 | `hdf clip --store <id> --rig <rig>` | a skeleton for a clip already in the store, in place |
 | `hdf clip --kind pose <frames-dir\|landmarks.json> --name <id> [--fps 30] [--model] [--no-loop]` | your own motion: MediaPipe pose landmarks per frame -> a biped clip in the store |
+| `hdf clip --kind face\|hands <frames-dir\|landmarks.json> --name <id> [--fps 30] [--model]` | your face (blendshapes) or hands (finger curls) per frame -> a track in the store, read by `actor.face` / `actor.hands` |
 | `hdf retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]` | a clip's skeleton as a puppet cycle in the store |
 | `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
 | `hdf import --v2 <photos.js\|clips.js> [--licence] [--tags]` | a 2.0 data module into the store: one entry per record |

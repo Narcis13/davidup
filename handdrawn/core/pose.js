@@ -4,7 +4,7 @@
 // frames and writes the landmarks; everything after that lives here, in JS, and needs nothing installed.
 //
 //   raw = { fps, w, h, frames: [ [[x, y, z, visibility] x 33] | null ] }   x, y as fractions of the image
-//   poseClip(raw, { loop: true })   => { n, fps: 12, h, rig: 'biped', facing, frames: [{ outer, lines: [], skel }], pose }
+//   poseClip(raw, { loop: true })   => { n, fps: 12, h, rig: 'biped', facing, frames: [{ outer, lines: [], skel }], advance, pose }
 //
 // On the way:
 //   - a frame with no pose takes its landmarks from the frames either side (ends hold);
@@ -23,6 +23,12 @@
 //     the figure's height): a clip of one stride has no repeat to find and is kept whole. pose.loop =
 //     { start, n, err, cut } says what was found (err in figure heights); pose also records the source
 //     frames, their fps, the swaps undone and which side is 1.
+//   - stride (4.0 K7): `advance`, one number a frame, how far the body travels from that frame to the next in
+//     figure heights (h), forward positive. It is read off the planted foot: of the ankles moving back
+//     against the hip, the lower over both frames (core/ik.js's rule for a puppet), so it holds with a
+//     camera that pans or a treadmill; with the camera still it is the hip's travel across the picture,
+//     which pose.travel records as a check. pose.stride is the loop's sum. hdf retarget carries it onto the
+//     puppet's cycle scaled by leg length, so a walk moves as far a step as the clip did.
 import { FPS } from './curves.js';
 import { RIGS } from './rig.js';
 
@@ -139,6 +145,22 @@ export function loopOf(joints, h, { min = 6, max = 30 } = {}) {
   return { ...pick, err: Math.round(pick.err * 1000) / 1000 };
 }
 
+// How far the body travels from each frame to the next, in figure heights, forward positive: the planted
+// ankle's move back against the hip (frames in clip coordinates, x from the hip). The last frame repeats the
+// one before it.
+export function advanceOf(frames, facing, h) {
+  const out = [];
+  for (let k = 0; k + 1 < frames.length; k++) {
+    const f = frames[k], g = frames[k + 1];
+    const feet = [LM.ankleL, LM.ankleR].map((i) => ({ dx: (g[i][0] - f[i][0]) * facing, low: f[i][1] + g[i][1] }));
+    const back = feet.filter((q) => q.dx <= 0);
+    const planted = (back.length ? back : feet).reduce((a, b) => (b.low > a.low ? b : a));
+    out.push(Math.round(-planted.dx / h * 1e4) / 1e4 || 0);
+  }
+  out.push(out.length ? out[out.length - 1] : 0);
+  return out;
+}
+
 // A pose landmarker's output as a biped clip (see the top of this file).
 export function poseClip(raw, { loop = true, seam = 0.03, credit = '', source = '' } = {}) {
   if (!raw || !Array.isArray(raw.frames) || !raw.frames.length) throw new Error('pose: expected { fps, w, h, frames: [landmarks | null] }');
@@ -148,20 +170,29 @@ export function poseClip(raw, { loop = true, seam = 0.03, credit = '', source = 
   const facing = Math.sign(frames.reduce((s, f) => s + Math.sign(f[LM.nose][0] - mid(f[LM.earL], f[LM.earR])[0]), 0)) || 1;
   const ground = median(frames.map((f) => Math.max(...FEET.map((i) => f[i][1]))));
   const h = Math.round(median(frames.map((f) => ground - Math.min(...f.map((p) => p[1])))));
-  // Clip coordinates: x from the frame's hip, y from the ground.
-  frames = frames.map((f) => { const hx = mid(f[LM.hipL], f[LM.hipR])[0]; return f.map(([x, y]) => [x - hx, y - ground]); });
+  // Clip coordinates: x from the frame's hip, y from the ground; the hip's own travel kept as a check.
+  let hips = frames.map((f) => mid(f[LM.hipL], f[LM.hipR])[0]);
+  frames = frames.map((f, k) => f.map(([x, y]) => [x - hips[k], y - ground]));
   const one = (frames[0][LM.ankleL][0] - frames[0][LM.ankleR][0]) * facing >= 0 ? 'L' : 'R';
+  let advance = advanceOf(frames, facing, h);
 
   let joints = frames.map((f) => jointsOf(f, one)), cut = null;
   if (loop && frames.length >= 12) {
     cut = loopOf(joints, h);
     if (cut) cut.cut = cut.err <= seam;
-    if (cut?.cut) { frames = frames.slice(cut.start, cut.start + cut.n); joints = joints.slice(cut.start, cut.start + cut.n); }
+    if (cut?.cut) {
+      const cutOut = (a) => a.slice(cut.start, cut.start + cut.n);
+      [frames, joints, advance] = [cutOut(frames), cutOut(joints), cutOut(advance)];
+      hips = hips.slice(cut.start, cut.start + cut.n + 1);
+    }
   }
+  const sum = (a) => Math.round(a.reduce((s, v) => s + v, 0) * 1e3) / 1e3;
+  const travel = sum(hips.slice(1).map((x, k) => (x - hips[k]) * facing / h));
   const chains = RIGS.biped.chains.map((c) => [...c]), r = Math.max(2, h * 0.03);
   return {
     n: frames.length, fps: FPS, h, credit, source, rig: 'biped', facing,
     frames: frames.map((f, k) => ({ outer: outerOf(f, r), lines: [], skel: { joints: joints[k], chains } })),
-    pose: { from: raw.frames.length, fps: raw.fps ?? FPS, swaps, side1: one, ...(cut ? { loop: cut } : {}) },
+    advance,
+    pose: { from: raw.frames.length, fps: raw.fps ?? FPS, swaps, side1: one, stride: sum(advance), travel, ...(cut ? { loop: cut } : {}) },
   };
 }

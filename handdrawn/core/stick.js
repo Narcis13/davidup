@@ -8,7 +8,7 @@
 //               'ankle-l': [0, -10], 'toe-l': [21, -3], ... the same with -r },
 //     spread: { shoulder: 24, elbow: 30, ... },     // the front view: how far each pair sits from the middle
 //     bones: [['hip', 'chest', 5], ['chest', 'neck', 5], ['shoulder-l', 'elbow-l', 5], ...],   // [from, to, w]
-//     head: { r: 23, face: true }, hands: 'dots' | 'mitts', style: 'line' | 'tube',
+//     head: { r: 23, face: true }, hands: 'dots' | 'mitts' | 'fingers' | 'none', style: 'line' | 'tube',
 //     parts: { scarf: { parent: 'neck', pivot: 'neck', chain: { n: 4, len: 16, w: 8, angle: 70 }, before: 'head' } } }
 //
 // Joints are the side view, facing right (+x), the ground at y = 0, up negative. A bone is a part whose pivot
@@ -19,7 +19,8 @@
 // joint no bone reaches hangs off its anchor (shoulder-l off the chest, hip-l off the hip), and the part that
 // owns the anchor draws the collar line out to it (only seen in the front and three-quarter views). The head
 // is a circle about the head joint on a part pivoting at the neck; hands are dots or mitts on `hand-l`,
-// `hand-r` at the wrists; a face prints on the head: `eye` (open, happy, sleep, wide, half a lid, a wink),
+// `hand-r` at the wrists, or `fingers` (4.0 K7): a mitt with variants open, fist, point and thumb, which a
+// hands track (actor.hands) picks from; a face prints on the head: `eye` (open, happy, sleep, wide, half a lid, a wink),
 // `pupil` (a slide, shown with an open, wide or half-lidded eye), `brow-l`, `brow-r` (a turn and a slide up
 // and down), `mouth` (0 shut, 1 to 3 opening, 4 an oo, 5 a smile), with the ranges scaled to the head so the
 // fox's numbers mean the same thing.
@@ -42,10 +43,13 @@
 //   puppet(src)          the same as puppet(compileStick(src))
 //   stickMap(d)          a retarget map for a stick payload (source or compiled)
 import { circle, ellipse, fill, line, mmul, poly, rotate, serialise, stroke, translate, xf } from './list.js';
+import { HAND_POSES } from './face.js';
 
 export const STICK_VIEWS = Object.freeze(['side', 'three-quarter', 'front']);
 export const STYLES = Object.freeze(['line', 'tube']);
-export const HANDS = Object.freeze(['dots', 'mitts', 'none']);
+export const HANDS = Object.freeze(['dots', 'mitts', 'fingers', 'none']);
+// 4.0 K7: the hand shapes a `fingers` stick draws, which a hands track picks from (core/face.js).
+export const FINGERS = Object.freeze(Object.keys(HAND_POSES));
 export const EYES = Object.freeze(['open', 'happy', 'sleep', 'wide', 'half', 'wink']);
 export const MOUTHS = 6;
 
@@ -314,6 +318,11 @@ function build(src) {
     const wr = `wrist-${s}`, fore = boneTo.get(wr);
     if (!fore || hands === 'none') return;
     const w = fore.w;
+    if (hands === 'fingers') {
+      parts[`hand-${s}`] = { parent: nameOf(wr), pivot: byView((V) => pt(at[V][wr])),
+        variants: Object.fromEntries(FINGERS.map((k) => [k, byView((V) => fingerOps(k, V, fore, w))])) };
+      return;
+    }
     parts[`hand-${s}`] = {
       parent: nameOf(wr),
       pivot: byView((V) => pt(at[V][wr])),
@@ -329,6 +338,26 @@ function build(src) {
           fill(mitt, 'fills.0', { finish: true, name: 'hand' }), stroke(mitt, 'ink', { w: tube ? ink : Math.max(ink, w * 0.7), name: 'hand' })]);
       }),
     };
+  };
+
+  // A hand with fingers (4.0 K7) in the forearm's direction, the thumb forward: a palm, and fingers drawn as
+  // strokes (open: four spread and a thumb; point: the index; thumb: the thumb up) or folded into a fist.
+  const fingerOps = (k, V, fore, w) => {
+    const A = at[V][fore.a], Z = at[V][`wrist-${side(fore.z)}`], a = Math.atan2(Z[1] - A[1], Z[0] - A[0]);
+    const L = Math.max(u * 0.06, w * 2.6), m = rotate(a), fw = tube ? ink * 1.6 : Math.max(ink, w * 0.55);
+    const P = ([x, y]) => pt([x * L, y * L]);
+    const digit = (pts) => stroke(xf(poly(pts.map(P), false), m), 'ink', { w: fw, name: 'hand' });
+    const palm = xf(ellipse(0.3 * L, 0, 0.3 * L, k === 'open' ? 0.26 * L : 0.3 * L, 16), m);
+    const body = [fill(palm, 'fills.0', { finish: true, name: 'hand' }), stroke(palm, 'ink', { w: tube ? ink : Math.max(ink, w * 0.7), name: 'hand' })];
+    if (k === 'open') {
+      const tips = [-18, -6, 6, 18].map((d, i) => { const y0 = -0.15 + 0.1 * i, r = d * Math.PI / 180; return [[0.52, y0], [0.52 + 0.42 * Math.cos(r), y0 + 0.42 * Math.sin(r)]]; });
+      return data([...tips.map(digit), digit([[0.22, -0.2], [0.42, -0.55]]), ...body]);
+    }
+    const knuckle = xf(ellipse(0.35 * L, -0.28 * L, 0.14 * L, 0.09 * L, 10), m);
+    const fist = [fill(knuckle, 'fills.0', { name: 'hand' }), stroke(knuckle, 'ink', { w: ink, name: 'hand' })];
+    if (k === 'point') return data([digit([[0.5, -0.12], [1.02, -0.12]]), ...body, ...fist]);
+    if (k === 'thumb') return data([digit([[0.3, -0.24], [0.3, -0.68]]), ...body]);
+    return data([...body, ...fist]);
   };
 
   // Painter order: the far (-l) limbs, anything else, the hips, body, neck, head and face, the near (-r) limbs.
@@ -362,11 +391,15 @@ function build(src) {
   const up = (j) => (boneTo.has(j) ? boneTo.get(j).a : j === 'head' ? 'neck' : ANCHOR[stem(j)]);
   const reach = (z) => { let L = 0; for (let j = z; j !== 'hip' && up(j) && J[up(j)]; j = up(j)) L += Math.hypot(J[j][0] - J[up(j)][0], J[j][1] - J[up(j)][1]); return L; };
   const tops = Object.keys(J).filter((j) => j !== 'hip').map(reach);
-  const hand = hands === 'mitts' ? Math.max(u * 0.05, Math.max(...src.bones.map((b) => b[2] ?? 0)) * 2.2) * 1.1 : hands === 'dots' ? Math.max(...src.bones.map((b) => b[2] ?? 0)) * 1.3 : 0;
+  const wMax = Math.max(...src.bones.map((b) => b[2] ?? 0));
+  const hand = hands === 'mitts' ? Math.max(u * 0.05, wMax * 2.2) * 1.1 : hands === 'fingers' ? Math.max(u * 0.06, wMax * 2.6) * 1.1 : hands === 'dots' ? Math.max(...src.bones.map((b) => b[2] ?? 0)) * 1.3 : 0;
   const pad = Math.max(...src.bones.map((b) => b[2] ?? 0)) / 2 + ink + hand + 2;
   const Rr = Math.max(...tops, reach('head') + R) + pad;
   const box = src.box ?? [r2(hipX - Rr), r2(J.hip[1] - Rr), r2(2 * Rr), r2(Math.max(-(J.hip[1] - Rr) + pad, Rr))];
 
+  const withHands = ['l', 'r'].filter((sd) => parts[`hand-${sd}`]?.variants), fingers = withHands.length > 0;
+  const fingerInputs = Object.fromEntries(withHands.map((sd) => [`hand-${sd}`, [...FINGERS]]));
+  const fingerRest = Object.fromEntries(withHands.map((sd) => [`hand-${sd}`, 'open']));
   const { kind: _k, joints: _j, bones: _b, head: _h, spread: _s, front: _f, style: _st, hands: _ha, build: _bu, views: _v, parts: _p, ...keep } = src;
   return {
     ...keep,
@@ -376,8 +409,8 @@ function build(src) {
     ground: src.ground ?? [hipX, 0],
     box,
     views: [...views],
-    ...(face ? { inputs: { eye: [...EYES], mouth: [0, MOUTHS - 1, 1], ...(src.inputs ?? {}) } } : src.inputs ? { inputs: src.inputs } : {}),
-    poses: { ...(face ? { rest: { eye: 'open', mouth: 0 } } : {}), ...(src.poses ?? {}) },
+    ...(face || fingers ? { inputs: { ...(face ? { eye: [...EYES], mouth: [0, MOUTHS - 1, 1] } : {}), ...fingerInputs, ...(src.inputs ?? {}) } } : src.inputs ? { inputs: src.inputs } : {}),
+    poses: { ...(face || fingers ? { rest: { ...(face ? { eye: 'open', mouth: 0 } : {}), ...fingerRest } } : {}), ...(src.poses ?? {}) },
     ...(src.cycles ? { cycles: src.cycles } : {}),
     parts: ordered,
     stick: stickOf(src),

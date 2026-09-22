@@ -31,10 +31,12 @@
 //   in the head's frame; front on, only the pupils move. headAt(actor, x, y, s, state) is where its head is,
 //   partAt(actor, part, [x, y, s], state) where a part's pivot is (a wrist, an ankle), on the stage.
 //
-// strideOf(actor, cycle) => { n, fps, advance: [per frame], stride, contacts, strikes }: how far the body
-//   travels per frame of a cycle so the foot on the ground stays put, in drawing units: from the cycle's own
-//   `advance` (K7) when its frames carry one, else measured from the ankles, frame to frame: the planted foot
-//   is the lower of the feet moving back. contacts: the frames where both feet are down (a step's end); strikes:
+// strideOf(actor, cycle) => { n, fps, advance: [per frame], stride, captured?, contacts, strikes }: how far the
+//   body travels per frame of a cycle so the foot on the ground stays put, in drawing units, measured from the
+//   ankles frame to frame: the planted foot is the lower of the feet moving back. A cycle retargeted from a
+//   pose clip carries the clip's own `advance` (K7: box heights, a number a frame); it fills the frames where
+//   no foot is down (a run's flight) and a puppet with no two feet, and `captured` is its sum, the clip's
+//   stride on this puppet, to hold the measured one against. contacts: the frames where both feet are down (a step's end); strikes:
 //   the frames where the planted foot changes (a step lands).
 // walkTo(actor, x0, x1, t0, t1, { s, cycle: 'walk', stand: true, hold }) => { x(t), state(t), t0, end, steps }
 //   the actor walks from stage x0 to x1 at size s, starting at t0 and arriving at t1 (null: at the cycle's own
@@ -293,24 +295,39 @@ export function strideOf(actor, name = 'walk') {
   const p = skeleton(actor, 'strideOf'), c = actor.cycleOf(name);
   if (!c) throw new Error(`strideOf: ${actor.name} has no cycle '${name}'`);
   const side = p.views ? { dir: 1 } : {};
-  const frames = Array.from({ length: c.n }, (_, j) => full(p, { ...side, ...actor.cycle(name, j / c.fps) }));
+  const states = Array.from({ length: c.n }, (_, j) => actor.cycle(name, j / c.fps));
+  const frames = states.map((q) => full(p, { ...side, ...q }));
   const feet = frames.map((q) => ['l', 'r'].map((s) => ankle(p, s, q)));
-  if (feet.some((f) => !f.every(Boolean))) throw new Error(`strideOf: ${actor.name} has no two feet to walk on`);
   const units = p.cel.box[3] || 1;
+  const captured = c.advance ? c.advance.map((a) => a * units) : null;
+  if (feet.some((f) => !f.every(Boolean))) {
+    // No two feet to measure: a captured stride is all there is.
+    if (!captured) throw new Error(`strideOf: ${actor.name} has no two feet to walk on`);
+    const stride = captured.reduce((a, b) => a + b, 0);
+    const out = Object.freeze({ n: c.n, fps: c.fps, advance: Object.freeze(captured), stride, captured: stride, contacts: Object.freeze([0]), strikes: Object.freeze([]) });
+    m.set(name, out);
+    return out;
+  }
   // The planted foot from frame j to j + 1: of the feet moving back, the lower over both frames (a swinging
   // foot that brushes the ground on its way forward is not it).
   const planted = feet.map((f, j) => {
     const g = feet[(j + 1) % c.n], low = (k) => f[k][1] + g[k][1], back = [0, 1].filter((k) => g[k][0] <= f[k][0]);
     return (back.length ? back : [0, 1]).reduce((a, b) => (low(b) > low(a) ? b : a));
   });
-  const advance = c.advance ? c.advance.map((a) => a * units) : feet.map((f, j) => f[planted[j]][0] - feet[(j + 1) % c.n][planted[j]][0]);
+  // A captured stride (K7) fills the frames where no foot is on the ground (a lifted frame: a run's flight, as
+  // the retarget measured it): there the feet say nothing about how far the body goes. Where a foot is down
+  // the feet are measured, so they stay planted whatever the 2 degree grid did to the clip's angles.
+  // (A state's lift is in 4% of the height; off the ground is 2% of it, over a retarget's rounding.)
+  const down = (j) => !(states[j].lift > 0.5) && !(states[(j + 1) % c.n].lift > 0.5);
+  const advance = feet.map((f, j) => (captured && !down(j) ? captured[j] : f[planted[j]][0] - feet[(j + 1) % c.n][planted[j]][0]));
   // A step lands where the planted foot changes.
   const strikes = planted.map((k, j) => (k !== planted[(j + c.n - 1) % c.n] ? j : -1)).filter((j) => j >= 0);
   const stride = advance.reduce((a, b) => a + b, 0);
   if (!(stride > 1e-6)) throw new Error(`strideOf: ${actor.name}'s '${name}' goes nowhere (its planted foot does not move back); walk it with a speed instead`);
   const tol = 0.03 * units;
   const contacts = feet.map((f, j) => (Math.abs(f[0][1] - f[1][1]) <= tol ? j : -1)).filter((j) => j >= 0);
-  const out = Object.freeze({ n: c.n, fps: c.fps, advance: Object.freeze(advance), stride, contacts: Object.freeze(contacts.length ? contacts : [0]), strikes: Object.freeze(strikes) });
+  const out = Object.freeze({ n: c.n, fps: c.fps, advance: Object.freeze(advance), stride, ...(captured ? { captured: captured.reduce((a, b) => a + b, 0) } : {}),
+    contacts: Object.freeze(contacts.length ? contacts : [0]), strikes: Object.freeze(strikes) });
   m.set(name, out);
   return out;
 }

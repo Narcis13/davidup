@@ -12,12 +12,18 @@
 //   hdf retarget --clip me --to fox --map biped-fox.json --name walk        replaces the hand-authored walk
 //   hdf retarget --clip me --to sam --name walk                             a stick (4.0 K2) derives its own map
 //
+// A pose clip's stride (4.0 K7) rides along as the cycle's `advance`, scaled by leg length; the command says
+// what it is and what the puppet's own feet make of it.
+//
 // --dry prints the frames and the lift without writing; --root <dir> works on another store.
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { lintPuppet } from '../core/lint.js';
 import { retarget } from '../core/retarget.js';
+import { actorOf } from '../core/actor.js';
+import { strideOf } from '../core/ik.js';
+import { puppet } from '../core/puppet.js';
 import { stickMap } from '../core/stick.js';
 import { UsageError } from './load.mjs';
 
@@ -48,6 +54,15 @@ export async function run(args, flags) {
   process.stdout.write(`${clipId} -> ${to}.${name}: ${cycle.n} frames at ${cycle.fps} fps, ${joints.join(' ')}`
     + `${report.flip ? ', mirrored' : ''}, lift x${report.scale}${mapFile ? '' : ', map from the stick'}\n`);
   cycle.frames.forEach((f, k) => process.stdout.write(`  ${String(k).padStart(2)}  ${joints.map((j) => `${j} ${f[j]}`).join('  ')}${f.lift ? `  lift ${f.lift}` : ''}\n`));
+  if (report.stride !== undefined) {
+    // The clip's stride (4.0 K7) against what the puppet's own feet make of the cycle.
+    let feet = '';
+    try {
+      const g = strideOf(actorOf(puppet({ ...d, name: to, cycles: { ...(d.cycles ?? {}), [name]: cycle } })), name), box = g.stride / (g.captured / report.stride);
+      feet = `; its feet make ${Math.round(box * 1000) / 1000} (${Math.round((g.stride / g.captured - 1) * 1000) / 10}%, the 2 degree grid)`;
+    } catch (e) { feet = ` (${e.message})`; }
+    process.stdout.write(`stride ${report.stride} box heights a cycle, from the clip${feet}\n`);
+  }
   if (flags.dry) return 0;
 
   const data = { ...d, cycles: { ...(d.cycles ?? {}), [name]: { ...cycle, from: { clip: clipId, sha: ce.sha, map: mapFile ? basename(mapFile) : 'stick' } } } };

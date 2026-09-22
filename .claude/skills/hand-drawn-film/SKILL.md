@@ -449,6 +449,8 @@ hdf sheet store fox --cycle gallop                                        # the 
 ffmpeg -i me.mov -vf fps=30 work/me/%04d.png
 hdf clip --kind pose work/me --name me                                    # MediaPipe (python); says what to install
 hdf retarget --clip me --to fox --map biped-fox.json --name walk          # the fox walks like the user
+hdf clip --kind face work/talk --name me-face                             # the user's face: a track (K7)
+hdf clip --kind hands work/talk --name me-hands                           # their hands: finger curls
 ```
 
 A map names which puppet part follows which skeleton chain (`assets/src/
@@ -456,6 +458,15 @@ horse-fox.json`, `biped-fox.json`); the cycle carries a `lift` per frame so
 the feet meet the ground where the hooves did. `fox.cycle('gallop', t)` and
 `fox.liftOf('gallop', t)` read it; the actor's stage rises by it. The
 package's fox keeps its hand-authored walk until someone films theirs.
+
+A pose clip keeps its stride (`advance`, from the planted foot); retarget
+scales it by leg length onto the cycle and prints what the puppet's feet make
+of it. `walkTo` stays planted either way. A face track drives a face:
+`SAM.place(x, y, s, { ...state, ...SAM.face('me-face', t, t0) })` sets mouth,
+eyes, brows and pupils from the user's (score the same recording with
+`voice(id, t0)`); `SAM.hands('me-hands', t, t0)` picks open, fist, point or
+thumb for a stick made with `hdf stick --hands fingers`. The picture's left
+drives the drawing's left; a mirrored selfie wants `{ mirror: true }`.
 
 ## davidup
 
@@ -677,9 +688,10 @@ These need eyes, and they are the review list:
   CSS and embedded images by element and line: in Figma, detach instances,
   outline text, turn off "clip content", export with presentation attributes.
 - Every `hdf sheet store` page is gitignored: regenerate, do not commit.
-- `hdf clip --kind pose` needs MediaPipe in a python (`HDF_PYTHON=<venv>/bin/python`);
+- `hdf clip --kind pose | face | hands` needs MediaPipe in a python (`HDF_PYTHON=<venv>/bin/python`)
+  (face and hands also a model file in `handdrawn/.cache/`, as `cli/track.py --help` says);
   the command prints the install line when it is missing. Landmarks already
-  found (`out/pose-<id>.json`) need no python.
+  found (`out/pose-<id>.json`, `out/face-<id>.json`, `out/hands-<id>.json`) need no python.
 
 ## When to reach further
 

@@ -21,7 +21,12 @@
 // over the mean hip -> hoof length). It is stored as the frame's `lift`, in puppet units, up positive:
 // puppet.liftOf(cycle, t) reads it and the actor contract lifts its stage by it.
 //
-//   retarget(clip, foxPayload, map) => { cycle: { fps, n, frames }, report: { parts, scale, lift } }
+// The stride (4.0 K7): a clip that knows how far it travels a frame (`advance`, in its figure heights:
+// core/pose.js) hands it on as the cycle's `advance`, in the puppet's box heights, scaled by leg length (the
+// puppet's hip to ankle, or to the ground on a leg of one segment, over the clip's hip to ankle): the same
+// angles on a longer leg carry the body further. core/ik.js's strideOf and walkTo read it.
+//
+//   retarget(clip, foxPayload, map) => { cycle: { fps, n, frames, advance? }, report: { parts, scale, lift, stride? } }
 import { FPS } from './curves.js';
 import { bounds } from './list.js';
 import { JOINT, puppet } from './puppet.js';
@@ -95,8 +100,23 @@ export function retarget(clip, d, map) {
   };
   const lifts = frames.map((f, k) => (map.ground ? Math.round(gapOf(f) * scale - (rest - bottom(joints[k]))) : 0));
   const out = joints.map((q, k) => (lifts[k] ? { ...q, lift: lifts[k] } : q));
+
+  // The stride: the clip's advance (its heights) in the puppet's box heights, by leg length.
+  let advance = null;
+  if (Array.isArray(clip.advance) && clip.advance.length === frames.length && clip.advance.every(Number.isFinite)) {
+    const legOf = (n) => {
+      const hip = make.pivotAt(n), ankle = make.pivotAt(n.replace(/^leg/, 'foot'));
+      if (!hip) return 0;
+      return ankle ? Math.hypot(ankle[0] - hip[0], ankle[1] - hip[1]) : make.ground[1] - hip[1];
+    };
+    const mine = ['leg-l', 'leg-r'].map(legOf).filter((v) => v > 0), mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+    const k = mine.length && hips.length ? mean(mine) / mean(hips) : (d.units || 1) / (clip.h || 1);
+    const boxH = make.cel.box[3] || 1;
+    advance = clip.advance.map((a) => Math.round(a * (clip.h || 1) * k / boxH * 1e4) / 1e4 || 0);
+  }
   return {
-    cycle: { fps: clip.fps ?? FPS, n: out.length, frames: out },
-    report: { parts: names, flip: flip < 0, scale: Math.round(scale * 1000) / 1000, lift: lifts },
+    cycle: { fps: clip.fps ?? FPS, n: out.length, frames: out, ...(advance ? { advance } : {}) },
+    report: { parts: names, flip: flip < 0, scale: Math.round(scale * 1000) / 1000, lift: lifts,
+      ...(advance ? { stride: Math.round(advance.reduce((s, v) => s + v, 0) * 1e3) / 1e3 } : {}) },
   };
 }

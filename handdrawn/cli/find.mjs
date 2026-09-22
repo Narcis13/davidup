@@ -61,7 +61,7 @@ function inputs(st, e) {
   switch (e.kind) {
     case 'cutout': return `${e.w}x${e.h} px, ${e.sil?.sub?.length ?? 0} subs, ${(e.colours ?? []).slice(0, 4).map((c) => c.hex).join(' ')}`;
     case 'stock': return `${e.w}x${e.h} px`;
-    case 'clip': return `${e.n} poses @ ${e.fps} fps, h ${Math.round(e.h)}`;
+    case 'clip': return e.track ? `a ${e.track} track, ${e.n} frames @ ${e.fps} fps` : `${e.n} poses @ ${e.fps} fps, h ${Math.round(e.h)}`;
     case 'puppet': return puppet(st, e);
     case 'hand': return `${e.glyphs} glyphs${e.marks ? `, ${e.marks} marks` : ''}`;
     case 'sample': return e.sec ? `${e.sec} s` : 'wav';

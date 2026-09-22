@@ -110,6 +110,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 ### core/stick.js
 
 - `BUILDS` Fractions of the figure's height H. y are heights above the ground; x forward of the hip (side view).
+- `FINGERS` 4.0 K7: the hand shapes a `fingers` stick draws, which a hands track picks from (core/face.js).
 - `compileStick(src)` A stick source -> a puppet payload (see the top of this file).
 - `stickMap(d)` A retarget map for a stick (its source, or a payload compiled from one): every bone whose two ends are joints of the biped rig follows that chain, zeroed on its own rest direction in the side view, so the rest pose is the clip's pose ...
 - `stickSource({ name = 'stick', h = 300, build = 'adult', style = 'line', hands = 'dots', face = true } = {})` A stick source for a build: the joints, the bones with their widths, the head, the front spread.
@@ -117,6 +118,18 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 ### core/pose.js
 
 - `poseClip(raw, { loop = true, seam = 0.03, credit = '', source = '' } = {})` A pose landmarker's output as a biped clip (see the top of this file).
+- `advanceOf(frames, facing, h)` How far the body travels from each frame to the next, in figure heights, forward positive: the planted ankle's move back against the hip (frames in clip coordinates, x from the hip).
+
+### core/face.js
+
+- `FACE_KEYS` The twelve channels a face track keeps a frame, in order (see the top of this file).
+- `HAND_POSES` The hand shapes as five curls, thumb to little finger (1 straight, 0 curled): a hand part's variants by these names.
+- `faceClip(raw, { credit = '', source = '' } = {})` A face landmarker's blendshapes as a face track (see the top of this file).
+- `handsClip(raw, { credit = '', source = '', hold = 0.5 } = {})` A hand landmarker's hands as a hands track (see the top of this file).
+- `curlsOf(lm)` Five curls, thumb first, 1 straight and 0 curled, from a hand's 21 landmarks.
+- `nearestHand(curls, have = Object.keys(HAND_POSES))` The nearest of the poses a hand has to five curls.
+- `faceState(actor, d, k, { mirror = false } = {})` The actor's inputs for frame k of a face track (see the top of this file).
+- `handsState(actor, d, k, { mirror = false } = {})` The actor's inputs for frame k of a hands track: each hand part with variants the nearest pose it has.
 
 ### core/actor.js
 

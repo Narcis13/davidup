@@ -30,6 +30,7 @@ import { peek, register, setReader } from './store.js';
 import { setPcmReader } from './synth.js';
 import { checkAlign } from './align.js';
 import { checkMouth } from './mouth.js';
+import { TRACKS, checkTrack } from './face.js';
 import { MARKS } from './glyphs.js';
 
 // The store next to the package (handdrawn/assets) unless a command names another root.
@@ -53,7 +54,7 @@ const colourTable = { opt: true, why: 'a table of { hex, area } (see `hdf photo 
 // checks over a decoded JSON payload. `box` is [x, y, w, h] in the asset's own units.
 export const SCHEMAS = {
   cutout: { payload: 'raster', box: true, fields: { w: posInt, h: posInt, sil: path, colours: colourTable } },
-  clip: { payload: 'json', box: true, fields: { n: posInt, fps: posNum, h: posNum }, checkPayload: checkClip },
+  clip: { payload: 'json', box: true, fields: { n: posInt, fps: posNum, h: { ...posNum, opt: true }, track: { opt: true, why: `a track's kind: ${TRACKS.join(' | ')} (4.0 K7)`, ok: (v) => TRACKS.includes(v) } }, checkPayload: checkClip },
   puppet: { payload: 'json', box: true, fields: { units: posNum }, checkPayload: checkPuppet },
   hand: { payload: 'json', fields: { glyphs: posInt, marks: { ...posInt, opt: true } }, checkPayload: checkHand },
   stock: { payload: 'raster', box: true, fields: { w: posInt, h: posInt } },
@@ -110,9 +111,11 @@ export function check(id, entry) {
   return entry;
 }
 
+// A clip draws (outlines a frame, h its tallest); a track (4.0 K7: a face's or hands' numbers a frame) does not.
 function checkClip(d) {
   const bad = [];
   if (!d || typeof d !== 'object') return ['clip: not an object'];
+  if (d.track !== undefined) return checkTrack(d);
   if (!posInt.ok(d.n)) bad.push('n: an integer > 0');
   if (!posNum.ok(d.h)) bad.push('h: the tallest pose in clip units, > 0');
   if (!Array.isArray(d.frames) || !d.frames.length) bad.push('frames: a non-empty array');

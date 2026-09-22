@@ -103,6 +103,7 @@ async function fields(kind, bytes, abs, name) {
   const data = json(bytes, abs);
   const bad = validatePayload(kind, data);
   if (bad.length) throw usage(`import: this is not a valid ${kind}:\n  ${bad.join('\n  ')}`);
+  if (kind === 'clip' && data.track) return { n: data.n, fps: data.fps ?? 12, track: data.track, box: [0, 0, 0, 0] };   // a face or hands track draws nothing
   if (kind === 'clip') return { n: data.n, fps: data.fps ?? 12, h: data.h, box: clipBox(data) };
   if (kind === 'puppet') {
     // The rules a puppet has to pass before it is in the store: joints on the grid, roles instead of hex, and

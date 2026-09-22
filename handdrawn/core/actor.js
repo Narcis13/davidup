@@ -25,6 +25,8 @@
 //   actor.follow(fn, t)             fn(t) with the follow parts settled from fn's history  -> state
 //   actor.say(text, t0, o)          a line of speech from t0 (shot seconds)               -> fragment
 //   actor.mouth(id, t, t0)          the mouth of the recording `id` at t (4.0 V3), started at t0 -> state
+//   actor.face(id, t, t0, o)        a face track (4.0 K7: your face, filmed) at t: mouth, eyes, brows, pupils -> state
+//   actor.hands(id, t, t0, o)       a hands track at t: each hand part with variants its nearest pose -> state
 //
 // A state is a plain object of inputs, so states merge with spread and the later one wins: a recipe writes
 // idle first and a cycle last. Stage conventions are the v1 cast's (recipes/doodle.js): centred at (x, y),
@@ -91,6 +93,7 @@ import { pluckPerSyllable, voice as voiceEvent } from '../recipes/score.js';
 import { alignOf, alignSpan, spokenOf } from './align.js';
 import { mouthAt, mouthFrom, mouthIndex } from './mouth.js';
 import { feetMeta, reach, reachIn } from './ik.js';
+import { faceState, frameAt, handsState, trackOf } from './face.js';
 
 const RAD = Math.PI / 180;
 const TWOS = FPS / 2;                     // drawn twos: 6 states a second
@@ -133,6 +136,12 @@ export function actorOf(src, spec = {}) {
     const up = Math.floor(t * FPS / 3 + 1e-9) % 2;
     return { lift: up, fallback: name, ...(base.has('head') ? { head: up ? 4 : 0 } : {}) };
   };
+  const captured = (src, kind, t, t0, o) => {
+    const d = trackOf(src, kind), k = frameAt(d, t, t0);
+    if (k < 0 || !base.pup) return {};
+    const who = { rest: actor.rest, inputs: base.inputs, variantKeys: actor.variantKeys, emote: actor.emote, mouthFor: base.mouthFor };
+    return kind === 'face' ? faceState(who, d, k, o) : handsState(who, d, k, o);
+  };
   Object.defineProperty(call, 'name', { value: spec.name ?? base.name });   // a function's name is read-only
   const actor = Object.assign(call, {
     box: base.box,
@@ -158,6 +167,10 @@ export function actorOf(src, spec = {}) {
       const m = base.mouthFor(M.shapes[k]);
       return m === undefined ? {} : { mouth: m };
     }),
+    // 4.0 K7: a face or hands track (hdf clip --kind face | hands; an id in the store or the track itself) at
+    // t, started at t0, as this puppet's inputs (core/face.js); {} outside the track, or for a cel or a builder.
+    face: spec.face ?? ((src, t, t0 = 0, o = {}) => captured(src, 'face', t, t0, o)),
+    hands: spec.hands ?? ((src, t, t0 = 0, o = {}) => captured(src, 'hands', t, t0, o)),
     // 4.0 K5: the puppet (null for a code cel or a builder), the stage fit ({ xf, local, k }: the drawing's
     // matrix on the stage, a stage point in the drawing, the stage units per drawing unit at a size) and a
     // cycle's frame count and rate ({ n, fps, advance? }, or null), for core/ik.js.
@@ -303,12 +316,13 @@ function fromPuppet(p, spec) {
     // 4.0 K6: the follow parts from a state function's history; a stage lift (4% of the height a unit) is
     // that many drawing units, so a jump swings a scarf.
     settle: p.follows?.length ? (fn, t) => p.settle(fn, t, { lift: 0.04 * (p.cel.box[3] || 1) }) : null,
-    // A cycle's frame count and rate, its own before the vocabulary's; `advance` when its frames carry one.
+    // A cycle's frame count and rate, its own before the vocabulary's; its `advance` (4.0 K7: a retargeted
+    // cycle's stride, a box height a unit, one a frame) when it carries one.
     cycleOf(what) {
       const own = d.cycles?.[what], c = own?.frames?.length ? own : vocabCycle(what);
       if (!c) return null;
-      const adv = c.frames.map((f) => f.advance);
-      return { n: c.frames.length, fps: c.fps ?? FPS, ...(own && adv.every(Number.isFinite) ? { advance: adv } : {}) };
+      const adv = own?.advance;
+      return { n: c.frames.length, fps: c.fps ?? FPS, ...(Array.isArray(adv) && adv.length === c.frames.length && adv.every(Number.isFinite) ? { advance: adv } : {}) };
     },
     variantKeys: Object.freeze(p.parts.filter((n) => variants(n).length)),
     // Viseme v as the puppet's mouth: its v-th variant, or its last when it has fewer.

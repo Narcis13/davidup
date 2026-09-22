@@ -37,6 +37,7 @@ function asLine(l) {
 export function registerClip(name, data) {
   if (typeof name !== 'string' || !name) throw new TypeError('registerClip: needs a name');
   if (!data || !Array.isArray(data.frames) || !data.frames.length) throw new TypeError(`registerClip ${name}: expected { n, h, frames: [...] }`);
+  if (data.track) throw new TypeError(`registerClip ${name}: '${name}' is a ${data.track} track, numbers not drawings; an actor reads it (actor.${data.track}('${name}', t))`);
   const frames = data.frames.map((fr) => {
     const lines = fr.lines.map(asLine).filter((l) => l.pts.length >= 4)
       .map((l, j) => ({ ...l, len: polyLen(l.pts), j }))

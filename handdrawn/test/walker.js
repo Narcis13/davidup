@@ -22,9 +22,13 @@ export function walker(t) {
   return { g, P };
 }
 
+// How far the walker goes a stride (a second): each foot is planted for half of it and moves back from 25
+// degrees ahead to 25 behind on a leg of 100, so the body travels 4 x 100 sin 25 px a stride (4.0 K7).
+export const STRIDE = 400 * Math.sin(25 * RAD);
+
 // 33 landmarks for the walker, in a 800 x 600 frame it crosses left to right, as MediaPipe gives them.
 export function landmarks(t) {
-  const { g, P } = walker(t), x0 = 300 + 60 * t, y0 = 450, lm = Array.from({ length: 33 }, () => P.head);
+  const { g, P } = walker(t), x0 = 300 + STRIDE * t, y0 = 450, lm = Array.from({ length: 33 }, () => P.head);
   const set = (i, p) => { lm[i] = p; };
   set(LM.nose, [P.head[0] + 9, P.head[1] + 2]); set(LM.earL, [P.head[0] - 1, P.head[1]]); set(LM.earR, [P.head[0] + 1, P.head[1]]);
   for (const [s, dx] of [['L', -2], ['R', 2]]) {

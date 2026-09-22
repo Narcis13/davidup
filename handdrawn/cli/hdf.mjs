@@ -45,12 +45,16 @@ const USAGE = `usage: hdf <command> [args] [flags]
   clip    --store <id> --rig quadruped|biped   the same for a clip in the asset store, in place
   clip    --kind pose <frames-dir|landmarks.json> --name <id> [--fps 30] [--model f.task] [--no-loop]
                                     your own motion: MediaPipe's pose landmarker (python, $HDF_PYTHON) per frame
-                                    -> a biped clip in the store at 12 fps, cut to its best loop
+                                    -> a biped clip in the store at 12 fps, cut to its best loop, its stride kept
+  clip    --kind face|hands <frames-dir|landmarks.json> --name <id> [--fps 30] [--model f.task]
+                                    your face (blendshapes) or hands (finger curls), MediaPipe per frame -> a track
+                                    in the store at 12 fps; a film reads it with actor.face(id, t) / actor.hands(id, t)
   retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]   a clip's skeleton as a
-                                    puppet cycle in the store (maps in assets/src/): joints on 2 degrees, a lift
+                                    puppet cycle in the store (maps in assets/src/): joints on 2 degrees, a lift,
+                                    a pose clip's stride by leg length
                                     (--clip me --map biped-fox.json --name walk: the fox walks like you;
                                     a stick puppet needs no --map)
-  stick   --name <id> [--h 300] [--build kid|adult|tall|round] [--style line|tube] [--hands dots|mitts|none]
+  stick   --name <id> [--h 300] [--build kid|adult|tall|round] [--style line|tube] [--hands dots|mitts|fingers|none]
                                     [--no-face] [--root dir] [--no-sheet]   a stick puppet: joints and bones compiled
                                     to parts in three views, a face, standard biped names; writes src/<id>.stick.json
                                     and imports it (then hdf retarget --clip me --to <id> --name walk, no map)
