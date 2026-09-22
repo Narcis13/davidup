@@ -5,10 +5,10 @@
 //   a puppet's cel    -> card on a table (puppet.js asCutout), only under a look with a `cutout` field
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
 // Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour), marker
-// (whiteboard).
+// (whiteboard), chalk (chalkboard).
 // Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
 // coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
-import { clip, dots, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
+import { clip, dots, ellipse, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
 import { hashLook, innerLook, parse as parseColour, resolveLook } from './looks.js';
 import { asCutout, cutoutOf } from './puppet.js';
 import { rng } from './rand.js';
@@ -176,6 +176,10 @@ const FINISH = {
   marker: (box, role, seed, o) => [
     streaks(box, { angle: o.angle ?? -0.45, gap: o.gap ?? 15, role, alpha: o.alpha ?? 0.16, w: o.width ?? 2.2, seed }),
   ],
+  // chalkboard: coloured chalk rubbed in with the side of the stick, broad broken passes in a lighter tone
+  chalk: (box, role, seed, o) => [
+    withProps(streaks(box, { angle: o.angle ?? -0.6, gap: o.gap ?? 8, role, alpha: o.alpha ?? 0.26, w: o.width ?? 4, seed }), { tool: 'chalk', dash: 30, gap: 7, name: 'rubbed' }),
+  ],
 };
 
 // A finished fill: flat colour, then the texture clipped to the same path. `finish` on the op may name
@@ -188,16 +192,18 @@ function finished(op, look) {
   if (kind === 'wash') return [wash(op.path, op.role, { al: o.alpha ?? cov ?? 0.5, off: o.off ?? 5, seed, rim: o.rim ?? true })];
   if (kind === 'flat') return [flat];
   const make = FINISH[kind];
-  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker or flat)`);
-  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : 'shade');
+  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker, chalk or flat)`);
+  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : kind === 'chalk' ? { base: op.role, tint: 0.35 } : 'shade');
   return [flat, clip(op.path, make(op.path.box, role, seed, o, cov))];
 }
 
 // The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area;
-// card (paper: 'card') is heavier, with coarser grain and a few fibres; board (paper: 'board') is the whiteboard.
+// card (paper: 'card') is heavier, with coarser grain and a few fibres; board (paper: 'board') is the whiteboard,
+// slate (paper: 'slate') the chalkboard.
 function stock(op, look, { W, H }, dark) {
   const p = look.palette, frame = [-2, -2, W + 4, H + 4], area = (W * H) / (1080 * 1080), seed = op.seed ?? 5;
   if (!dark && look.paper === 'board') return group({ name: 'paper', screen: true, seed }, board(W, H, seed));
+  if (!dark && look.paper === 'slate') return group({ name: 'paper', screen: true, seed }, slate(W, H, seed));
   const kids = [fill(rect(...frame), dark ? 'night' : 'paper', { name: 'stock' })];
   if (dark) {
     kids.push(grain(frame, Math.round(400 * area), { base: 'night', tint: 1 }, 0.5, seed, 1.6));
@@ -251,6 +257,56 @@ function board(W, H, seed) {
     fill(rect(mx, my, ml, mh), 'light', { name: 'marker' }),
     fill(rect(mx + ml * 0.72, my - u, ml * 0.28, mh + 2 * u), 'inks.1', { name: 'marker-cap' }),
     fill(rect(mx, my + mh * 0.2, ml * 0.72, mh * 0.18), { base: 'light', shade: 0.12 }, { name: 'marker-shine' }),
+  );
+  return kids;
+}
+
+// The chalkboard: green-black slate, the haze of lessons wiped with a felt (soft sweeps of chalk at a hundredth
+// or so, nested so they have no edge), a line or two of old cursive never quite gone, chalk dust in the grain,
+// and the wooden ledge along the bottom with dust on it, a white and a yellow stick and a felt eraser. Scaled by
+// the short side like the board; the haze and the old lines use a fixed seed, so they are the slate's and stay
+// put across cuts.
+function slate(W, H, seed) {
+  const r = rng(11), frame = [-2, -2, W + 4, H + 4], u = Math.min(W, H) / 1080, area = (W * H) / (1080 * 1080);
+  const kids = [fill(rect(...frame), 'paper', { name: 'stock' })];
+  for (let k = 0; k < 7; k++) {
+    const cx = W * (0.1 + 0.8 * r()), cy = H * (0.08 + 0.8 * r()), L = (420 + 480 * r()) * u, a = (r() - 0.5) * 0.4;
+    const c = Math.cos(a), s = Math.sin(a), m = [c, s, -s, c, cx, cy];
+    for (let i = 0; i < 6; i++) {
+      const f = 1 - i * 0.14;   // nested sweeps, each a touch smaller: a haze with no edge
+      kids.push(fill(xfPath(ellipse(0, 0, (L / 2) * f, 90 * u * f), m), 'chalk', { alpha: 0.012, name: 'haze' }));
+    }
+  }
+  for (let k = 0; k < 2; k++) {
+    const x = W * (0.1 + 0.55 * r()), y = H * (0.12 + 0.6 * r()), L = (200 + 200 * r()) * u, a = (r() - 0.5) * 0.15, ph = r() * 6, pts = [];
+    for (let j = 0; j <= 48; j++) {   // a line of old cursive: loops of uneven height
+      const du = (L * j) / 48 + 9 * u * Math.cos(ph + j * 1.2), dv = 11 * u * Math.sin(ph + j * 1.2) * (0.6 + 0.4 * Math.sin(j * 0.41 + ph));
+      pts.push(x + Math.cos(a) * du - Math.sin(a) * dv, y + Math.sin(a) * du + Math.cos(a) * dv);
+    }
+    kids.push(stroke(mkPath([{ pts, closed: false }]), 'chalk', { tool: 'chalk', w: 3 * u, wobble: 1.5 * u, dash: 18 * u, gap: 4 * u, alpha: 0.05, seed: 31 + k, name: 'scrawl' }));
+  }
+  kids.push(grain(frame, Math.round(900 * area), 'chalk', 0.07, seed + 1, 1.3));
+  kids.push(grain(frame, Math.round(300 * area), { base: 'paper', shade: 0.4 }, 0.25, seed + 2, 1.8));
+  const th = 30 * u, y0 = H - th, ledge = (y, h, role, alpha = 1, name = 'ledge') => fill(rect(-2, y, W + 4, h), role, { alpha, name });
+  kids.push(
+    ledge(y0 - 10 * u, 10 * u, { base: 'paper', shade: 0.5 }, 0.45, 'ledge-shadow'),
+    ledge(y0, th + 2, { base: 'fills.5', shade: 0.45 }),
+    ledge(y0, 3 * u, { base: 'fills.5', tint: 0.15 }, 0.9, 'ledge-lip'),
+    ledge(y0 + 3 * u, th * 0.3, 'chalk', 0.12, 'ledge-dust'),
+    grain([0, y0, W, th * 0.5], Math.round(260 * u), 'chalk', 0.35, 13, 1.6),
+  );
+  const stick = (x, l, role, name) => [
+    fill(rect(x + 3 * u, y0 + 6 * u, l, 11 * u), { base: 'paper', shade: 0.6 }, { alpha: 0.4, name: `${name}-shadow` }),
+    fill(rect(x, y0 + 3 * u, l, 11 * u), role, { name }),
+    fill(rect(x, y0 + 3 * u, l, 3 * u), 'light', { alpha: 0.35, name: `${name}-shine` }),
+  ];
+  const ex = W * 0.7, ew = 120 * u, eh = 22 * u;
+  kids.push(
+    ...stick(W * 0.14, 64 * u, 'chalk', 'chalk-stick'),
+    ...stick(W * 0.14 + 80 * u, 40 * u, 'accents.0', 'chalk-stick-2'),
+    fill(rect(ex + 4 * u, y0 + 2 * u, ew, eh), { base: 'paper', shade: 0.6 }, { alpha: 0.4, name: 'eraser-shadow' }),
+    fill(rect(ex, y0 + 5 * u - eh, ew, eh * 0.62), { base: 'fills.5', shade: 0.25 }, { name: 'eraser' }),
+    fill(rect(ex, y0 + 5 * u - eh * 0.38, ew, eh * 0.38), 'chalkDim', { name: 'eraser-felt' }),
   );
   return kids;
 }

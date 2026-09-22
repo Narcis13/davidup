@@ -5,7 +5,7 @@ import { audienceOf } from './audience.js';
 import { fitFor, format } from './fit.js';
 import { currentHand, withHand } from './glyphs.js';
 import { fx, group, hashData, lookNode, mmul, norm, rotate, scale, translate, walk, withProps } from './list.js';
-import { handOf } from './looks.js';
+import { ghostOf, handOf } from './looks.js';
 import { hash32, seedOf } from './rand.js';
 
 // Durations must land on the 1/12 s grid; everything downstream counts drawn frames.
@@ -193,25 +193,86 @@ export function evalShot(f, node, k, { i = 0, target = f.format, look } = {}) {
   return { list: seedList(norm(raw), seed), wrap, seed, look: eff, env };
 }
 
+// ---------- the ghost of the shot before (4.0 L2) ----------
+
+// Under a look with a ghost (chalkboard~ghost:0.15), each shot or hold draws the one before it in its seq, at its
+// last frame, half erased: its stock dropped, the rest flattened and wiped by fx('erase', { mode: 'clear' }) to
+// that alpha, laid just over the shot's own stock. Before is the sibling before it (a cut passed over, a hold of
+// that sibling passed back over to what it had); the first of a seq has what its seq had. Only one shot back:
+// the ghost is drawn without its own ghost. A cut shows its a with a's ghost and its b over a's.
+
+// What kids[j] of a seq has as its ghost, as { node, look } or the seq's own (inherited).
+function ghostBefore(kids, j, look, inherited) {
+  const c = kids[j];
+  if (c.kind === 'cut') { const i = kids.lastIndexOf(c.a, j - 1); return i >= 0 ? ghostBefore(kids, i, look, inherited) : inherited; }
+  let i = j - 1;
+  while (i >= 0 && kids[i].kind === 'cut') i--;
+  if (i < 0) return inherited;
+  if (c.kind === 'hold' && c.child === kids[i]) return ghostBefore(kids, i, look, inherited);
+  return { node: kids[i], look };
+}
+
+const inv = (m) => {
+  const d = m[0] * m[3] - m[1] * m[2];
+  return [m[3] / d, -m[1] / d, -m[2] / d, m[0] / d, (m[2] * m[5] - m[3] * m[4]) / d, (m[1] * m[4] - m[0] * m[5]) / d];
+};
+const isStock = (op) => op.op === 'paper' || op.op === 'night';
+const noStock = (list) => list.flatMap((op) => (isStock(op) ? [] : op.kids ? [withProps(op, { kids: noStock(op.kids) })] : [op]));
+// list with g laid just over its first stock, through groups (g undoing their transforms, being in screen space);
+// under everything when it has none.
+function overStock(list, g, m = null) {
+  for (let i = 0; i < list.length; i++) {
+    const op = list[i];
+    if (isStock(op)) return [...list.slice(0, i + 1), m ? group({ name: 'ghost-screen', xf: inv(m) }, [g]) : g, ...list.slice(i + 1)];
+    if (op.kids) {
+      const mm = op.op === 'group' && op.xf ? (m ? mmul(m, op.xf) : op.xf) : m;
+      const kids = overStock(op.kids, g, mm);
+      if (kids) return [...list.slice(0, i), withProps(op, { kids }), ...list.slice(i + 1)];
+    }
+  }
+  return null;
+}
+function withGhost(list, ctx, alpha) {
+  const { node, look } = ctx.ghost;
+  const sub = { ...ctx, hit: null, ghost: null };
+  const seed = seedOf(ctx.film.seed, `ghost:${nameOf(node)}`);
+  const g = group({ name: 'ghost', seed }, [fx('erase', { p: 1, mode: 'clear', ghost: alpha, eraser: false }, noStock(evalNode(node, node.n - 1, sub, look)), { seed })]);
+  return overStock(list, g) ?? [g, ...list];
+}
+
 function evalNode(node, k, ctx, look) {
   switch (node.kind) {
     case 'shot': {
       const own = node.look ?? look;
       const s = evalShot(ctx.film, node, k, { i: ctx.i, target: ctx.target, look });
       let list = s.wrap(s.list, s.seed);
+      const ga = ctx.ghost ? ghostOf(s.look) : 0;
+      if (ga > 0) list = withGhost(list, ctx, ga);
       if (own) list = [lookNode(own, list)];
       ctx.hit ??= { name: node.name, k, look: s.look };
       return list;
     }
     case 'seq': {
-      for (const c of node.kids) { if (k < c.n) return evalNode(c, k, ctx, look); k -= c.n; }
+      for (let j = 0; j < node.kids.length; j++) {
+        const c = node.kids[j];
+        if (k < c.n) {
+          const g0 = ctx.ghost;
+          ctx.ghost = ghostBefore(node.kids, j, look, g0 ?? null);
+          try { return evalNode(c, k, ctx, look); } finally { ctx.ghost = g0; }
+        }
+        k -= c.n;
+      }
       throw new RangeError('seq: frame past the end');
     }
-    case 'par': return node.kids.flatMap((c) => evalNode(c, Math.min(k, c.n - 1), ctx, look));
+    case 'par': {
+      const g0 = ctx.ghost;
+      try { return node.kids.flatMap((c, j) => { ctx.ghost = j ? null : g0; return evalNode(c, Math.min(k, c.n - 1), ctx, look); }); } finally { ctx.ghost = g0; }
+    }
     case 'hold': return evalNode(node.child, node.child.n - 1, ctx, look);
     case 'cut': {
       const sub = { ...ctx, hit: null };
       const la = evalNode(node.a, node.a.n - 1, sub, look);
+      sub.ghost = { node: node.a, look };
       const lb = evalNode(node.b, 0, sub, look);
       const seed = seedOf(ctx.film.seed, node.name);
       ctx.hit ??= { name: node.name, k, look: sub.hit?.look ?? look ?? ctx.film.look };

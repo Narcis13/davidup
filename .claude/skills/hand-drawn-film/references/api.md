@@ -180,7 +180,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/looks.js
 
-- `LOOKS` The eight presets (plan 1.4, 3.0 S10 and 4.0 L1): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard.
+- `LOOKS` The nine presets (plan 1.4, 3.0 S10, 4.0 L1 and L2): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard.
 - `PASTELS` The doodle palette on another sheet of paper. Sheets measured off the reference film.
 - `derive(look, { hue = 0, sat = 1, light = 0, from, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of `from` -- a cutout record written by `hdf photo` (or a bare colours list).
 - `duotone(look, a, b)` Two inks on the look's paper, the way the flipbook goes magenta + blue for a beat.
@@ -229,12 +229,13 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `writeOn(node, o = {})` writeOn(node, { t, at, per, wps, lead, lift }) => reveal(p, node) at shot time t: the node written on a unit at a time at a reading speed (words a second; 2 by default, the audience's `read` in the recipes).
 - `revealed(node, t, o = {})` revealed(node, t, o) => 0..1: how much of the node writeOn has drawn at shot time t with the same options.
 - `writing(node, opts = {})` The schedule of a node written on from `at`: `lead` seconds for the hand to come in, then each unit in turn, each after a lift of `lift` seconds (at most 0.4 of its time) from the last.
+- `strokeStarts(node, o = {})` strokeStarts(node, o) => [t, ...]: the shot times writeOn(node, o) starts each line it draws (each sub of each pen stroke, so a dotted i is two), in order, two closer than `gap` seconds (0.08) heard as one.
 
 ### packs/hands.js
 
 - `writingHand({ tool = 'marker', side = 'r', skin, ink = 0 } = {})` writingHand({ tool: 'pen' | 'marker' | 'chalk' | 'crayon', side: 'r' | 'l', skin, ink }) => the cel of a hand holding that tool, point at (0, 0): a right hand by default, mirrored for 'l' (the arm off to the left).
 - `writer(node, t, o = {})` writer(node, t, o) => a group: the writing hand on node's pen tip at shot time t, following writeOn(node, { t, ...o }) (same options: at, per, wps, lead, lift, exit), coming in from off the frame over the lead, lifted off the surface ...
-- `toolFor(look)` The tool a look writes with: the whiteboard's marker, chalk on a chalk look, else the pen.
+- `toolFor(look)` The tool a look writes with: the whiteboard's marker, chalk on the chalkboard or a chalk look, else the pen.
 - `heldTool({ tool = 'chalk', ink = 0 } = {})` heldTool({ tool, ink }) => { node, grip, tip, name }: what attach(actor, 'hand-r', ...) holds.
 
 ### core/finish.js
@@ -390,6 +391,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `erase(t, dur, { strokes = 4, gain = 0.12, seed = 71 } = {})` An eraser scrubbing for dur seconds: a swell a stroke, the band alternately up and down.
 - `pencilScratch(t, dur, { gain = 0.07, seed = 81 } = {})` Graphite on paper for dur seconds: grains every 1/16 s or so, each 50 to 90 ms, their level and band drawn from the seed.
 - `chalkTap(t, { gain = 0.2, seed = 101 } = {})` Chalk meeting the board: a knock, a dry tick and a little dust.
+- `chalkTaps(node, { t0 = 0, gain = 0.16, seed = 141, ...sched } = {})` The chalkboard's sound (4.0 L2): a chalkTap each time writeOn(node, sched) puts the chalk down to start a line, t0 seconds on (the shot's start in film time), each seeded apart.
 - `hits(cuts, { kind = 'whoosh', gain, dur = 0.45 } = {})` An accent on each cut. kind a name of HITS or (t, k) => events; a whoosh is centred on the cut.
 - `writerSounds(node, { t0 = 0, tool = 'marker', gain = 0.2, seed = 121, ...sched } = {})` The writer's sound (T6): the tool on the surface for each unit writing(node, sched) puts down, from the end of its lift to the end of its slot, t0 seconds on (the shot's start in film time).
 - `eraserSounds({ t = 0, dur, box = [0, 0, 1080, 1080], band, gain, seed } = {})` The eraser's sound: a stroke per row of fx('erase')'s track over box (default the 1080 frame) with a band (default 0.14 of its short side), as the effect sweeps it from t over dur.
@@ -561,7 +563,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ## Tables
 
-- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard
+- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard, chalkboard
 - paper sheets (`PASTELS`, for `pastel(look, name)`): rose, mint, butter, sky, cream, peach, lilac, sand, night
 - fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, erase, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
 - easings (`ease.<name>`): linear, in, out, io, back, bounce

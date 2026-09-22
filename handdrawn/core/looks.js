@@ -84,8 +84,8 @@ const mkLook = (name, palette, finish, paper, tools = {}, more = {}) => deepFree
 // units), tilt the scale-y of the whole puppet, the camera above the table.
 export const CUTOUT = Object.freeze({ shadow: 0.3, fastener: 3, edge: 0.6, tilt: 0.94 });
 
-// The eight presets (plan 1.4, 3.0 S10 and 4.0 L1): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
-// doodlePastel, cutout, whiteboard.
+// The nine presets (plan 1.4, 3.0 S10, 4.0 L1 and L2): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
+// doodlePastel, cutout, whiteboard, chalkboard.
 export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
@@ -137,6 +137,14 @@ export const LOOKS = Object.freeze({
     fills: ['#8db7ea', '#f2a0a0', '#9ed39a', '#f6d46e', '#c4a5e0', '#f5b574'], shade: '#3c424a', light: '#ffffff', blush: '#ef8686',
     accents: ['#d8342f', '#1f5fc9', '#23924a', '#ef9a1c'], inks: ['#1d1f24', '#1f5fc9', '#d8342f', '#23924a'],
   }, 'marker', 'board', { pen: { w: 3.4, wobble: 0.7 } }, { penTool: 'bullet' }),
+  // the classroom chalkboard: green-black slate with the haze of old lessons and a wooden ledge, white chalk
+  // drawing every pen line (penTool) with dust along it (dust), coloured chalks as accents and inks.1..3,
+  // fills rubbed in with the side of a stick. ~ghost:<alpha> keeps the last shot, half erased, under the next.
+  chalkboard: mkLook('chalkboard', {
+    paper: '#2a3b33', paperBand: null, ink: '#eef0e6', night: '#161f1b', chalk: '#eef0e6', chalkDim: '#8e9d94', guide: 'rgba(238,240,230,.28)',
+    fills: ['#6f8fa8', '#a87f86', '#7f9d72', '#b3a266', '#8d7fa3', '#b08868'], shade: '#7d8c84', light: '#fbfcf5', blush: '#e8a0ab',
+    accents: ['#f4d36b', '#f0a3b8', '#96cfe6', '#a6dc92'], inks: ['#eef0e6', '#f4d36b', '#f0a3b8', '#96cfe6'],
+  }, 'chalk', 'slate', { pen: { w: 3.2, wobble: 1.1 }, chalk: { w: 3.2, wobble: 1.3, dash: 13, gap: 2.6 } }, { penTool: 'chalk', dust: 1 }),
 });
 
 function deepFreeze(o) {
@@ -160,6 +168,12 @@ const MODS = {
   // The look on no stock at all (`hdf render --alpha`): paper() and night() draw nothing, so the drawing sits
   // on transparency. The paper role keeps its colour: a bubble, an eye white, a knockout still read as paper.
   alpha: (look) => alphaOf(look),
+  // The shot before, wiped not quite clean, under each shot at this alpha (4.0 L2; 0.15 when none is given).
+  ghost: (look, v, assets, name) => {
+    const a = v === '' ? 0.15 : Number(v);
+    if (!(a > 0 && a <= 1)) throw new Error(`look '${name}': ghost wants an alpha in (0, 1], got '${v}'`);
+    return withLook(look, { name: `${look.name}~ghost:${a}`, ghost: a });
+  },
 };
 
 // A look on no stock, one object per look (so its hash and the layer cache see one look, not one per frame).
@@ -201,6 +215,16 @@ export function handOf(look) {
   return h === houseHand() ? null : h;
 }
 
+// The alpha a look keeps the shot before at (4.0 L2's ghost), 0 for none, read without resolving the look (a
+// '~from:' name needs the film's assets): a look object's own field, else the name's last '~ghost:' modifier.
+export function ghostOf(look) {
+  if (!look) return 0;
+  if (typeof look === 'object' && look.palette) return look.ghost ?? 0;
+  const { base, mods } = parseLookName(typeof look === 'string' ? look : look.name ?? '');
+  const g = mods.filter(([k]) => k === 'ghost').at(-1);
+  return g ? (g[1] === '' ? 0.15 : Number(g[1]) || 0) : LOOKS[base]?.ghost ?? 0;
+}
+
 // A cutout by id: one of the film's assets, else one read from the store (fromStore, or the store next to the
 // package), so a recipe that resolves 'doodlePastel~from:violin' at module load finds it before the loader
 // has the film's assets.
@@ -220,7 +244,7 @@ export function modifyLook(look, mods, assets, name) {
   let out = resolveLook(look);
   for (const [kind, value] of mods) {
     const label = name ?? `${out.name}~${kind}:${value}`;
-    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => (k === 'alpha' ? k : `${k}:<id>`)).join(', ')})`);
+    if (!MODS[kind]) throw new Error(`look '${label}': unknown modifier '${kind}' (expected ${Object.keys(MODS).map((k) => (k === 'alpha' ? k : k === 'ghost' ? `${k}:<alpha>` : `${k}:<id>`)).join(', ')})`);
     out = MODS[kind](out, value, assets, label);
   }
   return out;

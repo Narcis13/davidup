@@ -302,6 +302,7 @@ step)` gives a pentatonic pitch. Motifs (`handdrawn`, from
 | a quiz | `pop` per option (`quizTimes(o).options`), `tick` per strike (`.ticks`), `ding` on the answer (`.ding`), `tada` |
 | a cut | `hits(cues.cuts, { kind })`: a whoosh centred on each (or pop, tick, boing, ding, flip) |
 | a writing hand | `writerSounds(node, { t0, tool, ...writeOn's schedule })`: the tool on each unit (marker, chalk, pen, pencil, crayon) |
+| chalk on a board | `chalkTaps(node, { t0, ...writeOn's schedule })`: a `chalkTap` each time the chalk comes down to start a line (`strokeStarts(node, o)`, none closer than `gap` 0.08 s); under `writerSounds(node, { tool: 'chalk' })` for the scratch too |
 | an eraser | `eraserSounds({ t, dur, box, band })`: a scrub a row of `fx('erase')`'s track |
 
 ```js

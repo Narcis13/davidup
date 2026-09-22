@@ -230,12 +230,15 @@ function brush(ctx, op, t) {
   }
 }
 
-// Chalk: a wobbly line broken into dashes of uneven length and alpha, stroked in three alpha buckets.
+// Chalk: a wobbly line broken into dashes of uneven length and alpha, stroked in three alpha buckets. Drawn as a
+// look's penTool (the chalkboard's) it pens in the look's hand; under a look with `dust` it sheds dust along the line.
 const CHALK_ALPHA = [0.55, 0.78, 1];
-function chalk(ctx, op, t) {
+function chalk(ctx, op, t, S, look, asPen = false) {
   const r = rng(op.seed ?? 1), dash = op.dash ?? t.dash, gap = op.gap ?? t.gap;
   const buckets = CHALK_ALPHA.map(() => []);
-  for (const s of jittered(op.path, op.wobble ?? t.wobble, r)) {
+  const path = asPen ? handed(op, look, op.w ?? t.w).path : op.path, lines = jittered(path, op.wobble ?? t.wobble, r);
+  const after = look?.dust && op.wobble !== 0 ? dust(ctx, lines, op.w ?? t.w, look.dust, op.seed ?? 1, look) : null;
+  for (const s of lines) {
     const p = s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts;
     let on = true, left = dash * (0.6 + r() * 0.8), cur = [p[0], p[1]];
     for (let i = 2; i < p.length; i += 2) {
@@ -264,6 +267,47 @@ function chalk(ctx, op, t) {
     ctx.stroke();
   });
   ctx.globalAlpha = a0;
+  if (after) after();
+}
+
+// Chalk dust (4.0 L2): specks shaken off either side of the line as it goes, and bites of the board showing
+// through it where the stick skipped the tooth, a step of a width at a time, from the line's own seed and walked
+// along its length, so a line revealed further keeps the dust it had. amount scales how many. Bites are drawn in
+// the paper's colour; a ruled line (wobble 0) gets neither.
+function dust(ctx, lines, w, amount, seed, look) {
+  const r = rng(hash32('dust', seed)), step = Math.max(1, w), specks = [[], []], bites = [];
+  for (const s of lines) {
+    const p = s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts;
+    let left = step * r();
+    for (let i = 2; i < p.length; i += 2) {
+      const x0 = p[i - 2], y0 = p[i - 1], dx = p[i] - x0, dy = p[i + 1] - y0, L = Math.hypot(dx, dy);
+      if (!L) continue;
+      const nx = -dy / L, ny = dx / L;
+      for (let d = left; d < L; d += step) {
+        const a = r(), side = r() < 0.5 ? -1 : 1, off = w * (0.6 + 1.8 * r() * r()), z = Math.max(0.9, w * (0.18 + 0.3 * r())), k = r();
+        const b = r(), bo = (r() - 0.5) * w * 0.8, bz = Math.max(0.8, w * (0.15 + 0.25 * r()));
+        const u = d / L, x = x0 + dx * u, y = y0 + dy * u;
+        if (a < 0.7 * amount) specks[k < 0.65 ? 0 : 1].push(x + nx * off * side - z / 2, y + ny * off * side - z / 2, z);
+        if (b < 0.5 * amount) bites.push(x + nx * bo - bz / 2, y + ny * bo - bz / 2, bz);
+      }
+      left = left >= L ? left - L : step - ((L - left) % step);
+    }
+  }
+  const a0 = ctx.globalAlpha, fs = ctx.fillStyle;
+  const put = (b, style, alpha) => {
+    if (!b.length) return;
+    ctx.fillStyle = style; ctx.globalAlpha = a0 * alpha;
+    ctx.beginPath();
+    for (let i = 0; i < b.length; i += 3) ctx.rect(b[i], b[i + 1], b[i + 2], b[i + 2]);
+    ctx.fill();
+  };
+  return () => {
+    const ink = ctx.strokeStyle;
+    put(bites, resolveRole('paper', look), 0.45);
+    put(specks[0], ink, 0.4);
+    put(specks[1], ink, 0.7);
+    ctx.globalAlpha = a0; ctx.fillStyle = fs;
+  };
 }
 
 const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache, bullet };
@@ -272,10 +316,10 @@ const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache, bullet };
 const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10, gouache: 12, bullet: 3.4 };
 export const strokeWidth = (op, look) => op.w ?? resolveLook(look).tools[op.tool ?? 'pen']?.w ?? TOOL_W[op.tool ?? 'pen'] ?? 2;
 
-// A pen stroke is drawn by the look's penTool when it names one (the whiteboard's bullet marker), still with
-// the pen's settings; any other tool is its own.
+// A pen stroke is drawn by the look's penTool when it names one (the whiteboard's bullet marker, the
+// chalkboard's chalk), with the pen's settings over the tool's own; any other tool is its own.
 export function drawStroke(ctx, op, look, S = 1) {
-  const kind = op.tool ?? 'pen', draw = TOOLS[kind === 'pen' && look.penTool ? look.penTool : kind];
+  const kind = op.tool ?? 'pen', asPen = kind === 'pen' && !!look.penTool, draw = TOOLS[asPen ? look.penTool : kind];
   if (!draw) throw new Error(`stroke: tool '${op.tool}' is not implemented yet (have ${Object.keys(TOOLS).join(', ')})`);
   ctx.save();
   ctx.strokeStyle = resolveRole(op.role, look);
@@ -284,7 +328,8 @@ export function drawStroke(ctx, op, look, S = 1) {
   else if (op.blend) ctx.globalCompositeOperation = op.blend;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  draw(ctx, op, look.tools[op.tool ?? 'pen'] ?? {}, S, look);
+  const t = asPen && look.tools[look.penTool] ? { ...look.tools[look.penTool], ...look.tools.pen } : look.tools[kind] ?? {};
+  draw(ctx, op, t, S, look, asPen);
   ctx.restore();
 }
 

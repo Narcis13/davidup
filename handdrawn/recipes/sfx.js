@@ -15,6 +15,7 @@
 //   chalkTap(t)        chalk meeting the board: a knock and a dry tick
 //   hits(cuts, { kind })          an accent on each cut: a whoosh centred on it (or pop, tick, boing, ding, flip)
 //   writerSounds(node, { tool, ...writing's schedule })   the writer's pen (T6): its tool on each unit it writes
+//   chalkTaps(node, { t0, ...writing's schedule })        chalk meeting the board at each line it starts (L2)
 //   eraserSounds({ t, dur, box, band })                   the eraser's rows (fx('erase'), T6/L1)
 //   bed({ tempo, key, mood, from, to })   a chord loop, its bar a whole number of twelfths; .stop(t), .sting(t)
 //
@@ -22,7 +23,7 @@
 // under a voice (V1), a bed with it.
 import { FPS } from '../core/curves.js';
 import { rng } from '../core/rand.js';
-import { writing } from '../core/write.js';
+import { strokeStarts, writing } from '../core/write.js';
 import { burst, note, pentHz } from './score.js';
 
 // A hiss event (band-passed noise at hz; hz1 sweeps the band, swell rises and falls over dur).
@@ -122,6 +123,13 @@ export function hits(cuts, { kind = 'whoosh', gain, dur = 0.45 } = {}) {
 export function writerSounds(node, { t0 = 0, tool = 'marker', gain = 0.2, seed = 121, ...sched } = {}) {
   const f = toolOf(tool);
   return writing(node, sched).units.flatMap((u, k) => f(t0 + u.t1, Math.max(0.05, u.t2 - u.t1), gain, seed + k));
+}
+
+// The chalkboard's sound (4.0 L2): a chalkTap each time writeOn(node, sched) puts the chalk down to start a line,
+// t0 seconds on (the shot's start in film time), each seeded apart. With writerSounds(node, { tool: 'chalk' })
+// the unit's scratch goes under the taps; alone, a board that only knocks.
+export function chalkTaps(node, { t0 = 0, gain = 0.16, seed = 141, ...sched } = {}) {
+  return strokeStarts(node, sched).flatMap((t, k) => chalkTap(t0 + t, { gain, seed: seed + k }));
 }
 
 // The eraser's sound: a stroke per row of fx('erase')'s track over box (default the 1080 frame) with a band

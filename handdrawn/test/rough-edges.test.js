@@ -51,7 +51,7 @@ test('RE-7, RE-8: a motif gets a sheet; remove drops an entry, its sheet and its
   writeFileSync(file, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 5 L95 38 L78 92 L22 92 L5 38 Z" fill="#f2c14e" stroke="#222222" stroke-width="3"/></svg>');
   const r = hdf('svg', file, '--name', 'star', '--kind', 'motif', '--licence', 'own', '--root', root);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /star\.jpg {2}8 looks x 3 scales$/m);
+  assert.match(r.out, /star\.jpg {2}9 looks x 3 scales$/m);
   assert.ok(existsSync(join(root, 'sheets', 'star.jpg')));
 
   // A replaced payload leaves its old blob: gc --dry lists it, gc deletes it.

@@ -3,6 +3,7 @@
 //   writing(node, { at, per, wps, lead, lift, exit, wordLen }) => { p(t), pen(t), start, end, units }
 //   writeOn(node, { t, ...the same })   what reveal(p, node) returns at shot time t
 //   revealed(node, t, o)                how much of it is drawn at t (0..1), for lint's dwell rule
+//   strokeStarts(node, o)               the shot times the pen comes down on each line (4.0 L2's chalk taps)
 // The order is reveal's: stroke `order`, then list order. Lettering numbers its strokes from 0, so a stroke
 // to be drawn after it (an underline) needs an order past the lettering's (order: 1e6).
 // Times are shot seconds. A word of lettering takes 1 / wps seconds, its glyphs and strokes sharing it; a
@@ -102,3 +103,27 @@ export const writeOn = (node, o = {}) => reveal(writing(node, o).p(o.t ?? 0), no
 
 // revealed(node, t, o) => 0..1: how much of the node writeOn has drawn at shot time t with the same options.
 export const revealed = (node, t, o = {}) => writing(node, o).p(t);
+
+// strokeStarts(node, o) => [t, ...]: the shot times writeOn(node, o) starts each line it draws (each sub of each
+// pen stroke, so a dotted i is two), in order, two closer than `gap` seconds (0.08) heard as one. Where the chalk
+// taps the board (recipes/sfx.js chalkTaps).
+export function strokeStarts(node, o = {}) {
+  const { gap = 0.08, ...sched } = o, plan = writing(node, sched), { items, total } = penStrokes(node);
+  if (!plan.units.length) return [];
+  const T = total || 1, out = [];
+  const when = (p) => {
+    const u = plan.units.find((q) => p < q.p1 - 1e-12) ?? plan.units.at(-1);
+    return u.p1 > u.p0 ? u.t1 + (Math.max(0, p - u.p0) / (u.p1 - u.p0)) * (u.t2 - u.t1) : u.t1;
+  };
+  for (const it of items) {
+    if (!(it.len > 0) || !it.subs.length) continue;
+    const lens = it.subs.map((q) => { let L = 0; for (let i = 2; i < q.length; i += 2) L += Math.hypot(q[i] - q[i - 2], q[i + 1] - q[i - 1]); return L; });
+    const sum = lens.reduce((a, b) => a + b, 0) || 1;
+    let d = 0;
+    lens.forEach((L) => { if (L > 0) out.push(when((it.at + (d / sum) * it.len) / T)); d += L; });
+  }
+  out.sort((a, b) => a - b);
+  const kept = [];
+  for (const t of out) if (!kept.length || t - kept.at(-1) >= gap) kept.push(t);
+  return kept.map((t) => +t.toFixed(6));
+}

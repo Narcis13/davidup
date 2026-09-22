@@ -27,7 +27,7 @@ export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf,
 export { houseHand, asHand, fallbacks, unknowns, withHand } from './glyphs.js';
 export { handText, textOnPath, textRound, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, wordBox, syllablesOf, speech, VISEMES, glyphUnits } from './text.js';
 export { reveal, penAt } from './tools.js';
-export { writeOn, revealed, writing } from './write.js';
+export { writeOn, revealed, writing, strokeStarts } from './write.js';
 export { writingHand, writer, toolFor, heldTool } from '../packs/hands.js';
 export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn, streaks } from './finish.js';
 export { FX, chalkLook } from './fx.js';
@@ -46,7 +46,7 @@ export { mouthFrom, energyMouth, cuesMouth, mouthAt, mouthIndex, MOUTH_SHAPES } 
 export { captions } from './captions.js';
 export { note, burst, voice, plucks, swell, cueNotes, travel, sparse, impact, dyad, pluckPerSyllable } from '../recipes/score.js';
 export {
-  pop, boing, whoosh, ding, tada, tick, squeak, flip, erase, pencilScratch, chalkTap, hits, writerSounds, eraserSounds,
+  pop, boing, whoosh, ding, tada, tick, squeak, flip, erase, pencilScratch, chalkTap, chalkTaps, hits, writerSounds, eraserSounds,
   bed, barOf, MOODS, SFX_TOOLS,
 } from '../recipes/sfx.js';
 export { registerClip, registerClips, clipFromStore, clipOf, pose, traced, gap, airborne } from '../engines/traced.js';

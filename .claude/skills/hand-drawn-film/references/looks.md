@@ -8,7 +8,7 @@ on warm paper, riso dots, a screen print or graphite by changing one name, and
 why `hdf sheet` can show every cel in every look.
 
 `tools` holds each tool's defaults (the pen is 2.6 wide, 1.6 in
-`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`); a stroke without its
+`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`, 3.2 in `chalkboard`); a stroke without its
 own `w` or `wobble` takes them, and under a look with a `hand` the hand's pen
 profile comes first (see Modifiers below). `edition` (0 in every preset) reseeds every shot drawn in
 the look: `withLook('risoPop', { edition: 2 })` is a second print of the same
@@ -48,6 +48,7 @@ never a new hue for depth.
 | `doodlePastel` | pastel paper, brush-pen ink, watercolour fills (the doodle film) | `#efd2d1` / `#2c2f5e` | wash | pastel |
 | `cutout` | printed card on a table: rust, teal, mustard, olive; a thin steady pen (Gilliam) | `#e6dcc4` / `#1e1b26` | flat | card |
 | `whiteboard` | a classroom board: black, blue, red, green markers; light marker fills | `#eceeea` / `#23272e` | marker | board |
+| `chalkboard` | a classroom slate: white chalk, yellow, pink and blue chalks; muted rubbed fills | `#2a3b33` / `#161f1b` | chalk | slate |
 
 The flipbook is 45% cream paper, then navy, tan, teal and plum, a third of
 pixels saturated; the boat film is 41% blues; the website 92% cream and
@@ -88,7 +89,7 @@ look: withLook('pencilMinimal', { words: 3 })                           // allow
   in `lookOn`. Lint fails a look op inside a shot (except a print's
   thumbnail marked `inset: true`).
 
-## Modifiers: `~hand:`, `~from:` and `~alpha`
+## Modifiers: `~hand:`, `~from:`, `~alpha` and `~ghost:`
 
 A preset name may carry modifiers, applied in this order and folded into the
 look's name (so caches never collide): `'risoPop~hand:narcis'`,
@@ -108,6 +109,15 @@ look's name (so caches never collide): `'risoPop~hand:narcis'`,
   darkens the drawing only. A `lookNode` inside a list inherits it. `hdf
   render --alpha` (and `loadFilm(path, { alpha: true })`) applies it to
   every look the film pins.
+- `~ghost:<alpha>` (4.0 L2; 0.15 when bare): every shot draws the shot
+  before it in its seq, at its last frame, over its own stock: that shot's
+  stock dropped, the rest flattened and wiped to `alpha` by `fx('erase', {
+  mode: 'clear' })`, the way a board is never quite clean. One shot back only
+  (a ghost has no ghost of its own); a cut is passed over, so after
+  `seq(a, cut('erase', 0.5, a, b), b)` the cut reveals b over a's ghost and b
+  keeps it; a hold of a shot keeps that shot's ghost; the first node of a seq
+  has what its seq had. `look.ghost` is the field (`withLook(l, { ghost })`).
+  Lint reads shots alone, so a ghost's words are not counted.
 - They work in `film({ look })` and a shot's `look` (name the id in
   `assets:`), and as `--look` on any command (found in the store by itself),
   where they also reach the looks shots pin, each keeping its own paper.
@@ -153,6 +163,31 @@ them there, so `cut('erase', 0.8, a, b)` wipes shot `a` off the board to
 fx('erase', { p: ramp(1, 2.2, t), mode: 'clear', box: [120, 200, 600, 400] }, oldDiagram)
 ```
 
+## The chalkboard
+
+`chalkboard` (4.0 L2) is the board's dark twin. Its stock, `slate`, is a
+green-black sheet with the haze of lessons wiped with a felt, a line or two of
+old cursive never quite gone (both the slate's, fixed across cuts), chalk dust
+in the grain, and a wooden ledge along the bottom with dust on it, a white and
+a yellow stick and an eraser; keep the bottom 40 units clear. `penTool:
+'chalk'` draws every pen stroke, lettering included, with the chalk tool at
+the pen's width and wobble (3.2, 1.1) and the chalk's dashes (13, gap 2.6), in
+the look's hand when it has one. `dust: 1` makes every chalk stroke in the
+look shed specks either side of the line and let the board show through it
+here and there, seeded along the line so a write-on keeps its dust; a ruled
+line (`wobble: 0`) sheds none, and no other preset has the field. The inks
+are chalks: `inks.0` white, `inks.1` yellow, `inks.2` pink, `inks.3` blue,
+and `accents` the same yellow, pink, blue and a green; `fills` are muted, the
+colour chalk leaves rubbed into slate, light lines reading over them. The
+`paper` role is the slate, so a bubble or an eye white is drawn in chalk
+outline. `toolFor('chalkboard')` is `'chalk'` (the writing hand holds a
+stick), and `chalkTaps` is its sound. It allows 12 words a shot.
+
+```js
+film({ name: 'moon', look: 'chalkboard~ghost:0.15', timeline: seq(a, cut('erase', 0.6, a, b), b), score:
+  ({ shots }) => ({ events: [chalkTaps(TITLE, { t0: shots[0].t0, wps: 2 })] }) })
+```
+
 ## Finishes
 
 A fill gets texture from the look's finish when it asks: `fill(path, role,
@@ -168,6 +203,7 @@ boils between frames: it is seeded by the op's seed.
 | `graphite` | pencil | sparse thin lines and a few dots |
 | `wash` | doodle | watercolour off register from the line; replaces the flat fill |
 | `marker` | whiteboard | the flat fill and the faint overlaps of each marker pass, in a darker tone of the fill |
+| `chalk` | chalkboard | the flat fill and broad broken passes of a stick's side, in a lighter tone of the fill |
 
 `finish` may also name a finish or carry options: `{ finish: 'hatch' }`,
 `{ finish: { density: 0.16, role: 'inks.0', gap: 7, len: 12, alpha: 0.22,
