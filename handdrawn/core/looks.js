@@ -84,8 +84,8 @@ const mkLook = (name, palette, finish, paper, tools = {}, more = {}) => deepFree
 // units), tilt the scale-y of the whole puppet, the camera above the table.
 export const CUTOUT = Object.freeze({ shadow: 0.3, fastener: 3, edge: 0.6, tilt: 0.94 });
 
-// The seven presets (plan 1.4 and 3.0 S10): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
-// doodlePastel, cutout.
+// The eight presets (plan 1.4, 3.0 S10 and 4.0 L1): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight,
+// doodlePastel, cutout, whiteboard.
 export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
@@ -130,6 +130,13 @@ export const LOOKS = Object.freeze({
     fills: ['#d0632f', '#2f6f73', '#d9a441', '#7b8f5a', '#b98a6a', '#394a6d'], shade: '#4a3a30', light: '#f8f1df', blush: '#c9573f',
     accents: ['#b8352a', '#2f6f73', '#c49a3c', '#7d4f86'], inks: ['#2a2220', '#b8352a'],
   }, 'flat', 'card', { pen: { w: 2.2, wobble: 0.6 } }, { cutout: CUTOUT }),
+  // the classroom whiteboard: a cool white board with a glare and a tray, round-tip markers in black, blue,
+  // red and green (inks.N) drawing every pen line (penTool), fills coloured in with a marker's passes
+  whiteboard: mkLook('whiteboard', {
+    paper: '#eceeea', paperBand: null, ink: '#1d1f24', night: '#23272e', chalk: '#f4f5f2', chalkDim: '#9aa1a8', guide: 'rgba(31,95,201,.35)',
+    fills: ['#8db7ea', '#f2a0a0', '#9ed39a', '#f6d46e', '#c4a5e0', '#f5b574'], shade: '#3c424a', light: '#ffffff', blush: '#ef8686',
+    accents: ['#d8342f', '#1f5fc9', '#23924a', '#ef9a1c'], inks: ['#1d1f24', '#1f5fc9', '#d8342f', '#23924a'],
+  }, 'marker', 'board', { pen: { w: 3.4, wobble: 0.7 } }, { penTool: 'bullet' }),
 });
 
 function deepFreeze(o) {

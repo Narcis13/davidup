@@ -8,7 +8,7 @@ on warm paper, riso dots, a screen print or graphite by changing one name, and
 why `hdf sheet` can show every cel in every look.
 
 `tools` holds each tool's defaults (the pen is 2.6 wide, 1.6 in
-`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`); a stroke without its
+`pencilMinimal`, 4 in `doodlePastel`, 2.2 in `cutout`, 3.4 in `whiteboard`); a stroke without its
 own `w` or `wobble` takes them, and under a look with a `hand` the hand's pen
 profile comes first (see Modifiers below). `edition` (0 in every preset) reseeds every shot drawn in
 the look: `withLook('risoPop', { edition: 2 })` is a second print of the same
@@ -47,6 +47,7 @@ never a new hue for depth.
 | `blueprintNight` | chalk on navy only | `#0b0d1f` / `#0b0d1f` | hatch | night |
 | `doodlePastel` | pastel paper, brush-pen ink, watercolour fills (the doodle film) | `#efd2d1` / `#2c2f5e` | wash | pastel |
 | `cutout` | printed card on a table: rust, teal, mustard, olive; a thin steady pen (Gilliam) | `#e6dcc4` / `#1e1b26` | flat | card |
+| `whiteboard` | a classroom board: black, blue, red, green markers; light marker fills | `#eceeea` / `#23272e` | marker | board |
 
 The flipbook is 45% cream paper, then navy, tan, teal and plum, a third of
 pixels saturated; the boat film is 41% blues; the website 92% cream and
@@ -116,6 +117,33 @@ drawn as usual. The film changes nothing but `look: LOOKS.cutout` (and
 `paper: null` on doodle recipes so the card shows); `cutout-fox.js` is
 `fox-and-teapot.js` under it. It allows 3 words a shot, like doodle.
 
+## The whiteboard
+
+`whiteboard` is the explainer's home (4.0 L1). Its stock, `board`, is a cool
+white sheet with a soft glare across the upper left, the ghosts of old
+lessons (the board's, so they stay put across cuts) and an aluminium tray
+along the bottom edge with a capped marker in it; keep the bottom 45 units
+clear of anything that must read. `penTool: 'bullet'` draws every pen
+stroke, lettering included, with the **bullet** marker: round tip, nearly
+opaque, a paler dry streak down a broad line, and the look's hand when it has
+one (`whiteboard~hand:<id>`). `tool: 'marker'` is still the broad chisel
+marker that multiplies. The inks are the four marker colours: `inks.0` black,
+`inks.1` blue, `inks.2` red, `inks.3` green; `accents` are the same red, blue
+and green and an orange, and `fills` are light enough to letter on. It allows
+12 words a shot.
+
+The board's eraser is an fx: `fx('erase', { p, mode, box, band, ghost },
+kids)` sweeps a felt eraser row under row across `box` (the frame by
+default) as `p` runs 0 to 1. `mode: 'clear'` wipes the kids away where it has
+been and leaves a ghost of them (`ghost` 0.06); `'reveal'` (the default) shows
+them there, so `cut('erase', 0.8, a, b)` wipes shot `a` off the board to
+`b`. `band` is the eraser's width (0.14 of the frame's short side);
+`eraser: false` sweeps with no eraser drawn.
+
+```js
+fx('erase', { p: ramp(1, 2.2, t), mode: 'clear', box: [120, 200, 600, 400] }, oldDiagram)
+```
+
 ## Finishes
 
 A fill gets texture from the look's finish when it asks: `fill(path, role,
@@ -130,6 +158,7 @@ boils between frames: it is seeded by the op's seed.
 | `dots` | screen | a regular dot grid in a darker tone |
 | `graphite` | pencil | sparse thin lines and a few dots |
 | `wash` | doodle | watercolour off register from the line; replaces the flat fill |
+| `marker` | whiteboard | the flat fill and the faint overlaps of each marker pass, in a darker tone of the fill |
 
 `finish` may also name a finish or carry options: `{ finish: 'hatch' }`,
 `{ finish: { density: 0.16, role: 'inks.0', gap: 7, len: 12, alpha: 0.22,

@@ -20,7 +20,7 @@ export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf,
 export { houseHand, asHand, fallbacks, withHand } from './glyphs.js';
 export { handText, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, syllablesOf, speech, VISEMES } from './text.js';
 export { reveal } from './tools.js';
-export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn } from './finish.js';
+export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn, streaks } from './finish.js';
 export { FX, chalkLook } from './fx.js';
 export {
   cross, hex, hexCells, hexLattice, aster, dotBurst, speedLines, loops, construction,

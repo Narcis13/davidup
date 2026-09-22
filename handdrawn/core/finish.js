@@ -4,7 +4,8 @@
 //   text              -> hand-lettered strokes (text.js), in the look's hand
 //   a puppet's cel    -> card on a table (puppet.js asCutout), only under a look with a `cutout` field
 // Output is still a plain display list, so it hashes, projects and serialises like the input.
-// Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour).
+// Finishes: hatch (ink), halftone (riso), dots (screen), graphite (pencil), wash (doodle watercolour), marker
+// (whiteboard).
 // Riso plates are list helpers here too: plate() is the v1 plate + printPlate model as data, a dots op whose
 // coverage is evaluated per cell centre from painter-ordered shapes; knockout() is a cov 0 shape.
 import { clip, dots, group, fill, hashOp, inside, rect, stroke, translate, withProps, xf as xfPath, mkPath, norm } from './list.js';
@@ -43,6 +44,22 @@ export function hatch(box, { angle, gap, len, jitter, role, alpha, w, seed }) {
 // Hatching clipped to a path (v1 hatch(c, path, box, o)): a light or shadow patch laid over a fill.
 export const hatchIn = (path, { angle = 0.9, gap = 7, len = 14, jitter = 6, role = 'ink', alpha = 0.35, w = 1.2, seed = 1 } = {}) =>
   clip(path, [hatch(path.box, { angle, gap, len, jitter, role, alpha, w, seed })]);
+
+// Long parallel lines right across the box at an angle, each bowed a little: where one pass of a marker
+// overlaps the last as a fill is coloured in. One stroke op, ruled (wobble 0).
+export function streaks(box, { angle, gap, role, alpha, w, seed }) {
+  const r = rng(seed), [bx, by, bw, bh] = box, cx = bx + bw / 2, cy = by + bh / 2, R = Math.hypot(bw, bh) / 2;
+  const ca = Math.cos(angle), sa = Math.sin(angle), sub = [];
+  for (let v = -R + gap * r(); v <= R; v += gap * (0.8 + 0.4 * r())) {
+    const bow = (r() - 0.5) * gap * 0.4, pts = [];
+    for (let k = 0; k <= 4; k++) {
+      const u = -R + (R * k) / 2, vv = v + bow * Math.sin((Math.PI * k) / 4);
+      pts.push(cx + ca * u - sa * vv, cy + sa * u + ca * vv);
+    }
+    sub.push({ pts, closed: false });
+  }
+  return stroke(mkPath(sub), role, { w, wobble: 0, alpha, seed, name: 'streaks' });
+}
 
 // ---------- coverage (riso density, gradients as data) ----------
 
@@ -155,6 +172,10 @@ const FINISH = {
   dots: (box, role, seed, o, cov) => [
     dots(rect(...box), role, { cell: o.cell ?? 6, angle: o.angle ?? 0, jitter: 0.06, cov: cov ?? o.density ?? 0.5, alpha: o.alpha ?? 0.9, seed, name: 'screen' }),
   ],
+  // whiteboard: the flat colour and the faint overlap of each marker pass, in a darker tone of the fill
+  marker: (box, role, seed, o) => [
+    streaks(box, { angle: o.angle ?? -0.45, gap: o.gap ?? 15, role, alpha: o.alpha ?? 0.16, w: o.width ?? 2.2, seed }),
+  ],
 };
 
 // A finished fill: flat colour, then the texture clipped to the same path. `finish` on the op may name
@@ -167,14 +188,16 @@ function finished(op, look) {
   if (kind === 'wash') return [wash(op.path, op.role, { al: o.alpha ?? cov ?? 0.5, off: o.off ?? 5, seed, rim: o.rim ?? true })];
   if (kind === 'flat') return [flat];
   const make = FINISH[kind];
-  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash or flat)`);
-  return [flat, clip(op.path, make(op.path.box, o.role ?? 'shade', seed, o, cov))];
+  if (!make) throw new Error(`finish '${kind}' is unknown (expected hatch, halftone, dots, graphite, wash, marker or flat)`);
+  const role = o.role ?? (kind === 'marker' ? { base: op.role, shade: 0.3 } : 'shade');
+  return [flat, clip(op.path, make(op.path.box, role, seed, o, cov))];
 }
 
 // The stock, in screen space: frame fill, bands at -45 degrees (paper: 'bands'), grain scaled to the area;
-// card (paper: 'card') is heavier, with coarser grain and a few fibres.
+// card (paper: 'card') is heavier, with coarser grain and a few fibres; board (paper: 'board') is the whiteboard.
 function stock(op, look, { W, H }, dark) {
   const p = look.palette, frame = [-2, -2, W + 4, H + 4], area = (W * H) / (1080 * 1080), seed = op.seed ?? 5;
+  if (!dark && look.paper === 'board') return group({ name: 'paper', screen: true, seed }, board(W, H, seed));
   const kids = [fill(rect(...frame), dark ? 'night' : 'paper', { name: 'stock' })];
   if (dark) {
     kids.push(grain(frame, Math.round(400 * area), { base: 'night', tint: 1 }, 0.5, seed, 1.6));
@@ -192,6 +215,44 @@ function stock(op, look, { W, H }, dark) {
     kids.push(grain(frame, Math.round(1400 * area), { base: 'paper', shade: 0.5 }, 0.06, seed, 1.6));
   }
   return group({ name: dark ? 'night' : 'paper', screen: true, seed }, kids);
+}
+
+// The whiteboard: a cool white sheet, a soft glare across the upper left, the ghosts of lessons wiped not
+// quite clean, and the aluminium tray along the bottom edge with a capped marker lying in it. u scales it all
+// with the frame's short side, so a 9:16 board has the same tray. The ghosts are the board's, not the shot's
+// (a fixed seed), so they stay put across cuts; only the grain is reseeded.
+function board(W, H, seed) {
+  const r = rng(7), frame = [-2, -2, W + 4, H + 4], u = Math.min(W, H) / 1080, area = (W * H) / (1080 * 1080);
+  const kids = [fill(rect(...frame), 'paper', { name: 'stock' })];
+  const c = Math.cos(-0.5), s = Math.sin(-0.5), half = Math.hypot(W, H), m = [c, s, -s, c, W * 0.34, H * 0.3];
+  for (let i = 0; i < 7; i++) {
+    const bw = (520 - i * 70) * u;   // nested bands, each a touch lighter: a glare with no edge
+    kids.push(fill(xfPath(rect(-half, -bw / 2, 2 * half, bw), m), 'light', { alpha: 0.07, name: 'glare' }));
+  }
+  for (let k = 0; k < 3; k++) {
+    const x = W * (0.1 + 0.6 * r()), y = H * (0.12 + 0.66 * r()), L = (220 + 300 * r()) * u, a = (r() - 0.5) * 0.3, ph = r() * 6, pts = [];
+    for (let j = 0; j <= 12; j++) {
+      const v = Math.sin(ph + j * 0.8) * 9 * u;
+      pts.push(x + (Math.cos(a) * L * j) / 12 - Math.sin(a) * v, y + (Math.sin(a) * L * j) / 12 + Math.cos(a) * v);
+    }
+    kids.push(stroke(mkPath([{ pts, closed: false }]), 'ink', { tool: 'bullet', w: (34 + 30 * r()) * u, wobble: 2 * u, alpha: 0.022, seed: 17 + k, name: 'ghost' }));
+  }
+  kids.push(grain(frame, Math.round(300 * area), { base: 'paper', shade: 0.35 }, 0.05, seed + 1, 1.2));
+  const th = 34 * u, y0 = H - th, tray = (y, h, role, alpha = 1, name = 'tray') => fill(rect(-2, y, W + 4, h), role, { alpha, name });
+  kids.push(
+    tray(y0 - 9 * u, 9 * u, { base: 'paper', shade: 0.2 }, 0.35, 'tray-shadow'),
+    tray(y0, th + 2, { base: 'paper', shade: 0.3 }),
+    tray(y0, 3 * u, 'light', 0.85, 'tray-lip'),
+    tray(y0 + th * 0.62, 2 * u, { base: 'paper', shade: 0.5 }, 0.6, 'tray-edge'),
+  );
+  const mx = W * 0.74, my = y0 + th * 0.2, ml = 132 * u, mh = 15 * u;
+  kids.push(
+    fill(rect(mx + 4 * u, my + 4 * u, ml, mh), 'ink', { alpha: 0.15, name: 'marker-shadow' }),
+    fill(rect(mx, my, ml, mh), 'light', { name: 'marker' }),
+    fill(rect(mx + ml * 0.72, my - u, ml * 0.28, mh + 2 * u), 'inks.1', { name: 'marker-cap' }),
+    fill(rect(mx, my + mh * 0.2, ml * 0.72, mh * 0.18), { base: 'light', shade: 0.12 }, { name: 'marker-shine' }),
+  );
+  return kids;
 }
 
 // Expansions are memoised per (op, look, frame size) so an unchanged op expands to the same object.

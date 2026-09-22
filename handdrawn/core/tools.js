@@ -1,6 +1,6 @@
 // Drawing tools: how a stroke op becomes marks on a canvas. Browser and skia contexts are driven the
 // same way. All jitter comes from the op's seed, so a stroke boils only when its seed or inputs change.
-// Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache.
+// Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache, bullet.
 import { hash32, rng } from './rand.js';
 import { handOf, resolveLook, resolveRole } from './looks.js';
 import { mkPath, norm, spline, withProps } from './list.js';
@@ -115,19 +115,43 @@ function pressed(ctx, sub, w, pressure) {
 // overshoots corners, hooks entries and presses along the line (seeded apart from the jitter) -- except on a
 // stroke with wobble 0, which is a ruled line (hatching, guides) the hand does not touch.
 function pen(ctx, op, t, S, look) {
-  const r = rng(op.seed ?? 1), hand = look?.hand ? handOf(look)?.stroke : null, w = op.w ?? t.w;
+  const r = rng(op.seed ?? 1), w = op.w ?? t.w;
   ctx.lineWidth = w;
   if (op.dash) { ctx.setLineDash(op.dash); ctx.lineDashOffset = r() * 40; }
-  let path = op.path;
-  if (hand && op.wobble !== 0) {
-    const hr = rng(hash32('hand', op.seed ?? 1));
-    path = { sub: hook(overshoot(path.sub, hand.overshoot, w), hand.hook, w, hr) };
-  }
+  const { path, hand } = handed(op, look, w);
   const sub = jittered(path, op.wobble ?? hand?.wobble ?? t.wobble, r);
   if (hand && op.wobble !== 0 && !op.dash && !flatPressure(hand.pressure)) { pressed(ctx, sub, w, hand.pressure); return; }
   ctx.beginPath();
   tracePath(ctx, { sub });
   ctx.stroke();
+}
+
+// The op's path as the look's hand would pen it (corners overshot, entries hooked), and the hand's stroke
+// profile; the path unchanged and no hand without one, or on a ruled line (wobble 0).
+function handed(op, look, w) {
+  const hand = look?.hand ? handOf(look)?.stroke : null;
+  if (!hand || op.wobble === 0) return { path: op.path, hand: null };
+  const hr = rng(hash32('hand', op.seed ?? 1));
+  return { path: { sub: hook(overshoot(op.path.sub, hand.overshoot, w), hand.hook, w, hr) }, hand };
+}
+
+// Bullet: a round-tip whiteboard marker (4.0 L1). Nearly opaque and laid over what is under it (so, unlike the
+// chisel marker, it caches like the pen), with a paler streak down a broad line where the felt runs dry. A look
+// with penTool: 'bullet' draws every pen stroke with it, in the look's hand when it has one.
+function bullet(ctx, op, t, S, look) {
+  const r = rng(op.seed ?? 1), w = op.w ?? t.w ?? 3.4, a0 = ctx.globalAlpha;
+  if (op.dash) { ctx.setLineDash(op.dash); ctx.lineDashOffset = r() * 40; }
+  const { path, hand } = handed(op, look, w), sub = jittered(path, op.wobble ?? hand?.wobble ?? t.wobble ?? 0.7, r);
+  ctx.globalAlpha = a0 * 0.92; ctx.lineWidth = w;
+  ctx.beginPath(); tracePath(ctx, { sub }); ctx.stroke();
+  if (w >= 2.5 && !op.dash) {
+    const dx = w * 0.14, dy = -w * 0.1;
+    ctx.globalAlpha = a0 * 0.18; ctx.lineWidth = w * 0.22; ctx.strokeStyle = resolveRole('paper', look);
+    ctx.beginPath();
+    tracePath(ctx, { sub: sub.map((s) => ({ pts: s.pts.map((v, i) => v + (i & 1 ? dy : dx)), closed: s.closed })) });
+    ctx.stroke();
+  }
+  ctx.globalAlpha = a0;
 }
 
 // Crayon: three wobbly passes with a grainy edge (the flipbook's ripple line).
@@ -242,14 +266,16 @@ function chalk(ctx, op, t) {
   ctx.globalAlpha = a0;
 }
 
-const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache };
+const TOOLS = { pen, chalk, brush, pencil, crayon, marker, gouache, bullet };
 
 // The width a stroke is drawn at: its own w, else the look's setting for its tool, else the tool's default.
-const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10, gouache: 12 };
+const TOOL_W = { pen: 2, chalk: 2, brush: 4, pencil: 0.9, crayon: 4, marker: 10, gouache: 12, bullet: 3.4 };
 export const strokeWidth = (op, look) => op.w ?? resolveLook(look).tools[op.tool ?? 'pen']?.w ?? TOOL_W[op.tool ?? 'pen'] ?? 2;
 
+// A pen stroke is drawn by the look's penTool when it names one (the whiteboard's bullet marker), still with
+// the pen's settings; any other tool is its own.
 export function drawStroke(ctx, op, look, S = 1) {
-  const draw = TOOLS[op.tool ?? 'pen'];
+  const kind = op.tool ?? 'pen', draw = TOOLS[kind === 'pen' && look.penTool ? look.penTool : kind];
   if (!draw) throw new Error(`stroke: tool '${op.tool}' is not implemented yet (have ${Object.keys(TOOLS).join(', ')})`);
   ctx.save();
   ctx.strokeStyle = resolveRole(op.role, look);

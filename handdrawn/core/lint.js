@@ -42,8 +42,9 @@ export const WARNINGS = Object.freeze({
 });
 export const SYNC_MAX = 3;         // s of estimated word timing before caption-sync warns
 
-// Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins.
-export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3 });
+// Handwritten words a shot may carry, by look (base name, before any '~' derivation). look.words wins. A board
+// carries a lesson's title and labels; the audience profiles (4.0 T10) will set it per audience.
+export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3, whiteboard: 12 });
 export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
 export const SIGN_OFF_LEAD = 1.5;  // seconds the finished sign-off must hold before the end
 const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1, MAX_BOB = 1;

@@ -1,6 +1,6 @@
 ---
 name: hand-drawn-film
-description: Make a 10 to 40 second film that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Seven looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, and cut-out card pinned with brass fasteners - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
+description: Make a 10 to 40 second film that looks hand-drawn or hand-printed, written as a JavaScript module on the handdrawn package (display lists drawn on Canvas 2D by skia-canvas, rendered to mp4 with a generated score, no browser). Eight looks - ink on warm paper with hatching, riso halftone prints in fluorescent inks, flat screen prints with dot grids, graphite minimalism with torn sections, chalk blueprints, brush-pen doodles on cut-out photos of real objects, cut-out card pinned with brass fasteners, and a classroom whiteboard in coloured markers with an eraser - drawn on twos (12 fps). Three engines - found motion (poses traced from real movement, retargeted onto a puppet, or your own walk filmed on a phone), sand on a light table in one take, and paper in space (a pop-up book in a lit room). A cast of puppets (drawn in Figma as SVG or written as JSON) that any recipe directs, speaks, turns and walks; the film lettered in the user's own handwriting from a photographed sheet; an asset store searched before anything is drawn; shots from recipes (A to Z, AA to AM), cels from packs; lint before pixels; a bridge into davidup compositions. Use when the user asks for a hand-drawn animation or explainer, "мультик", "рисованный ролик", a riso or screen-print look, doodles on photos, a cut-out or paper-puppet look, a whiteboard explainer, sand animation, a pop-up book, rotoscope, a character that talks or walks like them, a film in their handwriting, a procedural short film, or a canvas video in this family of styles. Not for UI animation, charts or slide decks.
 ---
 
 # Hand-drawn film 3.0
@@ -245,12 +245,14 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
 | blueprint | `blueprintNight` | hatch | chalk on navy only: "look inside" |
 | doodle | `doodlePastel` | wash | brush pen and watercolour on cut-out photos of real objects |
 | cut-out | `cutout` | flat | printed card on a table: every puppet part a pinned piece with a soft shadow, a paper edge and a brass fastener |
+| whiteboard | `whiteboard` | marker | a classroom board: round-tip markers in black, blue, red, green (`inks.N`) draw every pen line, fills coloured in with marker passes, `fx('erase')` / `cut('erase', ...)` |
 
 `derive`, `duotone`, `pastel`, `withLook` make variants; `~hand:<id>` and
 `~from:<id>` are the two modifiers. Palettes, finishes and riso plates are in
 `references/looks.md`. The cut-out look reaches puppets in the finish pass:
 the film changes nothing but `look` (and `paper: null` on doodle recipes, so
-the card stock shows).
+the card stock shows). So does the whiteboard: `--look whiteboard` restyles
+any film; it allows 12 words a shot, a lesson's title and labels.
 
 | engine | what the frame is | example |
 |---|---|---|

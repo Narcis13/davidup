@@ -8,9 +8,9 @@
 // under the same transform, then composite in device pixels; inside a cached group that canvas is the
 // group's layer, so they work there too.
 import { mix, withLook, resolveRole } from './looks.js';
-import { rect, walk, xf as xfPath, bounds } from './list.js';
+import { mkPath, rect, walk, xf as xfPath, bounds } from './list.js';
 import { rng } from './rand.js';
-import { tracePath } from './tools.js';
+import { tracePath, trim } from './tools.js';
 import { ease } from './curves.js';
 
 const TAU = Math.PI * 2;
@@ -117,6 +117,38 @@ function outlines(kids, only) {
   return out;
 }
 
+// The eraser's track over box: rows band apart (overlapping a little), left to right then back, each row
+// wavering a seeded touch, as { path, len }. One open sub, so trim(path, p x len) is where it has been by p.
+export function eraseTrack(box, band, seed) {
+  const [bx, by, bw, bh] = box, r = rng(seed), rows = Math.max(1, Math.ceil(bh / (band * 0.85)));
+  const step = rows > 1 ? (bh - band) / (rows - 1) : 0, pts = [];
+  for (let k = 0; k < rows; k++) {
+    const y = by + (rows > 1 ? band / 2 + k * step : bh / 2);
+    for (let j = 0; j <= 6; j++) {
+      const u = k % 2 ? 6 - j : j;
+      pts.push(bx - band * 0.3 + ((bw + band * 0.6) * u) / 6, y + (r() - 0.5) * band * 0.16);
+    }
+  }
+  let len = 0;
+  for (let i = 2; i < pts.length; i += 2) len += Math.hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]);
+  return { path: mkPath([{ pts, closed: false }]), len };
+}
+
+// A board eraser seen from above at (x, y), moving along angle a, broadside to its motion: its shadow, the
+// felt, the handle (inks.1) and a highlight.
+function drawEraser(ctx, x, y, a, band, look) {
+  const L = band * 1.04, D = band * 0.5, box = (dx, dy, w, h, role, alpha = 1) => {
+    ctx.globalAlpha = alpha; ctx.fillStyle = resolveRole(role, look); ctx.fillRect(dx - w / 2, dy - h / 2, w, h);
+  };
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(a);
+  box(D * 0.12, D * 0.2, D, L, 'ink', 0.18);
+  box(0, 0, D, L, { base: 'paper', shade: 0.55 });
+  box(D * 0.06, 0, D * 0.8, L * 0.94, 'inks.1');
+  box(-D * 0.22, 0, D * 0.14, L * 0.86, 'light', 0.35);
+  ctx.restore();
+}
+
 // The raster effects by kind, for fx(kind, args, kids) and cut(kind, dur, a, b); each is (ctx, args, ...).
 export const FX = {
   // Kids faded in by p.
@@ -138,6 +170,34 @@ export const FX = {
     ctx.beginPath(); tracePath(ctx, rect(...box)); ctx.clip();
     renderKids();
     ctx.restore();
+  },
+
+  // A board eraser (4.0 L1) swept across box (default the frame) row under row by p. mode 'reveal', what a cut
+  // asks for, shows the kids where it has been; 'clear' wipes them away there and leaves a ghost of them at
+  // `ghost` alpha, the way a board is never quite clean. band: the eraser's width.
+  erase(ctx, { p = 1, mode = 'reveal', box, band, ghost, eraser = true }, renderKids, seed, env) {
+    if (mode !== 'reveal' && mode !== 'clear') throw new Error(`fx erase: unknown mode '${mode}' (expected reveal or clear)`);
+    const q = clamp01(p), b = box ?? [0, 0, env.W, env.H], bw = band ?? Math.min(env.W, env.H) * 0.14;
+    const g0 = ghost ?? (mode === 'clear' ? 0.06 : 0);
+    if (q <= 0) { if (mode === 'clear') renderKids(); return; }
+    const { path, len } = eraseTrack(b, bw, seed), done = trim(path, len * q);
+    const c = offscreen(ctx, env, 'erase', renderKids), k = c.getContext('2d');
+    const m = env.temp(`erase-mask:${env.depth ?? 0}`, c.width, c.height), g = m.getContext('2d');
+    copyTransform(ctx, g);
+    g.lineWidth = bw; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#000';
+    g.beginPath(); tracePath(g, done); g.stroke();
+    k.save();
+    k.setTransform(1, 0, 0, 1, 0, 0);
+    k.globalCompositeOperation = mode === 'clear' ? 'destination-out' : 'destination-in';
+    k.globalAlpha = mode === 'clear' ? 1 - g0 : 1;
+    k.drawImage(m, 0, 0);
+    k.restore();
+    blitDevice(ctx, c, { alpha: mode === 'clear' ? 1 : 1 - g0 });
+    if (eraser && q < 1) {
+      const pts = done.sub.at(-1).pts, n = pts.length;
+      const x = pts[n - 2], y = pts[n - 1], a = n >= 4 ? Math.atan2(y - pts[n - 3], x - pts[n - 4]) : 0;
+      drawEraser(ctx, x, y, a, bw, env.look);
+    }
   },
 
   // Kids revealed inside a growing ink blot with a bristly fringe (v1 blot). R = r ?? eased p x reach.

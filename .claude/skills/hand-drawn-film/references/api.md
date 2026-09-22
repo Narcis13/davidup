@@ -125,7 +125,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 ### core/looks.js
 
-- `LOOKS` The seven presets (plan 1.4 and 3.0 S10): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout.
+- `LOOKS` The eight presets (plan 1.4, 3.0 S10 and 4.0 L1): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard.
 - `PASTELS` The doodle palette on another sheet of paper. Sheets measured off the reference film.
 - `derive(look, { hue = 0, sat = 1, light = 0, from, name } = {})` Shift a whole palette (hue in degrees, saturation factor, lightness delta), or repaint it in the colours of `from` -- a cutout record written by `hdf photo` (or a bare colours list).
 - `duotone(look, a, b)` Two inks on the look's paper, the way the flipbook goes magenta + blue for a beat.
@@ -176,6 +176,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `grain(box, n, role, alpha, seed, size)` n speckles scattered over box (v1 grain). A list helper too: clip it to a path for a textured area.
 - `hatch(box, { angle, gap, len, jitter, role, alpha, w, seed })` Short parallel strokes across the box at an angle (v1 hatch), as one stroke op with many subs.
 - `hatchIn(path, { angle = 0.9, gap = 7, len = 14, jitter = 6, role = 'ink', alpha = 0.35, w = 1.2, seed = 1 } = {})` Hatching clipped to a path (v1 hatch(c, path, box, o)): a light or shadow patch laid over a fill.
+- `streaks(box, { angle, gap, role, alpha, w, seed })` Long parallel lines right across the box at an angle, each bowed a little: where one pass of a marker overlaps the last as a fill is coloured in.
 
 ### core/fx.js
 
@@ -403,9 +404,9 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 
 ## Tables
 
-- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout
+- looks (`LOOKS`): paperInk, risoPop, screenSea, pencilMinimal, blueprintNight, doodlePastel, cutout, whiteboard
 - paper sheets (`PASTELS`, for `pastel(look, name)`): rose, mint, butter, sky, cream, peach, lilac, sand, night
-- fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
+- fx kinds (`fx(kind, args, kids)`, `cut(kind, dur, a, b)`): dissolve, wipe, erase, blot, iris, mosaic, flash, flicker, nightShot, bleed, glow, scribble, photoMask, soft
 - easings (`ease.<name>`): linear, in, out, io, back, bounce
 - sand gestures (`G.<name>`): pour, sprinkle, finger, palm, dab, comb, fill, move, wind, fly
 - formats (`FORMATS`): 1:1 1080x1080, 16:9 1920x1080, 9:16 1080x1920
