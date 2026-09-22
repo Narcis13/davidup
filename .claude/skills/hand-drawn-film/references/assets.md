@@ -392,3 +392,14 @@ film's store puppets and its module's `cast` export (name -> actor or puppet).
 `hdf-to-davidup.ts --fonts [a,b]` writes the film's hand (or those named, store
 ids or `house`) with `hdf hand --export-ttf` and registers `hdf-<hand>-font`, a
 font asset of family `hdf-<hand>`, for `add_text`'s `font`.
+Cues both ways (4.0 D4): every film command takes `--cues-from <composition.json
+| cues.json> [--at <item|seconds>]`, and a film reads those marks with
+`atMark(name, { or })` / `marksNamed(name, { or })` (core/cuemarks.js) and
+`cues.marks` in its score. From a composition the marks are its `markers`, its
+audio tracks' `markers` (placed through start, trimIn, loop and end), each
+item's `<id>.start` / `<id>.end` and `composition.end`, in the seconds of the
+item `--at` names. `hdf cues <film>` writes `{ kind: 'hdf-cues', shots, cuts,
+chapters, notes, words, marks }`; `davidup-hdf-clip.ts` (and `hdf-to-davidup.ts`
+for each item playing the film) passes the composition as `--cues-from` and
+writes the film's chapters into `composition.markers` with `source:
+"hdf:<item>"`; `--no-cues` turns both off.

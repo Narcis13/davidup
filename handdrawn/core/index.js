@@ -8,6 +8,7 @@ export {
   FPS, curve, ease, ramp, add, mul, delay, repeat, pingpong, clampC, onTwos, onThrees, follow, pulse, flicker, boil,
 } from './curves.js';
 export { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues, chapterSeq, chapters, chapterAt, chapterFilm, excerpt } from './tree.js';
+export { atMark, marksNamed, marks, setMarks, marksOf, onGrid, trackMarkerTimes } from './cuemarks.js';
 export { DIR, JOINT, VIEW_DIRS, puppet } from './puppet.js';
 export { FOLLOW, expandChains } from './follow.js';
 export { RIGS, rigClip, skelOf } from './rig.js';

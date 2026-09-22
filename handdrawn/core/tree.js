@@ -2,6 +2,7 @@
 // arrange them. frame(film, i) is the one entry point the rasteriser and lint use.
 import { FPS } from './curves.js';
 import { audienceOf } from './audience.js';
+import { marks } from './cuemarks.js';
 import { fitFor, format } from './fit.js';
 import { currentHand, withHand } from './glyphs.js';
 import { fx, group, hashData, lookNode, mmul, norm, rotate, scale, translate, walk, withProps } from './list.js';
@@ -353,14 +354,17 @@ export function localCues(f) {
     shots: c.shots.filter(within).map((s) => ({ ...s, t0: s.t0 - t0 })),
     cuts: c.cuts.filter((t) => t > t0 + eps && t < t1 - eps).map((t) => t - t0),
     chapters: c.chapters.filter(within).map((x) => ({ ...x, t0: x.t0 - t0 })),
+    marks: c.marks.filter((m) => m.t >= t0 - eps && m.t < t1 - eps).map((m) => ({ ...m, t: m.t - t0 })),
     end: f.n / FPS,
   };
 }
 
 // ---------- artefacts ----------
 
-// { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], chapters: [{ n, title, t0, dur }], end }. Times come from
-// frame counts, so they sit on the grid. An excerpt's cues are its whole film's (the score is the whole film's).
+// { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], chapters: [{ n, title, t0, dur }], marks: [{ t, name, from }],
+// end }. Times come from frame counts, so they sit on the grid; marks (4.0 D4) are the ones set from outside
+// (`hdf render --cues-from`, core/cuemarks.js), at their own times. An excerpt's cues are its whole film's (the
+// score is the whole film's).
 export function cues(f) {
   f = f.whole ?? f;
   const shots = [], cuts = new Set();
@@ -377,7 +381,7 @@ export function cues(f) {
   };
   visit(f.timeline, 0);
   const chaps = chapters(f).map((c) => ({ n: c.n, title: c.title, t0: c.t0, dur: c.dur }));
-  return { shots, cuts: [...cuts].sort((a, b) => a - b).map((x) => x / FPS), chapters: chaps, end: f.n / FPS };
+  return { shots, cuts: [...cuts].sort((a, b) => a - b).map((x) => x / FPS), chapters: chaps, marks: marks(), end: f.n / FPS };
 }
 
 const sec = (n) => `${(n / FPS).toFixed(2)}s`;

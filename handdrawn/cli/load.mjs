@@ -1,6 +1,6 @@
 // Film loading, shared by the CLI and render workers. Image assets (cutouts, backdrops) are decoded once
 // here, so every renderer made for the film can draw its image ops synchronously.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
@@ -8,6 +8,8 @@ import { ASSET_ROOT, fromStore, readCatalogue, recordOf } from '../core/assets.j
 import { mapLooks, withRootLook } from '../core/tree.js';
 import { register } from '../core/store.js';
 import { modifyLook, parseLookName, resolveLook } from '../core/looks.js';
+import { marksOf, setMarks } from '../core/cuemarks.js';
+import { hash32 } from '../core/rand.js';
 
 export class UsageError extends Error {}
 
@@ -76,8 +78,11 @@ export function readHands(names, assets = {}) {
 // replacing the film's root look (--look), which may carry modifiers read off the film's assets
 // ('doodlePastel~from:teapot'); it is resolved here, once, so renderers downstream never need them.
 // alpha: every look the film pins goes on no stock (`~alpha`), for a render with a transparent background.
-export async function loadFilm(path, { look, alpha } = {}) {
-  const f = await loadLooked(path, look);
+// marks (4.0 D4): the marks the film is cut to (core/cuemarks.js), set before the module is imported; a film
+// imported again with other marks is a fresh instance of its module (its timeline is built at import).
+export async function loadFilm(path, { look, alpha, marks } = {}) {
+  if (marks !== undefined) setMarks(marks);
+  const f = await loadLooked(path, look, marks?.length ? `marks=${hash32(JSON.stringify(marks)).toString(36)}` : '');
   if (!alpha) return f;
   const g = mapLooks(f, (l) => modifyLook(l, [['alpha', '']], assetsOf(f)));
   decoded.set(g, decoded.get(f));
@@ -85,11 +90,23 @@ export async function loadFilm(path, { look, alpha } = {}) {
   return g;
 }
 
-async function loadLooked(path, look) {
+// --cues-from <file> [--at <item|seconds>] (4.0 D4): the marks in a davidup composition, a cue file or a
+// { marks } list, in the film's seconds (core/cuemarks.js marksOf). undefined when no file is given.
+export function marksFrom(file, at) {
+  if (file === undefined || file === false) return undefined;
+  if (file === true) throw new UsageError('--cues-from takes a file: a davidup composition.json, a cue file (hdf cues) or { marks }');
+  const abs = resolve(String(file));
+  if (!existsSync(abs)) throw new UsageError(`--cues-from: no file ${file}`);
+  let doc;
+  try { doc = JSON.parse(readFileSync(abs, 'utf8')); } catch (e) { throw new UsageError(`--cues-from ${file}: not JSON (${e.message})`); }
+  try { return marksOf(doc, { at: at === true ? undefined : at }); } catch (e) { throw new UsageError(`--cues-from ${file}: ${e.message}`); }
+}
+
+async function loadLooked(path, look, query = '') {
   if (!path) throw new UsageError('missing <film.js>');
   const abs = resolve(path);
   if (!existsSync(abs)) throw new UsageError(`film not found: ${path}`);
-  const mod = await import(pathToFileURL(abs).href);
+  const mod = await import(pathToFileURL(abs).href + (query ? `?${query}` : ''));
   const f = mod.default;
   if (!f || typeof f !== 'object') throw new Error(`${path}: default export must be film({...})`);
   if (typeof f.name !== 'string' || !f.name) throw new Error(`${path}: film has no name`);

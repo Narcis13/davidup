@@ -10,3 +10,4 @@ export { bounds, group, paper, stroke, rect, walk, hashList, withProps } from '.
 export { withHand } from '../core/glyphs.js';
 export { handOf, hashLook, resolveLook } from '../core/looks.js';
 export { register, stored } from '../core/store.js';
+export { setMarks } from '../core/cuemarks.js';

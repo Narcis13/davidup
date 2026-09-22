@@ -12,6 +12,7 @@ import type {
   ImageAssetSchema,
   ItemSchema,
   LayerSchema,
+  MarkerSchema,
   ShapeItemSchema,
   SpriteItemSchema,
   SpriteSheetSchema,
@@ -29,6 +30,7 @@ export type BlendMode = z.infer<typeof BlendModeSchema>;
 export type Composition = z.infer<typeof CompositionSchema>;
 export type CompositionMeta = z.infer<typeof CompositionMetaSchema>;
 export type AudioMaster = NonNullable<CompositionMeta["audioMaster"]>;
+export type Marker = z.infer<typeof MarkerSchema>;
 
 export type Asset = z.infer<typeof AssetSchema>;
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;

@@ -539,22 +539,36 @@ const getComposition = defineTool({
   },
 });
 
+// A named moment (4.0 D4). On an audio track `t` is seconds into the SOURCE
+// file (beats move with the music); on the composition, timeline seconds.
+const MARKER = z
+  .object({
+    t: z.number().nonnegative(),
+    name: z.string().min(1).max(80),
+    source: z.string().min(1).max(80).optional(),
+  })
+  .strict();
+
 const setCompositionProperty = defineTool({
   name: "set_composition_property",
   title: "Set composition meta property",
   description:
-    "Update one of width/height/fps/duration/background/audioMaster on the composition. fps takes a positive number or an " +
+    "Update one of width/height/fps/duration/background/audioMaster/markers on the composition. fps takes a positive number or an " +
     'exact rational string "N/D" (e.g. "30000/1001"). audioMaster takes `{ limiter?: boolean, targetLufs?: number }` ' +
     "(or null to reset): the master bus after all audio tracks are mixed — a -1 dBFS limiter, ON unless `limiter: false`, " +
     "and an optional two-pass loudness normalisation to `targetLufs` in [-70, -5] (e.g. -14 streaming, -16 web, -23 broadcast; " +
-    "costs one extra ffmpeg analysis pass at render). width and height must be EVEN " +
+    "costs one extra ffmpeg analysis pass at render). markers takes `[{ t, name, source? }]` (or null to drop them): named " +
+    "moments in timeline seconds, drawn on the editor's ruler and read by other tools (e.g. `hdf render --cues-from` cuts a " +
+    "hand-drawn film to them); the renderer ignores them. The list replaces the old one; `source` tags who wrote a marker. " +
+    "width and height must be EVEN " +
     "(H.264/yuv420p); after a width/height change that leaves an odd or >4096px canvas the response carries " +
     "`issues` (E_DIMENSION_ODD, blocks rendering) / `warnings` (W_DIMENSION_LARGE).",
   inputSchema: {
-    property: z.enum(["width", "height", "fps", "duration", "background", "audioMaster"]),
+    property: z.enum(["width", "height", "fps", "duration", "background", "audioMaster", "markers"]),
     value: z.union([
       z.number(),
       z.string(),
+      z.array(MARKER),
       z
         .object({
           limiter: z.boolean().optional(),
@@ -1371,6 +1385,11 @@ const AUDIO_FADE = z
   .number()
   .nonnegative()
   .describe("Fade ramp length in seconds.");
+const AUDIO_MARKERS = z
+  .array(MARKER)
+  .describe(
+    "Named moments in the SOURCE file, seconds into it (beats, a drop): `[{ t, name, source? }]`. They move with the track, drop what trimIn skips and repeat on each loop. The editor draws them on the track; other tools cut to them (`hdf render --cues-from composition.json`). The renderer ignores them.",
+  );
 const AUDIO_LOOP = z
   .boolean()
   .describe(
@@ -1393,6 +1412,7 @@ const addAudioTrack = defineTool({
     fadeIn: AUDIO_FADE.optional(),
     fadeOut: AUDIO_FADE.optional(),
     loop: AUDIO_LOOP.optional(),
+    markers: AUDIO_MARKERS.optional(),
     id: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   },
@@ -1407,6 +1427,7 @@ const addAudioTrack = defineTool({
         ...(args.fadeIn !== undefined ? { fadeIn: args.fadeIn } : {}),
         ...(args.fadeOut !== undefined ? { fadeOut: args.fadeOut } : {}),
         ...(args.loop !== undefined ? { loop: args.loop } : {}),
+        ...(args.markers !== undefined ? { markers: args.markers } : {}),
         ...(args.id !== undefined ? { id: args.id } : {}),
       },
       args.compositionId,
@@ -1421,7 +1442,7 @@ const updateAudioTrack = defineTool({
   name: "update_audio_track",
   title: "Update audio track",
   description:
-    "Patch fields on an existing audio track. Re-checks the (new) asset is audio and re-evaluates the past-composition-end warning. Returns `{ ok: true }`, plus a `warnings` array when the resulting placement extends past the composition end.",
+    "Patch fields on an existing audio track (`markers` replaces the list; [] drops them). Re-checks the (new) asset is audio and re-evaluates the past-composition-end warning. Returns `{ ok: true }`, plus a `warnings` array when the resulting placement extends past the composition end.",
   inputSchema: {
     id: z.string().min(1),
     props: z
@@ -1434,6 +1455,7 @@ const updateAudioTrack = defineTool({
         fadeIn: AUDIO_FADE,
         fadeOut: AUDIO_FADE,
         loop: AUDIO_LOOP,
+        markers: AUDIO_MARKERS,
       })
       .partial(),
     compositionId: COMPOSITION_ID,
@@ -3092,6 +3114,16 @@ const listEngineCapabilitiesTool = defineTool({
       spriteSheets: {
         assetField: "sheet",
         itemFields: ["cycle", "frame"],
+      },
+      // Markers (4.0 D4): named moments `{ t, name, source? }` on the
+      // composition (timeline seconds, set_composition_property "markers")
+      // and on audio tracks (source-file seconds, add/update_audio_track).
+      // The renderer ignores them; the editor draws them, and
+      // `hdf render --cues-from` cuts a hand-drawn film to them.
+      markers: {
+        composition: "composition.markers",
+        audioTrack: "markers",
+        fields: ["t", "name", "source"],
       },
       // Per-item effects (v1.1 S21), on every item type via update_item.
       // `tweenable` lists each type's fields, animated as

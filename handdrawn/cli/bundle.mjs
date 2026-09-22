@@ -5,7 +5,7 @@
 // inlined as data URLs through window.HDF.assets, and so is every voice's wav. No bundler.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
-import { assetsOf, UsageError } from './load.mjs';
+import { assetsOf, marksFrom, UsageError } from './load.mjs';
 import { ASSET_ROOT, readCatalogue, recordOf } from '../core/assets.js';
 import { scoreEvents, voiceIds } from '../core/synth.js';
 import { outDir } from './sheets.mjs';
@@ -16,7 +16,7 @@ const dataUrl = (type, bytes) => `data:${type};base64,${Buffer.from(bytes).toStr
 // Keeps an inline <script> from ending early.
 const safeJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
 
-export async function bundle(path, { loadFilm, out, look }) {
+export async function bundle(path, { loadFilm, out, look, marks }) {
   const film = await loadFilm(path);
   const file = resolve(path), deps = join(ROOT, 'player/deps.js'), player = join(ROOT, 'player/player.js');
   const mods = graph([player, deps, file]);
@@ -41,7 +41,7 @@ export async function bundle(path, { loadFilm, out, look }) {
   }
 
   const pkg = posix(relative(base, ROOT));
-  const config = { film: key(file), hdf: `hdf/${pkg ? pkg + '/' : ''}`, assets, catalogue, ...(look ? { look } : {}) };
+  const config = { film: key(file), hdf: `hdf/${pkg ? pkg + '/' : ''}`, assets, catalogue, ...(look ? { look } : {}), ...(marks ? { marks } : {}) };
   const html = readFileSync(join(ROOT, 'player/player.html'), 'utf8')
     .replace('<link rel="stylesheet" href="shell.css">', () => `<style>\n${readFileSync(join(ROOT, 'player/shell.css'), 'utf8')}</style>`)
     .replace('<script type="module" src="./player.js"></script>', () => [
@@ -57,7 +57,7 @@ export async function bundle(path, { loadFilm, out, look }) {
 
 export async function run([path], flags, { loadFilm }) {
   if (!path) throw new UsageError('missing <film.js>');
-  const r = await bundle(path, { loadFilm, out: outDir(flags), look: flags.look });
+  const r = await bundle(path, { loadFilm, out: outDir(flags), look: flags.look, marks: marksFrom(flags.cuesFrom, flags.at) });
   process.stdout.write(`${r.dest}  ${r.modules} modules, ${r.assets} inlined assets, ${(r.bytes / 1024).toFixed(0)} KB  (${basename(path)})\n`);
   return 0;
 }

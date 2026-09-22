@@ -1235,6 +1235,7 @@ is bit-deterministic.
 | `W_SCENE_INSTANCE_OUTLIVES`       | validator (warning) | scene-instance wrapper group stays visible well past its content's last tween |
 | `W_GROUP_ANCHOR_NO_BOX`           | validator (warning) | group sets an anchor on an axis it declares no `width`/`height` for |
 | `W_VIDEO_NO_AUDIO_STREAM`         | validator (warning) | video item sets `keepAudio` but its asset was probed with no audio stream |
+| `W_MARKER_OUTSIDE`                | validator (warning) | a composition marker past the end, or an audio-track marker that never plays inside the composition |
 | `E_NO_COMPOSITION`                | store / dispatch    | no default composition; pass `compositionId`               |
 | `E_DUPLICATE_ID`                  | store               | id already in use                                          |
 | `E_NOT_FOUND`                     | store               | entity (item/layer/asset/tween) does not exist             |

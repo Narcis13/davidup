@@ -6,7 +6,7 @@ import { frameRenderer } from './frames.mjs';
 import { excerpt } from '../core/tree.js';
 
 const { path, opts } = workerData;
-const loaded = await loadFilm(path, { look: opts.look, alpha: opts.alpha });
+const loaded = await loadFilm(path, { look: opts.look, alpha: opts.alpha, marks: opts.marks });
 const film = opts.window ? excerpt(loaded, ...opts.window) : loaded;
 const r = frameRenderer(film, opts);
 

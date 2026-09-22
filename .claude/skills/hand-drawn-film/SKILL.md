@@ -542,6 +542,18 @@ film. Look at `out/<id>-ttf.png` (the font above the lettering) first. The font
 is still: no wobble, no draw-on. Words that write themselves stay a film.
 `examples/hdf-font/agent.mjs` is the pattern.
 
+**Cut to the music.** When the film plays in a davidup composition with a
+beat, cut it to the composition instead of guessing times: in the film,
+`const beats = marksNamed('beat', { or: [...] })` and `const drop =
+atMark('drop', { or: 4.75 })` (grid-snapped seconds; `or` is the fallback the
+film renders with on its own, so lint and goldens work), and build shot
+durations as differences of those times; `perform` entries and `score({ marks })`
+read them too. The composition's audio track carries the beats as `markers`
+(`[{ t, name }]`, seconds into the music). `davidup-hdf-clip.ts` renders with
+`--cues-from <composition.json> --at <item>` and writes the film's chapters
+back as composition markers; `hdf cues <film>` prints the cue file.
+`handdrawn/films/on-beat.js` and `examples/hdf-cues/build.mjs` are the pattern.
+
 ## Procedure
 
 You cannot judge a frame from code. "Look" means open the JPG and look at it,

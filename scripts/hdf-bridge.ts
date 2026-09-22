@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { CompositionStore, dispatchTool, TOOLS } from "../src/mcp/index.js";
 import { probeVideo } from "../src/drivers/node/ffprobe.js";
-import type { Asset, SpriteSheet } from "../src/schema/types.js";
+import type { Asset, Marker, SpriteSheet } from "../src/schema/types.js";
 
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const HANDDRAWN = join(REPO, "handdrawn");
@@ -128,13 +128,80 @@ export function alphaCodec(v: string | true | undefined): AlphaCodec | undefined
  */
 export async function renderFilm(
   path: string,
-  opts: { look?: string; frames?: number; alpha?: AlphaCodec } = {},
+  opts: { look?: string; frames?: number; alpha?: AlphaCodec } & CueOpts = {},
 ): Promise<string> {
-  const args = ["render", path, "--out", HDF_OUT];
+  const args = ["render", path, "--out", HDF_OUT, ...cueArgs(opts)];
   if (opts.look) args.push("--look", opts.look);
   if (opts.frames !== undefined) args.push("--frames", String(opts.frames));
   if (opts.alpha) args.push("--alpha", opts.alpha);
   return printed(await hdf(args), opts.alpha ? `.${opts.alpha}` : ".mp4");
+}
+
+/**
+ * Where a film's marks come from (4.0 D4): `hdf ... --cues-from <composition.json> --at <item>`. The film
+ * reads the composition's markers, its audio tracks' beats and its items' starts and ends, in the seconds
+ * of the item it plays in, and cuts to them (`atMark`, `marksNamed` in handdrawn/core/cuemarks.js).
+ */
+export interface CueOpts {
+  cuesFrom?: string;
+  at?: string;
+}
+
+const cueArgs = (o: CueOpts) => [...(o.cuesFrom ? ["--cues-from", o.cuesFrom] : []), ...(o.cuesFrom && o.at ? ["--at", o.at] : [])];
+
+/** What `hdf cues` writes (handdrawn/cli/cues.mjs). Seconds from the film's first frame. */
+export interface CueFile {
+  kind: "hdf-cues";
+  version: number;
+  film: string;
+  look: string | null;
+  fps: number;
+  end: number;
+  shots: Array<{ name: string; t0: number; dur: number; hold?: boolean; cut?: string }>;
+  cuts: number[];
+  chapters: Array<{ n: number; title: string; t0: number; dur: number }>;
+  notes: Array<{ t: number; dur: number; type: string; hz?: number }>;
+  words: Array<{ text: string; t0: number; t1: number; voice: string }>;
+  marks: Array<{ t: number; name: string; from: string }>;
+}
+
+/** `hdf cues` (4.0 D4): the film's shots, cuts, chapters, notes, words and the marks it was cut to. */
+export async function filmCues(path: string, opts: { look?: string } & CueOpts = {}): Promise<CueFile> {
+  const args = ["cues", path, "--out", HDF_OUT, ...cueArgs(opts)];
+  if (opts.look) args.push("--look", opts.look);
+  return JSON.parse(readFileSync(printed(await hdf(args), ".json"), "utf8")) as CueFile;
+}
+
+/**
+ * The film's chapters as composition markers for a video item that plays it: each at the item's `start`
+ * plus the chapter's start less the item's `trimIn`, named by its title. A chapter trimmed off the front,
+ * or past the item's `end`, is left out.
+ */
+export function chapterMarkers(
+  cues: Pick<CueFile, "chapters">,
+  item: { start?: number; end?: number; trimIn?: number },
+  source: string,
+): Marker[] {
+  const start = item.start ?? 0, trimIn = item.trimIn ?? 0;
+  return cues.chapters
+    .map((c) => ({ t: +(start + c.t0 - trimIn).toFixed(6), name: c.title, source }))
+    .filter((m) => m.t >= start - 1e-9 && (item.end === undefined || m.t < item.end));
+}
+
+/**
+ * Replaces the composition's markers from `source` with `markers` (the others are kept), sorted by time.
+ * Only `composition.markers` is rewritten. Returns how many it wrote.
+ */
+export function writeMarkers(compositionFile: string, source: string, markers: Marker[]): number {
+  const doc = JSON.parse(readFileSync(compositionFile, "utf8"));
+  if (!doc?.composition) throw new BridgeError(`${compositionFile} is not a composition document`);
+  const kept = ((doc.composition.markers ?? []) as Marker[]).filter((m) => m.source !== source);
+  const all = [...kept, ...markers].map((m, i) => ({ m, i })).sort((a, b) => a.m.t - b.m.t || a.i - b.i).map(({ m }) => m);
+  const was = JSON.stringify(doc.composition.markers ?? []);
+  if (all.length) doc.composition.markers = all;
+  else delete doc.composition.markers;
+  if (JSON.stringify(doc.composition.markers ?? []) !== was) writeFileSync(compositionFile, JSON.stringify(doc, null, 2) + "\n");
+  return markers.length;
 }
 
 /** What `hdf sprite` writes beside its PNG: davidup's `sheet` and what the sprite is. */

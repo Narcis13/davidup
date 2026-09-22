@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./validator.js";
 export * from "./fps.js";
+export { MAX_LOOP_REPEATS, timelineMarkers, trackMarkerTimes, type TimelineMarker } from "./markers.js";
 export { validate as validateComposition } from "./validator.js";
 export {
   AssetSchema,
@@ -27,6 +28,7 @@ export {
   ImageAssetSchema,
   ItemSchema,
   LayerSchema,
+  MarkerSchema,
   ShapeItemSchema,
   SpriteCycleSchema,
   SpriteItemSchema,

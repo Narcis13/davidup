@@ -16,6 +16,7 @@ import { validate, OVERLAP_EPS, type ValidationResult } from "../schema/validato
 import type {
   Asset,
   AudioMaster,
+  Marker,
   AudioTrack,
   BlendMode,
   Composition,
@@ -127,6 +128,8 @@ export interface CreateCompositionInput {
   background?: string;
   /** Master audio bus (v1.1 S10); omitted ⇒ limiter on, no loudness target. */
   audioMaster?: AudioMaster;
+  /** Named moments on the timeline (4.0 D4). */
+  markers?: Marker[];
   id?: string;
 }
 
@@ -136,7 +139,8 @@ export type SetMetaPropertyName =
   | "fps"
   | "duration"
   | "background"
-  | "audioMaster";
+  | "audioMaster"
+  | "markers";
 
 export interface RegisterAssetInput {
   id: string;
@@ -377,6 +381,8 @@ export interface AddAudioTrackInput {
   fadeIn?: number;
   fadeOut?: number;
   loop?: boolean;
+  /** Named moments in the source file (4.0 D4). */
+  markers?: Marker[];
   id?: string;
 }
 
@@ -389,6 +395,8 @@ export interface UpdateAudioTrackProps {
   fadeIn?: number;
   fadeOut?: number;
   loop?: boolean;
+  /** Replaces the track's markers; [] drops them. */
+  markers?: Marker[];
 }
 
 export interface ListAudioTracksFilter {
@@ -517,6 +525,7 @@ export class CompositionStore {
       ...(input.audioMaster !== undefined
         ? { audioMaster: normalizeAudioMaster(input.audioMaster) }
         : {}),
+      ...(input.markers !== undefined ? { markers: normalizeMarkers(input.markers, "composition.markers") } : {}),
     };
     const comp: MutableComposition = {
       id,
@@ -606,6 +615,14 @@ export class CompositionStore {
         comp.meta = { ...comp.meta, audioMaster: normalizeAudioMaster(value) };
         return;
       }
+      case "markers": {
+        // `null` (or []) drops them all.
+        const markers = value === null ? [] : normalizeMarkers(value, "composition.markers");
+        const { markers: _dropped, ...rest } = comp.meta;
+        void _dropped;
+        comp.meta = markers.length > 0 ? { ...rest, markers } : rest;
+        return;
+      }
       default: {
         const _exhaustive: never = property;
         void _exhaustive;
@@ -627,7 +644,10 @@ export class CompositionStore {
     const audio = Array.from(comp.audio.values()).map(cloneAudioTrack);
     return {
       version: COMPOSITION_VERSION,
-      composition: { ...comp.meta },
+      composition: {
+        ...comp.meta,
+        ...(comp.meta.markers !== undefined ? { markers: comp.meta.markers.map(cloneMarker) } : {}),
+      },
       assets: Array.from(comp.assets.values()).map(cloneAsset),
       layers: Array.from(comp.layers.values()).map(cloneLayer),
       items: Object.fromEntries(
@@ -684,6 +704,7 @@ export class CompositionStore {
       duration: meta.duration,
       ...(meta.background !== undefined ? { background: meta.background } : {}),
       ...(meta.audioMaster !== undefined ? { audioMaster: meta.audioMaster } : {}),
+      ...(meta.markers !== undefined ? { markers: meta.markers } : {}),
     });
     for (const asset of composition.assets) scratch.registerAssetUnchecked(asset, id);
     const target = scratch.requireComposition(id);
@@ -1561,6 +1582,9 @@ export class CompositionStore {
       ...(input.fadeIn !== undefined ? { fadeIn: input.fadeIn } : {}),
       ...(input.fadeOut !== undefined ? { fadeOut: input.fadeOut } : {}),
       ...(input.loop !== undefined ? { loop: input.loop } : {}),
+      ...(input.markers !== undefined && input.markers.length > 0
+        ? { markers: normalizeMarkers(input.markers, "Audio track markers") }
+        : {}),
     };
     comp.audio.set(id, track);
     return { id, warnings: audioPlacementWarnings(comp, track, asset) };
@@ -1592,6 +1616,7 @@ export class CompositionStore {
       fadeIn: props.fadeIn ?? existing.fadeIn,
       fadeOut: props.fadeOut ?? existing.fadeOut,
       loop: props.loop ?? existing.loop,
+      markers: props.markers !== undefined ? normalizeMarkers(props.markers, "Audio track markers") : existing.markers,
     };
     validateAudioFields(merged);
 
@@ -1605,6 +1630,7 @@ export class CompositionStore {
       ...(merged.fadeIn !== undefined ? { fadeIn: merged.fadeIn } : {}),
       ...(merged.fadeOut !== undefined ? { fadeOut: merged.fadeOut } : {}),
       ...(merged.loop !== undefined ? { loop: merged.loop } : {}),
+      ...(merged.markers !== undefined && merged.markers.length > 0 ? { markers: merged.markers.map(cloneMarker) } : {}),
     };
     comp.audio.set(id, updated);
     return { warnings: audioPlacementWarnings(comp, updated, asset) };
@@ -2687,7 +2713,38 @@ function cloneAudioTrack(track: AudioTrack): AudioTrack {
     ...(track.fadeIn !== undefined ? { fadeIn: track.fadeIn } : {}),
     ...(track.fadeOut !== undefined ? { fadeOut: track.fadeOut } : {}),
     ...(track.loop !== undefined ? { loop: track.loop } : {}),
+    ...(track.markers !== undefined ? { markers: track.markers.map(cloneMarker) } : {}),
   };
+}
+
+function cloneMarker(m: Marker): Marker {
+  return { t: m.t, name: m.name, ...(m.source !== undefined ? { source: m.source } : {}) };
+}
+
+// Markers (4.0 D4): `[{ t, name, source? }]`, t ≥ 0, names 1–80 characters.
+// Mirrors MarkerSchema; returns clean copies sorted by time (ties keep order).
+function normalizeMarkers(value: unknown, label: string): Marker[] {
+  if (!Array.isArray(value)) {
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `${label} must be an array of { t, name, source? }.`,
+      'e.g. [{ "t": 2.4, "name": "drop" }]; pass null or [] to drop them.',
+    );
+  }
+  const out = value.map((m, i) => {
+    const bad = (why: string) =>
+      new MCPToolError("E_INVALID_VALUE", `${label}[${i}] ${why}.`, "A marker is { t: seconds ≥ 0, name: 1–80 chars, source?: 1–80 chars }.");
+    if (typeof m !== "object" || m === null || Array.isArray(m)) throw bad("is not an object");
+    const { t, name, source, ...extra } = m as Record<string, unknown>;
+    if (Object.keys(extra).length > 0) throw bad(`has unknown key(s): ${Object.keys(extra).join(", ")}`);
+    if (typeof t !== "number" || !Number.isFinite(t) || t < 0) throw bad("needs `t`, a number ≥ 0");
+    if (typeof name !== "string" || name.length < 1 || name.length > 80) throw bad("needs `name`, 1 to 80 characters");
+    if (source !== undefined && (typeof source !== "string" || source.length < 1 || source.length > 80)) {
+      throw bad("has a `source` that is not 1 to 80 characters");
+    }
+    return cloneMarker({ t, name, ...(source !== undefined ? { source: source as string } : {}) });
+  });
+  return out.map((m, i) => ({ m, i })).sort((a, b) => a.m.t - b.m.t || a.i - b.i).map(({ m }) => m);
 }
 
 function cloneEffect(effect: Effect): Effect {

@@ -139,6 +139,8 @@ export function hydrateStore(
     // v1.1 S10 master audio bus — dropped here, it would vanish on the first
     // UI edit after load.
     ...(meta.audioMaster !== undefined ? { audioMaster: meta.audioMaster } : {}),
+    // 4.0 D4 markers — the same: dropped here, gone after the first edit.
+    ...(meta.markers !== undefined ? { markers: meta.markers } : {}),
   })
 
   for (const asset of composition.assets as ReadonlyArray<Asset>) {

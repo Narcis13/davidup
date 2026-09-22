@@ -1490,6 +1490,35 @@ family `hdf-<hand>`: `add_text` with `font: "hdf-<hand>-font"` sets a title in
 the film's own hand through davidup's text path. `examples/hdf-font/agent.mjs`
 does that as an agent, and saves the frame beside the proof.
 
+**Cues both ways (4.0 D4).** A film can be cut to marks it is given rather
+than to numbers it holds. `atMark('drop', { or: 4.75 })` is the time of a
+named mark and `marksNamed('beat', { or: [...] })` every one, both on the
+1/12 s grid (so a cut on a beat is within 1/24 s of it); `or` is what the film
+gets with no marks (the player, lint, a golden), so it always renders on its
+own. `perform` takes those times like any other, and the score sees the marks
+unsnapped as `cues.marks`. The marks come from `--cues-from` on any film
+command (`render`, `cues`, `grid`, `lint`, `golden`, `dev`, `bundle`, ...):
+
+```bash
+# a davidup composition: its markers, its audio tracks' beats (source seconds, through trimIn and loops),
+# every item's <id>.start / <id>.end, in the seconds of the item the film plays in
+hdf render films/on-beat.js --cues-from ~/videos/promo/composition.json --at film
+# another film's cues, or a plain { "marks": [{ "t": 1.2, "name": "drop" }] }
+hdf render films/b.js --cues-from out/a-cues.json
+
+# the other way: shots, cuts, chapters, note onsets, spoken words and the marks it was cut to
+hdf cues films/on-beat.js [--out out/on-beat-cues.json]
+```
+
+`davidup-hdf-clip.ts` passes the item's own composition (`--cues-from
+<composition.json> --at <item>`) and then writes the film's chapters into the
+composition's `markers` (`source: "hdf:<item>"`, replaced on each run), which
+the editor draws as flags on its ruler; `hdf-to-davidup.ts` does the same for
+every video item that plays `hdf-<film>`. `--no-cues` turns both off.
+`films/on-beat.js` is the pattern (bars cut on every fourth `beat`, a cheer on
+the `drop`), and `examples/hdf-cues/build.mjs` builds a 128 bpm composition
+around it, renders it through davidup and checks every cut against a beat.
+
 ---
 
 ## 10. The working loop and the agent skill

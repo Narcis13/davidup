@@ -55,6 +55,10 @@
 //  19. Sprite sheets (4.0 D2): a cycle outside the sheet's `count`, a sprite
 //      `cycle` its asset's sheet does not name, or `cycle`/`frame` on a
 //      sprite whose image has no sheet   → E_SPRITE_SHEET
+//  20. Markers (4.0 D4): a composition marker past the composition end, or
+//      an audio-track marker that never plays inside the composition (before
+//      the track's `trimIn`, past its source, or placed past the end)
+//                                              → W_MARKER_OUTSIDE
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
@@ -62,6 +66,7 @@ import { realUnknownKeys, safeParseWithExtensions } from "./strict.js";
 import { CompositionSchema } from "./zod.js";
 import { parseColor } from "../color/index.js";
 import { withBundledAssets } from "../assets/bundled.js";
+import { trackMarkerTimes } from "./markers.js";
 
 export type ValidationErrorCode =
   | "E_SCHEMA"
@@ -88,7 +93,8 @@ export type ValidationWarningCode =
   | "W_SCENE_INSTANCE_OUTLIVES"
   | "W_VIDEO_NO_AUDIO_STREAM"
   | "W_ITEM_MULTI_PARENT"
-  | "W_GROUP_ANCHOR_NO_BOX";
+  | "W_GROUP_ANCHOR_NO_BOX"
+  | "W_MARKER_OUTSIDE";
 
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
@@ -164,8 +170,39 @@ export function validate(input: unknown): ValidationResult {
   validateKeepAudioStreams(comp, assetMap, warnings);
   validateSingleParent(comp, warnings);
   validateGroupAnchorBox(comp, warnings);
+  validateMarkers(comp, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Markers (4.0 D4, W_MARKER_OUTSIDE): a marker no one can reach. A tool
+// cutting to it (hdf render --cues-from) would find it past the render's end,
+// and the editor's ruler cannot show it.
+function validateMarkers(comp: Composition, warnings: ValidationWarning[]): void {
+  const end = comp.composition.duration;
+  (comp.composition.markers ?? []).forEach((m, i) => {
+    if (m.t <= end + OVERLAP_EPS) return;
+    warnings.push({
+      code: "W_MARKER_OUTSIDE",
+      message: `Marker "${m.name}" at ${m.t}s is past the composition end (${end}s).`,
+      path: `composition.markers.${i}`,
+    });
+  });
+  const durations = new Map(comp.assets.map((a) => [a.id, a.type === "audio" ? a.duration : undefined]));
+  (comp.audio ?? []).forEach((track, i) => {
+    if (!track.markers?.length) return;
+    const times = trackMarkerTimes(track, { assetDuration: durations.get(track.asset), compositionDuration: end });
+    track.markers.forEach((m, j) => {
+      if (times[j]!.some((t) => t <= end + OVERLAP_EPS)) return;
+      warnings.push({
+        code: "W_MARKER_OUTSIDE",
+        message:
+          `Audio track "${track.id ?? track.asset}" marker "${m.name}" (${m.t}s into the source) never plays inside the composition ` +
+          `(before trimIn, past the source, or placed past ${end}s).`,
+        path: `audio.${i}.markers.${j}`,
+      });
+    });
+  });
 }
 
 // Sprite sheets (4.0 D2, E_SPRITE_SHEET). The schema checks each field; this

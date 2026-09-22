@@ -86,7 +86,7 @@ test('cut produces [group(a at its last frame), fx(kind, { p }, [b at its first 
   assert.ok(frame(f, 17).list[1].args.p > e.args.p);
   assert.deepEqual(cues(f), {
     shots: [{ name: 'a', t0: 0, dur: 1 }, { name: 'blot:a>b', t0: 1, dur: 0.5, cut: 'blot' }, { name: 'b', t0: 1.5, dur: 1 }],
-    cuts: [1, 1.5], chapters: [], end: 2.5,
+    cuts: [1, 1.5], chapters: [], marks: [], end: 2.5,
   });
 });
 

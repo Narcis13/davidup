@@ -78,12 +78,22 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `film({ name, look, timeline, score, format: ar = '1:1', assets = {}, audience = 'general' } = {})` The film: name (seeds everything), look (a preset name or look object), timeline (a node or an array, read as seq), score ((cues) => synth events), format ('1:1' | '16:9' | '9:16'), assets ({ id: { src, ...
 - `frame(f, i, { ar } = {})` frame(film, i, { ar }) => { list, look, shot, t, k } for drawn frame i (0 <= i < film.n).
 - `describe(f)` Indented text: the tree with durations and spans, cels per shot, then the cues.
-- `cues(f)` { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], chapters: [{ n, title, t0, dur }], end }.
+- `cues(f)` { shots: [{ name, t0, dur, hold?, cut? }], cuts: [t], chapters: [{ n, title, t0, dur }], marks: [{ t, name, from }], end }.
 - `chapterSeq(title, kids, { card = null, hold: h = 0 } = {})` A chapter (4.0 E1): a seq that carries a title, so the board, grid, render and lint can take a film a chapter at a time.
 - `chapters(f)` chapters(film) => [{ n, title, card, f0, frames, t0, dur, node }] in the order they play (n from 1): every chapter() in the tree, where it starts in the whole film and how long it lasts.
 - `chapterAt(f, i, list = chapters(f))` The chapter a whole-film frame falls in, or null (a title before the first, the sign-off after the last).
 - `chapterFilm(f, k)` chapterFilm(film, k): chapter k (from 1) as an excerpt, with `chapter` the entry chapters() gives.
 - `excerpt(f, f0, n)` excerpt(film, f0, n): frames f0 .. f0 + n - 1 of the film as a film of n frames.
+
+### core/cuemarks.js
+
+- `atMark(name, { nth = 0, or, snap = true, from } = {})` atMark(name, { nth, or, snap, from }) => the time of the nth (from 0) mark with that name at or after the film's start.
+- `marksNamed(name, { or = [], snap = true, from } = {})` marksNamed(name, { or, snap, from }) => the times of every mark with that name at or after the film's start, in order; `or` (a list, default []) when there is none.
+- `marks()` The marks set now, sorted by time (frozen; [] when none were given).
+- `setMarks(list = [])` setMarks(list) sets the marks every film loaded after it reads; returns the ones it replaced.
+- `marksOf(doc, { at } = {})` marksOf(doc, { at }) => marks in film seconds, sorted, from a davidup composition its markers (by name; `from` their `source`, else 'marker'), each audio track's markers (by name, `from` 'audio:<id>') and its `<id>.start` / `<id>.end`, ...
+- `onGrid(t)` A time on the drawing grid.
+- `trackMarkerTimes(track, { assetDuration, compositionDuration } = {})` Where each of an audio track's markers plays on the composition timeline, per marker a list of seconds.
 
 ### core/puppet.js
 

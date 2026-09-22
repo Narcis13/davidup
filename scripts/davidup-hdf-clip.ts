@@ -11,6 +11,12 @@
 // clip is an overlay, and whatever lies under the item shows around the
 // drawing. register_asset probes the alpha plane, so the render keeps it.
 //
+// Cues both ways (4.0 D4): the film is rendered with `--cues-from <this composition> --at <item>`, so a
+// film that cuts to marks (`atMark('drop')`, `marksNamed('beat')`) lands its cuts on this composition's
+// audio-track beats and markers, in the item's own seconds; and the film's chapters are written back as
+// composition markers (`source: "hdf:<item>"`, replaced on every run), which the editor draws on its
+// ruler. --no-cues does neither.
+//
 // The item names its film in its `name` — `hdf:<film>`, a film in
 // handdrawn/films/ or a path — or the film comes from --film:
 //
@@ -24,17 +30,19 @@
 //   --look      a look preset, modifiers too ('paperInk~hand:test')
 //   --alpha     draw on no stock and keep the transparency: mov (default) or webm
 //   --frames N  render the first N drawn frames only
+//   --no-cues   no marks for the film and no chapter markers back
 //   --dry-run   say what it would render and rewrite; renders nothing, writes nothing
 //   --help      this text
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  alphaCodec, BridgeError, describe, filmPath, frameCount, parseArgs, registerFiles, renderFilm, runMain, shown,
+  alphaCodec, BridgeError, chapterMarkers, describe, filmCues, filmPath, frameCount, parseArgs, registerFiles, renderFilm,
+  runMain, shown, writeMarkers,
 } from "./hdf-bridge.ts";
 
 const USAGE = `usage: bun run scripts/davidup-hdf-clip.ts <composition.json> <item-id>
-         [--film <film.js|name>] [--look <preset>] [--alpha [mov|webm]] [--frames N] [--dry-run]
+         [--film <film.js|name>] [--look <preset>] [--alpha [mov|webm]] [--frames N] [--no-cues] [--dry-run]
 `;
 
 const PREFIX = "hdf:";
@@ -60,20 +68,30 @@ async function main(): Promise<number> {
   const look = typeof flags.look === "string" ? flags.look : undefined;
   const frames = frameCount(flags.frames);
   const alpha = alphaCodec(flags.alpha);
+  const cues = flags["no-cues"] === true ? {} : { cuesFrom: file, at: itemId };
+  const source = `hdf:${itemId}`;
 
   if (flags["dry-run"] === true) {
     const was = doc.assets.find((a: { id?: string }) => a?.id === item.asset);
     process.stdout.write(
       `${itemId} (asset ${item.asset}${was ? `, now ${was.src}` : ", not registered yet"})` +
-        ` <- hdf render ${shown(path)}${look ? ` --look ${look}` : ""}${frames !== undefined ? ` --frames ${frames}` : ""}${alpha ? ` --alpha ${alpha}` : ""}\n`,
+        ` <- hdf render ${shown(path)}${look ? ` --look ${look}` : ""}${frames !== undefined ? ` --frames ${frames}` : ""}${alpha ? ` --alpha ${alpha}` : ""}` +
+        `${cues.cuesFrom ? ` --cues-from ${shown(file)} --at ${itemId}\n  chapters -> composition markers (source ${source})` : ""}\n`,
     );
     return 0;
   }
 
-  const clip = await renderFilm(path, { look, frames, alpha });
+  const clip = await renderFilm(path, { look, frames, alpha, ...cues });
   const [{ asset, warnings }] = await registerFiles(file, [{ id: item.asset, type: "video", file: clip }]);
+  let marked = "";
+  if (cues.cuesFrom) {
+    const c = await filmCues(path, { look, ...cues });
+    const n = writeMarkers(file, source, chapterMarkers(c, item, source));
+    const used = c.marks.length ? `${c.marks.length} marks read, ` : "";
+    marked = `  ${used}${n} chapter marker${n === 1 ? "" : "s"} (source ${source})\n`;
+  }
   process.stdout.write(
-    `${shown(file)}\n  ${itemId} plays ${describe(asset!)}\n${warnings.map((w) => `  warning: ${w}\n`).join("")}`,
+    `${shown(file)}\n  ${itemId} plays ${describe(asset!)}\n${marked}${warnings.map((w) => `  warning: ${w}\n`).join("")}`,
   );
   return 0;
 }

@@ -28,6 +28,11 @@ export interface TimelineAudioRow {
   loop: boolean
   /** Seconds per repetition (asset duration − trimIn) when known. */
   loopPeriod: number | null
+  /**
+   * 4.0 D4 — where the track's markers play, in seconds after its `start`
+   * (source-file markers placed through trimIn and every loop).
+   */
+  markers: Array<{ dt: number; name: string }>
 }
 
 export interface AudioBarPointerDownPayload {
@@ -103,6 +108,16 @@ const loopSeams = computed<string[]>(() => {
   return out
 })
 
+// 4.0 D4 — marker ticks as a % of the bar, inside it only.
+const markerTicks = computed<Array<{ left: string; name: string }>>(() => {
+  const { start, end } = effective()
+  const span = end - start
+  if (span <= 0) return []
+  return props.row.markers
+    .filter((m) => m.dt >= 0 && m.dt <= span)
+    .map((m) => ({ left: `${(m.dt / span) * 100}%`, name: m.name }))
+})
+
 function onRowClick(): void {
   emit('select', props.row.id)
 }
@@ -125,7 +140,9 @@ function barTitle(): string {
   const { start, end } = effective()
   const muteNote = isMuted.value ? ' · muted' : ` · vol ${Math.round(props.row.volume * 100)}%`
   const loopNote = props.row.loop ? ' · loop' : ''
-  return `${props.row.id}\n${props.row.asset}\n${start.toFixed(2)}s → ${end.toFixed(2)}s${muteNote}${loopNote}`
+  const n = props.row.markers.length
+  const markNote = n ? ` · ${n} marker${n === 1 ? '' : 's'}` : ''
+  return `${props.row.id}\n${props.row.asset}\n${start.toFixed(2)}s → ${end.toFixed(2)}s${muteNote}${loopNote}${markNote}`
 }
 </script>
 
@@ -160,6 +177,16 @@ function barTitle(): string {
           :key="i"
           class="loop-seam"
           :style="{ left }"
+          aria-hidden="true"
+        />
+        <span
+          v-for="(m, i) in markerTicks"
+          :key="`m${i}`"
+          class="marker-tick"
+          :style="{ left: m.left }"
+          :title="m.name"
+          data-testid="timeline-audio-marker"
+          :data-name="m.name"
           aria-hidden="true"
         />
         <span class="audio-bar-label">{{ row.asset }}</span>
@@ -254,6 +281,16 @@ function barTitle(): string {
   bottom: 3px;
   width: 0;
   border-left: 1px dashed rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+/* 4.0 D4 — a marker in the source (a beat, a drop). */
+.marker-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid rgba(255, 180, 84, 0.75);
   pointer-events: none;
 }
 

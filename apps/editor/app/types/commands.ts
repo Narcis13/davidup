@@ -147,6 +147,18 @@ const SOURCE = z.enum(['ui', 'mcp']).default('ui')
 
 // ──────────────── Composition-document fragments ────────────────
 
+// A named moment (4.0 D4). DUAL of engine `MarkerSchema`: on an audio track
+// `t` is seconds into the source file, on the composition timeline seconds.
+export const MarkerSchema = z
+  .object({
+    t: NON_NEG,
+    name: z.string().min(1).max(80),
+    source: z.string().min(1).max(80).optional(),
+  })
+  .strict()
+
+export type Marker = z.infer<typeof MarkerSchema>
+
 // External audio track (v0.2 §S1). DUAL of engine `AudioTrackSchema`
 // (src/schema/zod.ts) — this UI-side copy is intentionally separate so the two
 // schemas can diverge per the dual-schema contract, but any new AudioTrack
@@ -168,6 +180,7 @@ export const AudioTrackSchema = z
     fadeIn: NON_NEG.optional(),
     fadeOut: NON_NEG.optional(),
     loop: z.boolean().optional(),
+    markers: z.array(MarkerSchema).optional(),
   })
   .refine((t) => t.end === undefined || t.end > t.start, {
     message: 'Audio track `end` must be greater than `start`.',
@@ -231,13 +244,15 @@ export type VideoItem = z.infer<typeof VideoItemSchema>
 const setCompositionProperty = z.object({
   kind: z.literal('set_composition_property'),
   payload: z.object({
-    property: z.enum(['width', 'height', 'fps', 'duration', 'background', 'audioMaster']),
+    property: z.enum(['width', 'height', 'fps', 'duration', 'background', 'audioMaster', 'markers']),
     // String covers `background` and a rational fps ("30000/1001", v1.1 S7).
     // The object / null forms are `audioMaster` (v1.1 S10) — DUAL of the
-    // engine tool's value union; null resets it to the default.
+    // engine tool's value union; null resets it to the default. The array is
+    // `markers` (4.0 D4); null drops them.
     value: z.union([
       z.number(),
       z.string(),
+      z.array(MarkerSchema),
       z
         .object({
           limiter: z.boolean().optional(),
@@ -602,6 +617,7 @@ const addAudioTrack = z.object({
     fadeIn: NON_NEG.optional(),
     fadeOut: NON_NEG.optional(),
     loop: z.boolean().optional(),
+    markers: z.array(MarkerSchema).optional(),
     id: ID.optional(),
     compositionId: COMPOSITION_ID,
   }),
@@ -622,6 +638,7 @@ const updateAudioTrack = z.object({
         fadeIn: NON_NEG,
         fadeOut: NON_NEG,
         loop: z.boolean(),
+        markers: z.array(MarkerSchema),
       })
       .partial(),
     compositionId: COMPOSITION_ID,

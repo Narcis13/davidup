@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMainThread } from 'node:worker_threads';
-import { loadFilm, UsageError } from './load.mjs';
+import { loadFilm, marksFrom, UsageError } from './load.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -14,12 +14,18 @@ const USAGE = `usage: hdf <command> [args] [flags]
   a preset may carry modifiers: --look 'doodlePastel~from:teapot' paints it in that cutout's own colours,
   --look 'paperInk~hand:test' letters it (and draws its pens) in a hand from the store,
   --look 'paperInk~alpha' draws it on no stock
+  and [--cues-from <composition.json|cues.json> [--at <item|seconds>]]: the marks the film is cut to (atMark,
+  marksNamed, cues.marks): a davidup composition's markers, its audio tracks' beats and its items' starts and
+  ends, in the seconds of the item the film plays in (--at), or another film's cues
 
   render  <film.js> [--ar 1:1|16:9|9:16] [--width 1080] [--workers 4] [--out dir] [--frames N]
                                     [--cache-mb 512] [--disk-cache] [--no-sound]
                                     [--alpha [mov|webm]]   no stock, transparency kept: <film>-alpha.mov (ProRes 4444)
                                     or .webm (VP9), an overlay clip for davidup (scripts/davidup-hdf-clip.ts --alpha)
                                     [--chapter N]   chapter N only (from 1), to <film>-ch<N>.*, with its stretch of the score
+  cues    <film.js> [--out dir|file.json]   the film's cues for davidup: shots, cuts, chapters, note onsets, spoken
+                                    words and the marks it was cut to (out/<film>-cues.json); scripts/davidup-hdf-clip.ts
+                                    writes its chapters into the composition's markers
   grid    <film.js> [--n 24] [--width 480] [--chapter N]
   only    <film.js> 0,37,74
   board   <film.js> [--cols 4]      tree as text + storyboard cards (out/<film>-board.jpg): a card per shot,
@@ -109,7 +115,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   lint    packs/<pack>.js           a pack: pack-mirror findings, one per cel whose mirror is missing or stale
 `;
 
-const COMMANDS = ['render', 'grid', 'only', 'board', 'sheet', 'sprite', 'lint', 'changed', 'golden',
+const COMMANDS = ['render', 'cues', 'grid', 'only', 'board', 'sheet', 'sprite', 'lint', 'changed', 'golden',
   'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };
@@ -184,7 +190,8 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
   const { run } = await import(pathToFileURL(file).href);
-  const load = (path) => loadFilm(path, { look: flags.look, alpha: !!flags.alpha });
+  const marks = marksFrom(flags.cuesFrom, flags.at);
+  const load = (path) => loadFilm(path, { look: flags.look, alpha: !!flags.alpha, marks });
   return (await run(args, flags, { loadFilm: load })) ?? 0;
 }
 

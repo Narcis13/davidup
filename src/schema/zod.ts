@@ -117,6 +117,20 @@ export const FpsSchema = z.union([
   }),
 ]);
 
+// A named moment (hand-drawn film 4.0 D4): a cue other tools can cut to. On
+// the composition (`composition.markers`) `t` is timeline seconds; on an audio
+// track (`AudioTrack.markers`) it is seconds into the SOURCE FILE, so a beat
+// grid stays with its music when the track moves, is trimmed or loops
+// (`timelineMarkers` in schema/markers.ts places them). `source` says who
+// wrote a marker (e.g. "hdf:clip" for a handdrawn film's chapters), so a tool
+// can replace its own markers and leave everyone else's; the renderer ignores
+// markers entirely.
+export const MarkerSchema = strictObject({
+  t: z.number().nonnegative(),
+  name: z.string().min(1).max(80),
+  source: z.string().min(1).max(80).optional(),
+});
+
 export const CompositionMetaSchema = strictObject({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -134,6 +148,7 @@ export const CompositionMetaSchema = strictObject({
     limiter: z.boolean().optional(),
     targetLufs: z.number().min(-70).max(-5).optional(),
   }).optional(),
+  markers: z.array(MarkerSchema).optional(),
 });
 
 // A sprite sheet (hand-drawn film 4.0 D2): the image is a grid of equal
@@ -563,6 +578,7 @@ export const TweenSchema = strictObject({
 // `loop` (v1.1 S10) repeats the (trimIn-seeked) source until `end` — or the
 // composition end when `end` is omitted — so a short music bed can run under a
 // longer clip.
+// `markers` (4.0 D4) name moments in the source file; see MarkerSchema.
 //
 // `id` is optional in hand-authored JSON but is the addressing key used by the
 // S3 MCP tools (update_audio_track / remove_audio_track); the store assigns one
@@ -579,6 +595,8 @@ export const AudioTrackSchema = strictObject({
   fadeIn: z.number().nonnegative().optional(),
   fadeOut: z.number().nonnegative().optional(),
   loop: z.boolean().optional(),
+  // Named moments in the source file (4.0 D4): beats, a drop, a downbeat.
+  markers: z.array(MarkerSchema).optional(),
 }).refine((t) => t.end === undefined || t.end > t.start, {
   message: "Audio track `end` must be greater than `start`.",
   path: ["end"],

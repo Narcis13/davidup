@@ -9,6 +9,7 @@ import { skiaBake, skiaCanvas } from './skia.mjs';
 import { createRenderer, outputSize } from '../core/raster.js';
 import { diskStore } from './store.mjs';
 import { imagesOf } from './load.mjs';
+import { marks } from '../core/cuemarks.js';
 
 export const defaultWorkers = () => Math.max(1, Math.min(4, availableParallelism()));
 
@@ -57,7 +58,7 @@ async function pool(path, film, opts, onFrame) {
   for (let a = 0; a < film.n; a += chunk) ranges.push([a, Math.min(film.n, a + chunk)]);
   // An excerpt (--chapter) is the whole film's frames from `from`: each worker cuts the same one from its own load.
   const window = film.whole ? [film.from, film.n] : null;
-  const workerOpts = { look: opts.look, alpha: opts.alpha, ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers), window };
+  const workerOpts = { look: opts.look, alpha: opts.alpha, marks: marks(), ar: opts.ar, width: opts.width, diskCache: opts.diskCache, cacheMb: Math.floor(cacheMb / workers), window };
   const url = new URL('./worker.mjs', import.meta.url);
   const pending = new Map();
   const stats = { dups: 0, workers };

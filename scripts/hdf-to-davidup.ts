@@ -15,6 +15,12 @@
 //                                 TrueType font (`hdf hand --export-ttf`),
 //                                 family `hdf-<hand>`, for add_text's `font`
 //
+// Cues both ways (4.0 D4): the render reads the project's composition as its marks (`--cues-from`), in
+// the seconds of the video item that plays `hdf-<film>` (--at, or the one item that plays it), so a film
+// cut to `atMark`/`marksNamed` lands on the project's beats and markers; and for every video item that
+// plays the film, its chapters become composition markers (`source: "hdf:<item>"`). --no-cues does
+// neither.
+//
 // Re-running replaces those assets in place. Place the video with `add_video`
 // (or the editor) like any other clip.
 //
@@ -36,17 +42,22 @@
 //   --fonts [a,b]  the film's hand as a font, or the hands named (store ids,
 //               or house)
 //   --no-video  skip the render (sprites and fonts only)
+//   --at <item> the video item whose seconds the film's marks are in (default: the one item playing
+//               hdf-<film>, else composition seconds)
+//   --no-cues   no marks from the composition and no chapter markers back
 //   --dry-run   print the assets it would register; renders nothing, writes nothing
 //   --help      this text
 
 import {
-  BridgeError, describe, filmCast, filmHand, filmInfo, filmPath, frameCount, handFont, modelSheet, parseArgs, projectRoot,
-  registerFiles, renderFilm, runMain, shown, slug, spriteSheet, type Planned,
+  BridgeError, chapterMarkers, describe, filmCast, filmCues, filmHand, filmInfo, filmPath, frameCount, handFont, modelSheet, parseArgs, projectRoot,
+  registerFiles, renderFilm, runMain, shown, slug, spriteSheet, writeMarkers, type CueOpts, type Planned,
 } from "./hdf-bridge.ts";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const USAGE = `usage: bun run scripts/hdf-to-davidup.ts <film.js|name> --project <dir|name>
-         [--look <preset>] [--frames N] [--no-sheets] [--sprites [a,b]] [--states s] [--h px] [--fonts [a,b]] [--no-video] [--dry-run]
+         [--look <preset>] [--frames N] [--no-sheets] [--sprites [a,b]] [--states s] [--h px] [--fonts [a,b]] [--no-video]
+         [--at <item>] [--no-cues] [--dry-run]
 `;
 
 async function main(): Promise<number> {
@@ -79,13 +90,23 @@ async function main(): Promise<number> {
     if (!sprites.length) throw new BridgeError(`--sprites: ${film.name} has no cast (store puppets, or a \`cast\` export)`);
   }
 
+  // The video items that play the film's render, by id (4.0 D4).
+  const compFile = root ? join(root, "composition.json") : null;
+  const doc = compFile && existsSync(compFile) ? JSON.parse(readFileSync(compFile, "utf8")) : null;
+  const players = Object.entries((doc?.items ?? {}) as Record<string, { type?: string; asset?: string; start?: number; end?: number; trimIn?: number }>)
+    .filter(([, it]) => it?.type === "video" && it.asset === videoId);
+  const at = typeof flags.at === "string" ? flags.at : players.length === 1 ? players[0]![0] : undefined;
+  if (at !== undefined && !doc?.items?.[at]) throw new BridgeError(`--at: the composition has no item '${at}'`);
+  const cues: CueOpts = flags["no-cues"] === true || !compFile ? {} : { cuesFrom: compFile, ...(at ? { at } : {}) };
+
   const fonts = flags.fonts === undefined ? [] : flags.fonts === true ? [await filmHand(path, look)] : String(flags.fonts).split(",").filter(Boolean);
 
   if (dry) {
     process.stdout.write(
       [
         `${film.name}: ${n} frames${root ? ` -> ${shown(root)}` : ""}`,
-        ...(video ? [`${videoId}  video  hdf render ${shown(path)}${look ? ` --look ${look}` : ""}${frames !== undefined ? ` --frames ${frames}` : ""}`] : []),
+        ...(video ? [`${videoId}  video  hdf render ${shown(path)}${look ? ` --look ${look}` : ""}${frames !== undefined ? ` --frames ${frames}` : ""}${cues.cuesFrom ? ` --cues-from ${shown(cues.cuesFrom)}${at ? ` --at ${at}` : ""}` : ""}`] : []),
+        ...(video && cues.cuesFrom ? players.map(([id]) => `chapters -> composition markers at ${id} (source hdf:${id})`) : []),
         ...puppets.map((p) => `hdf-${slug(p)}-model  image  hdf sheet store ${p} --poses`),
         ...sprites.map((p) => `hdf-${slug(p)}-sprite  image  hdf sprite ${p} --film ${shown(path)} --alpha${states ? ` --states ${states}` : ""}`),
         ...fonts.map((h) => `hdf-${slug(h)}-font  font  hdf hand --export-ttf ${h}  (family hdf-${slug(h)})`),
@@ -94,7 +115,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const planned: Planned[] = video ? [{ id: videoId, type: "video", file: await renderFilm(path, { look, frames }) }] : [];
+  const planned: Planned[] = video ? [{ id: videoId, type: "video", file: await renderFilm(path, { look, frames, ...cues }) }] : [];
   for (const p of puppets) planned.push({ id: `hdf-${slug(p)}-model`, type: "image", file: await modelSheet(p) });
   for (const p of sprites) {
     const s = await spriteSheet(p, { film: path, look, states, h });
@@ -104,6 +125,13 @@ async function main(): Promise<number> {
   if (!planned.length) throw new BridgeError("nothing to register (--no-video with no sheets, no --sprites and no --fonts)");
   const done = await registerFiles(join(root!, "composition.json"), planned);
   const lines = done.flatMap(({ asset, warnings }) => [describe(asset), ...warnings.map((w) => `  warning: ${w}`)]);
+  if (video && cues.cuesFrom && players.length) {
+    const c = await filmCues(path, { look, ...cues });
+    for (const [id, item] of players) {
+      const n = writeMarkers(join(root!, "composition.json"), `hdf:${id}`, chapterMarkers(c, item, `hdf:${id}`));
+      lines.push(`${id}: ${n} chapter marker${n === 1 ? "" : "s"} (source hdf:${id})`);
+    }
+  }
   process.stdout.write(`${shown(join(root!, "composition.json"))}\n${lines.map((l) => `  ${l}`).join("\n")}\n`);
   return 0;
 }

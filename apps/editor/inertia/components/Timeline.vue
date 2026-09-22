@@ -39,6 +39,7 @@ import { useTimelineDrag } from '~/composables/useTimelineDrag'
 import { useVideoTrimDrag } from '~/composables/useVideoTrimDrag'
 import { useValidation } from '~/composables/useValidation'
 import { useEditorPrefs } from '~/composables/useEditorPrefs'
+import { trackMarkerTimes } from 'davidup/schema'
 import {
   anchoredScrollLeft,
   buildRulerTicks,
@@ -144,7 +145,12 @@ const allSpans = computed<Array<{ id: string; start: number; end: number }>>(() 
     for (const t of row.tweens) out.push({ id: t.id, start: t.start, end: t.start + t.duration })
     if (row.videoSpan) out.push({ id: row.id, start: row.videoSpan.start, end: row.videoSpan.end })
   }
-  for (const a of audioRows.value) out.push({ id: a.id, start: a.start, end: a.end })
+  for (const a of audioRows.value) {
+    out.push({ id: a.id, start: a.start, end: a.end })
+    // 4.0 D4 — a track's markers move with it, so they snap only other bars.
+    for (const m of a.markers) out.push({ id: a.id, start: a.start + m.dt, end: a.start + m.dt })
+  }
+  for (const m of cueFlags.value) out.push({ id: '\u0000cue', start: m.t, end: m.t })
   out.push({ id: '\u0000playhead', start: props.playhead, end: props.playhead })
   return out
 })
@@ -361,6 +367,27 @@ const assetDurationById = computed<ReadonlyMap<string, number>>(() => {
   return out
 })
 
+// 4.0 D4 — cap on the marker ticks one track draws (a beat grid under a long loop).
+const MAX_TICKS = 500
+
+// 4.0 D4 — the composition's own markers (timeline seconds), as flags on the
+// ruler. A track's markers are ticks on its bar (audioRows' `markers`).
+const cueFlags = computed<Array<{ t: number; name: string; source?: string }>>(() => {
+  const list = (props.composition?.composition as { markers?: unknown } | undefined)?.markers
+  if (!Array.isArray(list)) return []
+  return (list as Array<{ t?: unknown; name?: unknown; source?: unknown }>)
+    .filter((m) => typeof m?.t === 'number' && typeof m.name === 'string')
+    .map((m) => ({
+      t: m.t as number,
+      name: m.name as string,
+      ...(typeof m.source === 'string' ? { source: m.source } : {}),
+    }))
+})
+
+function cueTitle(m: { t: number; name: string; source?: string }): string {
+  return `${m.name}\n${m.t.toFixed(2)}s${m.source ? ` · ${m.source}` : ''}\nclick to seek`
+}
+
 // U3 — one row per `composition.audio[]` entry, sorted by start so bars read
 // left-to-right like the item tracks above. `end` always resolves to a
 // concrete number here (the schema allows an absent `end` meaning "play to
@@ -385,6 +412,18 @@ const audioRows = computed<TimelineAudioRow[]>(() => {
           ? Math.max(start, duration.value)
           : start + (assetDur ?? Math.max(0, duration.value - start))
     const trimIn = typeof t.trimIn === 'number' ? t.trimIn : 0
+    // 4.0 D4 — each marker where it plays (source seconds → timeline, looped),
+    // kept relative to the bar so it rides along while the bar is dragged.
+    const marks = Array.isArray(t.markers) ? (t.markers as Array<{ t: number; name: string }>) : []
+    const times = marks.length
+      ? trackMarkerTimes(
+          { start, trimIn, loop, markers: marks, ...(typeof t.end === 'number' ? { end: t.end } : {}) },
+          { assetDuration: assetDur ?? undefined, compositionDuration: duration.value },
+        )
+      : []
+    const markers = marks
+      .flatMap((m, j) => (times[j] ?? []).map((at) => ({ dt: at - start, name: m.name })))
+      .slice(0, MAX_TICKS)
     out.push({
       id: t.id,
       asset: t.asset,
@@ -395,6 +434,7 @@ const audioRows = computed<TimelineAudioRow[]>(() => {
       fadeOut: typeof t.fadeOut === 'number' ? t.fadeOut : 0,
       loop,
       loopPeriod: loop && assetDur !== null && assetDur - trimIn > 0 ? assetDur - trimIn : null,
+      markers,
     })
   }
   out.sort((a, b) => a.start - b.start)
@@ -1114,6 +1154,19 @@ watch(
             >{{ formatTickLabel(tick.t) }}</span>
           </div>
           <div
+            v-for="(m, i) in cueFlags"
+            :key="`cue-${i}`"
+            class="cue-flag"
+            :class="{ 'cue-flag--end': m.t >= duration * 0.85 }"
+            :style="{ left: pct(m.t) }"
+            :title="cueTitle(m)"
+            data-testid="timeline-cue-flag"
+            :data-name="m.name"
+            @click.stop="emit('seek', m.t)"
+          >
+            <span class="cue-flag-label">{{ m.name }}</span>
+          </div>
+          <div
             class="playhead playhead-head"
             :style="{ left: playheadLeft }"
             :data-time="playheadLabel"
@@ -1503,6 +1556,39 @@ watch(
    so they don't widen the scroll area. */
 .tick--end {
   margin-left: -1px;
+}
+
+/* 4.0 D4 — a composition marker: a flag on the ruler, its name beside it. */
+.cue-flag {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #ffb454;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.cue-flag-label {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  line-height: 1.2;
+  padding: 0 3px;
+  border-radius: 2px;
+  color: #1a1206;
+  background: #ffb454;
+}
+
+.cue-flag--end .cue-flag-label {
+  left: auto;
+  right: 4px;
 }
 
 .tick-label--end {

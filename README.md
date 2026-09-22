@@ -633,6 +633,33 @@ Composition settings in the editor):
   range; pass 2 applies one linear gain from those numbers before the
   limiter. A silent mix skips normalisation.
 
+### Markers
+
+Named moments other tools cut to; the renderer ignores them. A marker is
+`{ t, name, source? }`, and two places hold them:
+
+```jsonc
+"composition": { /* … */ "markers": [{ "t": 5.6, "name": "the drop", "source": "hdf:film" }] },
+"audio": [{ "id": "music", "asset": "bed", "start": 0,
+            "markers": [{ "t": 0, "name": "beat" }, { "t": 0.469, "name": "beat" } /* … */] }]
+```
+
+On the composition `t` is timeline seconds; on an audio track it is seconds
+into the **source file**, so a beat grid moves with its music: it is placed at
+`start + t − trimIn`, dropped before `trimIn` or past the source, repeated on
+every `loop` and cut at the track's end (`timelineMarkers` in `davidup/schema`
+lists both on the timeline). `source` says who wrote a marker, so a tool can
+replace its own. Set them with `set_composition_property` (`"markers"`, a list
+or `null`) and `add_audio_track` / `update_audio_track` (`markers`). The editor
+draws composition markers as flags on the ruler (click one to seek) and a
+track's as ticks on its bar, and both snap dragged bars.
+
+A hand-drawn film is cut to them: `hdf render <film> --cues-from
+composition.json --at <item>` hands the film the markers, the beats and every
+item's `<id>.start` / `<id>.end` in that item's seconds, and
+`scripts/davidup-hdf-clip.ts` does that and writes the film's chapters back as
+composition markers. See [`examples/hdf-cues/build.mjs`](./examples/hdf-cues/build.mjs).
+
 ---
 
 ## Authoring layers — from low to high level
@@ -970,7 +997,8 @@ axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 `W_ITEM_MULTI_PARENT` (an item listed under more than one layer/group, or twice
 in one list — it paints once per reference; this becomes an error in the next
 major), `W_GROUP_ANCHOR_NO_BOX` (a group sets `anchorX`/`anchorY` on an axis it
-declares no `width`/`height` for, so the anchor does nothing). Warnings never fail a call. The schema is strict: an unknown key such as
+declares no `width`/`height` for, so the anchor does nothing), `W_MARKER_OUTSIDE` (a marker
+past the composition end, or a track marker that never plays inside it). Warnings never fail a call. The schema is strict: an unknown key such as
 `opacty` is an `E_SCHEMA` error at its full path (`items.logo.transform.opacty`)
 with a "did you mean" suggestion. Keys starting with `$` (`$comment`, `$ref`,
 …) or `x-` (your own extensions) are allowed on any object and ignored by the

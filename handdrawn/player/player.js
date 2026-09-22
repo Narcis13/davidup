@@ -37,7 +37,10 @@ async function decode(src) {
 
 async function load(gen) {
   const src = sources(gen);
-  const [D, mod] = await Promise.all([import(src.deps), import(src.film)]);
+  // Marks (4.0 D4, --cues-from) are set before the film is imported: it reads them as it builds its timeline.
+  const [D, mod] = cfg.marks
+    ? await import(src.deps).then(async (d) => { d.setMarks(cfg.marks); return [d, await import(src.film)]; })
+    : await Promise.all([import(src.deps), import(src.film)]);
   let film = mod.default;
   if (!film || typeof film !== 'object' || !film.timeline || !Number.isInteger(film.n)) throw new Error(`${src.film}: default export must be film({...})`);
   const look = q.get('look') || cfg.look;   // ?look=<preset>, or --look from hdf dev / hdf bundle

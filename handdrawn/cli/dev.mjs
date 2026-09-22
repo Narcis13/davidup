@@ -11,7 +11,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { ASSET_ROOT, SCHEMAS, readCatalogue, recordOf } from '../core/assets.js';
-import { UsageError } from './load.mjs';
+import { marksFrom, UsageError } from './load.mjs';
 import { ROOT, commonDir, posix, resolveSpec, rewrite, webSource, within } from './modules.mjs';
 
 const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.html': 'text/html', '.css': 'text/css',
@@ -39,14 +39,14 @@ export function storeState(rel) {
   return { catalogue, assets };
 }
 
-export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, log = () => {} } = {}) {
+export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, marks, log = () => {} } = {}) {
   const film = resolve(filmPath);
   if (!existsSync(film)) throw new UsageError(`film not found: ${filmPath}`);
   const base = commonDir([ROOT, film]);
   const allowed = [ROOT, dirname(film), process.cwd()];
   const rel = (p) => posix(relative(base, p));
   const hdf = rel(ROOT) ? `${rel(ROOT)}/` : '';
-  const config = { dev: true, film: rel(film), hdf, ...(look ? { look } : {}) };
+  const config = { dev: true, film: rel(film), hdf, ...(look ? { look } : {}), ...(marks ? { marks } : {}) };
   const clients = new Set();
 
   const server = createServer((req, res) => {
@@ -117,7 +117,7 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, log
 
 export async function run([path], flags) {
   if (!path) throw new UsageError('missing <film.js>');
-  const dev = devServer(path, { port: flags.port ?? 4321, host: flags.host ?? '127.0.0.1', look: flags.look, log: (s) => process.stdout.write(`${s}\n`) });
+  const dev = devServer(path, { port: flags.port ?? 4321, host: flags.host ?? '127.0.0.1', look: flags.look, marks: marksFrom(flags.cuesFrom, flags.at), log: (s) => process.stdout.write(`${s}\n`) });
   const url = await dev.ready;
   process.stdout.write(`${basename(path)}: ${url}  (ctrl-c to stop)\n`);
   await new Promise((ok) => {

@@ -9,6 +9,27 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Markers, and hand-drawn films cut to them (hand-drawn film 4.0 D4)
+
+- `composition.markers` and `AudioTrack.markers`: named moments `{ t, name,
+  source? }`, timeline seconds on the composition and source-file seconds on a
+  track, so a beat grid follows its music through `start`, `trimIn`, `loop` and
+  `end`. `timelineMarkers` / `trackMarkerTimes` in `davidup/schema` place them.
+  The renderer ignores them; nothing renders differently.
+- `set_composition_property` takes `"markers"` (a list, or `null` to drop
+  them); `add_audio_track` / `update_audio_track` take `markers`;
+  `list_engine_capabilities.markers` says where they go. `replace_composition`
+  and the editor keep both.
+- New warning `W_MARKER_OUTSIDE`: a composition marker past the end, or a
+  track marker that never plays inside the composition.
+- Editor: composition markers are flags on the timeline ruler (click to seek),
+  a track's markers are ticks on its bar, and both are snap targets.
+- `scripts/davidup-hdf-clip.ts` renders the film with `--cues-from
+  <composition.json> --at <item>` (the film reads the markers, the beats and
+  every item's start and end as marks) and writes the film's chapters back as
+  composition markers (`source: "hdf:<item>"`); `hdf-to-davidup.ts` does the
+  same for each video item playing the film; `--no-cues` turns it off.
+
 ### Faster blur and scratch surfaces, and `davidup render --profile` (P-1) — **⚠ pixel-changing for blurs of radius ≥ 20**
 
 - `davidup render --profile[=<seconds>]` prints, after the render, a table of

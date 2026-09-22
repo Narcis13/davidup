@@ -217,3 +217,78 @@ describe("davidup-hdf-clip", () => {
     }
   });
 });
+
+// 4.0 D4: cues both ways. The film is cut to the composition's beats (its audio track's markers, in the
+// item's seconds), and its chapters come back as composition markers.
+describe("cues both ways", () => {
+  const BEAT = 60 / 128;
+  const onGrid = (t: number) => Math.round(t * 12) / 12;
+
+  it("handdrawn's marksOf places a composition's markers as davidup's timelineMarkers does", async () => {
+    const { timelineMarkers } = await import("../../src/schema/index.js");
+    // @ts-expect-error -- plain JS module
+    const { marksOf } = await import("../../handdrawn/core/cuemarks.js");
+    const doc = {
+      version: "0.1",
+      composition: { width: 320, height: 180, fps: 30, duration: 30, background: "#000", markers: [{ t: 2, name: "a" }, { t: 29, name: "z", source: "x" }] },
+      assets: [{ id: "m", type: "audio", src: "m.wav", duration: 7 }, { id: "n", type: "audio", src: "n.wav" }],
+      layers: [], items: {}, tweens: [],
+      audio: [
+        { id: "loop", asset: "m", start: 1, trimIn: 1.5, loop: true, end: 25, markers: [{ t: 1, name: "cut off" }, { t: 2, name: "beat" }, { t: 6.9, name: "late" }] },
+        { id: "once", asset: "m", start: 3, markers: [{ t: 0, name: "down" }, { t: 6, name: "up" }] },
+        { id: "free", asset: "n", start: 4, loop: true, markers: [{ t: 0.5, name: "once" }] },
+      ],
+    };
+    const want = timelineMarkers(doc as never).map((m) => `${m.name}@${m.t.toFixed(6)}`);
+    const names = new Set(want.map((w) => w.split("@")[0]));
+    const got = (marksOf(doc) as Array<{ t: number; name: string }>).filter((m) => names.has(m.name)).map((m) => `${m.name}@${m.t.toFixed(6)}`);
+    expect(got).toEqual(want);
+    expect(want.filter((w) => w.startsWith("beat@"))).toHaveLength(5);
+  });
+
+  it("davidup-hdf-clip cuts on-beat to the track's bars and writes its chapters as markers", async () => {
+    const root = await project();
+    const file = join(root, "composition.json");
+    const doc = JSON.parse(readFileSync(file, "utf8"));
+    doc.composition.duration = 12;
+    doc.composition.markers = [{ t: 0.25, name: "mine" }];
+    doc.assets.push({ id: "music", type: "audio", src: "music.wav", duration: 20 });
+    doc.audio = [{ id: "music", asset: "music", start: 0, markers: [...Array.from({ length: 25 }, (_, k) => ({ t: k * BEAT, name: "beat" })), { t: 12 * BEAT, name: "drop" }] }];
+    doc.items.film = {
+      type: "video", asset: "beat-clip", name: "hdf:on-beat", width: 360, height: 360, start: 2 * BEAT, fit: "contain", loop: false,
+      transform: { x: 640, y: 360, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0.5, anchorY: 0.5, opacity: 1 },
+    };
+    doc.layers[0].items.push("film");
+    writeFileSync(file, JSON.stringify(doc, null, 2));
+
+    expect(bun("davidup-hdf-clip.ts", file, "film", "--dry-run").out).toMatch(/--cues-from .*composition\.json --at film\n {2}chapters -> composition markers \(source hdf:film\)/);
+    expect(bun("davidup-hdf-clip.ts", file, "film", "--dry-run", "--no-cues").out).not.toMatch(/cues-from/);
+
+    for (let run = 0; run < 2; run++) {   // a second run replaces its markers, it does not add to them
+      const { code, out, err } = bun("davidup-hdf-clip.ts", file, "film");
+      expect(code, err).toBe(0);
+      expect(out).toMatch(/2 chapter markers \(source hdf:film\)/);
+    }
+    const after = JSON.parse(readFileSync(file, "utf8"));
+    const start = 2 * BEAT;
+    expect(after.composition.markers).toEqual([
+      { t: 0.25, name: "mine" },
+      { t: +start.toFixed(6), name: "count in", source: "hdf:film" },
+      { t: +(start + onGrid(10 * BEAT)).toFixed(6), name: "the drop", source: "hdf:film" },
+    ]);
+    // The render's cuts, back on the composition timeline, each within half a drawn frame of a beat.
+    const cues = JSON.parse(readFileSync(join(HDF_OUT, "on-beat-cues.json"), "utf8"));
+    expect(cues.cuts.length).toBeGreaterThanOrEqual(2);
+    for (const t of cues.cuts) {
+      const off = Math.min(...Array.from({ length: 25 }, (_, k) => Math.abs(k * BEAT - (start + t))));
+      expect(off).toBeLessThanOrEqual(1 / 24 + 1e-6);
+    }
+    // The registered clip is the cut render (101 drawn frames, not the fallback's 115).
+    const clip = (await listAssets(root)).find((a) => a.id === "beat-clip") as { type: string; duration: number };
+    expect(clip.type).toBe("video");
+    expect(clip.duration).toBeCloseTo(cues.end, 2);
+    expect(cues.end).toBeLessThan(115 / 12 - 0.5);
+    const { validateComposition } = await import("../../src/schema/index.js");
+    expect(validateComposition(after).warnings.filter((w) => w.code === "W_MARKER_OUTSIDE")).toEqual([]);
+  });
+});
