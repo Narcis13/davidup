@@ -173,6 +173,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `houseHand()` The 2.0 glyph set and tool defaults as a hand record named `house`, in the shape of a hand asset.
 - `asHand(rec)` A hand record (a store payload, or houseHand()) with every field there: strokes flat as in GLYPHS, the stroke profile over the house one, missing fields the house's.
 - `fallbacks(str, hand)` The characters of str a hand draws with house glyphs (a hand fitted from a sheet may miss some).
+- `unknowns(str, hand)` The characters of str no glyph draws in a hand (nor the house behind it): they letter as '?' (4.0 T3: Cyrillic in a Latin hand).
 - `withHand(hand, fn)` fn() lettered in a hand (null: the house). Cels and shots never see the look, but the letters they write belong to its hand: evalShot (tree.js) draws each shot inside withHand(its look's hand), and handText, measure and doodle read it ...
 
 ### core/text.js

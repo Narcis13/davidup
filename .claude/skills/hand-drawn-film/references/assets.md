@@ -266,7 +266,32 @@ lower on a dim photo), thinned, traced with widths, scaled to the em, strokes
 ordered longest first. The pen row gives wobble, pressure, hook and tremor
 (lines), overshoot and rounding (square). Speed is not on a sheet (the
 house's). Lint `hand-missing` fails a look naming a hand the store lacks and a
-sign-off that falls back to the house hand for any letter.
+sign-off that falls back to the house hand for any letter, or letters as `?`
+because no glyph draws it.
+
+**Hershey fonts (4.0 T3).** `hdf hand --hershey <file.jhf> --name <id> [--map
+ascii|greek|cyrillic] [--merge <hand>]` reads one of James Hurt's JHF files
+(`core/hershey.js`) into a hand. The distributed files
+(github.com/kamalmostafa/hershey-fonts) hold 96 glyphs in ASCII order, and the
+map names each position's character. `greek*.jhf` puts Α–Ω and α–ω in the
+Latin letter slots. `cyrillic.jhf` puts the Russian alphabet over the letters
+and the slots of `$ % & [ ] ^ _ { | } ~` and the backtick. The map is picked from the file's name unless
+`--map` says. Strokes stay in the file's order. The em is scaled so capitals
+stand at the house's 72 (x-height lands on 48). The advance is the glyph's
+bounds, so the track is 0 and a script's joins meet. The hand has no pen of
+its own: the look's pen adds the wobble. Licence `PD`, and the credit is the
+acknowledgement the Hershey licence requires. `--merge <hand>` adds a file's
+glyphs to a stored hand: the hand keeps its own, `--name` writes the result
+under another id, and the credits join. Letters with accents compose from the
+hand's own base (Ё is its Е and an umlaut, ά its α and an acute) with the
+house's marks, since a Hershey hand has none. Vendored in
+`assets/src/hershey/` (licence in its README) and in the store:
+
+| hand | file | glyphs |
+|---|---|---|
+| `hershey-romans` | `romans.jhf` (Roman simplex) | ASCII |
+| `hershey-script` | `scripts.jhf` (Script simplex, joined) | ASCII |
+| `hershey-cyrillic` | `cyrillic.jhf` (Cyrillic complex) | А–Я а–я but Й (composed), digits, punctuation |
 
 ## Clips, skeletons, retargeting, the phone
 

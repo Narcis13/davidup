@@ -5,6 +5,9 @@
 //                                                        US letter; --pages latin for the letters alone)
 //   hdf hand latin.jpg symbols.jpg marks.jpg --name narcis   photos of the filled-in pages -> the hand 'narcis'
 //   hdf hand --synth test                                a deterministic hand made from the house one (tests, goldens)
+//   hdf hand --hershey scripts.jhf --name hershey-script  a Hershey font as a hand (4.0 T3; --map ascii | greek |
+//                                                        cyrillic when the file's name does not say; --merge <id>
+//                                                        adds its glyphs to a stored hand, the hand's own kept)
 //   hdf hand --template --letter test > out/sample.jpg   a page filled in by a stored hand, as a 300 dpi JPEG
 //                                                        (the latin page; --pages symbols or marks for another)
 //   ... --root ../other                                  into (or from) a store that is not handdrawn/assets
@@ -14,12 +17,13 @@
 // the latin page, out/hand-<id>-trace-<page>.jpg for the others). Each photo's page is read off its code, in any
 // order. Boxes left blank, and pages not photographed, are drawn by the house hand, glyph by glyph; the report
 // names the blank boxes.
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadImage } from 'skia-canvas';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { GLYPHS, MARKS, asHand } from '../core/glyphs.js';
+import { MAPS, hersheyHand, mapFor, mergeHand } from '../core/hershey.js';
 import {
   FRAME, PAGES, PAPERS, SHAPES, UNIT, cellToFrame, drawTemplate, emToFrame, frameOrigin, glyphBoxes, readSheet, sample,
 } from '../core/handsheet.js';
@@ -194,7 +198,8 @@ export async function run(args, flags) {
       flags: { licence: 'own', credit: data.credit, tags: 'hand,synthetic', ...flags },
     });
   }
-  if (!args.length) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <page.jpg ...> --name <id>, or hdf hand --synth <id>');
+  if (flags.hershey !== undefined) return hershey(flags);
+  if (!args.length) throw new UsageError('hand: say what to do: hdf hand --template > out/hand-template.pdf, hdf hand <page.jpg ...> --name <id>, hdf hand --hershey <file.jhf> --name <id>, or hdf hand --synth <id>');
   const id = flags.name === undefined || flags.name === true ? '' : String(flags.name);
   if (!id) throw new UsageError('hand: need --name <id> for the hand, e.g. hdf hand latin.jpg symbols.jpg --name narcis');
   if (id === 'house') throw new UsageError("hand: 'house' is the package's own hand; name yours something else");
@@ -226,6 +231,40 @@ export async function run(args, flags) {
     await traceCheck(img, read, check);
     process.stdout.write(`${check}  the ${read.page} page straightened, traces in red\n`);
   }
+  if (flags.sheet !== false) await handSheetFile(id, flags);
+  return code;
+}
+
+// --hershey <file.jhf> --name <id> [--map] [--merge <id>]: a Hershey font into the store as a hand (licence PD,
+// the Hershey notice as its credit), or its glyphs added to a stored hand (--name defaults to that hand).
+async function hershey(flags) {
+  const file = flags.hershey === true ? '' : String(flags.hershey);
+  if (!file) throw new UsageError('hand: need --hershey <file.jhf>, e.g. hdf hand --hershey assets/src/hershey/scripts.jhf --name hershey-script');
+  if (!existsSync(file)) throw new UsageError(`hand: no file ${file}`);
+  const map = flags.map === undefined ? mapFor(file) : String(flags.map);
+  if (!MAPS[map]) throw new UsageError(`hand: --map ${map} (expected ${Object.keys(MAPS).join(' | ')})`);
+  const into = flags.merge === undefined || flags.merge === true ? '' : String(flags.merge);
+  const id = flags.name === undefined || flags.name === true ? into : String(flags.name);
+  if (!id) throw new UsageError('hand: need --name <id> for the hand, e.g. hdf hand --hershey scripts.jhf --name hershey-script');
+  if (id === 'house') throw new UsageError("hand: 'house' is the package's own hand; name yours something else");
+  let data;
+  try { data = hersheyHand(readFileSync(file, 'latin1'), { name: id, map }); } catch (e) { throw new UsageError(`hand: ${basename(file)}: ${e.message}`); }
+  const n = Object.keys(data.glyphs).length;
+  let licence = 'PD', source = basename(file), report = `${n} glyphs from ${source} (map ${map})`;
+  if (into) {
+    const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
+    if (!st.has(into) || st.entry(into).kind !== 'hand') throw new UsageError(`hand: --merge ${into}: no hand '${into}' in the store`);
+    const m = mergeHand({ ...st.json(into), name: id }, data);
+    data = m.hand; licence = st.entry(into).licence; source = [st.entry(into).source, source].filter(Boolean).join(' + ');
+    report = `${m.added.length} glyphs from ${basename(file)} (map ${map}) added to ${into}, ${m.kept.length} it has kept; ${Object.keys(data.glyphs).length} in all`;
+  }
+  const credit = [flags.credit === undefined || flags.credit === true ? '' : String(flags.credit), data.credit].filter(Boolean).join(' ');
+  data = { ...data, credit, licence };
+  const code = await putPayload({
+    kind: 'hand', name: id, bytes: Buffer.from(JSON.stringify(data) + '\n'), abs: resolve(`${id}.hand.json`),
+    flags: { tags: 'hand,hershey', ...flags, source, licence, credit },
+  });
+  process.stdout.write(`${report}\n`);
   if (flags.sheet !== false) await handSheetFile(id, flags);
   return code;
 }

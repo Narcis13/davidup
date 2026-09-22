@@ -193,10 +193,12 @@ const EXPLICIT = {
   '–': ['-'], '—': [{ ch: '-', sx: 1.8 }], '…': ['...'], '\u00a0': [' '],
 };
 
-// A character's decomposition as a COMPOSE entry, or null when it is no drawable base with known marks.
-function decomposed(ch) {
+// A character's decomposition as a COMPOSE entry, or null when it is no drawable base with known marks. The
+// base is the house's, or the hand's own when G (a hand's glyphs) has it (4.0 T3: a Cyrillic hand's Ё is its Е
+// and an umlaut, a Greek hand's ά its α and an acute).
+function decomposed(ch, G = GLYPHS) {
   const [base, ...rest] = [...ch.normalize('NFD')];
-  if (!rest.length || !GLYPHS[base] || !rest.every((m) => COMBINING[m])) return null;
+  if (!rest.length || !(GLYPHS[base] || G[base]) || !rest.every((m) => COMBINING[m])) return null;
   const marks = rest.flatMap((m) => COMBINING[m]);
   const dotless = (base === 'i' || base === 'j') && marks.some((m) => (MARKS[m]?.at ?? m[1]) === 'above');
   return [dotless ? { ch: base, dotless } : base, ...marks];
@@ -254,8 +256,8 @@ export function asHand(rec) {
 // { w, s, k, own } for a character in a hand (house when none), where k is the scale it is drawn at
 // (always 1 today) and own is false when the house stands in for any of it. A hand's own drawing of a
 // character wins; then COMPOSE builds it (4.0 T2: 'ă' is the hand's a and its breve, the house's breve when
-// the hand has no marks); then the house's glyph; then Unicode's decomposition into a base and known marks
-// (unknown marks dropped); anything else draws as '?'. Results are memoised per hand, so a composed glyph's
+// the hand has no marks); then the house's glyph; then Unicode's decomposition into a base (the house's or the
+// hand's) and known marks (unknown marks dropped); anything else draws as '?'. Results are memoised per hand, so a composed glyph's
 // strokes are one array layout can measure once.
 export function glyph(ch, hand) {
   const key = hand?.glyphs && hand.glyphs !== GLYPHS ? hand : houseHand();
@@ -273,12 +275,12 @@ function lookup(ch, H) {
   const spec = COMPOSE[ch];
   if (spec) return compose(spec, H);
   if (GLYPHS[ch]) return { ...GLYPHS[ch], k: 1, own: house };
-  const dec = decomposed(ch) ?? (() => {
+  const dec = decomposed(ch, G) ?? (() => {
     const base = ch.normalize('NFD')[0];
     return base !== ch && GLYPHS[base] ? [base] : null;
   })();
   if (dec) return compose(dec, H);
-  return { ...(G['?'] ?? GLYPHS['?']), k: 1, own: house || !!G['?'] };
+  return { ...(G['?'] ?? GLYPHS['?']), k: 1, own: house || !!G['?'], none: ch !== '?' };
 }
 
 const CORNER = Math.cos(50 * Math.PI / 180);   // as core/tools.js's overshoot: a turn sharper than 50 degrees
@@ -354,7 +356,15 @@ function compose([base, ...marks], H) {
 // The characters of str a hand draws with house glyphs (a hand fitted from a sheet may miss some).
 export function fallbacks(str, hand) {
   const h = hand ? asHand(hand) : houseHand(), out = new Set();
-  for (const ch of String(str)) if (ch !== ' ' && !glyph(ch, h).own) out.add(ch);
+  for (const ch of String(str)) if (ch !== ' ' && !glyph(ch, h).own && !glyph(ch, h).none) out.add(ch);
+  return [...out];
+}
+
+// The characters of str no glyph draws in a hand (nor the house behind it): they letter as '?' (4.0 T3: Cyrillic
+// in a Latin hand).
+export function unknowns(str, hand) {
+  const h = hand ? asHand(hand) : houseHand(), out = new Set();
+  for (const ch of String(str)) if (glyph(ch, h).none) out.add(ch);
   return [...out];
 }
 

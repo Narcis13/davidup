@@ -366,9 +366,9 @@ const HAND_W = 1600, PANGRAMS = ['The quick brown fox jumps over the lazy dog.',
   'Mulțumesc! Übermäßig, déjà vu, año, żółć, Ångström, Øre, Dvořák.'];
 
 // handPage(hand) => { list, W, H }: one hand on a page: its name, its pen profile, every glyph (the ones it
-// lacks drawn by the house, in the guide colour and listed, and the marks it composes accents with), three
-// pangrams and a line of accents, and the pen row of the hand sheet
-// (a line, a circle, a square, a zigzag, a long S) for the pen to draw in the hand's look.
+// lacks drawn by the house, in the guide colour and listed, then any it has beyond the house's, and the marks it
+// composes accents with), three pangrams and a line of accents, and the pen row of the hand sheet (a line, a
+// circle, a square, a zigzag, a long S) for the pen to draw in the hand's look.
 export function handPage(rec) {
   const H = asHand(rec), house = H === houseHand(), list = [paper()], M = 60, st = H.stroke;
   let y = M;
@@ -377,6 +377,8 @@ export function handPage(rec) {
   list.push(handText(prof, M, y + 140, { size: 26, hand: H, ink2: null }));
   y += 170;
   const chars = [...Object.keys(GLYPHS).filter((c) => /[0-9A-Za-z]/.test(c)).sort((a, b) => rank(a) - rank(b)), ...SYMBOLS, ...MARK_BOXES.filter((c) => !MARKS[c])];
+  // 4.0 T3: then the letters it has that the house does not (a Hershey hand's Cyrillic or Greek), in code order.
+  chars.push(...Object.keys(H.glyphs).filter((c) => c.trim() && !GLYPHS[c] && !chars.includes(c)).sort());
   const per = 14, cw = (HAND_W - 2 * M) / per, ch = 112, lacks = [];
   chars.forEach((c, i) => {
     const own = glyph(c, H).own;

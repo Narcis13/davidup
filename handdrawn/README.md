@@ -283,7 +283,21 @@ composes too; an unknown mark is dropped.
 ```js
 handText('mulțumesc, pa', 40, 80, { size: 48 })   // ț is t plus comma-below
 fallbacks('Dvořák', 'narcis')                     // what the house draws for a hand: letters or marks it lacks
+unknowns('спасибо', romans)                        // a hand record: what nothing draws: it letters as '?' (lint hand-missing)
 ```
+
+Hershey fonts come in as hands (4.0 T3, `core/hershey.js`): `hdf hand
+--hershey <file.jhf> --name <id>` reads James Hurt's JHF format (each glyph a
+line of coordinate pairs as letters about `R`, ` R` lifting the pen). A
+position map says which character each of a file's 96 ASCII-ordered glyphs is:
+`ascii`, `greek` or `cyrillic`. The em is scaled so capitals stand at 72, and
+the advance is the glyph's bounds (track 0, so a script's joins meet).
+Licence `PD`, and the credit carries the acknowledgement the licence requires.
+`--merge <hand>` adds a file's glyphs to a stored hand and keeps the hand's
+own. `assets/src/hershey/` vendors `romans`, `scripts` and `cyrillic`, and the
+store has them as `hershey-romans`, `hershey-script` and `hershey-cyrillic`. A
+hand's own base letter takes Unicode's marks too: `Ё` in `hershey-cyrillic` is
+its `Е` and the house's umlaut.
 
 Paths are flattened polylines, so they transform, project, measure and hash
 trivially: `circle ellipse rect roundRect poly line cubic spline arc`, plus
@@ -1428,6 +1442,7 @@ handdrawn/
     finish.js      finishes as geometry (hatch, halftone, dots, graphite, wash), riso plates, the stock
     tools.js       pen, brush, pencil, chalk, crayon, marker, gouache; reveal
     glyphs.js      the single-stroke hand font (a-z, A-Z, 0-9, punctuation, signs, ß ð þ...: 104 glyphs), 14 marks, composed accents
+    hershey.js     Hershey JHF fonts read into hand records (4.0 T3): parseJhf, the ascii / greek / cyrillic maps, mergeHand
     text.js        handText, layout, textBox, bullets, measureBox, signOff, squiggleText
     layout.js      line breaking and boxes from a hand's advances and ink (list.js bounds reads it)
     spline.js      the cardinal spline's arithmetic (glyphs.js builds on it at load)

@@ -378,6 +378,24 @@ threshold on a dim photo. `hdf hand --synth <id>` makes a deterministic hand
 from the house one (`test` is in the store) for checks before the sheet
 comes back. A film that pins a hand names it in `assets:`.
 
+**Cyrillic, Greek, a script: Hershey hands.** The store has three Hershey
+fonts as hands, public domain: `hershey-romans` (a plain single-stroke
+roman), `hershey-script` (joined cursive) and `hershey-cyrillic` (the whole
+Russian alphabet, serif). A brief in Russian letters through
+`--look 'paperInk~hand:hershey-cyrillic'`. Ё and Й are that hand's Е and И
+with the house's umlaut and breve. It has no Latin letters of its own, so
+English copy in that look is lettered by the house hand. The rest of the
+Hershey set (Greek, Gothic, italics, duplex romans) is at
+github.com/kamalmostafa/hershey-fonts (`hershey-fonts/*.jhf`):
+
+```bash
+hdf hand --hershey greeks.jhf --name hershey-greek          # --map ascii | greek | cyrillic when the name does not say
+hdf hand --hershey assets/src/hershey/romans.jhf --merge hershey-cyrillic --name ru-en   # Latin added, its own glyphs kept
+```
+
+Lint `hand-missing` also fails a sign-off with letters no glyph draws, which
+letter as `?` (Cyrillic in a Latin hand or in the house's).
+
 ## Motion: retargeting and the phone
 
 ```bash

@@ -76,6 +76,9 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     row; writes out/hand-<id>-trace[-<page>].jpg and assets/sheets/<id>.jpg
                                     (then --look 'x~hand:<id>')
   hand    --synth <id> [--root dir] a deterministic hand made from the house one, into the store
+  hand    --hershey <file.jhf> --name <id> [--map ascii|greek|cyrillic] [--merge <hand>] [--root dir] [--no-sheet]
+                                    a Hershey font as a hand (licence PD; assets/src/hershey has romans, scripts and
+                                    cyrillic); --merge adds its glyphs to a stored hand, the hand's own kept
   sheet   --hand <id>               a hand's page beside the house's: every glyph (house fallbacks marked), pangrams, its pen
   find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
   remove  <id...> [--root dir]      drop entries from the store, with their sheets and any blob no other entry shares

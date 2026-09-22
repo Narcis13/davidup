@@ -6,7 +6,7 @@ import { FPS } from './curves.js';
 import { audienceOf } from './audience.js';
 import { contrastOf, textUnits } from './legible.js';
 import { bounds, mmul, norm } from './list.js';
-import { fallbacks, withHand } from './glyphs.js';
+import { fallbacks, unknowns, withHand } from './glyphs.js';
 import { handOf, handRecord, parseLookName, resolveLook, resolveRole } from './looks.js';
 import { JOINT, VIEW_DIRS, movesOf, puppet } from './puppet.js';
 import { chapterAt, chapters, cues, evalShot, frame } from './tree.js';
@@ -428,7 +428,8 @@ function signOffRule(film, F) {
   const sign = signOffIn(last.list);
   if (!sign && clipIn(last.list)) return;
   if (!sign) { F.add('sign-off', last.shot, film.n - 1, 'no signOff() in the last frame', 'none'); return; }
-  const hand = handOf(last.look), missing = hand ? fallbacks(`${sign.a ?? ''}${sign.b ?? ''}`, hand) : [];
+  const hand = handOf(last.look), copy = `${sign.a ?? ''}${sign.b ?? ''}`, missing = hand ? fallbacks(copy, hand) : [], none = unknowns(copy, hand);
+  if (none.length) F.add('hand-missing', last.shot, film.n - 1, `the sign-off letters ${none.map((c) => `'${c}'`).join(', ')} as '?': ${hand ? `neither hand '${hand.name}' nor the house has` : 'the house hand has no glyph for'} ${none.length > 1 ? 'them' : 'it'} (a hand that does: hdf find hand)`, 'unknown');
   if (missing.length) F.add('hand-missing', last.shot, film.n - 1, `the sign-off letters ${missing.map((c) => `'${c}'`).join(', ')} in the house hand: hand '${hand.name}' has no glyph for ${missing.length > 1 ? 'them' : 'it'}`, 'fallback');
   const i = Math.max(0, film.n - Math.round(SIGN_OFF_LEAD * FPS)), at = frame(film, i), s = signOffIn(at.list);
   const done = s && (s.pA ?? 1) >= 1 && (s.pB ?? 1) >= 1;
