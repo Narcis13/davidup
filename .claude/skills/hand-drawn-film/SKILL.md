@@ -589,7 +589,15 @@ once, then act on what you saw.
    that is not: ask for an SVG (or draw one by hand in the Figma conventions),
    `hdf svg`, look at its sheet, `hdf sheet store <id> --poses` for the
    model sheet, show it. A pack cel is `puppet('pack:<cel>')` or the code cel.
-3. **Timeline from recipes and packs.** Write the beat sheet (start, dur,
+3. **Timeline from recipes and packs.** For a lesson (the teaching recipes,
+   chapters, narration, dialogue), write the brief in the script dialect
+   (`references/brief-template.md`, the end) as `work/<film>/<film>.md` and
+   run `hdf script work/<film>/<film>.md`: it prints the beat sheet with every
+   length worked out (the recipes' own timing at the audience, speech at
+   reading speed, recordings by their word timing) and writes the stub film
+   with the recipes named. Do not work out a lesson's times by hand; change
+   the brief and run it again. `hdf script --check <film.js>` says whether the
+   film still plays its sheet. Otherwise write the beat sheet (start, dur,
    shot, look, recipe, cels, cast, sound) under the brief, then the timeline
    (a stub cel that draws a labelled box is fine where a new cel will go):
    recipes from `references/recipes.md` with `actor:` where a cast member is

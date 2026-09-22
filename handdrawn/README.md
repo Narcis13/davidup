@@ -1506,6 +1506,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip (its own, else the vocabulary's) → `assets/sheets/<id>.jpg` |
 | `hdf hand --template --rig biped[,biped-front] [--paper] [--drawn]` | the rig sheet a character is drawn on (4.0 W1), a box a piece; `--drawn` one drawn in by the package, as a JPEG |
 | `hdf sketch <photo.jpg ...> --name <id> [--sheet biped\|biped-front] [--licence] [--cycle walk] [--root] [--no-sheet]` | a photographed rig sheet into the store as a puppet with the standard biped names (lines as strokes, coloured-in areas as fills, the face-on sheet adding the front view); `out/sketch-<id>-trace.jpg` and its sheet with the walk as the strip |
+| `hdf script <brief.md> [--out film.js] [--dry] [--force]`, `hdf script --check <film>` | a brief in the script dialect to the beat sheet and a timeline stub (4.0 E5, below) |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
 | `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |
@@ -1638,13 +1639,69 @@ image once:
    element that survives every cut. Template:
    `references/brief-template.md`.
 2. **Timeline from recipes and packs**, with a beat sheet as a comment, then
-   `hdf board`. Look once.
+   `hdf board`. Look once. For a lesson, write the brief in the script
+   dialect and let `hdf script` do the arithmetic (below).
 3. **Cels** that no pack has (usually one or two), then `hdf sheet` for each.
    Look once per cel; it must read at 240 px.
 4. **`hdf lint` until clean**, then `hdf grid --n 24`. Look once.
 5. **Fix, then `hdf changed`**, and look only at the frames that moved.
 6. **`hdf render`**, look at the contact sheet once, then `hdf bundle`.
    Deliver the module, `-final.mp4` and the HTML.
+
+### A brief to a beat sheet: `hdf script` (4.0 E5)
+
+A lesson's timing is arithmetic: how long a label takes to write and read at
+the audience's pace, how long a recording runs, a chapter's card and hold.
+`hdf script` does it. The brief is a markdown file in a small dialect:
+
+```markdown
+film: moon
+audience: kids-7
+look: whiteboard
+cast: sam, fox  <!-- a store puppet by id, else a stick built in code: kit (kid) -->
+actor: sam  <!-- the teacher: every teaching recipe and chapter card -->
+bed: calm  <!-- a music bed under the whole film -->
+
+# why does the moon change shape?
+hand: true  <!-- chapter options: hand, sub, look, card, hold, and the card's own (size, y, ...) -->
+- voice: moon-para  <!-- a narration: captioned, the teacher's mouth following it (by: none for off screen) -->
+
+# the moon
+- show: labelled({ subject: () => moon({}), labels: [{ text: 'lit side', at: [740, 420] }] })
+- show: counting({ items: phase, n: 8, label: 'phases' })
+  what: the eight phases counted  <!-- sub-items: name, dur, look, sound, what, voice, copy, by, kind, emote -->
+
+# de ce?
+- fox says: de ce?  <!-- a run of says lines is one exchange (AY); one speaker alone stands alone -->
+  emote: confused
+- sam says: the sun lights half of it.
+- show: quiz({ question: 'which moon is round?', options: ['new', 'half', 'full'], answer: 2 })
+---  <!-- ends the chapter -->
+- sign: the moon
+```
+
+`- show:` takes any recipe by name or letter with its options as JS (an
+identifier nothing defines, like `moon` above, becomes a stub cel: a dashed
+box), or plain words for a placeholder shot (`dur:`, else 2.5 s); `- text:`
+is lettering a hand writes at reading speed (AN); a `voice:` under a show puts
+a recording under it and stretches the shot to hold it; a sample not yet
+recorded is timed from its `copy:`.
+
+```bash
+hdf script work/moon/moon.md          # prints the beat sheet; writes work/moon/moon.js if it is not there
+hdf script work/moon/moon.md          # again, once the film is written: replaces only its beat-sheet comment
+hdf script --check work/moon/moon.js  # the round trip: does the film still play its sheet? exits 1 if not
+```
+
+Nothing is estimated by the tool itself: it writes the stub, loads it as a
+film and reads the sheet off what that film plays, so a recipe's length is
+the recipe's own (from its copy and the audience), a line is the dialogue's,
+a narration is its captions' (the sample's word timing). The stub is a film
+from the first run (`hdf board`, `hdf lint` and `hdf dev` work on it), with
+the recipes named, the cast built, the score's voices, lines, ticks and ding
+placed by shot name. The skill writes the film from there; `--check` keeps
+the sheet honest as it does. The sheet's columns are the skill's: `t dur shot
+look recipe cast sound what`, a line per chapter above its shots.
 
 ### Using the skill in Claude Code
 

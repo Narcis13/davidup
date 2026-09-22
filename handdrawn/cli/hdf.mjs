@@ -45,6 +45,13 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     --film finds the name in that film's cast (its store puppets, its \`cast\` export)
                                     (scripts/hdf-to-davidup.ts --sprites registers them)
   sprite  --film <film.js> --cast   the film's cast, a name a line
+  script  <brief.md> [--out film.js] [--dry] [--force]   a brief in the script dialect (# chapter, - show: <recipe>(...),
+                                    - text: ..., - voice: <sample>, - <name> says: ..., - sign: ...) -> the beat sheet,
+                                    every length the film's own (recipes from their copy and audience, speech at reading
+                                    speed, recordings by their word timing); writes the stub work/<film>/<film>.js, or
+                                    replaces only the beat-sheet comment in a film that exists
+          --check <film.js>         the round trip: the film's beat-sheet comment against what it plays; exits 1 on a
+                                    difference
   lint    <film.js>                 review checklist over lists; exits 1 on any finding (a line per chapter after)
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
@@ -128,7 +135,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   lint    packs/<pack>.js           a pack: pack-mirror findings, one per cel whose mirror is missing or stale
 `;
 
-const COMMANDS = ['render', 'cues', 'grid', 'only', 'board', 'sheet', 'sprite', 'lint', 'changed', 'golden',
+const COMMANDS = ['render', 'cues', 'grid', 'only', 'board', 'sheet', 'sprite', 'script', 'lint', 'changed', 'golden',
   'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'sketch', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };

@@ -43,3 +43,37 @@ and look at it, write only the cels no pack or store has and check each with
 render, then `hdf render` and look at the contact sheet. Colours are roles,
 never hex; no Math.random, Date, filters or gradients.
 ```
+
+## A lesson's brief in the script dialect (4.0 E5)
+
+For a lesson, write the brief as a markdown file the tool reads, and let
+`hdf script <brief.md>` do the timing: it prints the beat sheet (each length
+the film's own) and writes the stub `work/<film>/<film>.js` with the recipes
+named; run it again after changing the brief (a film that exists keeps its
+code, only its beat-sheet comment is replaced); `hdf script --check
+<film.js>` says whether the film still plays its sheet.
+
+```
+film: <name>                      header lines, before the first beat or chapter
+subject: <one sentence>           (any other key is kept in the BRIEF comment; other lines are prose)
+audience: general | beginner | kids-9 | kids-7 | kids-5
+look: <preset>                    hand: <id> letters it in a stored hand; format: 1:1 | 16:9 | 9:16
+cast: sam, kit (kid), fox         a store puppet by id, else a stick built in code (build in brackets)
+actor: sam                        the teacher: every teaching recipe (AN to AY) and chapter card gets it
+bed: calm | bright | mystery | march
+
+# <chapter title>                 its title card (AN), its beats, a hold
+hand: true                        options: hand, sub, look, card (false), hold, and the card's (size, y, width, ...)
+- show: <recipe>({ ... })         a recipe by name or letter, its options as JS; an unknown identifier is a stub cel
+- show: <what happens>            a placeholder shot (dur: n, else 2.5 s)
+- text: <copy>                    lettering written by a hand at reading speed (AN, hand: true)
+- voice: <sample id>              a narration, captioned; the teacher speaks it (by: <cast> | none); copy: <text>
+                                  times a line not recorded yet
+- <name> says: <line>             speech; consecutive lines are one exchange (AY), one speaker stands alone
+  emote: <expression>             sub-items: name, dur, look, sound, what, voice, copy, by, kind, emote
+---                               ends the chapter
+- sign: <a> <b>                   the sign-off, last
+```
+
+`work/moon/moon.md` is the pattern: the acceptance film of 4.0, four
+chapters, 98 s at kids-7.

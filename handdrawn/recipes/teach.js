@@ -913,11 +913,14 @@ const pairOf = () => (PAIR ??= [actorOf(puppet(stickSource({ name: 'sam' }))), a
 const talks = new WeakMap();
 function talkOf(o) {
   if (talks.has(o)) return talks.get(o);
-  const [a, b] = o.actor ? [o.actor, o.other ?? pairOf()[1]] : pairOf();
-  if (!b || typeof b.say !== 'function') throw new TypeError('dialogueShot: other must be an actor');
-  if (a.name === b.name) throw new TypeError(`dialogueShot: the two actors are both called ${a.name}`);
-  const hs = [o.h].flat(), where = { [a.name]: stageOf(a, o.x[0], o.ground, hs[0]), [b.name]: stageOf(b, o.x[1], o.ground, hs[1] ?? hs[0]) };
-  const who = (w) => (w === 0 || w === 'left' ? a : w === 1 || w === 'right' ? b : w === a || w === b ? w : (() => { throw new TypeError(`dialogueShot: a line's speaker is 0 or 1 ('left' or 'right') or one of the two actors, got ${w?.name ?? w}`); })());
+  const solo = o.other === false;
+  const [a, b] = o.actor ? [o.actor, solo ? null : o.other ?? pairOf()[1]] : solo ? [pairOf()[0], null] : pairOf();
+  if (!solo && (!b || typeof b.say !== 'function')) throw new TypeError('dialogueShot: other must be an actor (or false for one alone)');
+  if (b && a.name === b.name) throw new TypeError(`dialogueShot: the two actors are both called ${a.name}`);
+  // Alone, the actor stands at x (a number), or in the middle when x is left as the pair's.
+  const hs = [o.h].flat(), x1 = Array.isArray(o.x) ? (o.x === dialogueShot.defaults.x ? 540 : o.x[0]) : o.x;
+  const where = b ? { [a.name]: stageOf(a, o.x[0], o.ground, hs[0]), [b.name]: stageOf(b, o.x[1], o.ground, hs[1] ?? hs[0]) } : { [a.name]: stageOf(a, x1, o.ground, hs[0]) };
+  const who = (w) => (w === 0 || w === 'left' ? a : b && (w === 1 || w === 'right') ? b : w === a || (b && w === b) ? w : (() => { throw new TypeError(`dialogueShot: a line's speaker is ${b ? "0 or 1 ('left' or 'right') or one of the two actors" : `0 ('left') or ${a.name}, who is alone`}, got ${w?.name ?? w}`); })());
   const turns = o.lines.map(([w, text, q]) => [who(w), text, q ?? {}]);
   const talk = dialogue(turns, { t0: o.at, audience: o.audience, where, gaze: o.gaze, ...(o.gap === null ? {} : { gap: o.gap }) });
   const out = { a, b, where, talk };
@@ -925,7 +928,8 @@ function talkOf(o) {
   return out;
 }
 // AY. Dialogue shot (a line a beat): two actors (`actor` on the left, `other` on the right; by default two
-// stick puppets, sam and a child, kit) stand `h` tall (one for both, or [left, right]) on a ground line at `x`, facing each other, and play
+// stick puppets, sam and a child, kit; `other: false` for one alone, standing at `x` or in the middle, every
+// line its own) stand `h` tall (one for both, or [left, right]) on a ground line at `x`, facing each other, and play
 // `lines` ([speaker, text, { kind, emote, voice, ... }], the speaker 0 or 'left', 1 or 'right', or the actor)
 // as T9's dialogue: each line at the audience's reading pace, its bubble held through the reply, the listener
 // looking at the speaker (`gaze`). dialogueOf(opts) is the same dialogue, for the score (`.events(shot.t0)`).
@@ -940,7 +944,7 @@ export const dialogueShot = recipe('AY', 'dialogue', {
   const figure = (A, j) => A.place(...where[A.name], { ...A.idle(t, o.seed + j), ...talk.state(A, t) });
   return [
     stroke(line(40, o.ground, 1040, o.ground), o.floor, { w: 3, wobble: 2, seed: o.seed, name: 'ground' }),
-    group({ name: 'pair', cache: 'never' }, [figure(a, 0), figure(b, 1)]),
+    group({ name: 'pair', cache: 'never' }, [figure(a, 0), b && figure(b, 1)]),
     talk.draw(t),
   ];
 }, { anchor: { name: 'pair' }, cast: false });
