@@ -2,10 +2,10 @@
 <!-- The cast fox, drawn as an SVG the way Figma exports one: every part a <g id>, its pivot a
      <circle id="pivot">, the eye a data-variants group, the pupil a part that
      slides and shows with the open eye, brows that turn and slide, the mouth four steps, poses and cycles as
-     data-joints groups that do not draw. Three views (view:side, view:three-quarter, view:front) make
+     data-joints groups that do not draw, a socket (socket:hand-l, socket:hand-r) in each paw where a prop is held. Three views (view:side, view:three-quarter, view:front) make
      it turn; a part a view leaves out is drawn as in the side view. Import: hdf svg assets/src/fox.svg
      --name fox --licence own --roles assets/src/fox.roles.json -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: twelve parts, three views, four eyes, four mouths, three poses, a walk and a run, a tail that follows">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: twelve parts, three views, four eyes, four mouths, three poses, a walk and a run, a tail that follows, a socket in each paw">
   <g id="view:side">
     <g id="tail" data-parent="body" data-follow="lag:2,damp:0.7">
       <circle id="pivot" cx="-34" cy="-128" r="3" fill="#00a0ff"/>
@@ -15,6 +15,7 @@
     </g>
     <g id="arm-l" data-parent="body">
       <circle id="pivot" cx="-36" cy="-170" r="3" fill="#00a0ff"/>
+      <circle id="socket:hand-l" cx="-36" cy="-125" r="2" fill="#00a0ff"/>
       <path d="M-44 -180L-30 -178L-26 -164L-24 -146L-22 -130L-26 -120L-36 -116L-44 -122L-44 -138L-46 -156L-48 -170Z" fill="#e8734a"/>
       <polygon points="-44,-126 -36,-116 -28,-122 -30,-132 -40,-134" fill="#fff1d6"/>
       <path d="M-44 -180L-30 -178L-26 -164L-24 -146L-22 -130L-26 -120L-36 -116L-44 -122L-44 -138L-46 -156L-48 -170Z" fill="none" stroke="#2b2b2b"/>
@@ -97,6 +98,7 @@
     </g>
     <g id="arm-r" data-parent="body">
       <circle id="pivot" cx="36" cy="-170" r="3" fill="#00a0ff"/>
+      <circle id="socket:hand-r" cx="36" cy="-125" r="2" fill="#00a0ff"/>
       <path d="M44 -180L30 -178L26 -164L24 -146L22 -130L26 -120L36 -116L44 -122L44 -138L46 -156L48 -170Z" fill="#e8734a"/>
       <polygon points="44,-126 36,-116 28,-122 30,-132 40,-134" fill="#fff1d6"/>
       <path d="M44 -180L30 -178L26 -164L24 -146L22 -130L26 -120L36 -116L44 -122L44 -138L46 -156L48 -170Z" fill="none" stroke="#2b2b2b"/>
@@ -173,6 +175,7 @@
   <g id="view:front">
     <g id="arm-l" data-parent="body">
       <circle id="pivot" cx="-46" cy="-168" r="3" fill="#00a0ff"/>
+      <circle id="socket:hand-l" cx="-51" cy="-125" r="2" fill="#00a0ff"/>
       <path d="M-52 -178L-40 -176L-38 -162L-40 -146L-42 -130L-44 -120L-52 -116L-60 -122L-58 -138L-58 -156L-58 -170Z" fill="#e8734a"/>
       <polygon points="-58,-126 -52,-116 -44,-122 -44,-132 -54,-134" fill="#fff1d6"/>
       <path d="M-52 -178L-40 -176L-38 -162L-40 -146L-42 -130L-44 -120L-52 -116L-60 -122L-58 -138L-58 -156L-58 -170Z" fill="none" stroke="#2b2b2b"/>
@@ -254,6 +257,7 @@
     </g>
     <g id="arm-r" data-parent="body">
       <circle id="pivot" cx="46" cy="-168" r="3" fill="#00a0ff"/>
+      <circle id="socket:hand-r" cx="51" cy="-125" r="2" fill="#00a0ff"/>
       <path d="M52 -178L40 -176L38 -162L40 -146L42 -130L44 -120L52 -116L60 -122L58 -138L58 -156L58 -170Z" fill="#e8734a"/>
       <polygon points="58,-126 52,-116 44,-122 44,-132 54,-134" fill="#fff1d6"/>
       <path d="M52 -178L40 -176L38 -162L40 -146L42 -130L44 -120L52 -116L60 -122L58 -138L58 -156L58 -170Z" fill="none" stroke="#2b2b2b"/>

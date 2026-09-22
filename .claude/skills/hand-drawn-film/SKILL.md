@@ -32,6 +32,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `chapters.js` | whiteboard | a lesson in three `chapter(title, ...)`s: each opens on its title card and holds a beat; the board is a card per chapter, `hdf render --chapter 2` renders one alone |
 | `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
+| `holding.js` | rose paper, chalkboard | props in sockets: the fox pours the teapot it holds (`attach`, `level`, `propAt` for the spout); sam writes a sum with chalk in hand (`heldTool`, `writer`'s `by`), walking on between the halves |
 | `follow.js` | whiteboard | secondary motion: sam's four-link scarf swings after a jump and a bow; the fox's tail lags its walk and overshoots into a wave |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `marked.js` | whiteboard | the teacher's pen: the hand writes a sentence, then underlines a word, circles another and writes a label with an arrow, each mark drawing on in turn (`wordBox`, `underline`, `circleAround`, `callout`) |
@@ -255,6 +256,17 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
   the state *function* and the time, `SAM.place(x, y, s, act.state, t)` (or
   `SAM.follow(act.state, t)` for the state); a plain object draws them where
   it says. Recipes with `perform:` do this for you. The fox's tail follows.
+- **Props in hand.** `const pot = attach(FOX, 'hand-r', node, { s, level:
+  true, rot, tip })` then `FOX.place(x, y, s, { ...state, props: [pot] })`:
+  it is drawn in the paw, turns and mirrors with it; `propAt(FOX, pot, [x, y,
+  s], state)` is where its tip is (pour from the spout). The fox has a socket
+  in each paw, a stick in each hand (a puppet's `sockets`, SVG `<circle
+  id="socket:hand-r">`). `held(SAM, chalk, [x, y], { at, state })` puts the
+  prop's tip on a point (reach for the tip); `writer(node, t, { ...sched, by:
+  { actor: SAM, at, state, prop: attach(SAM, 'hand-r', heldTool({ tool:
+  'chalk' })) } })` has the puppet write instead of a drawn hand. A stick's
+  arm is short (about 0.3 of its height with the chalk): keep what it writes
+  within reach, or walk it on (`walkTo`, half a stride lands on a contact).
 - **Speech.** `const line = FOX.say('hello there', 1.25)` then `say: line`
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`

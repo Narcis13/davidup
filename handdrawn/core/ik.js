@@ -11,13 +11,15 @@
 // each input's own step, so a held reach dedups like a held pose. A code cel or a doodle builder has no
 // skeleton: reach and lookAt give {} (lookAt turns it to face), walkTo slides it at `speed`.
 //
-// reach(actor, part, [x, y], { at: [x, y, s], state, elbow }) => { upper: deg, lower: deg }
+// reach(actor, part, [x, y], { at: [x, y, s], state, elbow, tip }) => { upper: deg, lower: deg }
 //   part     'hand-l' | 'hand-r' (arm-, fore-, hand-) or 'foot-l' | 'foot-r' (leg-, shin-, foot-); naming
 //            the upper or lower bone means the same limb
 //   at       the actor's stage place; without it the target is in the drawing's own units
 //   state    what the rest of the body is doing (a lean, a view, dir): the limb reaches from there
 //   elbow    which way the middle joint bends: 'down' | 'up' | 'front' | 'back' | 'out' | 'in' (default: an
 //            arm 'down', a leg 'front', in the front view 'out')
+//   tip      { part, at: [x, y] }: land this point (in a part that rides the lower bone: the chalk's end in
+//            the hand, 4.0 K8) instead of the wrist; the solve is the same with the lower bone to the tip
 //   Analytic two-bone IK on shoulder-elbow-wrist (hip-knee-ankle): the end lands on the target, or the limb
 //   straightens towards it when it is out of reach. A single-segment limb (the fox's arm) is aimed at it as
 //   actor.place's `hand` always aimed one.
@@ -99,11 +101,15 @@ function limbOf(p, part) {
   return null;
 }
 
+// The point that lands: the end's pivot, or (4.0 K8) tip { part, at } a point in the coordinates of a part
+// that rides the lower bone (a chalk's end in the hand), in the drawing at state z.
+const endPoint = (p, L, z, tip) => (tip ? mapply(p.worldOf(tip.part, z, { mirror: false }), tip.at[0], tip.at[1]) : origin(p, L.end ?? L.one, z));
+
 // The two-bone solve in the unmirrored drawing: target t (drawing units) for limb L at state q.
-function twoBone(p, L, t, q, bend) {
+function twoBone(p, L, t, q, bend, tip) {
   // Zero the limb's own turns, so the frame below is the upper bone's rest, whatever the body does.
   const z = { ...q, [L.upper]: 0, [L.lower]: 0 }, W = p.worldOf(L.upper, z, { mirror: false }), I = inv(W);
-  const e = mapply(I, ...origin(p, L.lower, z)), w = mapply(I, ...origin(p, L.end, z));
+  const e = mapply(I, ...origin(p, L.lower, z)), w = mapply(I, ...endPoint(p, L, z, tip));
   const u1 = e, u2 = [w[0] - e[0], w[1] - e[1]], L1 = Math.hypot(...u1), L2 = Math.hypot(...u2);
   const T = mapply(I, t[0], t[1]), dT = Math.hypot(...T) || 1e-6;
   const d = Math.min(L1 + L2 - 1e-6, Math.max(Math.abs(L1 - L2) + 1e-6, dT)), phiT = Math.atan2(T[1], T[0]);
@@ -134,15 +140,24 @@ const bendFor = (p, L, q, elbow) => {
 
 // reach in the drawing's own units (actor.place's `hand` has already brought the point in): a patch.
 export function reachIn(actor, part, t, state = {}, o = {}) {
-  const p = skeleton(actor, 'reach'), q = full(p, state), L = limbOf(p, part);
+  const p = skeleton(actor, 'reach'), q = full(p, state), L = limbOf(p, part), tip = o.tip ?? null;
   if (!L) return {};
-  if (L.one) {
-    // A single segment points at the target: it hangs down (+y) at 0 degrees.
-    const piv = origin(p, L.one, { ...q, [L.one]: 0 });
-    const pm = p.parentOf(L.one), base = pm === undefined ? 0 : angleOfXf(p.worldOf(pm, q, { mirror: false })) / RAD;
-    return { [L.one]: quantise(p, L.one, wrap180(Math.atan2(-(t[0] - piv[0]), t[1] - piv[1]) / RAD - base)) };
+  if (tip) {
+    const on = L.one ? [L.one] : [L.lower, L.end];
+    let ok = false;
+    for (let c = tip.part; c !== undefined && !ok; c = p.parentOf(c)) ok = on.includes(c);
+    if (!ok) throw new Error(`reach ${actor.name}: a tip on '${tip.part}' does not ride ${L.one ?? L.lower}`);
   }
-  return twoBone(p, L, t, q, bendFor(p, L, q, o.elbow ?? state.elbow));
+  if (L.one) {
+    // A single segment points at the target: it hangs down (+y) at 0 degrees. With a tip, the tip's
+    // direction from the pivot (at 0) is what points there.
+    const z = { ...q, [L.one]: 0 }, piv = origin(p, L.one, z);
+    const pm = p.parentOf(L.one), base = pm === undefined ? 0 : angleOfXf(p.worldOf(pm, q, { mirror: false })) / RAD;
+    let off = 0;
+    if (tip) { const e = endPoint(p, L, z, tip); off = Math.atan2(-(e[0] - piv[0]), e[1] - piv[1]) / RAD - base; }
+    return { [L.one]: quantise(p, L.one, wrap180(Math.atan2(-(t[0] - piv[0]), t[1] - piv[1]) / RAD - base - off)) };
+  }
+  return twoBone(p, L, t, q, bendFor(p, L, q, o.elbow ?? state.elbow), tip);
 }
 
 // reach(actor, part, [x, y], { at, state, elbow }) => the limb's two joints (two-bone IK) so its end lands on
@@ -152,6 +167,9 @@ export function reach(actor, part, target, o = {}) {
   if (!Array.isArray(target) || target.length < 2 || !target.every(Number.isFinite)) throw new TypeError(`reach ${actor.name}: target is [x, y], got ${JSON.stringify(target)}`);
   const state = o.state ?? {}, q = full(actor.puppet, state);
   const t = o.at ? toDrawing(actor, o.at, q, target) : target;
+  if (o.tip !== undefined && !(o.tip && typeof o.tip.part === 'string' && Array.isArray(o.tip.at) && o.tip.at.length === 2 && o.tip.at.every(Number.isFinite))) {
+    throw new TypeError(`reach ${actor.name}: tip is { part, at: [x, y] } (a point in that part's coordinates), got ${JSON.stringify(o.tip)}`);
+  }
   return reachIn(actor, part, t, state, o);
 }
 

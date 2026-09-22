@@ -98,6 +98,35 @@
    }
   },
   {
+   "name": "held-tool",
+   "pack": "hands",
+   "export": "heldToolCel",
+   "box": [
+    -98,
+    -17,
+    180,
+    33
+   ],
+   "inputs": {
+    "tool": [
+     0,
+     3,
+     1
+    ],
+    "ink": [
+     0,
+     3,
+     1
+    ]
+   },
+   "desc": "a pen, marker, chalk or crayon on its own, gripped at the origin, its point ahead along +x",
+   "sheet": "sheets/held-tool.jpg",
+   "store": {
+    "id": "pack:held-tool",
+    "sha": "1e94634db6923f2308bf99f09e45540193f8d27d"
+   }
+  },
+  {
    "name": "writing-hand",
    "pack": "hands",
    "export": "writingHandCel",

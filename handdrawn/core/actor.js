@@ -27,6 +27,8 @@
 //   actor.mouth(id, t, t0)          the mouth of the recording `id` at t (4.0 V3), started at t0 -> state
 //   actor.face(id, t, t0, o)        a face track (4.0 K7: your face, filmed) at t: mouth, eyes, brows, pupils -> state
 //   actor.hands(id, t, t0, o)       a hands track at t: each hand part with variants its nearest pose -> state
+//   actor.place(x, y, s, { ...state, props: [prop] })   4.0 K8: props (core/props.js attach) held in the
+//                                   puppet's sockets, drawn inside the hand's part so they turn and mirror with it
 //
 // A state is a plain object of inputs, so states merge with spread and the later one wins: a recipe writes
 // idle first and a cycle last. Stage conventions are the v1 cast's (recipes/doodle.js): centred at (x, y),
@@ -410,7 +412,13 @@ function fromPuppet(p, spec) {
       // 4.0 K5: reach: { 'hand-r': [x, y], ... } (stage points; elbow: o.elbow) and a walk's feet for lint.
       if (o.reach) for (const [part, at] of Object.entries(o.reach)) Object.assign(q, reach(me, part, at, { at: [x, y, s], state: { ...o, ...q }, elbow: o.elbow }));
       const feet = o.walking ? feetMeta(me, [x, y, s], { ...o, ...q }) : null;
-      return st.wrapPlaced(x, y, s, o, feet ? [make(q), feet] : [make(q)]);
+      // 4.0 K8: props (core/props.js attach) drawn in their sockets' parts, placed from the final state.
+      const props = o.props === undefined ? [] : [o.props].flat().filter(Boolean);
+      for (const pr of props) if (pr.kind !== 'prop') throw new TypeError(`actor ${name}: props are attach()'s, got ${JSON.stringify(pr)?.slice(0, 60)}`);
+      const at = { ...o, ...q }, drawn = props.length
+        ? p.hold(make(q), props.map((pr) => ({ part: pr.part, xf: pr.xfIn(at), node: pr.node, behind: pr.behind, name: pr.name })))
+        : make(q);
+      return st.wrapPlaced(x, y, s, o, feet ? [drawn, feet] : [drawn]);
     },
   };
 }
@@ -425,7 +433,10 @@ function fromCel(c, spec) {
     name, box, ground: spec.ground ?? [0, 0], inputs, has: () => false, top: st.top,
     stage: Object.freeze({ xf: st.xfOf, local: st.local, k: st.k }),
     make: (o) => c(pick(inputs, o)),
-    place: (x, y, s, o = {}) => st.wrapPlaced(x, y, s, o, [c(pick(inputs, o))]),
+    place: (x, y, s, o = {}) => {
+      if (o.props !== undefined && [o.props].flat().some(Boolean)) throw new TypeError(`actor ${name}: a code cel has no sockets to hold props in (a puppet has)`);
+      return st.wrapPlaced(x, y, s, o, [c(pick(inputs, o))]);
+    },
   };
 }
 

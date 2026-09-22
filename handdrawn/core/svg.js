@@ -23,7 +23,8 @@
 // the file's units). `<g id="pose:wave"
 // data-joints="arm-l:-70,head:8,eye:happy">` declares a pose and `<g id="cycle:walk" data-fps="12">` a cycle,
 // one child `<g data-joints="...">` per frame; neither draws. A top-level `<circle id="ground">` is the
-// ground point. Turnarounds: top-level `<g id="view:side">`, `<g id="view:front">`, ... each wrap a whole
+// ground point. A `<circle id="socket:hand-r" data-angle="0">` inside a part is a socket (4.0 K8): where a
+// prop is held, pointing data-angle degrees; it does not draw. Turnarounds: top-level `<g id="view:side">`, `<g id="view:front">`, ... each wrap a whole
 // view, with the same part ids inside every one; the payload gets `views` in document order and a part drawn
 // in more than one view has its ops, variants (and pivot, where it moves) keyed by view. A part drawn only in
 // the first view is the same in all of them. Poses, cycles and the ground stay outside the views. The first
@@ -522,7 +523,7 @@ export function svgMotif(src, opts = {}) {
   return { payload, table };
 }
 const roleLookup = (table) => { const m = new Map(table.map((r) => [r.hex, r.role])); return (hex) => m.get(hex); };
-const isMarker = (s) => /^(pivot|ground)([_-]\d+)?$/.test(s.el.attrs.id ?? '');
+const isMarker = (s) => /^(pivot|ground)([_-]\d+)?$/.test(s.el.attrs.id ?? '') || /^socket:/.test(s.el.attrs.id ?? '');
 
 // ---------- puppet: rig from ids ----------
 
@@ -591,7 +592,7 @@ export function svgPuppet(src, opts = {}) {
   });
   if (!viewGs.length) {
     const r = rigOf(d.root, d.shapes, d.k, role);
-    return { payload: { ...head, ground: r.ground, parts: r.parts, ...tail(r) }, table };
+    return { payload: { ...head, ground: r.ground, parts: r.parts, ...socketsOut(r.sockets), ...tail(r) }, table };
   }
 
   // One rig per view, over the view's own groups and the shared poses, cycles and ground.
@@ -640,8 +641,28 @@ export function svgPuppet(src, opts = {}) {
     }
     parts[n] = { ...entry, ...moved };
   }
-  return { payload: { ...head, views, ground: first.ground, parts, ...tail({ ...first, inputs }) }, table };
+  // A socket is on the same part in every view that has it; where it sits and points may move by view.
+  const sockets = {};
+  for (const sn of [...new Set(rigs.flatMap((r) => Object.keys(r.sockets)))]) {
+    const has = rigs.map((r, j) => [views[j], r.sockets[sn], r]).filter(([, k]) => k);
+    for (const [v, k, r] of has.slice(1)) if (k.part !== has[0][1].part) fail(r.els[k.part], `socket '${sn}' is on '${k.part}' in view ${v} and '${has[0][1].part}' in view ${has[0][0]}`);
+    if (has[0][0] !== views[0]) fail(has[0][2].els[has[0][1].part], `socket '${sn}' is not in the first view, ${views[0]}`);
+    // The same wherever it is drawn: one value (a view without it falls back to the first view's anyway).
+    const byView = (f) => (has.every(([, k]) => same(k[f], has[0][1][f])) ? has[0][1][f] : Object.fromEntries(has.map(([v, k]) => [v, k[f]])));
+    sockets[sn] = { part: has[0][1].part, at: byView('at'), angle: byView('angle') };
+  }
+  return { payload: { ...head, views, ground: first.ground, parts, ...socketsOut(sockets), ...tail({ ...first, inputs }) }, table };
 }
+
+// The payload's sockets: [x, y, angle] for one on the part of its name, placed the same in every view.
+const socketsOut = (sockets) => {
+  const names = Object.keys(sockets ?? {});
+  if (!names.length) return {};
+  return { sockets: Object.fromEntries(names.map((sn) => {
+    const k = sockets[sn], plain = Array.isArray(k.at) && typeof k.angle === 'number';
+    return [sn, plain && k.part === sn ? [...k.at, k.angle] : { part: k.part, at: k.at, angle: k.angle }];
+  })) };
+};
 
 // One rig (a view, or the whole file): the parts the ids under `root` describe, from `shapes` (chains
 // relative to root). k is the drawing's scale, role the colour lookup; `where` names the view in errors.
@@ -658,7 +679,7 @@ function rigOf(rootEl, shapes, k, role, where = null) {
   }
   const stepOf = (id) => { const m = /^(.+)-(\d+)$/.exec(id ?? ''); return m && stepped.has(m[1]) ? [m[1], m[2]] : null; };
 
-  const parts = new Map(), poses = {}, cycles = {};
+  const parts = new Map(), poses = {}, cycles = {}, sockets = {};
   const part = (name, el) => {
     if (!parts.has(name)) parts.set(name, { name, el, parent: undefined, pivot: undefined, ops: [], variants: null, steps: false, shapes: [] });
     return parts.get(name);
@@ -745,6 +766,16 @@ function rigOf(rootEl, shapes, k, role, where = null) {
       target.p.pivot = centre(s);
       continue;
     }
+    if (/^socket:/.test(id)) {
+      const sn = id.slice(7);
+      if (!sn) fail(s.el, 'a socket needs a name: socket:hand-r');
+      if (!target || target === 'skip') fail(s.el, `socket '${sn}' outside any part: put it inside the part that holds (a hand's <g>)`);
+      if (target.v !== null) fail(s.el, `socket '${sn}' inside variant '${target.v}' of '${target.p.name}': a socket belongs to the part`);
+      if (sockets[sn]) fail(s.el, `socket '${sn}' appears twice`);
+      const angle = s.el.attrs['data-angle'] === undefined ? 0 : num(s.el, 'data-angle');
+      sockets[sn] = { part: target.p.name, c: centre(s), angle };
+      continue;
+    }
     if (!target) fail(s.el, 'drawn outside any part: put it inside a <g id="..."> (the part it belongs to)');
     target.p.shapes.push({ s, v: target.v });
   }
@@ -779,7 +810,12 @@ function rigOf(rootEl, shapes, k, role, where = null) {
     }
     out[p.name] = entry;
   }
-  return { parts: out, inputs, poses, cycles, ground: ground.map(q3), els: Object.fromEntries([...parts.values()].map((p) => [p.name, p.el])) };
+  // Sockets (4.0 K8) in their part's own coordinates, as its ops are: the circle's centre less the pivot.
+  const socks = Object.fromEntries(Object.entries(sockets).map(([sn, k]) => {
+    const [px, py] = pivotOf(k.part);
+    return [sn, { part: k.part, at: [q3(k.c[0] - px), q3(k.c[1] - py)], angle: k.angle }];
+  }));
+  return { parts: out, inputs, poses, cycles, sockets: socks, ground: ground.map(q3), els: Object.fromEntries([...parts.values()].map((p) => [p.name, p.el])) };
 }
 
 // The centre of a marker shape (a pivot or ground circle), in logical units.

@@ -958,6 +958,62 @@ that places the fox with a state object is unchanged. `films/follow.js`:
 sam jumps in a four-link scarf that swings after the landing, bows and
 stands; the fox walks on, waves with its tail overshooting, and falls asleep.
 
+### Props: sockets and attach
+
+The teacher holds the chalk; the fox holds the teapot (4.0 K8,
+`core/props.js`). A puppet's `sockets` are places on its parts where something
+is held; a prop is drawn *inside* the part's group, so it turns with the hand,
+mirrors with the puppet and sits in painter order with it.
+
+```js
+sockets: { 'hand-r': [x, y, angle] }                     // on the part of that name, in its own coordinates
+sockets: { 'hand-r': { part: 'arm-r', at: [0, 45], angle: 0 } }   // on any part; at, angle may be keyed by view
+
+const POT = attach(FOX, 'hand-r', photo(pin(PHOTOS.teapot, { x: 0, y: 0, h: 110, pivot: [0.95, 0.32], flip: true }), { shadow: 0 }),
+                   { s: 150, level: true, rot: tilt, tip: SPOUT });
+FOX.place(x, y, 150, { ...state, props: [POT] });         // the pot in the paw
+propAt(FOX, POT, [x, y, 150], state)                      // where the spout is on the stage: the tea pours from it
+const CHALK = attach(SAM, 'hand-r', heldTool({ tool: 'chalk' }), { scale: 0.45 });
+SAM.place(x, y, s, { ...state, ...held(SAM, CHALK, [700, 480], { at: [x, y, s], state }), props: [CHALK] });
+writer(node, t, { ...WRITE, by: { actor: SAM, at: [x, y, s], state, prop: CHALK } });   // sam writes it
+```
+
+A socket is `[x, y]` in its part's coordinates (the pivot the origin, as the
+part's ops are) and `angle`, the degrees a prop's +x points there; it draws
+nothing, so a puppet with sockets hashes as one without. In SVG a `<circle
+id="socket:hand-r" data-angle="0">` inside a part is one (per view, where it
+moves). The fox has a socket in each paw (`hand-l`, `hand-r`, on its
+one-segment arms); a stick has one in each hand, at the hand's middle and
+pointing on along the forearm (with no hands, at the wrist). A stick source's
+`sockets` add more.
+
+`attach(actor, socket, what, o)` makes a prop: `what` is a cel (called with
+`o.inputs`), an op or a list, or `{ node, grip, tip }`; `grip` is the point of
+it that sits in the socket, `tip` the point that does the job (a chalk's end,
+a spout); `rot` turns it about the grip; `scale` is drawing units per unit of
+it, and with `s` (the actor's stage size) it is drawn in stage units; `level`
+keeps its own angle in the drawing whatever the arm does (a pot carried
+upright, tipped only by `rot`); `behind` draws it first in the part's group.
+`place` takes `props: [prop, ...]`; each is worked out from the final state,
+so it follows `reach`, a walk, a mirror. The drawing's box grows to hold it.
+`held(actor, prop, [x, y], { at, state, elbow })` is `reach` for the tip: the
+two-bone solve runs the lower bone out to the tip (`reach`'s `tip: { part, at
+}`), so the chalk's end lands within the 2 degree grid (a few units); a
+one-segment arm points the tip at the point. `propAt` and `socketAt` say where
+a point of a prop or a socket is on the stage. `heldTool({ tool, ink })` is a
+pen, marker, chalk or crayon on its own, gripped at the origin, its point
+ahead; `writer`'s `by` has a puppet write instead of the drawn hand: the arm
+rises over the lead, the tip follows the pen and lifts between units, and the
+actor is drawn before and after. A prop and the groups that hold it draw
+direct, never from the layer cache: a cached layer of a group holding a turned
+photo differs by a few levels from the group drawn straight, and which one a
+frame got would depend on the frames before it.
+
+`films/holding.js`: the fox lifts the teapot it holds, level, tips it and
+pours into a cup under the spout; sam writes `1 + 2` on a chalkboard with
+the chalk in its hand, walks on (half a stride, feet planted), writes `= 3`,
+walks clear of the sum and turns to us.
+
 ### Puppets from SVG
 
 A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported
@@ -978,6 +1034,8 @@ are the rig:
   units); `data-when="eye:open|wide"` shows it only with those variants;
 - `data-follow="lag:2,damp:0.7"` makes a part follow its parent (4.0 K6) and
   `data-chain="n:4,len:18,w:6,angle:60"` a rope of following links from it;
+- `<circle id="socket:hand-r" data-angle="0">` inside a part is a socket where
+  a prop is held (4.0 K8); it is not drawn;
 - `<g id="pose:wave" data-joints="arm-l:112,head:-6,eye:happy"/>` is a pose and
   `<g id="cycle:walk" data-fps="12">` a cycle, one `<g data-joints="...">` per
   frame; neither draws. A top-level `<circle id="ground">` is the ground point;

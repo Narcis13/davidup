@@ -157,6 +157,13 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `walkTo(actor, x0, x1, t0, t1 = null, o = {})` walkTo(actor, x0, x1, t0, t1, { s, cycle, stand, hold }) => { x(t), state(t), t0, end, steps }: a walk whose planted foot holds still, x following it frame by frame (see the top of this file).
 - `stand(actor, state = {})` stand(actor, state) => state with the lift that puts its lower ankle where the rest pose has it.
 
+### core/props.js
+
+- `attach(actor, socket, what, o = {})` attach(actor, socket, what, o) => a prop (see the top of this file).
+- `held(actor, prop, target, o = {})` held(actor, prop, [x, y], { at, state, elbow }) => the limb's joints so the prop's tip lands on the point.
+- `propAt(actor, prop, at, state = {}, pt = prop?.tip ?? [0, 0])` propAt(actor, prop, [x, y, s], state, pt) => [x, y] on the stage.
+- `socketAt(actor, socket, [x, y, s], state = {}, pt = [0, 0])` socketAt(actor, socket, [x, y, s], state, pt) => [x, y] on the stage.
+
 ### core/audience.js
 
 - `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them, lint profiles at T10).
@@ -228,6 +235,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `writingHand({ tool = 'marker', side = 'r', skin, ink = 0 } = {})` writingHand({ tool: 'pen' | 'marker' | 'chalk' | 'crayon', side: 'r' | 'l', skin, ink }) => the cel of a hand holding that tool, point at (0, 0): a right hand by default, mirrored for 'l' (the arm off to the left).
 - `writer(node, t, o = {})` writer(node, t, o) => a group: the writing hand on node's pen tip at shot time t, following writeOn(node, { t, ...o }) (same options: at, per, wps, lead, lift, exit), coming in from off the frame over the lead, lifted off the surface ...
 - `toolFor(look)` The tool a look writes with: the whiteboard's marker, chalk on a chalk look, else the pen.
+- `heldTool({ tool = 'chalk', ink = 0 } = {})` heldTool({ tool, ink }) => { node, grip, tip, name }: what attach(actor, 'hand-r', ...) holds.
 
 ### core/finish.js
 
@@ -540,6 +548,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `fly` (creatures) box [-132, -112, 264, 224]; inputs: wing 0..2 step 0.01, flap 0..1 step 1, legs 0..1 step 0.5, walk 0..1 step 0.05. a fruit fly; mode ink | blueprint
 - `hedgehog` (creatures) box [-110, -100, 220, 156]; inputs: dir -1..1 step 2, fright 0..1 step 0.25. the doodle hedgehog with a scarf; eye dot | happy | sleep | wide
 - `horse` (creatures) box [-240, -310, 480, 320]; inputs: pose 0..11 step 1, flip 0..1 step 1. a galloping horse: one of 12 Muybridge poses traced from film (found motion); feet at the origin
+- `held-tool` (hands) box [-98, -17, 180, 33]; inputs: tool 0..3 step 1, ink 0..3 step 1. a pen, marker, chalk or crayon on its own, gripped at the origin, its point ahead along +x
 - `writing-hand` (hands) box [-10, -8, 264, 384]; inputs: tool 0..3 step 1, ink 0..3 step 1. a hand holding a pen, marker, chalk or crayon, its point at (0, 0), the arm off down to the right
 - `boat` (objects) box [-82, -90, 164, 138]; inputs: note 0..1 step 1. a paper boat; mode ink | blueprint
 - `book` (objects) box [-166, -126, 332, 252]; inputs: open 0..1 step 1. a hardback book lying flat: shut, or open to a spread of scribbled text

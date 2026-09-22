@@ -9,7 +9,8 @@
 //     spread: { shoulder: 24, elbow: 30, ... },     // the front view: how far each pair sits from the middle
 //     bones: [['hip', 'chest', 5], ['chest', 'neck', 5], ['shoulder-l', 'elbow-l', 5], ...],   // [from, to, w]
 //     head: { r: 23, face: true }, hands: 'dots' | 'mitts' | 'fingers' | 'none', style: 'line' | 'tube',
-//     parts: { scarf: { parent: 'neck', pivot: 'neck', chain: { n: 4, len: 16, w: 8, angle: 70 }, before: 'head' } } }
+//     parts: { scarf: { parent: 'neck', pivot: 'neck', chain: { n: 4, len: 16, w: 8, angle: 70 }, before: 'head' } },
+//     sockets: { hat: { part: 'head', at: [0, -40], angle: -90 } } }      // 4.0 K8; hand-l, hand-r come free
 //
 // Joints are the side view, facing right (+x), the ground at y = 0, up negative. A bone is a part whose pivot
 // is its proximal joint and whose drawing is one stroke to its distal joint (the pen tapers it) -- or, in the
@@ -397,6 +398,23 @@ function build(src) {
   const Rr = Math.max(...tops, reach('head') + R) + pad;
   const box = src.box ?? [r2(hipX - Rr), r2(J.hip[1] - Rr), r2(2 * Rr), r2(Math.max(-(J.hip[1] - Rr) + pad, Rr))];
 
+  // Sockets (4.0 K8): each hand holds a prop at its middle, pointing on along the forearm (a dot's middle is
+  // the wrist); a stick with no hands holds at the wrist, on the forearm. src.sockets add to them or move them.
+  const sockets = {};
+  for (const sd of ['l', 'r']) {
+    const wr = `wrist-${sd}`, fore = boneTo.get(wr);
+    if (!fore) continue;
+    const a = (V) => Math.atan2(at[V][wr][1] - at[V][fore.a][1], at[V][wr][0] - at[V][fore.a][0]);
+    const mid = hands === 'mitts' ? Math.max(u * 0.05, fore.w * 2.2) * 0.45 : hands === 'fingers' ? Math.max(u * 0.06, fore.w * 2.6) * 0.3 : 0;
+    const on = parts[`hand-${sd}`] ? `hand-${sd}` : nameOf(wr);
+    const from = (V) => (on === nameOf(wr) ? [at[V][wr][0] - at[V][fore.a][0], at[V][wr][1] - at[V][fore.a][1]] : [0, 0]);
+    sockets[`hand-${sd}`] = {
+      part: on,
+      at: byView((V) => pt([from(V)[0] + mid * Math.cos(a(V)), from(V)[1] + mid * Math.sin(a(V))])),
+      angle: byView((V) => r2(a(V) * 180 / Math.PI)),
+    };
+  }
+
   const withHands = ['l', 'r'].filter((sd) => parts[`hand-${sd}`]?.variants), fingers = withHands.length > 0;
   const fingerInputs = Object.fromEntries(withHands.map((sd) => [`hand-${sd}`, [...FINGERS]]));
   const fingerRest = Object.fromEntries(withHands.map((sd) => [`hand-${sd}`, 'open']));
@@ -413,6 +431,7 @@ function build(src) {
     poses: { ...(face || fingers ? { rest: { ...(face ? { eye: 'open', mouth: 0 } : {}), ...fingerRest } } : {}), ...(src.poses ?? {}) },
     ...(src.cycles ? { cycles: src.cycles } : {}),
     parts: ordered,
+    sockets: { ...sockets, ...(src.sockets ?? {}) },
     stick: stickOf(src),
   };
 }

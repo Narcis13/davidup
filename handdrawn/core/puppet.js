@@ -11,6 +11,7 @@
 //   fox.liftOf('gallop', t)          // how far that frame lifts the puppet (a retargeted cycle), up positive
 //   fox.worldOf('arm-r', state)      // the part's matrix in the drawing at a state (4.0 K5), origin its pivot
 //   fox.inkOf('head', state)         // the box its own drawing covers there
+//   fox.socketXf('hand-r', state)    // where a prop is held, as a matrix in the drawing (4.0 K8)
 //
 // Parts are drawn in key order (painter's), each as a group whose `xf` turns it about its pivot: a part
 // nests inside its parent, but keeps its place in the global order, so a tail listed before the body is
@@ -61,10 +62,20 @@
 // makes a rope of n following parts from one (a scarf): the payload is expanded before it is built, so
 // `puppet.puppet` names every link.
 //
+// Sockets (4.0 K8, core/props.js): `sockets: { 'hand-r': [x, y, angle] }` names a place on a part where a
+// prop is held: [x, y] in the part's own coordinates (its pivot the origin, as its ops are), angle the
+// degrees the prop's +x points there. The array form sits on the part of the socket's name; `{ part, at,
+// angle }` puts it on any part (the fox's paw is the end of its one-segment arm), and `at` and `angle` may be
+// keyed by view like a pivot. socketOf(name, dir) is the socket in a view, socketXf(name, state) its matrix
+// in the drawing; hold(g, props) draws props into a drawing of the puppet inside their parts' groups, in
+// front of the part's own drawing and its child parts, or first in the group (`behind`), so they turn,
+// mirror and lie in painter order with the hand. A socket draws nothing: a payload that declares sockets
+// draws and hashes as one that does not.
+//
 // Browser-safe: the payload comes from the registry (core/store.js), which `fromStore` fills in node and
 // `hdf dev` / `hdf bundle` fill from `window.HDF.assets`.
 import { FPS } from './curves.js';
-import { bounds, circle, dots, fill, fx, group, mmul, norm, parse, rotate, scale, serialise, stroke, translate, withProps } from './list.js';
+import { I, bounds, circle, dots, fill, fx, group, mmul, norm, parse, rotate, scale, serialise, stroke, translate, withProps } from './list.js';
 import { expandChains, followOf, inkCentre, settler } from './follow.js';
 import { compileStick, isStick } from './stick.js';
 import { record } from './store.js';
@@ -172,6 +183,7 @@ function build(d, id) {
   for (const n of names) { const m = movesOf(d.parts[n], n, name); if (m) moves[n] = m; }
   const follows = {};
   for (const n of names) { const f = followOf(d.parts[n], n, name); if (f) follows[n] = f; }
+  const sockets = socketsOf(d, name, views);
   for (const n of names) {
     const w = d.parts[n].when;
     if (w === undefined) continue;
@@ -402,7 +414,77 @@ function build(d, id) {
   };
   // A part's parent, or undefined for a root.
   make.parentOf = (n) => parent[n];
+  // Sockets (4.0 K8): their names, one in a view ({ part, at: [x, y], angle }), its matrix in the drawing at a
+  // state (origin the socket, +x the way a prop held there points), and props drawn into a drawing.
+  make.sockets = Object.freeze(Object.keys(sockets));
+  make.socketOf = (sn, dir = rest.dir) => {
+    const k = sockets[sn];
+    if (!k) throw new Error(`puppet ${name}: no socket '${sn}' (has ${Object.keys(sockets).join(', ') || 'none'})`);
+    const V = viewOf(dir), pick = (v) => (keyed(v) ? v[V] ?? v[views[0]] : v);
+    return { part: k.part, at: pick(k.at), angle: pick(k.angle) };
+  };
+  make.socketXf = (sn, q = rest, o = {}) => {
+    const s = { ...rest, ...q }, k = make.socketOf(sn, s.dir ?? rest.dir);
+    return mmul(make.worldOf(k.part, s, o), mmul(translate(k.at[0], k.at[1]), rotate(k.angle * RAD)));
+  };
+  make.hold = (g, props) => holdIn(g, props, { name, parent, has: (n) => at.has(n) });
   return make;
+}
+
+// A payload's sockets, checked: { name: { part, at, angle } }, at and angle plain or keyed by view.
+function socketsOf(d, name, views) {
+  const out = {};
+  if (d.sockets === undefined) return out;
+  if (!d.sockets || typeof d.sockets !== 'object' || Array.isArray(d.sockets)) throw new Error(`puppet ${name}: sockets is { name: [x, y, angle] | { part, at, angle } }`);
+  const pt = (v) => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+  for (const [sn, v] of Object.entries(d.sockets)) {
+    const k = Array.isArray(v) ? { part: sn, at: v.slice(0, 2), angle: v[2] ?? 0 } : v && typeof v === 'object' ? { part: v.part ?? sn, at: v.at, angle: v.angle ?? 0 } : null;
+    if (!k || (Array.isArray(v) && (v.length < 2 || v.length > 3))) throw new Error(`puppet ${name}: socket '${sn}' is [x, y, angle] or { part, at: [x, y], angle }, got ${JSON.stringify(v)}`);
+    if (!d.parts[k.part]) throw new Error(`puppet ${name}: socket '${sn}' is on part '${k.part}', which is not a part`);
+    for (const [what, ok] of [['at', pt], ['angle', Number.isFinite]]) {
+      const x = k[what];
+      if (keyed(x)) {
+        if (!views) throw new Error(`puppet ${name}: socket '${sn}' ${what} is keyed by view, but the puppet declares no views`);
+        for (const [V, y] of Object.entries(x)) {
+          if (!views.includes(V)) throw new Error(`puppet ${name}: socket '${sn}' ${what} names view '${V}' (views: ${views.join(', ')})`);
+          if (!ok(y)) throw new Error(`puppet ${name}: socket '${sn}' ${what} in view ${V} is ${what === 'at' ? '[x, y]' : 'degrees'}, got ${JSON.stringify(y)}`);
+        }
+        if (x[views[0]] === undefined) throw new Error(`puppet ${name}: socket '${sn}' ${what} is keyed by view and leaves out the first, '${views[0]}'`);
+      } else if (!ok(x)) throw new Error(`puppet ${name}: socket '${sn}' ${what} is ${what === 'at' ? '[x, y]' : 'degrees'}, got ${JSON.stringify(x)}`);
+    }
+    out[sn] = Object.freeze(k);
+  }
+  return out;
+}
+
+// Props drawn into a puppet's drawing g (a cel group): each { part, xf, node, behind, name } goes into its
+// part's group, xf in the part's coordinates; the box grows to hold them, so lint's cel-box does not take a
+// teapot for a fox drawing out of bounds. The same drawing when there are none.
+function holdIn(g, props, { name, parent, has }) {
+  if (!props?.length) return g;
+  const by = new Map(), need = new Set();
+  for (const pr of props) {
+    if (!has(pr.part)) throw new Error(`puppet ${name}: a prop held on '${pr.part}', which is not a part`);
+    if (!by.has(pr.part)) by.set(pr.part, []);
+    by.get(pr.part).push(pr);
+    for (let c = pr.part; c !== undefined; c = parent[c]) need.add(c);
+  }
+  // A prop draws direct, all of it, and so do the groups it sits in, up to the cel: a cached layer of a group
+  // holding a turned photo is not the same pixels as the group drawn straight through scratch (which of the
+  // two a frame gets depends on the frames before it, so a split across workers would show it).
+  const never = (op) => (op.op === 'group' ? withProps(op, { cache: 'never', kids: op.kids.map(never) }) : op.kids ? withProps(op, { kids: op.kids.map(never) }) : op);
+  const put = (pr) => group({ name: `prop:${pr.name ?? 'prop'}`, xf: pr.xf, cache: 'never' }, [never(pr.node)]);
+  const into = (op) => {
+    const mine = by.get(op.name) ?? [];
+    const kids = op.kids.map((k) => (k.op === 'group' && parent[k.name] === op.name && need.has(k.name) ? into(k) : k));
+    return withProps(op, { cache: 'never', kids: [...mine.filter((p) => p.behind).map(put), ...kids, ...mine.filter((p) => !p.behind).map(put)] });
+  };
+  const top = (kids) => kids.map((k) => (k.op !== 'group' ? k : k.name === 'mirror' && !has('mirror') ? withProps(k, { cache: 'never', kids: top(k.kids) })
+    : parent[k.name] === undefined && need.has(k.name) ? into(k) : k));
+  const kids = top(g.kids), b = bounds(kids, I), box = g.box;
+  const grown = !box ? b : !b ? box : [Math.min(box[0], b[0]), Math.min(box[1], b[1]),
+    Math.max(box[0] + box[2], b[0] + b[2]) - Math.min(box[0], b[0]), Math.max(box[1] + box[3], b[1] + b[3]) - Math.min(box[1], b[1])];
+  return withProps(g, { kids, cache: 'never', ...(grown ? { box: grown } : {}) });
 }
 
 // ---------- pack mirrors (3.0 S13) ----------
@@ -468,6 +550,10 @@ function mirror(d, id) {
   make.worldOf = () => [1, 0, 0, 1, 0, 0];
   make.inkOf = () => null;
   make.parentOf = () => undefined;
+  make.sockets = Object.freeze([]);
+  make.socketOf = (sn) => { throw new Error(`puppet ${name}: a pack mirror has no socket '${sn}'`); };
+  make.socketXf = make.socketOf;
+  make.hold = (g, props) => { if (props?.length) throw new Error(`puppet ${name}: a pack mirror holds no props`); return g; };
   make.pose = none('poses');
   make.cycle = none('cycles');
   // Every mirrored input set, as { key: inputs }.

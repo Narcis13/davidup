@@ -3,10 +3,14 @@
 //
 //   writer(node, t, { tool, side, skin, ink, scale, look, ...writeOn's options })   the hand on node's pen
 //   writer(node, t, { p })                                                           ...at reveal progress p
+//   writer(node, t, { by: { actor, at: [x, y, s], state, prop } })   4.0 K8: the actor's own hand writes, the
+//                                                                    prop (heldTool's, attached) its point
+//   heldTool({ tool: 'chalk', ink })   the tool alone as a prop (core/props.js attach): { node, grip, tip }
 //
 // Draw the writer after the node, in the same coordinates (inside the same place / cam), so it sits on top.
 
-import { circle, fill, group, poly, stroke } from '../core/list.js';
+import { bounds, circle, fill, group, mapPaths, mmul, poly, rotate, stroke, translate, withProps, xf } from '../core/list.js';
+import { held, propAt } from '../core/props.js';
 import { cel, place } from '../core/tree.js';
 import { resolveLook } from '../core/looks.js';
 import { writing } from '../core/write.js';
@@ -93,6 +97,23 @@ export function writingHand({ tool = 'marker', side = 'r', skin, ink = 0 } = {})
   return side === 'l' ? place(0, 0, { flip: true }, c) : c;
 }
 
+// The tool alone, to be held (4.0 K8): lying along +x, gripped at the origin (where the drawn hand grips it),
+// its point at [grip, 0] ahead of the fist.
+const lying = (kind, ink) => {
+  const m = mmul(translate(SPEC[kind].grip, 0), rotate(Math.PI - A));
+  return [withProps(toolOf(kind, ink), { kids: mapPaths(toolOf(kind, ink).kids, (path) => xf(path, m)), name: kind })];
+};
+const LYING = TOOLS.map((k) => bounds(lying(k, 0))).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]),
+  Math.max(a[0] + a[2], b[0] + b[2]) - Math.min(a[0], b[0]), Math.max(a[1] + a[3], b[1] + b[3]) - Math.min(a[1], b[1])]);
+export const heldToolCel = cel('held-tool', ({ tool = 2, ink = 0 }) => lying(TOOLS[tool] ?? 'chalk', ink), { box: LYING.map((v, j) => Math.round(v + (j < 2 ? -3 : 6))), inputs: { tool: [0, 3, 1], ink: [0, 3, 1] }, desc: 'a pen, marker, chalk or crayon on its own, gripped at the origin, its point ahead along +x' });
+
+// heldTool({ tool, ink }) => { node, grip, tip, name }: what attach(actor, 'hand-r', ...) holds.
+export function heldTool({ tool = 'chalk', ink = 0 } = {}) {
+  const i = TOOLS.indexOf(tool);
+  if (i < 0) throw new TypeError(`heldTool: tool '${tool}' is not one of ${TOOLS.join(', ')}`);
+  return Object.freeze({ node: heldToolCel({ tool: i, ink }), grip: [0, 0], tip: [SPEC[tool].grip, 0], name: tool });
+}
+
 // The tool a look writes with: the whiteboard's marker, chalk on a chalk look, else the pen.
 export const toolFor = (look) => {
   if (!look) return 'pen';
@@ -106,14 +127,19 @@ export const toolFor = (look) => {
 // is not there. With o.p (0..1) it follows reveal(p, node) instead, down while 0 < p < 1 and absent otherwise
 // (o.leave 0..1 takes it away from the end). tool (default the look's: toolFor(o.look)), side, skin, ink:
 // writingHand's; scale the hand's size (1: about 360 units from point to cuff).
+// by (4.0 K8): { actor, at: [x, y, s], state, prop, elbow } -- a puppet writes instead of a drawn hand: it is
+// placed at `at` holding the prop (attach's, its tip the point) and reaches (core/props.js held) so the tip
+// follows the pen, raising the arm over the lead, lifting between units, lowering it after the last. It is
+// always drawn (at `state`, the prop in hand, while the pen is not there). node must be in stage coordinates.
 export function writer(node, t, o = {}) {
-  const { tool = toolFor(o.look), side = 'r', skin, ink = 0, scale = 1, p, leave, look, ...sched } = o;
+  const { tool = toolFor(o.look), side = 'r', skin, ink = 0, scale = 1, p, leave, look, by, ...sched } = o;
   let pen;
   if (typeof p === 'number') {
     const done = p >= 1 && typeof leave === 'number' && leave < 1;
-    if (!(p > 0 && p < 1) && !done) return null;
-    pen = { ...penAt(Math.min(p, 1), node), down: !done, lift: done ? 1 : 0, enter: 1, leave: done ? leave : 0 };
+    if (!(p > 0 && p < 1) && !done) pen = null;
+    else pen = { ...penAt(Math.min(p, 1), node), down: !done, lift: done ? 1 : 0, enter: 1, leave: done ? leave : 0 };
   } else pen = writing(node, sched).pen(t);
+  if (by) return byActor(by, pen, scale);
   if (!pen) return null;
   const sx = side === 'l' ? -1 : 1, off = 900 * scale, away = (1 - pen.enter) + pen.leave;
   const x = pen.x + sx * off * 0.62 * away + sx * pen.lift * 7 * scale, y = pen.y + off * away - pen.lift * 13 * scale;
@@ -121,5 +147,23 @@ export function writer(node, t, o = {}) {
   return group('writer', [
     pen.lift > 0 && pen.enter >= 1 && pen.leave === 0 && fill(circle(pen.x, pen.y, 4 * scale, 12), { base: 'shade', alpha: 0.22 * pen.lift }, { name: 'tipShadow' }),
     place(x, y, { rot, scale: scale * (1 + 0.04 * pen.lift) }, writingHand({ tool, side, skin, ink })),
+  ]);
+}
+
+// The writer as a puppet holding a prop: its tip on the pen (see writer).
+function byActor({ actor, at, state = {}, prop, elbow }, pen, scale) {
+  if (!actor?.puppet) throw new TypeError('writer by: needs { actor } a puppet, which holds the prop');
+  if (prop?.kind !== 'prop') throw new TypeError(`writer by ${actor.name}: needs { prop }, attach(${actor.name}, socket, heldTool(...))`);
+  if (!Array.isArray(at) || at.length !== 3) throw new TypeError(`writer by ${actor.name}: at is its place [x, y, s]`);
+  const [x, y, s] = at, props = [...[state.props ?? []].flat(), prop];
+  if (!pen) return group('writer', [actor.place(x, y, s, { ...state, props })]);
+  const away = Math.min(1, Math.max(0, (1 - pen.enter) + pen.leave));
+  const hang = propAt(actor, prop, at, state);
+  const up = [pen.x - pen.lift * 6 * scale, pen.y - pen.lift * 12 * scale];
+  const target = [up[0] + (hang[0] - up[0]) * away, up[1] + (hang[1] - up[1]) * away];
+  const patch = away >= 1 ? {} : held(actor, prop, target, { at, state, elbow });
+  return group('writer', [
+    pen.lift > 0 && pen.enter >= 1 && pen.leave === 0 && fill(circle(pen.x, pen.y, 4 * scale, 12), { base: 'shade', alpha: 0.22 * pen.lift }, { name: 'tipShadow' }),
+    actor.place(x, y, s, { ...state, ...patch, props }),
   ]);
 }

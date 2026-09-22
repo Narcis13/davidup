@@ -4,7 +4,7 @@
   "units": 300,
   "box": [-126, -314, 236, 324],
   "ground": [0, 0],
-  "desc": "the cast fox: twelve parts, four eyes, a pupil that looks, two brows, four mouths, three poses, a walk and a run",
+  "desc": "the cast fox: twelve parts, four eyes, a pupil that looks, two brows, four mouths, three poses, a walk and a run, a socket in each paw",
   "parts": {
     "tail": {
       "parent": "body",
@@ -562,6 +562,10 @@
         }
       ]
     }
+  },
+  "sockets": {
+    "hand-l": { "part": "arm-l", "at": [0, 45], "angle": 0 },
+    "hand-r": { "part": "arm-r", "at": [0, 45], "angle": 0 }
   },
   "inputs": {
     "eye": ["open", "happy", "sleep", "wide"],

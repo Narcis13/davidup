@@ -176,8 +176,9 @@ function oneView(d, view) {
     ...p, ...(p.ops ? { ops: pick(p.ops) } : {}), ...(p.pivot ? { pivot: pick(p.pivot) } : {}),
     ...(p.variants ? { variants: Object.fromEntries(Object.entries(p.variants).map(([k, v]) => [k, pick(v)])) } : {}),
   }]));
-  const { views, ...rest } = d;
-  return { ...rest, parts };
+  const { views, sockets, ...rest } = d;
+  const one = sockets && Object.fromEntries(Object.entries(sockets).map(([n, k]) => [n, Array.isArray(k) ? k : { ...k, at: pick(k.at), angle: pick(k.angle) }]));
+  return { ...rest, parts, ...(one ? { sockets: one } : {}) };
 }
 
 const TURN = svg(`
@@ -244,6 +245,7 @@ test('the SVG fox is the S4 JSON fox from the side: same parts, same boxes, the 
   assert.deepEqual(b.cel.inputs, a.cel.inputs);
   assert.deepEqual([b.poses, b.cycles, b.ground, b.units], [a.poses, a.cycles, a.ground, a.units]);
   for (const n of a.parts) assert.deepEqual(payload.parts[n], json.parts[n], `part ${n}`);
+  assert.deepEqual(payload.sockets, json.sockets, 'a socket in each paw, where the JSON fox has them');
   const states = [['rest', a.rest], ...a.poses.map((p) => [p, a.poseOf(p, 1)]), ...a.poses.map((p) => [`${p} 0.5`, a.poseOf(p, 0.5)])];
   for (const [cn, c] of Object.entries(json.cycles)) c.frames.forEach((_, j) => states.push([`${cn} ${j}`, a.frameOf(cn, j / c.fps)]));
   for (const [label, q] of states) assert.equal(hashList([b(q)]), hashList([a(q)]), label);

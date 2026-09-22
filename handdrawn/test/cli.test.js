@@ -262,8 +262,8 @@ test("living packs: find lists a pack cel and its mirror, lint reads a pack, a f
   assert.match(found.out, /import \{ boat \} from 'packs\/objects\.js' or puppet\('pack:boat'\)/);
   assert.match(found.out, /^pack:boat {8}puppet {2}own {7}mirror of boat in packs\/objects\.js: note 0\.\.1 \(2 states\)$/m);
   const puppets = (await hdf('find', '--kind', 'puppet')).out;
-  assert.ok(+puppets.match(/^(\d+) of \d+ in assets$/m)?.[1] >= 12, 'the fox and eleven mirrors (a user-imported puppet may add to them)');
-  assert.equal((puppets.match(/^pack:\S+ +puppet/gm) ?? []).length, 12, 'twelve mirrors');
+  assert.ok(+puppets.match(/^(\d+) of \d+ in assets$/m)?.[1] >= 13, 'the fox and twelve mirrors (a user-imported puppet may add to them)');
+  assert.equal((puppets.match(/^pack:\S+ +puppet/gm) ?? []).length, 13, 'thirteen mirrors');
   assert.match(await hdf('help').then((r) => r.out), /donate {2}--export \[<cel\.\.\.>\]/);
   const lint = await hdf('lint', 'packs/objects.js');
   assert.equal(lint.code, 0, lint.out);
