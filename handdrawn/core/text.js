@@ -98,6 +98,27 @@ export function handText(a, x, y, o = {}) {
   return group(props, [...st.under, ...st.main]);
 }
 
+// glyphUnits(op | str, { look | hand }) => [{ ch, word, line }] for each glyph handText letters, by its index
+// (the gi of a stroke named g<gi>.<si>): the character, which word it is in (counted from 0 across the lines; a
+// space starts no word) and which line. A string is lines split at '\n' (what an expanded handText group is
+// named after); a text op is laid out as handText lays it out. Reading-speed reveals (writeOn) group by these.
+export function glyphUnits(op, o = {}) {
+  const lines = typeof op === 'string' ? op.split('\n')
+    : isBlock(op) ? layoutWith(op.str, opLayout(op), handFor(o.hand ?? o.look)).lines.map((l) => l.str) : [op.str];
+  const out = [];
+  let word = -1;
+  lines.forEach((str, line) => {
+    let gap = true;
+    for (const ch of str) {
+      const space = /\s/.test(ch);
+      if (!space && gap) word++;
+      gap = space;
+      out.push({ ch, word: Math.max(0, word), line });
+    }
+  });
+  return out;
+}
+
 // textBox(str, [x, y, w, h], { size, align, valign, lineH, maxLines, wrap, role, tool, w, ink2, seed, name,
 // look | hand }) => a handText group of the copy wrapped into the box ('\n' honoured, valign 'top' by
 // default), its .box the bounds of what it draws and .lines the layout's lines. The copy may run out of a

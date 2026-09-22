@@ -18,8 +18,10 @@ export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';
 export { LOOKS, PASTELS, derive, duotone, pastel, withLook, resolveLook, handOf, mix, tint, shade, alpha } from './looks.js';
 export { houseHand, asHand, fallbacks, withHand } from './glyphs.js';
-export { handText, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, syllablesOf, speech, VISEMES } from './text.js';
-export { reveal } from './tools.js';
+export { handText, signOff, squiggleText, measure, layout, measureBox, textBox, bullets, syllablesOf, speech, VISEMES, glyphUnits } from './text.js';
+export { reveal, penAt } from './tools.js';
+export { writeOn, revealed, writing } from './write.js';
+export { writingHand, writer, toolFor } from '../packs/hands.js';
 export { covAt, radial, linear, plate, knockout, plateOrder, wash, gouache, grain, hatch, hatchIn, streaks } from './finish.js';
 export { FX, chalkLook } from './fx.js';
 export {

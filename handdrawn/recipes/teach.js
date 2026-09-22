@@ -9,7 +9,7 @@
 // AUDIENCES: how big the letters are, how fast the pen writes, how fast the viewer reads, how long a thing
 // dwells), so a longer label gets longer on screen and a lesson for five-year-olds runs slower than one for
 // adults. Give `dur` to fix it (the timing inside stays; a longer shot holds at the end). The lettering is
-// written on in stroke order at the audience's pen speed (T6 will put a hand to the pen).
+// written on in stroke order at the audience's pen speed; titleCard's `hand:` puts a drawn hand to the pen (T6).
 //
 // actor: here the actor is the teacher, not the subject: a cast member standing at the side (`side`, `h` its
 // rest pose's drawn height) facing us, idling on the twos, presenting the title, pointing at what arrives,
@@ -24,6 +24,8 @@ import {
   fill, stroke, group, circle, ellipse, line, poly, spline, place, cel, ramp, ease, reveal, handText, cam,
 } from '../core/index.js';
 import { bounds, withProps } from '../core/list.js';
+import { writing } from '../core/write.js';
+import { writer } from '../packs/hands.js';
 import { recipe, actorFigure } from './recipe.js';
 
 const lerp = (a, b, u) => a + (b - a) * u;
@@ -115,17 +117,24 @@ export const apple = cel('apple', () => {
 // ---------- AN. title card ----------
 
 // The title card's times: the title written from `at`, the swash, the sub, and the end once it is read.
+// With a hand the words are written at the audience's reading speed, a word at a time (writeOn's schedule:
+// the hand comes in over HAND_LEAD, a word takes 1 / read seconds), and the hand leaves after the last.
+const HAND_LEAD = 0.4;
 function titlePlan(o) {
-  const A = audienceOf(o.audience), t0 = o.at, t1 = t0 + writeT(o.title, A), u1 = t1 + 0.3;
-  const t2 = o.sub ? u1 + writeT(o.sub, A) : u1;
-  return { A, t0, t1, u1, t2, end: t2 + readT(`${o.title} ${o.sub ?? ''}`, A) };
+  const A = audienceOf(o.audience), t0 = o.at, hand = !!o.hand;
+  const t1 = t0 + (hand ? HAND_LEAD + words(o.title) / A.read : writeT(o.title, A)), u1 = t1 + 0.3;
+  const t2 = o.sub ? u1 + (hand ? words(o.sub) / A.read : writeT(o.sub, A)) : u1;
+  return { A, t0, t1, u1, t2, hand, end: t2 + readT(`${o.title} ${o.sub ?? ''}`, A) + (hand ? 0.4 : 0) };
 }
 // AN. Title card (3 to 5 s): after a beat the title is written on (centred, wrapped to `width`) at the pen's
 // pace, a swash underlines it, the `sub` writes under it; the actor, at the side, presents it as the title is
-// finished. dur: the writing plus the time to read it all.
+// finished. dur: the writing plus the time to read it all. hand: true (or writer's options: tool, side,
+// scale, skin, ink) and a drawn hand writes it all, a word at a time at the audience's reading speed,
+// lifting between words (T6), then leaves.
 export const titleCard = recipe('AN', 'title', {
   dur: (o) => titlePlan(o).end, title: 'why does the moon change shape?', sub: null, audience: 'general', actor: null,
   side: 'right', h: 380, x: null, y: 500, size: 108, width: 760, role: 'ink', swash: 'accents.0', at: 0.25, pose: 'present', seed: 150,
+  hand: null,
 }, (ctx, o) => {
   const P = titlePlan(o), { A } = P, t = ctx.t, s = o.size * A.text;
   const x = o.x ?? (o.actor ? (o.side === 'right' ? 440 : 640) : 540);
@@ -133,14 +142,23 @@ export const titleCard = recipe('AN', 'title', {
   const [bx, by, bw, bh] = bounds(title.kids) ?? [x - o.width / 2, o.y - s, o.width, s];
   const swash = stroke(spline([[bx - 10, by + bh + 22], [bx + bw * 0.5, by + bh + 12], [bx + bw + 16, by + bh + 20]], { n: 6 }), o.swash, { w: Math.max(3, s * 0.06), wobble: 1.2, seed: o.seed + 1, name: 'swash' });
   const sub = o.sub && letters(o.sub, x, by + bh + 34 + s * 0.55, { size: s * 0.55, align: 'center', valign: 'top', width: o.width, role: o.role, seed: o.seed + 2 });
+  const W = { per: 'word', wps: A.read }, onTitle = { ...W, at: P.t0, lead: HAND_LEAD }, onSub = { ...W, at: P.u1, lead: 0 };
+  const pTitle = P.hand ? writing(title, onTitle).p(t) : ramp(P.t0, P.t1, t), pSub = P.hand && sub ? writing(sub, onSub).p(t) : ramp(P.u1, P.t2, t);
+  // The hand on whichever part is being written; after the last, it goes back the way it came.
+  const H = P.hand && { look: ctx.look, scale: s / 100, ...(o.hand === true ? {} : o.hand) }, last = sub || swash;
+  const hand = P.hand && (t < P.t1 ? writer(title, t, { ...H, ...onTitle })
+    : t < P.u1 ? writer(swash, t, { ...H, p: ramp(P.t1, P.u1, t) })
+      : sub && t < P.t2 ? writer(sub, t, { ...H, ...onSub })
+        : writer(last, t, { ...H, p: 1, leave: ramp(P.t2, P.t2 + 0.4, t, ease.io) }));
   // The group is boxed by the whole card, so the anchor is there (for the fit and lint) before a letter is.
   return [
     group({ name: 'title', box: bounds([title, swash, sub].filter(Boolean)) }, [
-      writeOn(ramp(P.t0, P.t1, t), title),
+      writeOn(pTitle, title),
       writeOn(ramp(P.t1, P.u1, t), swash),
-      sub && writeOn(ramp(P.u1, P.t2, t), sub),
+      sub && writeOn(pSub, sub),
     ]),
     o.actor && presenter(o.actor, ctx, { x: o.side === 'right' ? 890 : 190, feet: 1010, h: o.h, side: o.side, pose: o.pose, k: reach(t, P.t1 - 0.2), emote: t >= P.t2 ? 'happy' : null, seed: o.seed }),
+    hand,
   ];
 }, { anchor: { name: 'title' }, cast: false });
 

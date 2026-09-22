@@ -158,10 +158,24 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `syllablesOf(word)` A word's syllables as vowel groups: each ends where its vowel group does, the last takes the tail.
 - `speech(str, t0 = 0)` A line of speech on the 1/12 s grid from t0: each syllable is one viseme cycle (VISEMES, a step each), a space rests the mouth a step, a comma or a full stop two.
 - `VISEMES` The mouth over one syllable, a step (1/12 s) each: shut, wide, smiling, a little open (a puppet's mouth variants 0..3).
+- `glyphUnits(op, o = {})` glyphUnits(op | str, { look | hand }) => [{ ch, word, line }] for each glyph handText letters, by its index (the gi of a stroke named g<gi>.<si>): the character, which word it is in (counted from 0 across the lines; a space starts no ...
 
 ### core/tools.js
 
 - `reveal(p, node)` reveal(p, node): the node (op or list) with its strokes and text drawn up to p of their total length, in `order` (ties keep list order).
+- `penAt(p, node, strokes = penStrokes(node))` penAt(p, node) => { x, y, a, down, item } | null: where the pen is when reveal(p, node) has drawn p of it, in the node's coordinates (through its groups), from trim's arithmetic.
+
+### core/write.js
+
+- `writeOn(node, o = {})` writeOn(node, { t, at, per, wps, lead, lift }) => reveal(p, node) at shot time t: the node written on a unit at a time at a reading speed (words a second; 2 by default, the audience's `read` in the recipes).
+- `revealed(node, t, o = {})` revealed(node, t, o) => 0..1: how much of the node writeOn has drawn at shot time t with the same options.
+- `writing(node, opts = {})` The schedule of a node written on from `at`: `lead` seconds for the hand to come in, then each unit in turn, each after a lift of `lift` seconds (at most 0.4 of its time) from the last.
+
+### packs/hands.js
+
+- `writingHand({ tool = 'marker', side = 'r', skin, ink = 0 } = {})` writingHand({ tool: 'pen' | 'marker' | 'chalk' | 'crayon', side: 'r' | 'l', skin, ink }) => the cel of a hand holding that tool, point at (0, 0): a right hand by default, mirrored for 'l' (the arm off to the left).
+- `writer(node, t, o = {})` writer(node, t, o) => a group: the writing hand on node's pen tip at shot time t, following writeOn(node, { t, ...o }) (same options: at, per, wps, lead, lift, exit), coming in from off the frame over the lead, lifted off the surface ...
+- `toolFor(look)` The tool a look writes with: the whiteboard's marker, chalk on a chalk look, else the pen.
 
 ### core/finish.js
 
@@ -346,7 +360,7 @@ Every recipe `R(opts)` returns a shot; `R.layer(ctx, opts)` returns its drawing 
 - `darkSection(opts)` **X** X. Dark section devices (1.5 s): dotted arcs every `gap` around a still centre, dot bursts, a chalk figure, stars as grain, an optional caption in chalkDim. Options: dur, x, y, rings, gap, figure, scale, caption, seed.
 - `patternSampler(opts)` **Y** Y. Pattern sampler (1.5 s): a 4 x 4 grid, each cell a different lattice or mark, one more cell per drawn frame. Options: dur, x, y, cell, gap, seed.
 - `enso(opts)` **Z** Z. Enso (1.5 s): a thick brush circle draws itself round a thin figure, then the paper dims to chalk. Options: dur, x, y, r, w, figure, scale, draw, dim, seed.
-- `titleCard(opts)` **AN** AN. Title card (3 to 5 s): after a beat the title is written on (centred, wrapped to `width`) at the pen's pace, a swash underlines it, the `sub` writes under it; the actor, at the side, presents it as the title is finished. Options: dur, title, sub, audience, actor, side, h, x, y, size, width, role, swash, at, pose, seed.
+- `titleCard(opts)` **AN** AN. Title card (3 to 5 s): after a beat the title is written on (centred, wrapped to `width`) at the pen's pace, a swash underlines it, the `sub` writes under it; the actor, at the side, presents it as the title is finished. Options: dur, title, sub, audience, actor, side, h, x, y, size, width, role, swash, at, pose, seed, hand.
 - `labelled(opts)` **AO** AO. Labelled subject (3 to 8 s): the subject drawn at (x, y) by `scale`, then one label at a time: a dot on the part (`at`), a leader line out to where the word sits (`from`, or `reach` out past the side of the subject the part is on, ... Options: dur, subject, x, y, scale, reach, labels, per, audience, actor, side, h, size, role, leader, nudge, at, pose, seed.
 - `counting(opts)` **AP** AP. Counting (0.5 to 1 s an object): n objects pop in one at a time (`per`, default the audience's counting pace) in rows of `cols`, each with its number written under it; a tally grows at the bottom (`tally: false` for none); with ... Options: dur, items, n, cols, x, y, gap, scale, per, tally, label, audience, actor, side, h, size, role, mark, at, pose, seed.
 - `compare(opts)` **AQ** AQ. Compare (3 to 5 s): a line splits the frame, the left subject pops in (its label written under it), then the right, then the sign between them is drawn last in `role` in a gap left in the line: 'vs' lettered, '=' '>' '<' drawn. Options: dur, left, right, sign, labels, x, y, scale, audience, actor, h, size, role, mark, divider, at, seed.
@@ -402,6 +416,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `fly` (creatures) box [-132, -112, 264, 224]; inputs: wing 0..2 step 0.01, flap 0..1 step 1, legs 0..1 step 0.5, walk 0..1 step 0.05. a fruit fly; mode ink | blueprint
 - `hedgehog` (creatures) box [-110, -100, 220, 156]; inputs: dir -1..1 step 2, fright 0..1 step 0.25. the doodle hedgehog with a scarf; eye dot | happy | sleep | wide
 - `horse` (creatures) box [-240, -310, 480, 320]; inputs: pose 0..11 step 1, flip 0..1 step 1. a galloping horse: one of 12 Muybridge poses traced from film (found motion); feet at the origin
+- `writing-hand` (hands) box [-10, -8, 264, 384]; inputs: tool 0..3 step 1, ink 0..3 step 1. a hand holding a pen, marker, chalk or crayon, its point at (0, 0), the arm off down to the right
 - `boat` (objects) box [-82, -90, 164, 138]; inputs: note 0..1 step 1. a paper boat; mode ink | blueprint
 - `book` (objects) box [-166, -126, 332, 252]; inputs: open 0..1 step 1. a hardback book lying flat: shut, or open to a spread of scribbled text
 - `lamp` (objects) box [-80, -224, 336, 290]; inputs: on 0..1 step 1. a desk lamp standing on y = 0, shade opening down and right; on lights a pool

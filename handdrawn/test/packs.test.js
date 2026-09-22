@@ -17,12 +17,13 @@ import { statements, tokenize } from '../cli/jsscan.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CORE = pathToFileURL(join(ROOT, 'core/index.js')).href;
 
-test('the three packs hold the planned cels, and the manifest and sheets match them', async () => {
+test('the packs hold the planned cels, and the manifest and sheets match them', async () => {
   const cels = await packCels();
   const by = (p) => cels.filter((c) => c.pack === p).map((c) => c.name).sort();
   assert.deepEqual(by('creatures'), ['fly', 'hedgehog', 'horse']);
   assert.deepEqual(by('objects'), ['boat', 'book', 'lamp', 'teapot']);
   assert.deepEqual(by('tech'), ['chip', 'gpu', 'server', 'token']);
+  assert.deepEqual(by('hands'), ['writing-hand']);
   assert.deepEqual(readManifest().cels.map(({ store, ...c }) => c), cels.map(({ make, ...c }) => c), 'manifest.json is stale: hdf donate --manifest');
   for (const c of cels) {
     assert.ok(c.box && c.desc, `${c.name}: box and desc`);
@@ -105,7 +106,7 @@ test('jsscan: strings, templates, regexes and comments are not code; statements 
 
 test('every pack cel has a store mirror the manifest names, and the mirror is what the cel draws now', async () => {
   const st = readCatalogue(), cels = await packCels(), m = readManifest();
-  assert.equal(m.cels.length, 11);
+  assert.equal(m.cels.length, 12);
   for (const c of m.cels) {
     assert.deepEqual(c.store, { id: `pack:${c.name}`, sha: st.entry(`pack:${c.name}`).sha }, `${c.name}: hdf donate --manifest`);
     assert.equal(st.entry(c.store.id).kind, 'puppet');

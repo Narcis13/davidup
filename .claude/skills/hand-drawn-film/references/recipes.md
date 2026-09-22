@@ -214,6 +214,13 @@ from `shots.js`. `films/lesson.js` runs all four on the whiteboard.
   digits included. The whiteboard allows 12 a shot, other looks 0 to 3, so set
   `look.words` (`derive`) when you use them elsewhere. Lettering is written on
   in stroke order.
+- **A hand to the pen.** `titleCard({ hand: true })` (or writer's options:
+  `{ tool, side, scale, skin, ink }`) has a drawn hand write the title and the
+  sub a word at a time at the audience's `read` speed, lifting between words,
+  and the swash; it comes in over 0.4 s and leaves after the last word (the
+  shot grows by the difference). Anything else is written by hand with
+  `writeOn` and `writer` from the package (see `films/written.js`); a stroke
+  to follow lettering needs `order` past it (`order: 1e6`).
 
 | | function | timing | what happens |
 |---|---|---|---|

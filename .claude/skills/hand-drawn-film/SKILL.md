@@ -27,6 +27,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `mini.js` | paperInk | the smallest complete film: a cel, a shot, a sign-off, a score |
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
 | `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
+| `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page |
 | `cutout-fox.js` | cutout | the same three scenes as card on a table: `look: LOOKS.cutout, paper: null` and nothing else changed |
@@ -256,6 +257,11 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
 the film changes nothing but `look` (and `paper: null` on doodle recipes, so
 the card stock shows). So does the whiteboard: `--look whiteboard` restyles
 any film; it allows 12 words a shot, a lesson's title and labels.
+To have a drawn hand write something (4.0 T6), give the same node to
+`writeOn(node, { t, at, per: 'word', wps: 2 })` and, drawn after it,
+`writer(node, t, { same options, look })`: the hand holds the look's tool
+(`toolFor`: a marker on the whiteboard), comes in, lifts between words and
+leaves. `penAt(p, node)` is the tip at any reveal progress.
 
 | engine | what the frame is | example |
 |---|---|---|

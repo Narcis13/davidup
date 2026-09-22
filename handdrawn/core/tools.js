@@ -3,7 +3,7 @@
 // Tools: pen (v1 wob), chalk, brush (v1 brush pen), pencil, crayon (v1 crayon), marker, gouache, bullet.
 import { hash32, rng } from './rand.js';
 import { handOf, resolveLook, resolveRole } from './looks.js';
-import { mkPath, norm, spline, withProps } from './list.js';
+import { I, mapply, mkPath, mmul, norm, spline, withProps } from './list.js';
 import { handText } from './text.js';
 
 const TAU = Math.PI * 2;
@@ -361,4 +361,85 @@ export function reveal(p, node) {
   });
   const out = rebuild(list);
   return isOp ? out[0] : out;
+}
+
+// ---------- the pen tip (4.0 T6) ----------
+
+// The pen's path through a node, in the order reveal() spends its length: [{ op, src, gi, text, len, at, subs,
+// m }] with op the stroke or text op it comes from, src its place in that order (a text op's strokes share
+// one), gi the glyph a lettered stroke draws (from its name g<gi>.<si>), text what it letters: the text op, or
+// the handText group (named text:<copy>) an already lettered stroke is in; len its length on screen, at where
+// it starts in the node's total, subs its lines in the node's coordinates (a lift between each).
+const GLYPH = /^g(\d+)\.\d+b?$/;
+export function penStrokes(node) {
+  const list = Array.isArray(node) ? norm(node) : [node], found = [];
+  const collect = (ops, s, m, txt) => {
+    for (const op of ops) {
+      if (op.op === 'stroke') found.push({ op, len: pathLen(op.path) * s, m, order: op.order ?? 0, n: found.length, txt: GLYPH.test(op.name ?? '') ? txt : null });
+      else if (op.op === 'text') found.push({ op, len: textLen(op) * s, m, order: op.order ?? 0, n: found.length, txt: op });
+      else if (op.kids) {
+        const g = op.op === 'group', t = g && typeof op.name === 'string' && op.name.startsWith('text:') ? op : txt;
+        collect(op.kids, g ? s * Math.sqrt(Math.abs(op.xf[0] * op.xf[3] - op.xf[1] * op.xf[2])) : s, g ? mmul(m, op.xf) : m, t);
+      }
+    }
+  };
+  collect(list, 1, I, null);
+  const byOrder = (a, b) => a.order - b.order || a.n - b.n, items = [];
+  let at = 0;
+  const push = (op, src, gi, len, path, m, text) => {
+    const subs = path.sub.filter((s) => s.pts.length >= 2).map((s) => {
+      const p = s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts, out = new Array(p.length);
+      for (let i = 0; i < p.length; i += 2) { const q = mapply(m, p[i], p[i + 1]); out[i] = q[0]; out[i + 1] = q[1]; }
+      return out;
+    });
+    items.push({ op, src, gi, text, len, at, subs, m });
+    at += len;
+  };
+  [...found].sort(byOrder).forEach((f, src) => {
+    if (f.op.op === 'stroke') return push(f.op, src, f.txt ? +GLYPH.exec(f.op.name)[1] : null, f.len, f.op.path, f.m, f.txt);
+    // A text op reveals its lettering by stroke order inside (see finish.js), at its share of the whole.
+    const kids = handText(f.op).kids.map((k, n) => ({ k, n, order: k.order ?? 0 })).sort((a, b) => a.order - b.order || a.n - b.n);
+    const L = kids.reduce((a, { k }) => a + pathLen(k.path), 0) || 1;
+    for (const { k } of kids) push(f.op, src, +(GLYPH.exec(k.name ?? '')?.[1] ?? -1), f.len * pathLen(k.path) / L, k.path, f.m, f.op);
+  });
+  return { items, total: at };
+}
+
+// Where along a polyline (flat pts) length d falls: [x, y, dx, dy] (the direction of the segment it is on).
+function alongPts(p, d) {
+  let dx = 0, dy = 0;
+  for (let i = 2; i < p.length; i += 2) {
+    const ex = p[i] - p[i - 2], ey = p[i + 1] - p[i - 1], L = Math.hypot(ex, ey);
+    if (!L) continue;
+    dx = ex; dy = ey;
+    if (d <= L) return [p[i - 2] + ex * d / L, p[i - 1] + ey * d / L, dx, dy];
+    d -= L;
+  }
+  return [p[p.length - 2], p[p.length - 1], dx, dy];
+}
+const ptsLen = (p) => { let L = 0; for (let i = 2; i < p.length; i += 2) L += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]); return L; };
+
+// penAt(p, node) => { x, y, a, down, item } | null: where the pen is when reveal(p, node) has drawn p of it,
+// in the node's coordinates (through its groups), from trim's arithmetic. a is the direction the pen moves
+// (radians), item the index into penStrokes(node).items it is on. down is false before the first stroke and
+// after the last (p 0 and 1): the pen is up. Between two strokes it is at the end of one, then the start of
+// the next; writeOn's schedule puts the lifts in (writing(...).pen). A node with nothing to pen is null.
+export function penAt(p, node, strokes = penStrokes(node)) {
+  const { items, total } = strokes;
+  const inked = items.filter((it) => it.subs.length);
+  if (!inked.length) return null;
+  const tip = (it, d, down) => {
+    // d along the item on screen; its subs are in node units, so go by its share of their length.
+    const lens = it.subs.map(ptsLen), sum = lens.reduce((a, b) => a + b, 0);
+    let rest = it.len ? d / it.len * sum : 0, j = 0;
+    while (j < lens.length - 1 && rest > lens[j]) rest -= lens[j++];
+    const [x, y, dx, dy] = alongPts(it.subs[j], Math.min(rest, lens[j]));
+    return { x, y, a: Math.atan2(dy, dx), down, item: items.indexOf(it) };
+  };
+  const first = inked[0], last = inked[inked.length - 1];
+  if (!(p > 0)) return tip(first, 0, false);
+  if (p >= 1) return tip(last, last.len, false);
+  const budget = p * total;
+  const it = inked.find((q) => budget < q.at + q.len) ?? last;
+  return tip(it, Math.max(0, budget - it.at), true);
 }
