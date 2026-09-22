@@ -8,7 +8,8 @@
 //               'ankle-l': [0, -10], 'toe-l': [21, -3], ... the same with -r },
 //     spread: { shoulder: 24, elbow: 30, ... },     // the front view: how far each pair sits from the middle
 //     bones: [['hip', 'chest', 5], ['chest', 'neck', 5], ['shoulder-l', 'elbow-l', 5], ...],   // [from, to, w]
-//     head: { r: 23, face: true }, hands: 'dots' | 'mitts', style: 'line' | 'tube' }
+//     head: { r: 23, face: true }, hands: 'dots' | 'mitts', style: 'line' | 'tube',
+//     parts: { scarf: { parent: 'neck', pivot: 'neck', chain: { n: 4, len: 16, w: 8, angle: 70 }, before: 'head' } } }
 //
 // Joints are the side view, facing right (+x), the ground at y = 0, up negative. A bone is a part whose pivot
 // is its proximal joint and whose drawing is one stroke to its distal joint (the pen tapers it) -- or, in the
@@ -27,6 +28,10 @@
 // left, like the fox's brow-l) with the centre joints on the hip's x; `three-quarter` is between. Every part
 // keeps its name and painter order in every view: the -l limbs first (the far side, in profile facing right),
 // then the hips, body, neck, head and face, then the -r limbs.
+//
+// Extra parts (4.0 K6): `parts` adds ordinary puppet parts to the compiled ones (a scarf, a tail, a hat), in
+// the side view's coordinates; a pivot may name a joint instead ('neck': that joint in every view), and
+// `before` puts the part ahead of a compiled part in painter order (by default it goes in front of all).
 //
 // The compiled payload keeps its source as `stick`, so stickMap() can hand `hdf retarget` a map with no
 // file: the stick's joints are the biped rig's (core/rig.js), -l on side 1 and -r on side 2, each bone
@@ -135,6 +140,14 @@ export function checkStick(d) {
   if (d.style !== undefined && !STYLES.includes(d.style)) bad.push(`style: ${STYLES.join(' | ')}`);
   if (d.hands !== undefined && !HANDS.includes(d.hands)) bad.push(`hands: ${HANDS.join(' | ')}`);
   if (d.views !== undefined && !(Array.isArray(d.views) && d.views.length && d.views.every((v) => STICK_VIEWS.includes(v)))) bad.push(`views: some of ${STICK_VIEWS.join(', ')}`);
+  if (d.parts !== undefined) {
+    if (!d.parts || typeof d.parts !== 'object' || Array.isArray(d.parts)) bad.push('parts: { name: { parent, pivot, ... } }, extra parts');
+    else for (const [n, p] of Object.entries(d.parts)) {
+      if (!p || typeof p !== 'object') { bad.push(`parts.${n}: a part { parent, pivot, ops | chain, ... }`); continue; }
+      if (typeof p.pivot === 'string' && !J[p.pivot]) bad.push(`parts.${n}: pivot names joint '${p.pivot}', which the stick has not`);
+      if (p.before !== undefined && typeof p.before !== 'string') bad.push(`parts.${n}: before names a part`);
+    }
+  }
   return bad;
 }
 
@@ -335,6 +348,13 @@ function build(src) {
   if (face) { faceParts(); keys.push('eye', 'pupil', 'brow-l', 'brow-r', 'mouth'); }
   near.forEach(add);
   for (const n of Object.keys(parts)) if (!keys.includes(n)) keys.push(n);
+  // Extra parts (a scarf): a joint name for a pivot is that joint in each view; `before` a compiled part.
+  for (const [n, { before, pivot, ...p }] of Object.entries(src.parts ?? {})) {
+    if (parts[n]) throw new Error(`stick ${src.name ?? ''}: extra part '${n}' is a part the stick compiles already`);
+    parts[n] = { ...p, ...(pivot === undefined ? {} : { pivot: typeof pivot === 'string' ? byView((V) => pt(at[V][pivot])) : pivot }) };
+    if (before !== undefined && !keys.includes(before)) throw new Error(`stick ${src.name ?? ''}: extra part '${n}' goes before '${before}', which is not a part`);
+    keys.splice(before === undefined ? keys.length : keys.indexOf(before), 0, n);
+  }
   const ordered = Object.fromEntries(keys.map((n) => [n, parts[n]]));
 
   // The box: anything the limbs can reach, turning about the hip, and the ground under the feet. Wide enough
@@ -347,7 +367,7 @@ function build(src) {
   const Rr = Math.max(...tops, reach('head') + R) + pad;
   const box = src.box ?? [r2(hipX - Rr), r2(J.hip[1] - Rr), r2(2 * Rr), r2(Math.max(-(J.hip[1] - Rr) + pad, Rr))];
 
-  const { kind: _k, joints: _j, bones: _b, head: _h, spread: _s, front: _f, style: _st, hands: _ha, build: _bu, views: _v, ...keep } = src;
+  const { kind: _k, joints: _j, bones: _b, head: _h, spread: _s, front: _f, style: _st, hands: _ha, build: _bu, views: _v, parts: _p, ...keep } = src;
   return {
     ...keep,
     kind: 'puppet',

@@ -861,6 +861,51 @@ string; the fox looks at the teapot's handle and reaches it). A code cel or a
 doodle builder has no skeleton: `reach` gives `{}`, `lookAt` only turns it,
 and `walkTo` slides it at `speed`.
 
+### Secondary motion: tails and scarves
+
+Tails, ears, hair and scarves follow through (4.0 K6, `core/follow.js`). A
+part with `follow` is not a joint the film sets but a spring on its parent's
+world angle: it aims at the parent's angle plus its own stated angle (so a
+stated wag still wags), gets there late and swings past, and the pivot's
+acceleration swings it like a pendulum (a jump, a landing).
+
+```js
+parts.tail  = { parent: 'body', pivot: [-34, -128], follow: { lag: 2, damp: 0.7 }, ops };
+parts.scarf = { parent: 'neck', pivot: [0, -255], chain: { n: 4, len: 18, w: 9, angle: 60, role: 'inks.2', taper: 0.3 },
+                follow: { lag: 2, damp: 0.5, limit: 45 } };             // scarf, scarf-2 .. scarf-4
+SAM.place(x, y, s, act.state, t);             // a state function and the time: follow parts settled
+SAM.follow(act.state, t);                     // the same state, to merge or hand on
+FOX.cycle('walk', t);  fox.frameOf('walk', t); // a cycle's frame, the tail settled on the loop
+fox.settle(stateAt, t, { lift });             // { tail: deg }: the puppet-level answer
+```
+
+`follow` takes `lag` (frames to catch up, default 2), `damp` (the damping
+ratio, 0 to 1, default 0.7: 1 never swings past, 0.3 swings a few times),
+`inertia` (how much the pivot's acceleration swings it, default 1), `limit`
+(degrees it may trail its target, default 75) and `len` (the pendulum's length;
+by default 4/3 of the distance from the pivot to the part's ink centre). The
+answer is pure in t: the spring is run over the frames before t on the 1/12 s
+grid, from rest a few settling times back, reading the state function at each
+(the actor passes the function, not a value), so nothing remembers frames and a
+worker starting its range anywhere draws the same frame. The joint comes back
+on its grid and in its range. A state that never changes settles to exactly
+the angle it states, so a plain state object draws as before: only a film that
+hands `place` a function (or a recipe's `perform:`, which does) sees the lag.
+A stage `lift` in the history (a jump) counts as the pivot moving up.
+
+`chain: { n, len, w, angle, role, taper }` makes a rope of `n` parts from one:
+the part is the first link and `<part>-2` .. `<part>-n` hang from it, each a
+stroke `len` long pointing `angle` degrees from straight down (positive is
+back, towards -x), `w` wide narrowing by `taper` to the tip. Every link
+follows, so a turn of the neck runs down the scarf a link at a time. A stick
+source takes extra parts in `parts` (a pivot may name a joint: `pivot:
+'neck'`; `before: 'head'` sets painter order). In SVG: `data-follow="lag:2,damp:0.7"`
+and `data-chain="n:4,len:18,w:6,angle:60"`. The fox's tail follows, so `hdf
+sheet store fox --cycle walk` shows it a frame behind the walk; every film
+that places the fox with a state object is unchanged. `films/follow.js`:
+sam jumps in a four-link scarf that swings after the landing, bows and
+stands; the fox walks on, waves with its tail overshooting, and falls asleep.
+
 ### Puppets from SVG
 
 A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported
@@ -879,6 +924,8 @@ are the rig:
 - `data-slide="x:-4..4:1,y:-3..3:1"` and `data-scale="y:0.8..1.2:0.05,keep-area"`
   on a part's g declare its moves (min..max:step, the slide in the file's
   units); `data-when="eye:open|wide"` shows it only with those variants;
+- `data-follow="lag:2,damp:0.7"` makes a part follow its parent (4.0 K6) and
+  `data-chain="n:4,len:18,w:6,angle:60"` a rope of following links from it;
 - `<g id="pose:wave" data-joints="arm-l:112,head:-6,eye:happy"/>` is a pose and
   `<g id="cycle:walk" data-fps="12">` a cycle, one `<g data-joints="...">` per
   frame; neither draws. A top-level `<circle id="ground">` is the ground point;

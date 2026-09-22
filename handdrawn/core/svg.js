@@ -18,7 +18,9 @@
 // collapse into one stepped variant part `mouth` (inputs [0, n, 1]). A part slides and scales (4.0 K1) with
 // `data-slide="x:-6..6:1,y:-4..4:1"` (min..max:step in the file's units) and `data-scale="y:0.8..1.2:0.05"`
 // (add `,keep-area` for the other axis as the inverse); `data-when="eye:open|wide"` draws it only while the
-// eye is open or wide (a pupil). `<g id="pose:wave"
+// eye is open or wide (a pupil). Secondary motion (4.0 K6): `data-follow="lag:2,damp:0.7"` makes a part a
+// spring on its parent (a tail), `data-chain="n:4,len:18,w:6,angle:70"` a rope of links from it (lengths in
+// the file's units). `<g id="pose:wave"
 // data-joints="arm-l:-70,head:8,eye:happy">` declares a pose and `<g id="cycle:walk" data-fps="12">` a cycle,
 // one child `<g data-joints="...">` per frame; neither draws. A top-level `<circle id="ground">` is the
 // ground point. Turnarounds: top-level `<g id="view:side">`, `<g id="view:front">`, ... each wrap a whole
@@ -549,6 +551,18 @@ function moveAttr(el, attr, k) {
   }
   return out;
 }
+// 'lag:2,damp:0.7' => { lag: 2, damp: 0.7 }: numbers, those named in `lengths` times k; a word stays a word.
+function specAttr(el, attr, k, lengths = []) {
+  const out = {};
+  for (const item of String(el.attrs[attr]).split(',').map((t) => t.trim()).filter(Boolean)) {
+    const c = item.indexOf(':');
+    if (c < 1) fail(el, `${attr}: '${item}' is not key:value`);
+    const key = item.slice(0, c).trim(), raw = item.slice(c + 1).trim();
+    if (key in out) fail(el, `${attr} names '${key}' twice`);
+    out[key] = raw !== '' && !Number.isNaN(+raw) ? (lengths.includes(key) ? q3(+raw * k) : +raw) : raw;
+  }
+  return out;
+}
 // 'eye:open|wide, mouth:0' => { eye: ['open', 'wide'], mouth: ['0'] }
 function whenAttr(el) {
   const out = {};
@@ -603,9 +617,9 @@ export function svgPuppet(src, opts = {}) {
       const k0 = Object.keys(p0.variants ?? {}), k = Object.keys(p.variants ?? {});
       if (!same(k, k0)) fail(r.els[n], `'${n}' has variants ${k.join(', ') || 'none'} in view ${v} and ${k0.join(', ') || 'none'} in view ${v0}`);
     }
-    // Slide, scale and when belong to the part, not a view: said once, or the same wherever said.
+    // Slide, scale, when, follow and chain belong to the part, not a view: said once, or the same wherever said.
     const moved = {};
-    for (const f of ['slide', 'scale', 'when']) {
+    for (const f of ['slide', 'scale', 'when', 'follow', 'chain']) {
       const said = has.filter(([, p]) => p[f]);
       for (const [v, p, r] of said.slice(1)) if (!same(p[f], said[0][1][f])) fail(r.els[n], `'${n}' has ${f} ${JSON.stringify(p[f])} in view ${v} and ${JSON.stringify(said[0][1][f])} in view ${said[0][0]}`);
       if (said.length) moved[f] = said[0][1][f];
@@ -708,6 +722,8 @@ function rigOf(rootEl, shapes, k, role, where = null) {
     if (g.attrs['data-slide'] !== undefined) p.slide = moveAttr(g, 'data-slide', d.k);
     if (g.attrs['data-scale'] !== undefined) p.scale = moveAttr(g, 'data-scale', 1);
     if (g.attrs['data-when'] !== undefined) p.when = whenAttr(g);
+    if (g.attrs['data-follow'] !== undefined) p.follow = specAttr(g, 'data-follow', d.k, ['len']);
+    if (g.attrs['data-chain'] !== undefined) p.chain = specAttr(g, 'data-chain', d.k, ['len', 'w']);
   };
   walkG(d.root, null);
 
@@ -750,7 +766,7 @@ function rigOf(rootEl, shapes, k, role, where = null) {
     const entry = {};
     if (p.parent !== undefined) entry.parent = p.parent;
     if (p.pivot) entry.pivot = p.pivot.map(q3);
-    for (const f of ['slide', 'scale', 'when']) if (p[f]) entry[f] = p[f];
+    for (const f of ['slide', 'scale', 'when', 'follow', 'chain']) if (p[f]) entry[f] = p[f];
     if (own.length || !vars) entry.ops = asData(own);
     if (vars) {
       const keys = p.steps ? [...vars.keys()].sort((a, b) => a - b) : [...vars.keys()];

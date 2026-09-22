@@ -55,10 +55,17 @@
 // Stick puppets (4.0 K2): a payload of kind 'stick' (joints and bones, core/stick.js) is compiled to parts
 // first, so puppet(stickSource) and puppet(compiled) are the same puppet.
 //
+// Secondary motion (4.0 K6, core/follow.js): a part with `follow: { lag, damp }` is a spring on its parent's
+// world angle; `settle(stateAt, t)` works its joint out from a state function's history, and a cycle's frame
+// (`frameOf`, `cycle`) comes with its follow parts settled on the cycle's own loop. `chain: { n, len, w }`
+// makes a rope of n following parts from one (a scarf): the payload is expanded before it is built, so
+// `puppet.puppet` names every link.
+//
 // Browser-safe: the payload comes from the registry (core/store.js), which `fromStore` fills in node and
 // `hdf dev` / `hdf bundle` fill from `window.HDF.assets`.
 import { FPS } from './curves.js';
 import { bounds, circle, dots, fill, fx, group, mmul, norm, parse, rotate, scale, serialise, stroke, translate, withProps } from './list.js';
+import { expandChains, followOf, inkCentre, settler } from './follow.js';
 import { compileStick, isStick } from './stick.js';
 import { record } from './store.js';
 import { cel } from './tree.js';
@@ -133,7 +140,8 @@ export function cutoutOf(g) {
 // are deserialised through list.js one time and every pose reuses them.
 export function puppet(idOrData) {
   const got = typeof idOrData === 'string' ? record(idOrData) : idOrData;
-  const d = isStick(got) ? compileStick(got) : got;   // a stick payload (4.0 K2) compiles to ordinary parts
+  // A stick payload (4.0 K2) compiles to ordinary parts; a chain (4.0 K6) expands into its links.
+  const d = expandChains(isStick(got) ? compileStick(got) : got);
   if (!d || typeof d !== 'object' || !d.parts || typeof d.parts !== 'object' || !Object.keys(d.parts).length) {
     throw new TypeError(`puppet ${typeof idOrData === 'string' ? `'${idOrData}'` : ''}: expected a puppet payload { units, parts: { ... } } (plan 1.2)`);
   }
@@ -162,6 +170,8 @@ function build(d, id) {
   }
   const moves = {};
   for (const n of names) { const m = movesOf(d.parts[n], n, name); if (m) moves[n] = m; }
+  const follows = {};
+  for (const n of names) { const f = followOf(d.parts[n], n, name); if (f) follows[n] = f; }
   for (const n of names) {
     const w = d.parts[n].when;
     if (w === undefined) continue;
@@ -323,11 +333,16 @@ function build(d, id) {
     }
     return out;
   };
-  const frameOf = (cycle, t) => {
+  const rawFrame = (cycle, t) => {
     const c = d.cycles?.[cycle];
     if (!c || !Array.isArray(c.frames) || !c.frames.length) throw new Error(`puppet ${name}: no cycle '${cycle}' (has ${Object.keys(d.cycles ?? {}).join(', ') || 'none'})`);
-    const { lift: _lift, ...q } = c.frames[wrap(Math.floor(t * (c.fps ?? FPS) + 1e-9), c.frames.length)];
-    return { ...rest, ...q };
+    return c.frames[wrap(Math.floor(t * (c.fps ?? FPS) + 1e-9), c.frames.length)];
+  };
+  // A cycle's frame; its follow parts (4.0 K6) settled on the loop, so the strip shows the tail lagging.
+  const frameOf = (cycle, t) => {
+    const { lift: _lift, ...q } = rawFrame(cycle, t);
+    const out = { ...rest, ...q };
+    return names.some((n) => follows[n]) ? { ...out, ...settle((u) => rawFrame(cycle, u), t, { lift: 1 }) } : out;
   };
   // A retargeted cycle (3.0 S14) may lift the whole puppet off its ground point in a frame, in its own units,
   // up positive: a gallop's moment in the air. The drawing does not move (its box stays put); a stage does.
@@ -336,6 +351,15 @@ function build(d, id) {
     if (!c?.frames?.length) return 0;
     return c.frames[wrap(Math.floor(t * (c.fps ?? FPS) + 1e-9), c.frames.length)].lift ?? 0;
   };
+
+  // Secondary motion (4.0 K6): the follow parts' joints at t from a state function's history (core/follow.js),
+  // in the unmirrored drawing; lift (drawing units per unit of a state's `lift`) lets a jump swing them.
+  const settle = settler({
+    name, follows, rest, inputs,
+    parentOf: (n) => parent[n],
+    worldOf: (n, q) => make.worldOf(n, q, { mirror: false }),
+    arm: (n) => inkCentre(ownOps(n, rest, rig.get(VIEWS[0]))),
+  });
 
   make.puppet = d;
   make.units = d.units;
@@ -347,6 +371,10 @@ function build(d, id) {
   make.parts = Object.freeze(names.slice());
   // Every slide and scale input: { '<part>.x': [min, max, step], ... } (4.0 K1).
   make.moves = Object.freeze(Object.assign({}, ...Object.values(moves).map((m) => m.specs)));
+  // The parts that follow (4.0 K6), in painter order, and their springs.
+  make.follows = Object.freeze(Object.keys(follows));
+  make.followOf = (n) => follows[n] ?? null;
+  make.settle = settle;
   make.poses = Object.freeze(Object.keys(d.poses ?? {}));
   make.cycles = Object.freeze(Object.keys(d.cycles ?? {}));
   make.poseOf = poseOf;
@@ -429,6 +457,9 @@ function mirror(d, id) {
   make.rest = Object.freeze({ ...defaults });
   make.parts = Object.freeze([part]);
   make.moves = Object.freeze({});
+  make.follows = Object.freeze([]);
+  make.followOf = () => null;
+  make.settle = () => ({});
   make.poses = Object.freeze([]);
   make.cycles = Object.freeze([]);
   make.poseOf = none('poses');

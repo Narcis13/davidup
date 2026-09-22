@@ -53,7 +53,7 @@ function restBox(actor) {
 // turned to head up the path, so the actor there is turned back upright, faces the way it travels and walks.
 // opts.perform (4.0 K4) is a performance of that actor (perform(actor, script)) or a script to make one: its
 // state at the shot's t stands in for the idle (and for G's walk; the facing still follows the path unless
-// the performance sets dir).
+// the performance sets dir), with the actor's follow parts (4.0 K6: a tail, a scarf) settled from its history.
 function cast(o) {
   const A = o.actor;
   if (!A) {
@@ -63,11 +63,11 @@ function cast(o) {
   const out = { ...o };
   const [h, fit] = Number.isFinite(o.h) && o.h > 0 ? [o.h, 'drawn'] : [140, 'box'];
   const P = performanceOf(A, o.perform);
-  const still = (t) => (P ? P.state(t) : A.idle(t, o.seed));
+  const still = (t) => (P ? A.follow(P.state, t) : A.idle(t, o.seed));
   if ('figure' in o) out.figure = (ctx) => actorFigure(A, still(ctx.t), h, fit);
   if ('subject' in o) {
     out.subject = (a, b) => (a && a.dir !== undefined && a.x !== undefined
-      ? place(0, 0, { rot: -(a.dir + Math.PI / 2) }, actorFigure(A, P ? { ...A.look(Math.cos(a.dir)), ...P.state(a.t) } : { ...A.cycle('walk', a.t), ...A.look(Math.cos(a.dir)) }, h, fit))
+      ? place(0, 0, { rot: -(a.dir + Math.PI / 2) }, actorFigure(A, P ? { ...A.look(Math.cos(a.dir)), ...A.follow(P.state, a.t) } : { ...A.cycle('walk', a.t), ...A.look(Math.cos(a.dir)) }, h, fit))
       : actorFigure(A, still(a.t), h, fit));
   }
   return out;

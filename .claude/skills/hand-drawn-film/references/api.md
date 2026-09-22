@@ -92,6 +92,11 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 - `VIEW_DIRS` The |dir| each view is drawn at: side 1, three-quarter 0.5, front 0.
 - `puppet(idOrData)` puppet(id) => the cel of the puppet that id names in the registry; puppet(data) builds one from a payload in hand (a test, or `hdf sheet store <id>` reading the blob itself).
 
+### core/follow.js
+
+- `FOLLOW` The follow defaults a part gets for whatever it does not say.
+- `expandChains(d)` A payload with every `chain` part expanded into its links (the same object when it has none).
+
 ### core/rig.js
 
 - `RIGS` The rig templates: the joints each labels and the chains (joint paths, root first) a retarget can follow.

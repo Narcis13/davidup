@@ -19,7 +19,10 @@
 //   actor.place(x, y, s, o)         the state drawn on the doodle stage                 -> group
 //                                   (o.shadow: true or a strength: a contact shadow on its own floor, so an
 //                                   actor further back stands on something; paint the far one first)
-//   actor.put(d, x, y, s, o)        the same, added to a doodle d as a mark the pen reveals
+//   actor.place(x, y, s, fn, t)     the same for the state fn(t); a puppet's follow parts (4.0 K6: a tail, a
+//                                   scarf) are settled from fn's history before t, so they lag and swing
+//   actor.put(d, x, y, s, o, t)     the same, added to a doodle d as a mark the pen reveals
+//   actor.follow(fn, t)             fn(t) with the follow parts settled from fn's history  -> state
 //   actor.say(text, t0, o)          a line of speech from t0 (shot seconds)               -> fragment
 //   actor.mouth(id, t, t0)          the mouth of the recording `id` at t (4.0 V3), started at t0 -> state
 //
@@ -115,6 +118,16 @@ export function actorOf(src, spec = {}) {
   const base = src.puppet ? fromPuppet(src, spec) : src.cel ? fromCel(src, spec) : fromBuilder(src, spec);
   const call = (inputs = {}) => base.make(inputs);
   const fallbacks = new Set();
+  // 4.0 K6: a state function and a time. The state is fn(t); a puppet's follow parts are worked out from fn's
+  // history (core/follow.js), so they lag behind their parents. A plain state draws them as it says.
+  const follow = (fn, t) => {
+    if (typeof fn !== 'function') throw new TypeError(`actor ${spec.name ?? base.name}: follow(stateAt, t) takes a state function of time`);
+    if (!Number.isFinite(t)) throw new TypeError(`actor ${spec.name ?? base.name}: follow(stateAt, t) needs the time to read stateAt at`);
+    const q = fn(t) ?? {};
+    return base.settle ? { ...q, ...base.settle(fn, t) } : q;
+  };
+  const place0 = spec.place ?? base.place;
+  const place = place0 && ((x, y, s, o = {}, t) => place0(x, y, s, typeof o === 'function' ? follow(o, t) : o));
   const bob = (name, t) => {
     fallbacks.add(name);
     const up = Math.floor(t * FPS / 3 + 1e-9) % 2;
@@ -134,8 +147,9 @@ export function actorOf(src, spec = {}) {
     pose: spec.pose ?? base.pose ?? (() => ({})),
     cycle: spec.cycle ?? ((name, t) => base.cycle?.(name, t) ?? bob(name, t)),
     reveal: spec.reveal ?? ((tau, state = {}) => revealList(tau, call(state))),
-    place: spec.place ?? base.place,
-    put: spec.put ?? base.put ?? ((d, x, y, s, o = {}) => d.mark((k) => revealList(k, actor.place(x, y, s, o)), spec.dur ?? 0.5)),
+    place,
+    follow,
+    put: spec.put ?? base.put ?? ((d, x, y, s, o = {}, t) => d.mark((k) => revealList(k, actor.place(x, y, s, o, t)), spec.dur ?? 0.5)),
     say: spec.say ?? ((text, t0, o) => speak(actor, base, spec, text, t0, o)),
     mouth: spec.mouth ?? ((id, t, t0 = 0) => {
       if (!base.has('mouth') || !base.mouthFor) return {};
@@ -286,6 +300,9 @@ function fromPuppet(p, spec) {
   return {
     name, box: p.cel.box, ground: p.ground, inputs, make, has, top: st.top, rest: p.rest,
     pup: p, stage: STAGE,
+    // 4.0 K6: the follow parts from a state function's history; a stage lift (4% of the height a unit) is
+    // that many drawing units, so a jump swings a scarf.
+    settle: p.follows?.length ? (fn, t) => p.settle(fn, t, { lift: 0.04 * (p.cel.box[3] || 1) }) : null,
     // A cycle's frame count and rate, its own before the vocabulary's; `advance` when its frames carry one.
     cycleOf(what) {
       const own = d.cycles?.[what], c = own?.frames?.length ? own : vocabCycle(what);

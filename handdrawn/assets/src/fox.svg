@@ -5,9 +5,9 @@
      data-joints groups that do not draw. Three views (view:side, view:three-quarter, view:front) make
      it turn; a part a view leaves out is drawn as in the side view. Import: hdf svg assets/src/fox.svg
      --name fox --licence own --roles assets/src/fox.roles.json -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: twelve parts, three views, four eyes, four mouths, three poses, a walk and a run">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-126 -314 236 324" width="236" height="324" data-units="300" data-desc="the cast fox: twelve parts, three views, four eyes, four mouths, three poses, a walk and a run, a tail that follows">
   <g id="view:side">
-    <g id="tail" data-parent="body">
+    <g id="tail" data-parent="body" data-follow="lag:2,damp:0.7">
       <circle id="pivot" cx="-34" cy="-128" r="3" fill="#00a0ff"/>
       <path d="M-32 -146L-52 -152L-74 -148L-92 -134L-104 -112L-104 -88L-92 -70L-74 -62L-56 -74L-58 -90L-60 -106L-52 -124L-40 -132L-30 -132Z" fill="#e8734a"/>
       <polygon points="-104,-88 -92,-70 -74,-62 -56,-74 -68,-86 -90,-84" fill="#fff1d6"/>

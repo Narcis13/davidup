@@ -9,6 +9,7 @@ export {
 } from './curves.js';
 export { cel, place, shot, seq, par, hold, cut, lookOn, film, frame, describe, cues, chapterSeq, chapters, chapterAt, chapterFilm, excerpt } from './tree.js';
 export { DIR, JOINT, VIEW_DIRS, puppet } from './puppet.js';
+export { FOLLOW, expandChains } from './follow.js';
 export { RIGS, rigClip, skelOf } from './rig.js';
 export { retarget } from './retarget.js';
 export { BUILDS, compileStick, stickMap, stickSource } from './stick.js';

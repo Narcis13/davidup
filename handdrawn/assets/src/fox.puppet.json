@@ -9,6 +9,7 @@
     "tail": {
       "parent": "body",
       "pivot": [-34, -128],
+      "follow": { "lag": 2, "damp": 0.7 },
       "ops": [
         {
           "op": "fill",

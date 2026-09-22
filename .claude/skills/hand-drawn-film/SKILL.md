@@ -32,6 +32,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `chapters.js` | whiteboard | a lesson in three `chapter(title, ...)`s: each opens on its title card and holds a beat; the board is a card per chapter, `hdf render --chapter 2` renders one alone |
 | `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
 | `walk-on.js` | whiteboard | IK: `walkTo` walks sam on with its feet planted, `lookAt` turns its head to a balloon, `reach` puts its hand on the string; the fox's one-segment arm reaches a teapot's handle |
+| `follow.js` | whiteboard | secondary motion: sam's four-link scarf swings after a jump and a bow; the fox's tail lags its walk and overshoots into a wave |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `marked.js` | whiteboard | the teacher's pen: the hand writes a sentence, then underlines a word, circles another and writes a label with an arrow, each mark drawing on in turn (`wordBox`, `underline`, `circleAround`, `callout`) |
 | `sums.js` | whiteboard | numbers: a hand writes `equation('2 + 3 = ?', { answer: 5 })`, five apples pop in (`pictograph`) numbered as they land (`countOn`) with a `tally`, the ? gives way to the 5 as the hand comes back; the months written round a ring with `textRound`, a tally mark each |
@@ -246,6 +247,14 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
   Never slide a walk cycle across at a steady speed: lint's `foot-slide`
   fails it. `stand(SAM, state)` keeps the feet on the ground line in any pose;
   `dialogue(..., { gaze: true })` has speakers look at each other.
+- **Tails and scarves follow.** A part with `follow: { lag: 2, damp: 0.7 }`
+  (SVG `data-follow`) lags its parent and swings past; `chain: { n: 4, len,
+  w, angle }` (SVG `data-chain`, or a stick source's extra `parts: { scarf:
+  { parent: 'neck', pivot: 'neck', chain, before: 'head' } }`) makes a rope
+  of following links. They only move when the actor sees the history: pass
+  the state *function* and the time, `SAM.place(x, y, s, act.state, t)` (or
+  `SAM.follow(act.state, t)` for the state); a plain object draws them where
+  it says. Recipes with `perform:` do this for you. The fox's tail follows.
 - **Speech.** `const line = FOX.say('hello there', 1.25)` then `say: line`
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`
