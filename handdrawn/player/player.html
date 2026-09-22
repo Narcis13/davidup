@@ -21,11 +21,35 @@
   <aside>
     <h2>shots</h2>
     <div id="shots"></div>
-    <h2>cel</h2>
-    <select id="cel"></select>
-    <div id="inputs"></div>
-    <canvas id="preview" width="240" height="240"></canvas>
-    <button id="copy">copy values</button>
+    <div id="tabs"><button data-tab="cel" class="on" title="the film module's exported cels, one slider per input">cel</button><button data-tab="rig" title="pose a puppet by dragging, record poses and cycle frames, move pivots and sockets (R)">rig</button></div>
+    <section id="celPane">
+      <select id="cel"></select>
+      <div id="inputs"></div>
+      <canvas id="preview" width="240" height="240"></canvas>
+      <button id="copy">copy values</button>
+    </section>
+    <section id="rigPane" hidden>
+      <div class="row"><select id="rigPick" title="the stored puppets (* drawn in this frame) and the film's cast"></select><select id="rigView" title="the view, both ways round"></select></div>
+      <div class="row">
+        <label title="drag grips to pose"><input type="radio" name="rigMode" value="pose" checked> pose</label>
+        <label title="at the zero drawing: drag a pivot, the drawing stays"><input type="radio" name="rigMode" value="pivots"> pivots</label>
+        <label title="drag a socket, or its arrow's end to turn it"><input type="radio" name="rigMode" value="sockets"> sockets</label>
+        <label title="a diamond at a wrist or ankle: the limb reaches (K5); off, the forearm or shin turns"><input type="checkbox" id="rigIk" checked> IK</label>
+        <label title="the frame before, in red"><input type="checkbox" id="rigOnion" checked> onion</label>
+      </div>
+      <canvas id="rig" width="360" height="360"></canvas>
+      <div id="rigInfo"></div>
+      <div id="rigVariants"></div>
+      <div class="row"><select id="rigLoad" title="start from a pose, the vocabulary's, an expression"></select><button id="rigFrom" title="the state the film draws it in at this frame">from frame</button></div>
+      <div class="row"><input id="rigPoseName" placeholder="pose name" list="rigPoses"><button id="rigRecPose">record pose</button><button id="rigDropPose" title="drop the pose named">drop</button></div>
+      <div class="row"><input id="rigCycleName" placeholder="cycle name" list="rigCycles"><label><input id="rigFps" type="number" value="12" min="1" max="60" step="1"> fps</label><button id="rigPlay">play</button></div>
+      <div id="rigFrames"></div>
+      <div id="rigFrameInfo"></div>
+      <div class="row"><button id="rigRecFrame" title="after the frame picked, or at the end">record frame</button><button id="rigReplace">replace</button><button id="rigDropFrame">drop</button></div>
+      <div class="row" id="rigSocketRow" hidden><input id="rigSocketName" placeholder="socket name"><select id="rigSocketPart"></select><button id="rigAddSocket">add</button><button id="rigDropSocket">drop</button></div>
+      <div class="row"><button id="rigUndo">undo</button><button id="rigGrow" hidden title="grow the declared box to hold this drawing">grow box</button><button id="rigCopy" title="the state as a pose, for a film's source">copy state</button></div>
+      <datalist id="rigPoses"></datalist><datalist id="rigCycles"></datalist>
+    </section>
   </aside>
 </main>
 <script type="module" src="./player.js"></script>

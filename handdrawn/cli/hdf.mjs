@@ -49,7 +49,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json; --alpha: <film>-alpha.json
-  dev     <film.js> [--port 4321]   player with hot reload (edits jump it to the first changed frame)
+  dev     <film.js> [--port 4321] [--root dir]   player with hot reload (edits jump it to the first changed frame);
+                                    its Rig tab poses a stored puppet by dragging (FK, IK on hands and feet), records
+                                    poses and cycle frames, moves pivots and sockets, and writes the puppet back to
+                                    <store>/src/<id>.puppet.json and the store (--root: another store)
   bundle  <film.js> [--out dir]     single HTML that opens from disk and plays (out/<film>.html)
   photo   <img> --name <id> [--credit] [--source] [--js photos.js] [--flood|--keep] [--punch u,v;..]  cutout + sil + sheet
                                     --v1 <photos.js> converts a v1 module; --refresh <photos.js> adds a colours table to an existing one

@@ -7,9 +7,13 @@
 //   `hdf bundle <film>`   window.HDF = { film, hdf, assets, catalogue }: bare specifiers resolved by the
 //                          import map; a film that names its assets by id reads them off the catalogue
 //                          (core/assets.web.js stands in for core/assets.js in both dev and bundle)
-// Transport: space play/pause, left/right frame step (shift: shot), home/end, L loop, O onion skin; the
+// Transport: space play/pause, left/right frame step (shift: shot), home/end, L loop, O onion skin, B text
+// boxes, R the Rig tab (4.0 W2, player/rig.js: pose a puppet by dragging, record poses and cycle frames, move
+// pivots and sockets; in `hdf dev` each edit is written back to the store and the film reloads); the
 // strip scrubs. Sound is the samples synth.js renders for the Node driver, through Web Audio, started at
 // the scrub position. window.__frame(i) and window.__NDRAW stay for drivers.
+import { initRig } from './rig.js';
+
 const q = new URLSearchParams(location.search);
 const cfg = window.HDF ?? {};
 const $ = (id) => document.getElementById(id);
@@ -73,9 +77,10 @@ async function load(gen) {
   const ar = q.get('ar') || undefined, fmt = ar ? D.format(ar) : film.format;
   const width = +q.get('w') || Math.round(720 * fmt.W / Math.min(fmt.W, fmt.H));
   const cels = Object.values(mod).filter((v) => typeof v === 'function' && v.cel?.name);
+  const cast = mod.cast && typeof mod.cast === 'object' ? mod.cast : {};   // actors built in code (D2), for the Rig tab
   const lookHash = D.hashLook(film.look);
   return {
-    D, film, cels, images, ar, width, size: D.outputSize(fmt, width),
+    D, film, cels, cast, images, ar, width, size: D.outputSize(fmt, width),
     R: D.createRenderer({ images }), hashes: [],
     hash(i, list) { return (this.hashes[i] ??= D.hashList(list ?? D.frame(film, i, { ar }).list) + lookHash); },
     shots: D.cues(film).shots.map((s) => ({ ...s, f0: Math.round(s.t0 * D.FPS), n: Math.round(s.dur * D.FPS) })),
@@ -104,6 +109,7 @@ function show(i, { quiet = false } = {}) {
   drawStrip();
   markShots();
   if (!playing) celPanel(f.list);
+  if (!playing && !$('rigPane').hidden) rig.frame();
   return f.shot;
 }
 window.__frame = (i) => show(i);
@@ -113,7 +119,7 @@ window.__frame = (i) => show(i);
 // The strokes (and text) of frames i-1 and i+1, redrawn with the chalk tool and tinted, at low alpha. Only
 // when paused. Fills, dots and images are left out so the neighbours read as line drawings.
 const ONION = [['#d0443c', -1], ['#2f7fd0', 1]];
-let scratch = null;
+const scratch = document.createElement('canvas');
 function drawOnion() {
   const g = onion.getContext('2d');
   g.clearRect(0, 0, onion.width, onion.height);
@@ -121,29 +127,35 @@ function drawOnion() {
   drawBoxes(g);
   if (!$('onionOn').checked) return;
   const { D, film, size } = S;
-  scratch ??= document.createElement('canvas');
-  scratch.width = size.outW; scratch.height = size.outH;
-  const sg = scratch.getContext('2d');
   S.onionR ??= D.createRenderer({ cacheMb: 0, dedup: false, images: S.images });
   for (const [colour, d] of ONION) {
     const j = cur + d;
     if (j < 0 || j >= film.n) continue;
-    const ops = [];
-    D.walk(D.frame(film, j, { ar: S.ar }).list, (op, m) => {
-      if (op.op !== 'stroke' && op.op !== 'text') return;
-      ops.push(D.group({ xf: m, cache: 'never' }, [D.withProps(op, { tool: 'chalk' })]));
-      return false;
-    });
-    sg.globalCompositeOperation = 'source-over';
-    sg.clearRect(0, 0, scratch.width, scratch.height);
-    S.onionR.draw(sg, ops, { look: film.look, S: size.S, W: size.W, H: size.H });
-    sg.globalCompositeOperation = 'source-in';
-    sg.fillStyle = colour;
-    sg.fillRect(0, 0, scratch.width, scratch.height);
-    g.globalAlpha = 0.35;
-    g.drawImage(scratch, 0, 0);
-    g.globalAlpha = 1;
+    ghost(g, D.frame(film, j, { ar: S.ar }).list, colour, { R: S.onionR, S: size.S, W: size.W, H: size.H, w: size.outW, h: size.outH });
   }
+}
+// A list's strokes (and text) redrawn in chalk, tinted one colour, laid over g at low alpha: an onion skin.
+function ghost(g, list, colour, { R, S: k, W, H, w, h }) {
+  const { D, film } = S, ops = [];
+  D.walk(list, (op, m) => {
+    if (op.op !== 'stroke' && op.op !== 'text') return;
+    ops.push(D.group({ xf: m, cache: 'never' }, [D.withProps(op, { tool: 'chalk' })]));
+    return false;
+  });
+  if (scratch.width !== w || scratch.height !== h) { scratch.width = w; scratch.height = h; }
+  const sg = scratch.getContext('2d');
+  sg.globalCompositeOperation = 'source-over';
+  sg.clearRect(0, 0, w, h);
+  R.draw(sg, ops, { look: film.look, S: k, W, H });
+  sg.globalCompositeOperation = 'source-in';
+  sg.fillStyle = colour;
+  sg.fillRect(0, 0, w, h);
+  sg.globalCompositeOperation = 'source-over';
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 0.35;
+  g.drawImage(scratch, 0, 0);
+  g.restore();
 }
 // The box of every text op and lettered group (a handText, textBox or bullets group) in the frame shown, in
 // the hand of its shot: what bounds() and lint's cel-box rule see.
@@ -357,7 +369,8 @@ $('onionOn').onchange = () => drawOnion();
 $('boxesOn').onchange = () => drawOnion();
 addEventListener('resize', () => { fitOnion(); drawStrip(); });
 addEventListener('keydown', (e) => {
-  if (!S || e.target.tagName === 'INPUT' && e.target.type === 'range' || e.metaKey || e.ctrlKey) return;
+  const typing = ['SELECT', 'TEXTAREA'].includes(e.target.tagName) || (e.target.tagName === 'INPUT' && !['checkbox', 'radio'].includes(e.target.type));
+  if (!S || typing || e.metaKey || e.ctrlKey) return;
   const k = e.key;
   if (k === ' ') toggle();
   else if (k === 'ArrowLeft') (e.shiftKey ? shotStep(-1) : step(-1));
@@ -367,9 +380,21 @@ addEventListener('keydown', (e) => {
   else if (k === 'l' || k === 'L') $('loop').checked = !$('loop').checked;
   else if (k === 'o' || k === 'O') { $('onionOn').checked = !$('onionOn').checked; drawOnion(); }
   else if (k === 'b' || k === 'B') { $('boxesOn').checked = !$('boxesOn').checked; drawOnion(); }
+  else if (k === 'r' || k === 'R') tab($('rigPane').hidden ? 'rig' : 'cel');
   else return;
   e.preventDefault();
 });
+
+// ---------- tabs: cel, rig ----------
+
+const rig = initRig({ get S() { return S; }, cfg, status, ghost, frameList: () => S?.shown?.list, cur: () => cur });
+function tab(which) {
+  for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === which);
+  $('celPane').hidden = which !== 'cel';
+  $('rigPane').hidden = which !== 'rig';
+  if (which === 'rig') rig.show();
+}
+for (const b of document.querySelectorAll('#tabs button')) b.onclick = () => tab(b.dataset.tab);
 
 // ---------- hashes and hot reload ----------
 
@@ -405,12 +430,18 @@ async function scan(prev) {
   window.__hdf.scans++;
 }
 
-let reloading = null, again = false;
+let reloading = null, again = false, storeMoved = false;
 async function reload() {
   if (reloading) { again = true; return; }
   reloading = (async () => {
     do {
       again = false;
+      // The store moved (a Rig tab save, an hdf import): the page's catalogue is read again before the film is.
+      const moved = storeMoved;
+      if (moved) {
+        storeMoved = false;
+        try { Object.assign(cfg, await (await fetch('/__hdf/store')).json()); } catch (e) { status(`reading the store failed: ${e.message ?? e}`, true); }
+      }
       let next;
       try { next = await load(Date.now()); } catch (e) { status(`reload failed: ${e.message ?? e}`, true); console.error(e); continue; }
       const prev = S;
@@ -421,6 +452,7 @@ async function reload() {
       celFrom = null;
       shotList();
       show(Math.min(cur, n() - 1), { quiet: true });
+      rig.reloaded(moved);
       await scan(prev);
       window.__hdf.reloads++;
     } while (again);
@@ -429,7 +461,7 @@ async function reload() {
   reloading = null;
 }
 
-window.__hdf = { reloads: 0, scans: 0, get cur() { return cur; }, get changed() { return [...changed].sort((a, b) => a - b); }, reload };
+window.__hdf = { reloads: 0, scans: 0, get cur() { return cur; }, get changed() { return [...changed].sort((a, b) => a - b); }, reload, rig, tab };
 
 async function main() {
   S = await load(0);
@@ -439,7 +471,12 @@ async function main() {
   show(Math.min(n() - 1, Math.max(0, +q.get('frame') || 0)));
   if (cfg.dev) {
     const es = new EventSource('/__hdf/events');
-    es.addEventListener('change', (e) => { status(`changed: ${JSON.parse(e.data).files.join(', ')}`); reload(); });
+    es.addEventListener('change', (e) => {
+      const { files } = JSON.parse(e.data);
+      if (cfg.store !== undefined && files.some((f) => f.startsWith(cfg.store ? `${cfg.store}/` : ''))) storeMoved = true;
+      status(`changed: ${files.join(', ')}`);
+      reload();
+    });
     es.onerror = () => status('dev server gone; reload the page when it is back', true);
   }
   scan(null);

@@ -81,12 +81,18 @@ export function widen(payload, name) {
 // colour  area  role  (auto | map), one line each.
 const tableText = (table) => table.map((r) => `${r.hex}  ${String(r.area).padStart(7)}  ${r.role.padEnd(10)} ${r.how}\n`).join('');
 
-// The retargeted cycles of the puppet already in the store under this name, carried over to the new payload.
+// The retargeted cycles of the puppet already in the store under this name, and the poses and cycles the
+// workbench (4.0 W2, `hdf dev`'s Rig tab) recorded on it, carried over to the new payload.
 export function keepRetargeted(payload, name, flags) {
   const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
   if (!st.has(name) || st.entry(name).kind !== 'puppet') return;
-  const kept = Object.entries(st.json(name).cycles ?? {}).filter(([k, c]) => c?.from && !payload.cycles?.[k]);
-  if (!kept.length) return;
-  payload.cycles = { ...(payload.cycles ?? {}), ...Object.fromEntries(kept) };
-  process.stdout.write(`keeps ${kept.map(([k, c]) => `cycle ${k} (retargeted from ${c.from.clip})`).join(', ')}\n`);
+  const old = st.json(name), bench = old.workbench ?? {};
+  const kept = Object.entries(old.cycles ?? {}).filter(([k, c]) => (c?.from || bench.cycles?.includes(k)) && !payload.cycles?.[k]);
+  const poses = Object.entries(old.poses ?? {}).filter(([k]) => bench.poses?.includes(k) && !payload.poses?.[k]);
+  if (kept.length) payload.cycles = { ...(payload.cycles ?? {}), ...Object.fromEntries(kept) };
+  if (poses.length) payload.poses = { ...(payload.poses ?? {}), ...Object.fromEntries(poses) };
+  const noted = { poses: poses.map(([k]) => k), cycles: kept.filter(([k]) => bench.cycles?.includes(k)).map(([k]) => k) };
+  if (noted.poses.length || noted.cycles.length) payload.workbench = noted;
+  if (!kept.length && !poses.length) return;
+  process.stdout.write(`keeps ${[...kept.map(([k, c]) => (c.from ? `cycle ${k} (retargeted from ${c.from.clip})` : `cycle ${k} (recorded)`)), ...poses.map(([k]) => `pose ${k} (recorded)`)].join(', ')}\n`);
 }

@@ -11,3 +11,7 @@ export { withHand } from '../core/glyphs.js';
 export { handOf, hashLook, resolveLook } from '../core/looks.js';
 export { register, stored } from '../core/store.js';
 export { setMarks } from '../core/cuemarks.js';
+// The Rig tab (4.0 W2, player/rig.js): puppets built from a payload, the actor's vocabulary, the workbench.
+export { puppet } from '../core/puppet.js';
+export { actorOf } from '../core/actor.js';
+export * as WB from '../core/workbench.js';

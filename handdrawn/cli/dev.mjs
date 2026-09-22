@@ -6,11 +6,20 @@
 // GET /__hdf/events is an SSE stream with one `change` event per burst of edits.
 // The page also carries the asset store: window.HDF.catalogue is a record per id (a data payload inline, a
 // raster's pixels left out) and window.HDF.assets points every raster and every sample at its blob under /v0/, which is what
-// core/assets.web.js reads in place of the file system. The store is read fresh on every page load.
+// core/assets.web.js reads in place of the file system. The store is read fresh on every page load, and GET
+// /__hdf/store hands the page the same again after a change (a player reloading after the store moved).
+// --root <dir> serves another store (a copy to try the workbench on).
+//
+// The workbench (4.0 W2): GET /__hdf/puppet/<id> is a stored puppet's payload as the store holds it, with its
+// entry; POST /__hdf/puppet/<id> ({ payload }) writes it to <store>/src/<id>.puppet.json and imports it over the
+// entry (the checks `hdf import` runs, the entry's licence, credit, source, tags and desc kept), so the watcher
+// sees the store change and the film reloads with it. A payload the checks refuse is a 422 naming them, and
+// nothing is written.
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, statSync, watch } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { ASSET_ROOT, SCHEMAS, readCatalogue, recordOf } from '../core/assets.js';
+import { putPayload } from './import.mjs';
 import { marksFrom, UsageError } from './load.mjs';
 import { ROOT, commonDir, posix, resolveSpec, rewrite, webSource, within } from './modules.mjs';
 
@@ -27,10 +36,21 @@ export function playerPage(config, { hdfUrl }) {
       `<script>window.HDF = ${JSON.stringify(config)};</script>\n<script type="module" src="${hdfUrl}player/player.js"></script>`);
 }
 
+// JSON for a person to read and diff: objects a key a line, but an array of numbers or strings (a path's
+// points, a pivot) and anything short on one line.
+export function pretty(v, pad = '') {
+  const flat = JSON.stringify(v);
+  if (v === null || typeof v !== 'object' || flat.length <= 72 || (Array.isArray(v) && v.every((x) => x === null || typeof x !== 'object'))) return flat;
+  const inner = `${pad}  `;
+  if (Array.isArray(v)) return `[\n${v.map((x) => inner + pretty(x, inner)).join(',\n')}\n${pad}]`;
+  const keys = Object.keys(v).filter((k) => v[k] !== undefined);
+  return `{\n${keys.map((k) => `${inner}${JSON.stringify(k)}: ${pretty(v[k], inner)}`).join(',\n')}\n${pad}}`;
+}
+
 // The whole store as the page reads it: { catalogue, assets }. A film names a handful of ids and the server
 // cannot know which before the film is imported, so every entry goes; `hdf bundle` keeps only what was used.
-export function storeState(rel) {
-  const st = readCatalogue(ASSET_ROOT), catalogue = {}, assets = {};
+export function storeState(rel, root = ASSET_ROOT) {
+  const st = readCatalogue(root), catalogue = {}, assets = {};
   for (const id of st.ids) {
     const { src, ...rest } = recordOf(st, id);
     catalogue[id] = rest;
@@ -39,14 +59,16 @@ export function storeState(rel) {
   return { catalogue, assets };
 }
 
-export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, marks, log = () => {} } = {}) {
+export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, marks, root, log = () => {} } = {}) {
   const film = resolve(filmPath);
   if (!existsSync(film)) throw new UsageError(`film not found: ${filmPath}`);
-  const base = commonDir([ROOT, film]);
-  const allowed = [ROOT, dirname(film), process.cwd()];
+  const store = root ? resolve(root) : ASSET_ROOT;
+  if (root && !existsSync(join(store, 'catalogue.json'))) throw new UsageError(`--root ${root}: no catalogue.json there`);
+  const base = commonDir([ROOT, film, store]);
+  const allowed = [ROOT, dirname(film), process.cwd(), store];
   const rel = (p) => posix(relative(base, p));
   const hdf = rel(ROOT) ? `${rel(ROOT)}/` : '';
-  const config = { dev: true, film: rel(film), hdf, ...(look ? { look } : {}), ...(marks ? { marks } : {}) };
+  const config = { dev: true, film: rel(film), hdf, store: rel(store), ...(look ? { look } : {}), ...(marks ? { marks } : {}) };
   const clients = new Set();
 
   const server = createServer((req, res) => {
@@ -55,7 +77,10 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, mar
       res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
       res.end(body);
     };
-    if (url.pathname === '/') return send(200, playerPage({ ...config, ...storeState(rel) }, { hdfUrl: `/v0/${hdf}` }), 'text/html; charset=utf-8');
+    if (url.pathname === '/') return send(200, playerPage({ ...config, ...storeState(rel, store) }, { hdfUrl: `/v0/${hdf}` }), 'text/html; charset=utf-8');
+    if (url.pathname === '/__hdf/store') return send(200, JSON.stringify(storeState(rel, store)), 'application/json');
+    const pup = url.pathname.match(/^\/__hdf\/puppet\/([^/]+)$/);
+    if (pup) { workbench(req, decodeURIComponent(pup[1]), send); return; }
     if (url.pathname === '/__hdf/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(': hdf dev\n\n');
@@ -80,6 +105,37 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, mar
     send(200, src, 'text/javascript; charset=utf-8');
   });
 
+  // The workbench's reads and writes of one stored puppet (see the top of this file).
+  const workbench = (req, id, send) => {
+    const json = (code, v) => send(code, JSON.stringify(v), 'application/json');
+    const st = readCatalogue(store);
+    if (!st.has(id) || st.entry(id).kind !== 'puppet' || id.startsWith('pack:')) return json(404, { error: `no puppet '${id}' in ${store}` });
+    const e = st.entry(id);
+    if (req.method === 'GET') return json(200, { id, entry: e, payload: st.json(e) });
+    if (req.method !== 'POST') return json(405, { error: 'GET or POST' });
+    // Only the page itself writes: a JSON body (another origin would need a preflight this server never answers)
+    // from this origin.
+    if (!/^application\/json\b/.test(req.headers['content-type'] ?? '')) return json(415, { error: 'send application/json' });
+    if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return json(403, { error: `a write from ${req.headers.origin}` });
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', async () => {
+      let payload;
+      try { ({ payload } = JSON.parse(body)); } catch (err) { return json(400, { error: `not JSON: ${err.message}` }); }
+      if (!payload || typeof payload !== 'object' || !payload.parts) return json(400, { error: 'send { payload } (a puppet payload)' });
+      const file = join(store, 'src', `${id}.puppet.json`), text = `${pretty(payload)}\n`;
+      const flags = { root: store, licence: e.licence, credit: e.credit, source: e.source, tags: (e.tags ?? []).join(','), ...(e.desc ? { desc: e.desc } : {}) };
+      try {
+        await putPayload({ kind: 'puppet', name: id, bytes: Buffer.from(text), abs: file, flags });
+      } catch (err) { return json(422, { error: err.message }); }
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, text);
+      const now = readCatalogue(store).entry(id);
+      log(`workbench: ${id} -> ${file} (${now.sha.slice(0, 8)})`);
+      json(200, { id, file, sha: now.sha, changed: now.sha !== e.sha });
+    });
+  };
+
   // One event per burst: editors write a file in several steps.
   let pending = new Set(), timer = null;
   const fire = () => {
@@ -91,7 +147,7 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, mar
     for (const c of clients) c.write(msg);
   };
   // The film's directory only when the package does not already cover it (one event per edit, not two).
-  const dirs = within(ROOT, dirname(film)) ? [ROOT] : [ROOT, dirname(film)];
+  const dirs = [ROOT, dirname(film), store].filter((d, i, all) => !all.some((o, j) => j < i && within(o, d)));
   const watchers = dirs.map((dir) => watch(dir, { recursive: true }, (_, name) => {
     if (!name || !WATCHED.test(name) || IGNORED.test(name)) return;
     pending.add(rel(join(dir, name)));
@@ -117,7 +173,7 @@ export function devServer(filmPath, { port = 4321, host = '127.0.0.1', look, mar
 
 export async function run([path], flags) {
   if (!path) throw new UsageError('missing <film.js>');
-  const dev = devServer(path, { port: flags.port ?? 4321, host: flags.host ?? '127.0.0.1', look: flags.look, marks: marksFrom(flags.cuesFrom, flags.at), log: (s) => process.stdout.write(`${s}\n`) });
+  const dev = devServer(path, { port: flags.port ?? 4321, host: flags.host ?? '127.0.0.1', look: flags.look, marks: marksFrom(flags.cuesFrom, flags.at), root: flags.root, log: (s) => process.stdout.write(`${s}\n`) });
   const url = await dev.ready;
   process.stdout.write(`${basename(path)}: ${url}  (ctrl-c to stop)\n`);
   await new Promise((ok) => {

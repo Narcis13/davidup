@@ -845,6 +845,56 @@ dots green) and the store sheet with the walk as its strip: `hdf sheet store
 has none of its own. A blank box is reported and its part draws nothing; a
 blank body is an error. Re-reading a sheet keeps retargeted cycles.
 
+### The workbench: posing by hand (4.0 W2)
+
+`hdf dev <film>` has a **Rig** tab (`R`) beside the cel sliders: one puppet
+from the store (those the frame draws first, marked `*`) or from the film's
+`cast` export, drawn large in the film's look with grips on it.
+
+```bash
+hdf dev films/fox-wave.js                          # R, pick fox, drag, record pose wave: the film reloads waving it
+hdf dev films/walk-on.js --root /tmp/store-copy    # the same on a copy of the store
+```
+
+- **pose**: a circle turns its part about its pivot (the grip sits at the
+  part's one child's pivot, an elbow for an upper arm, or its drawing's
+  middle); a square slides it (a pupil, a brow); a diamond at a wrist or ankle
+  puts it there and the limb follows (K5's `reach`, two bones; untick IK to
+  turn the forearm or shin by hand). Variants, the view (each declared view,
+  both ways round) and any squash are controls under the drawing. Start from
+  rest, a pose of its own, the vocabulary's, an expression, or `from frame`
+  (the state the film draws it in at the frame shown). The box turns red when
+  the drawing leaves it; `grow box` grows the declared box, which makes the
+  puppet draw smaller everywhere (the stage fits a figure by its box's height).
+- **record pose `<name>`** writes `poses[name]`: the inputs that differ from
+  rest. Recording `rest` fills the old rest values into every other pose and
+  frame, so they draw as before. A pose the film already names changes in the
+  film with no text edit: a puppet's own pose wins over the vocabulary's.
+- **cycles**: name one, `record frame` (after the frame picked, or at the
+  end), `replace`, `drop`, set its fps, `play` it looping. The onion skin is
+  the frame before in red.
+- **pivots**: the puppet at its zero drawing; drag a pivot and the part turns
+  about the new point while the drawing stays put (its ops, the parts riding
+  its pivot and their sockets move the other way). With views, only the view
+  shown moves when any of it is drawn by view; a rig sheet's `skeleton`
+  follows a side-view move, so `hdf retarget` stays map-free.
+- **sockets**: drag a socket's dot to move it, the end of its arrow to turn
+  it; add one on any part by name, or drop one.
+
+Every edit is written back at once: `POST /__hdf/puppet/<id>` puts the payload
+in `<store>/src/<id>.puppet.json` (readable JSON, a path a line) and imports it
+over the entry with the checks `hdf import` runs (joints on the grid, roles,
+the box) and the entry's licence, credit and tags kept. A refused edit is
+undone and the status line names the rule. The store change reloads the film
+(the page reads the catalogue again), and `hdf sheet store <id>` draws the new
+pose. `undo` writes the payload before. What the workbench recorded is listed
+under the payload's `workbench: { poses, cycles }`, so `hdf sketch`, `hdf
+stick` and `hdf svg` re-importing over the puppet keep it, as they keep a
+retargeted cycle; a moved pivot is not kept (the source says where it is).
+Without the dev server (`hdf bundle`, a static server) and for a puppet built
+in code, the tab poses read-only and `copy state` puts the pose on the
+clipboard for the film's source.
+
 ### The pose vocabulary
 
 Every biped knows how to point, shrug and cheer (4.0 K3). `packs/poses/biped.json`
@@ -1459,7 +1509,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
 | `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |
-| `hdf dev <film> [--port 4321]` | the player with hot reload |
+| `hdf dev <film> [--port 4321] [--root dir]` | the player with hot reload; its Rig tab poses a stored puppet by dragging and writes poses, cycle frames, pivots and sockets back to `<store>/src/<id>.puppet.json` and the store (4.0 W2) |
 | `hdf bundle <film> [--out dir]` | one self-contained HTML player |
 | `hdf photo <img> --name <id> [--credit] [--source] [--js photos.js] [--flood\|--keep] [--punch u,v]` | a cutout with its silhouette, colours table and check sheet |
 | `hdf photo --refresh <photos.js>` | add the colours table to a module written before it existed |
@@ -1642,6 +1692,9 @@ before the first full render.
   dashed, as `bounds()` and lint see it;
 - a shot list from `describe()` that jumps on click;
 - one slider per input of the selected cel, a live preview, and "copy values";
+- the Rig tab (`R`, 4.0 W2): a puppet posed by dragging, poses and cycle
+  frames recorded, pivots and sockets moved, written back to the store in
+  `hdf dev` (see [the workbench](#the-workbench-posing-by-hand-40-w2));
 - a changed-frame marker.
 
 `hdf dev <film>` serves it on `:4321`. On every edit, to the film or to the
@@ -1813,6 +1866,7 @@ handdrawn/
     doodle.js      the self-drawing doodle builder
     sources.js     procedural image sources (the sand bed)
     puppet.js      puppets: the data form of a cel (parts, pivots, variants, poses, cycles)
+    workbench.js   the Rig tab's posing (grips, FK, slides, IK) and payload edits (poses, frames, pivots, sockets)
     assets.js      the asset store: kind schemas, validators, the catalogue, fromStore (Node only)
     assets.web.js  its browser twin: the records hdf dev / hdf bundle put on the page
     store.js       the registry fromStore fills, read back by id (browser-safe)
@@ -1821,7 +1875,7 @@ handdrawn/
   engines/       traced.js  sim.js  stage3d.js
   recipes/       shots.js (A–Z)  doodle.js (AA–AM)  score.js (motifs)  sfx.js (effects, bed)  book.js (book3)
   packs/         creatures.js  objects.js  tech.js  manifest.json  sheets/
-  player/        player.html  player.js  deps.js  shell.css
+  player/        player.html  player.js  rig.js (the Rig tab)  deps.js  shell.css
   cli/           hdf.mjs and one module per command; roto.py (tracing); jsscan.mjs (donate); apidoc.mjs
   films/         the seven example films, their clips and photos, goldens/
   test/          node:test suites (npm test)

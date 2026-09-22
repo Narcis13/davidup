@@ -342,6 +342,39 @@ colour is `ink`: the look recolours it. Check `out/sketch-<id>-trace.jpg`
 first when a piece looks wrong: lines red, fills blue, dots green, blank boxes
 crossed out.
 
+## The workbench: posing a puppet by hand (4.0 W2)
+
+```bash
+hdf dev work/<film>/<film>.js                 # R: the Rig tab; pick the puppet (* = drawn in this frame)
+hdf dev work/<film>/<film>.js --root <copy>   # the same on a copy of the store, to try things
+```
+
+- **pose**: drag a circle (the part turns about its pivot), a square (a
+  pupil or brow slides), a diamond at a wrist or ankle (the limb reaches with
+  two-bone IK; untick IK to turn the forearm). Variants, the view and any
+  squash sit under the drawing; start from rest, a pose, the vocabulary's, an
+  expression or `from frame`.
+- **record pose `<name>`**: the inputs that differ from rest go into the
+  puppet's `poses`. Its own pose wins over the vocabulary's, so recording
+  `cheer` changes every `A.pose('cheer')` in the film. Recording `rest`
+  keeps every other pose and frame drawing as it did.
+- **record frame** into a named cycle (after the frame picked, or at the end),
+  `replace`, `drop`, fps, `play`; the onion skin is the frame before.
+- **pivots**: at the zero drawing, drag a pivot: the part turns about the new
+  point, the drawing stays (a sketch's elbow a little off). Only the view shown
+  moves when the part is drawn by view.
+- **sockets**: drag a socket or its arrow's end; add one on a part by name.
+
+Each edit is imported at once through the checks `hdf import` runs, into
+`<store>/src/<id>.puppet.json` and the store; a refused one (a joint off the
+grid) is undone and named in the status line. When a pose leaves the declared
+box the box turns red: prefer a smaller pose, because `grow box` makes the
+puppet draw smaller in every film (the stage fits it by the box's height).
+Recorded poses and cycles survive `hdf sketch`, `hdf stick` or `hdf svg`
+re-importing over the puppet; moved pivots do not. A puppet built in code
+(a film's `cast`) and any puppet in a bundle are posed read-only: `copy
+state` gives the pose as JSON for the film's source.
+
 ## Clips, skeletons, retargeting, the phone
 
 A clip is traced poses: `frames[k] = { outer, lines, skel? }`, `h` the
