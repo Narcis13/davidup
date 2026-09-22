@@ -118,6 +118,11 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `dialogue(turns, o = {})` dialogue(turns, { t0, gap, audience, where, hold, ...say options }) => a fragment of turns between actors: state(actor, t), draw(t), events(t), turns, lines, end, until (see the top of this file).
 
+### core/perform.js
+
+- `perform(actor, script, o = {})` perform(actor, script, o) => a performance (see the top of this file).
+- `layer(base, extra, o = {})` layer(base, extra, { parts, weight, rest }) => a state or t => state (see the top of this file).
+
 ### core/audience.js
 
 - `AUDIENCES` Audiences (4.0 E2, moved to core at T9 so speech and captions read them; T10 turns them into lint profiles too): text scales the letters, write is the pen's speed in characters a second, read the viewer's in words a second, dwell the ...

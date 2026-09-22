@@ -6,6 +6,8 @@
 //   FOX.put(d, x, y, 70, { ...FOX.idle(tau), ...FOX.look(-1), ...FOX.emote('happy'), ...FOX.cycle('run', tau) })
 //
 //   actor.name, actor.box, actor.ground, actor.inputs     as a cel
+//   actor.rest                      its inputs at rest (a puppet's rest pose; {} for a code cel, spec.rest)
+//   actor.variantKeys               the inputs that switch between drawings rather than turn (eye, mouth)
 //   actor(inputs)                   the cel call (keys that are not inputs are dropped)
 //   actor.idle(t, seed)             breathing, a blink, a tail, on the twos grid        -> state
 //   actor.look(dir)                 -1 .. 1: facing, the view, the head turn             -> state
@@ -109,6 +111,8 @@ export function actorOf(src, spec = {}) {
     box: base.box,
     ground: base.ground,
     inputs: base.inputs,
+    rest: spec.rest ?? base.rest ?? Object.freeze({}),
+    variantKeys: base.variantKeys ?? Object.freeze([]),
     fallbacks,
     idle: spec.idle ?? base.idle ?? (() => ({})),
     look: spec.look ?? base.look ?? ((dir) => ({ dir: sign(dir) })),
@@ -250,7 +254,8 @@ function fromPuppet(p, spec) {
   const blinkKey = ['sleep', 'shut', 'closed'].find((k) => variants('eye').includes(k));
 
   return {
-    name, box: p.cel.box, ground: p.ground, inputs, make, has, top: st.top,
+    name, box: p.cel.box, ground: p.ground, inputs, make, has, top: st.top, rest: p.rest,
+    variantKeys: Object.freeze(p.parts.filter((n) => variants(n).length)),
     // Viseme v as the puppet's mouth: its v-th variant, or its last when it has fewer.
     mouthOf(v) {
       const ks = variants('mouth');
@@ -352,7 +357,7 @@ function fromBuilder(fn, spec) {
     pen(99, 0, -9, 3, (d) => fn(d, 0, 0, size, { ...defaults, ...q }), { still: true }),
   ], { box, inputs, desc: spec.desc }));
   return {
-    name, box, ground: [0, 0.86 * size], inputs, has: () => false, top: box[1] / size,
+    name, box, ground: [0, 0.86 * size], inputs, has: () => false, top: box[1] / size, rest: Object.freeze({ ...defaults }),
     make: (o) => theCel()(o),
     emote: (what) => ({ eye: what === 'sad' ? 'sleep' : what }),
     // A run is its run phase; a walk is the recipe's own bob and sway (v1), so it asks nothing of the builder.

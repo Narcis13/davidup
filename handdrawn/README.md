@@ -624,6 +624,48 @@ hdf sheet store sam --vocabulary    # assets/sheets/sam-vocabulary.jpg: every po
 `hdf bundle` inlines the file as a JSON module (`data:application/json`);
 `hdf dev` serves it as JSON.
 
+### Performance: a pose timeline
+
+Direct a character with a script, not a state per frame (4.0 K4,
+`core/perform.js`):
+
+```js
+const act = perform(SAM, [
+  [0, 'idle'],                                              // where it starts: held from before, no blend
+  [0.5, 'point-r', { ease: 'out', dur: 0.25 }],             // a pose, blended in over dur
+  [1.5, { head: 10 }],                                      // a patch: only the keys it names
+  [2, ['cheer', 'happy'], { anticipate: 0.15, overshoot: 0.1 }],
+  [3, 'walk'],                                              // a cycle is a moving target
+]);
+SAM.place(x, y, s, act.state(t));   // pure in t
+act.events(shot.t0);                // a soft pluck as each named entry lands (not the first; sound: false)
+act.beats;                          // [{ t, from, land, settle, names }]
+```
+
+A name is looked up as a pose, then an expression, then a cycle, the
+puppet's own before the vocabulary's; `'pose:sleep'`, `'emote:sleep'`,
+`'cycle:walk'` say which. A named pose is the whole body: a key the last pose
+put there and this one lacks goes back to rest. An expression is the whole
+face the same way, and an object changes only its keys until something sets
+them again, so a cheer's smile stays when the walk after it has none. A blend
+starts from wherever the key is, so an entry that interrupts another picks it
+up mid-move. `anticipate` spends that many seconds before `t` winding a tenth
+of the change the other way; `overshoot` passes the target by that fraction
+of the change and settles back over half the blend (at least a drawn two).
+Variants (eye, mouth: `actor.variantKeys`) switch half-way. The state is
+evaluated on the twos (`{ on: 1 | 2 | 3 }`) and quantised on each input's
+step, so frames where the pose holds are the same list and dedup
+(`films/pointing.js`: sam points at three labels in turn).
+
+`layer(base, extra, { parts, weight, rest })` adds extra's change from rest
+to base on the named parts, so a walk carries a wave:
+`layer(perform(SAM, [[0, 'walk']]), SAM.pose('wave'), { parts: ['arm-r',
+'fore-r'] })`. Either side may be a state, `t => state` or a performance;
+`dir` and variants are not added (extra's win at a weight of a half or
+more). The recipes that take `actor:` for a subject or figure (A, G, M, U, W,
+X, Z) take `perform:` too, a performance of that actor or its script, played
+in place of the idle (G's walk; the facing still follows the path).
+
 ### Puppets from SVG
 
 A puppet can also be drawn in Figma (or Illustrator, or by hand) and imported

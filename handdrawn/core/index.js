@@ -15,6 +15,7 @@ export { BUILDS, compileStick, stickMap, stickSource } from './stick.js';
 export { poseClip } from './pose.js';
 export { actorOf, EMOTES, VOCABULARY } from './actor.js';
 export { dialogue } from './dialogue.js';
+export { perform, layer } from './perform.js';
 export { AUDIENCES, audienceOf } from './audience.js';
 export { FORMATS, format } from './fit.js';
 export { rng } from './rand.js';

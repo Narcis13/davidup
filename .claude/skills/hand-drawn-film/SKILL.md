@@ -27,6 +27,7 @@ to `handdrawn/films/`) are the worked examples; read one before writing yours.
 | `mini.js` | paperInk | the smallest complete film: a cel, a shot, a sign-off, a score |
 | `mini-voice.js` | paperInk | `mini` with a narrated line: a store sample, `voice(id, t)`, the score ducking under it |
 | `lesson.js` | whiteboard | the teaching recipes AN to AQ (title, labelled, counting, compare) with a stick puppet as the teacher, timed for `audience: 'kids-9'` |
+| `pointing.js` | whiteboard | a pose timeline: `perform(SAM, [[t, pose, { anticipate, overshoot }], ...])` points a stick teacher at three labels in turn, held frames dedup |
 | `written.js` | whiteboard | a caption written by a drawn hand at two words a second: `writeOn` and `writer` on the same node, the hand lifting between words |
 | `narrated.js` | paperInk | an 18 s narrated paragraph with `captions(id)`: words lettered as spoken, the spoken word underlined, timing from `hdf align` |
 | `fox-and-teapot.js` | doodlePastel | **the 3.0 film**: store assets, the fox as `actor:` on recipes AC AJ AK AF, `say()`, a retargeted gallop, a turnaround on a `book3` page, a four-line `dialogue` with a stick teacher |
@@ -197,6 +198,7 @@ A.pose('point-r', k)       // its own pose or the vocabulary's: idle stand point
                            //   kneel fall sleep look-up carry push write present hands-on-hips arms-crossed
 A.cycle('run', t)          // its own cycle, else the vocabulary's (walk run jump breathe talk-hands); else a bob lint reports over 1 s
 A.vocabulary               // { poses, cycles, expressions } that apply to this puppet
+A.rest, A.variantKeys      // its inputs at rest; the inputs that switch drawings (eye, mouth) rather than turn
 A.say('hello there', t0)   // a fragment: mouth per syllable, letters in a bubble, a pluck per syllable
 A.place(x, y, s, state)    // the merged state on the doodle stage (centre x, y; feet at y + .86 s)
 A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its own floor
@@ -211,6 +213,18 @@ A.place(x, y, s, { ...state, shadow: true })   // with a contact shadow on its o
   by its rig box and reads small. On the teaching recipes AN to AQ the actor
   is the teacher, not the subject: it stands at the side (`side`, `h`) and
   presents, points, cheers or thinks from the biped vocabulary.
+- **Performance.** Direct an actor with a script, not a state per frame:
+  `const act = perform(SAM, [[0, 'idle'], [0.5, 'point-r', { dur: 0.25,
+  ease: 'out' }], [1.5, { head: 10 }], [2, ['cheer', 'happy'], { anticipate:
+  0.15, overshoot: 0.1 }]])`, then `SAM.place(x, y, s, act.state(t))` and
+  `act.events(shot.t0)` (a pluck as each pose lands). A name is a pose, an
+  expression or a cycle (`'pose:sleep'` when it is several); a pose is the
+  whole body, an expression the whole face, an object only its keys.
+  `anticipate` is seconds winding a tenth of the change the other way,
+  `overshoot` a fraction past the target, settled. The state is on the twos
+  and quantised, so a held pose dedups. `layer(walk, SAM.pose('wave'), {
+  parts: ['arm-r', 'fore-r'] })` adds a wave to a walk. Recipes A, G, M, U,
+  W, X, Z take `perform:` (the performance, or its script) next to `actor:`.
 - **Speech.** `const line = FOX.say('hello there', 1.25)` then `say: line`
   on AC (the only recipe with the option built in) or, in your own shot,
   spread `line.state(t)` into the state, draw `line.draw(t, x, y, s, state)`

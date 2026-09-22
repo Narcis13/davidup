@@ -10,7 +10,8 @@
 // A recipe with a subject or a figure (A, G, M, U, W, X, Z) also takes actor: a cast member (core/actor.js)
 // stands in the subject's place, idling on the twos (walking, for G's traveller), fitted to the boat's height
 // box (140 units) or, when opts carry `h`, with its rest pose drawn `h` units tall (the drawing, not the box). An actor draws in
-// its own roles whatever the mode.
+// its own roles whatever the mode. With perform (4.0 K4: perform(actor, script), or the script) the actor
+// plays that performance instead of idling (or walking, in G).
 // Coordinates are v1's: laid out for 1080 x 1080 around (540, 540).
 import {
   FPS, paper, night, fill, stroke, dots, group, clip, fx, circle, ellipse, rect, poly, line, spline, xf,
