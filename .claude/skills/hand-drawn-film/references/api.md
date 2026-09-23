@@ -69,7 +69,7 @@ Signatures are abbreviated past ~110 characters: the file is named in each secti
 
 - `cel(name, draw, { box, inputs = {}, desc } = {})` cel(name, draw, { box, inputs: { key: [min, max, step] }, desc }) => (inputs = {}) => group op.
 - `place(x, y, o, node)` place(x, y, [{ rot, scale, flip }], node): a group op with its xf set.
-- `shot(name, dur, draw, { fit = 'anchor', look, recipe, camera } = {})` draw({ t, k, i, T, seed, W, H, CX, CY, look }) => display list recipe and camera are labels for `hdf board` (recipes/ set them); they do not change any frame.
+- `shot(name, dur, draw, { fit = 'anchor', look, recipe, camera, ghost } = {})` draw({ t, k, i, T, seed, W, H, CX, CY, look }) => display list recipe and camera are labels for `hdf board` (recipes/ set them); they do not change any frame.
 - `seq(...kids)` Children one after another; lasts the sum of their durations.
 - `par(...kids)` Stacked; lasts as long as the longest child, shorter children hold their last frame.
 - `hold(dur, child)` The child's last frame (T - 1/12) for `dur` seconds.

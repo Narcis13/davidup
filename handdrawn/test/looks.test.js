@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LOOKS, resolveLook, resolveRole, derive, duotone, pastel, hashLook, hsl, mix, parse, parseLookName } from '../core/looks.js';
+import { LOOKS, resolveLook, resolveRole, derive, duotone, pastel, hashLook, hsl, mix, parse, parseLookName, presetOf, withLook } from '../core/looks.js';
 
 test('eleven presets, each with the full role set', () => {
   assert.deepEqual(Object.keys(LOOKS), ['paperInk', 'risoPop', 'screenSea', 'pencilMinimal', 'blueprintNight', 'doodlePastel', 'cutout', 'whiteboard', 'chalkboard', 'crayon', 'notebook']);
@@ -105,4 +105,20 @@ test('cutout: flat fills on card stock; only it carries a cut-out, and the other
   assert.deepEqual(expand([f], 'cutout').map((o) => o.op), ['fill'], 'flat: no hatch, no dots');
   const specks = (look) => { let n = 0; walk(expand([paper()], look), (op) => { if (op.op === 'specks') n += op.rects.length / 4; }); return n; };
   assert.ok(specks('cutout') > 2 * specks('risoPop'), 'card is coarser than cream');
+});
+
+test('a role by look (RE-11): the preset picks, else base; modifiers after; bad keys and values refused', () => {
+  const lit = { base: 'fills.3', by: { chalkboard: 'light' } };
+  assert.equal(resolveRole(lit, 'whiteboard'), resolveRole('fills.3', 'whiteboard'));
+  assert.equal(resolveRole(lit, 'chalkboard'), resolveRole('light', 'chalkboard'));
+  assert.equal(resolveRole(lit, 'chalkboard~ghost:0.15'), resolveRole('light', 'chalkboard'), 'the preset is the name before ~');
+  assert.equal(resolveRole(lit, derive('chalkboard', { hue: 30 })), resolveRole('light', 'chalkboard'));
+  assert.equal(resolveRole(lit, withLook('chalkboard', { name: 'slate' })), resolveRole('fills.3', 'chalkboard'), 'a look named its own way takes base');
+  assert.equal(resolveRole({ base: 'shade', by: { chalkboard: 'night' }, alpha: 0.5 }, 'chalkboard'), resolveRole({ base: 'night', alpha: 0.5 }, 'chalkboard'));
+  assert.equal(resolveRole({ base: 'ink', by: { chalkboard: { base: 'light', tint: 0.2 } } }, 'chalkboard'), resolveRole({ base: 'light', tint: 0.2 }, 'chalkboard'));
+  assert.deepEqual([presetOf('crayon~sheet:sky'), presetOf({ name: 'slate' }), presetOf(LOOKS.notebook)], ['crayon', null, 'notebook']);
+  assert.throws(() => resolveRole({ base: 'ink', by: { blackboard: 'light' } }, 'whiteboard'), /by names no look 'blackboard'/);
+  assert.throws(() => resolveRole({ base: 'ink', by: { chalkboard: 'glow' } }, 'whiteboard'), /by\.chalkboard: role 'glow' is not in look/);
+  assert.throws(() => resolveRole({ base: 'ink', by: { chalkboard: '#fff' } }, 'chalkboard'), /raw colours are not roles/);
+  assert.throws(() => resolveRole({ base: 'ink', by: ['light'] }, 'chalkboard'), /by wants/);
 });

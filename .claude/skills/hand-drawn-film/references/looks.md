@@ -36,6 +36,13 @@ adjusts one: `{ base: 'fills.0', tint: 0.3 }` (towards white),
 for depth inside one fill (a far ridge `tint: .3`, a near one `shade: .2`);
 never a new hue for depth.
 
+`by` (4.0 RE-11) picks the base per look, so one cel reads on every board:
+`{ base: 'fills.3', by: { chalkboard: 'light' } }` is yellow on the
+whiteboard and white chalk on the slate. The key is the look's preset (its
+name before any `~`); a look it does not name, or one with a name of its
+own, takes `base`. The other fields adjust whichever was picked. Keys must
+be presets and values roles in them, or the role throws.
+
 ## Presets
 
 | preset | look | paper / night | finish | stock |
@@ -119,7 +126,11 @@ look's name (so caches never collide): `'risoPop~hand:narcis'`,
   `seq(a, cut('erase', 0.5, a, b), b)` the cut reveals b over a's ghost and b
   keeps it; a hold of a shot keeps that shot's ghost; the first node of a seq
   has what its seq had. `look.ghost` is the field (`withLook(l, { ghost })`).
-  Lint reads shots alone, so a ghost's words are not counted.
+  Lint reads shots alone, so a ghost's words are not counted. One shot can
+  differ (4.0 RE-12): `shot(name, dur, draw, { ghost: 0 })`, or `ghost: 0`
+  in any recipe's options, draws that shot clean (a crowded grid) while the
+  chapter keeps its ghost; an alpha gives it its own, even under a look
+  with none.
 - `~sheet:<name>` (4.0 L3): another sheet of paper under any look: a
   `SHEETS` name (construction paper: cream, sky, pink, mint, butter, lilac,
   peach, grey), a `PASTELS` name, or any colour (`'crayon~sheet:#c4dcee'`).

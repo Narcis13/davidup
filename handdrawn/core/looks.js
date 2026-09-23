@@ -239,8 +239,10 @@ export function handOf(look) {
 }
 
 // The alpha a look keeps the shot before at (4.0 L2's ghost), 0 for none, read without resolving the look (a
-// '~from:' name needs the film's assets): a look object's own field, else the name's last '~ghost:' modifier.
-export function ghostOf(look) {
+// '~from:' name needs the film's assets): a shot's own `ghost` first (4.0 RE-12), else a look object's own
+// field, else the name's last '~ghost:' modifier.
+export function ghostOf(look, shot) {
+  if (shot?.ghost !== undefined) return shot.ghost;
   if (!look) return 0;
   if (typeof look === 'object' && look.palette) return look.ghost ?? 0;
   const { base, mods } = parseLookName(typeof look === 'string' ? look : look.name ?? '');
@@ -374,7 +376,26 @@ export function hashLook(l) {
 
 // ---------- roles ----------
 
-// 'ink' | 'fills.2' | { base, tint?, shade?, alpha?, hue?, mix?: [role, t] } => CSS colour.
+// The preset a look was made from: the name before any '~' modifier, or null for a look named otherwise.
+export function presetOf(look) {
+  const base = parseLookName(typeof look === 'string' ? look : look?.name ?? '').base;
+  return Object.hasOwn(LOOKS, base) ? base : null;
+}
+
+// A role's `by` (4.0 RE-11), checked once per object: every key a preset, every value a role in that preset.
+const byChecked = new WeakSet();
+function checkBy(by) {
+  if (byChecked.has(by)) return;
+  if (!by || typeof by !== 'object' || Array.isArray(by)) throw new TypeError(`role: by wants { <look>: role }, got ${JSON.stringify(by)}`);
+  for (const [k, r] of Object.entries(by)) {
+    if (!Object.hasOwn(LOOKS, k)) throw new Error(`role: by names no look '${k}' (expected ${Object.keys(LOOKS).join(', ')})`);
+    try { resolveRole(r, LOOKS[k]); } catch (e) { throw new Error(`role: by.${k}: ${e.message}`); }
+  }
+  byChecked.add(by);
+}
+
+// 'ink' | 'fills.2' | { base, by?: { <look>: role }, tint?, shade?, alpha?, hue?, mix?: [role, t] } => CSS
+// colour. `by` picks the role for the look's preset (its name before any '~'), else `base` is used.
 export function resolveRole(role, look) {
   const p = resolveLook(look).palette;
   if (typeof role === 'string') {
@@ -391,7 +412,9 @@ export function resolveRole(role, look) {
     return v;
   }
   if (!role || typeof role !== 'object' || role.base === undefined) throw new TypeError(`role: expected a name or { base, ... }, got ${JSON.stringify(role)}`);
-  let c = resolveRole(role.base, look);
+  let base = role.base;
+  if (role.by !== undefined) { checkBy(role.by); const k = presetOf(resolveLook(look)); if (k && Object.hasOwn(role.by, k)) base = role.by[k]; }
+  let c = resolveRole(base, look);
   if (role.hue) c = rotateHue(c, role.hue);
   if (role.mix) c = mix(c, resolveRole(role.mix[0], look), role.mix[1]);
   if (role.tint) c = tint(c, role.tint);

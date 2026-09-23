@@ -82,12 +82,14 @@ export function place(x, y, o, node) {
 // ---------- timeline nodes ----------
 
 // draw({ t, k, i, T, seed, W, H, CX, CY, look }) => display list
-// recipe and camera are labels for `hdf board` (recipes/ set them); they do not change any frame.
-export function shot(name, dur, draw, { fit = 'anchor', look, recipe, camera } = {}) {
+// recipe and camera are labels for `hdf board` (recipes/ set them); they do not change any frame. ghost (4.0
+// RE-12) overrides the look's ghost for this shot: 0 for none, or an alpha.
+export function shot(name, dur, draw, { fit = 'anchor', look, recipe, camera, ghost } = {}) {
   if (typeof name !== 'string' || !name) throw new TypeError('shot: needs a name');
   if (typeof draw !== 'function') throw new TypeError(`shot ${name}: draw must be a function`);
   fitFor(fit, format(), format());   // validates the mode
-  return Object.freeze({ kind: 'shot', name, dur, n: frames(dur, `shot ${name}`), draw, fit, look, recipe, camera });
+  if (ghost !== undefined && !(typeof ghost === 'number' && ghost >= 0 && ghost <= 1)) throw new RangeError(`shot ${name}: ghost wants 0 (none) or an alpha in (0, 1], got ${ghost}`);
+  return Object.freeze({ kind: 'shot', name, dur, n: frames(dur, `shot ${name}`), draw, fit, look, recipe, camera, ghost });
 }
 
 // Children one after another; lasts the sum of their durations.
@@ -250,7 +252,7 @@ function evalNode(node, k, ctx, look) {
       const own = node.look ?? look;
       const s = evalShot(ctx.film, node, k, { i: ctx.i, target: ctx.target, look });
       let list = s.wrap(s.list, s.seed);
-      const ga = ctx.ghost ? ghostOf(s.look) : 0;
+      const ga = ctx.ghost ? ghostOf(s.look, node) : 0;
       if (ga > 0) list = withGhost(list, ctx, ga);
       if (own) list = [lookNode(own, list)];
       ctx.hit ??= { name: node.name, k, look: s.look };

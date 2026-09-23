@@ -107,6 +107,24 @@ test('the ghost: each shot draws the one before, half erased, over its stock; cu
   assert.equal(top[1].name, 'ghost');
 });
 
+test('a shot\'s own ghost (RE-12): 0 draws it clean under a ghosted look, an alpha ghosts it under a plain one', () => {
+  const a = shot('a', 0.5, () => [paper(), fill(circle(540, 540, 200), 'fills.0')]);
+  const b = shot('b', 0.5, () => [paper(), stroke(circle(540, 540, 100), 'inks.1', { w: 6 })], { ghost: 0 });
+  const c = shot('c', 0.5, () => [paper(), stroke(circle(300, 300, 50), 'ink', { w: 6 })], { ghost: 0.3 });
+  const tl = seq(a, b, hold(0.5, b), c);
+  const ghosted = film({ name: 'g', look: 'chalkboard~ghost:0.15', timeline: tl });
+  const plain = film({ name: 'g', look: 'chalkboard', timeline: tl });
+  assert.equal(ghosts(frame(ghosted, 7).list), 0, 'b: none, though the look has one');
+  assert.equal(ghosts(frame(ghosted, 13).list), 0, 'the hold of b: b\'s');
+  const alphaOf = (list) => { let v; walk(list, (op) => { if (op.name === 'ghost') v = op.kids[0].args.ghost; }); return v; };
+  assert.equal(alphaOf(frame(ghosted, 19).list), 0.3, 'c: its own alpha over the look\'s');
+  assert.equal(alphaOf(frame(plain, 19).list), 0.3, 'c under a look with no ghost');
+  assert.equal(ghosts(frame(plain, 7).list), 0);
+  assert.equal(ghostOf('chalkboard~ghost:0.15', { ghost: 0 }), 0);
+  assert.equal(ghostOf('chalkboard~ghost:0.15', {}), 0.15);
+  for (const g of [-0.1, 1.5, NaN, '0.2']) assert.throws(() => shot('x', 0.5, () => [], { ghost: g }), /ghost wants 0 \(none\) or an alpha/);
+});
+
 test('strokeStarts and chalkTaps: a tap where the chalk comes down on each line, never two too close', () => {
   const t = text('chalk it', 100, 100, { size: 60 });
   const starts = strokeStarts(t, { wps: 2 }), plan = writing(t, { wps: 2 });

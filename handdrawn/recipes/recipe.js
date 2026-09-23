@@ -26,7 +26,7 @@ export function recipe(letter, name, defaults, layer, { ground = 'paper', anchor
       ...norm(draw(ctx, o)),
       ...anchors.map((a) => meta('anchor', a)),
       (o.crop ?? crop) && meta('intent', 'crop'),
-    ], { recipe: letter, camera: o.camera ?? camera, fit: o.fit, look: o.look });
+    ], { recipe: letter, camera: o.camera ?? camera, fit: o.fit, look: o.look, ghost: o.ghost });
   };
   R.layer = (ctx, opts = {}) => layer(ctx, prep({ ...defaults, ...opts }));
   if (square) R.squareLayer = (ctx, opts = {}) => norm(draw(ctx, prep({ ...defaults, ...opts })));

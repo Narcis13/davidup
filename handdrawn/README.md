@@ -404,6 +404,7 @@ look resolves them.
 | `accents.N` | four loud colours |
 | `inks.N` | riso / screen print inks |
 | `{ base, tint, shade, alpha, hue, mix }` | an adjusted role: `{ base: 'fills.0', tint: 0.3 }` |
+| `{ base, by: { <look>: role } }` | a role per look (RE-11): `{ base: 'fills.3', by: { chalkboard: 'light' } }` is yellow on the whiteboard, chalk on the slate |
 
 | preset | finish | paper |
 |---|---|---|

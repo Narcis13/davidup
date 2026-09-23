@@ -19,10 +19,10 @@
 // 18.92   8.08   moon                       whiteboard                      AO      sam      a pluck a label                                                                          the moon labelled, leader lines, the bright side ringed
 // 27.00   2.00   hold                       whiteboard                      -       -        -                                                                                        holds moon
 // chapter 2: the sun lights half (29.00 to 55.75)
-// 29.00   4.58   card: the sun lights half  chalkboard~ghost:0.08           AN      sam      -                                                                                        title "the sun lights half"; sam presents
-// 33.58   10.42  orbit                      chalkboard~ghost:0.08           -       sam      voice moon-sun                                                                           the sun, the earth, the moon going round it lit on the sun's side; what the earth sees, inset
-// 44.00   9.75   count                      chalkboard~ghost:0.08           AP      sam      a pop a shape                                                                            the eight shapes counted, a digit and a tally mark each
-// 53.75   2.00   hold                       chalkboard~ghost:0.08           -       -        -                                                                                        holds count
+// 29.00   4.58   card: the sun lights half  chalkboard~ghost:0.15           AN      sam      -                                                                                        title "the sun lights half"; sam presents
+// 33.58   10.42  orbit                      chalkboard~ghost:0.15           -       sam      voice moon-sun                                                                           the sun, the earth, the moon going round it lit on the sun's side; what the earth sees, inset
+// 44.00   9.75   count                      chalkboard~ghost:0.15           AP      sam      a pop a shape                                                                            the eight shapes counted, a digit and a tally mark each
+// 53.75   2.00   hold                       chalkboard~ghost:0.15           -       -        -                                                                                        holds count
 // chapter 3: one month (55.75 to 83.83)
 // 55.75   2.58   card: one month            whiteboard                      AN      sam      -                                                                                        title "one month"; sam presents
 // 58.33   14.50  month                      whiteboard                      AS      sam      -                                                                                        the month as a ring, the names along it, a marker going round
@@ -109,10 +109,11 @@ function circlePts(x, y, r, n = 14) { const out = []; for (let j = 0; j < n; j++
 
 // The eight shapes as cels, 0 new, 2 first half, 4 full, 6 last half (AP counts them, AS and AW show four).
 const R0 = 60;
-const phaseCel = (k, chalk = false) => cel(`phase${k}${chalk ? '-chalk' : ''}`, () => [moonOps(0, 0, R0, (k / 8) * 2 * Math.PI, chalk ? { seed: 40 + k, lit: 'light', dark: 'night', alpha: 0.9 } : { seed: 40 + k })],
-  { box: [-66, -66, 132, 132], desc: `the moon, shape ${k} of 8 (0 new, 2 first half, 4 full, 6 last half)${chalk ? ', in white chalk on the slate' : ''}` });
+// One set for every board (RE-11): yellow and shade on the whiteboard, white chalk on the slate.
+const LIT = { base: 'fills.3', by: { chalkboard: 'light' } }, DARK = { base: 'shade', by: { chalkboard: 'night' } };
+const phaseCel = (k) => cel(`phase${k}`, () => [moonOps(0, 0, R0, (k / 8) * 2 * Math.PI, { seed: 40 + k, lit: LIT, dark: DARK })],
+  { box: [-66, -66, 132, 132], desc: `the moon, shape ${k} of 8 (0 new, 2 first half, 4 full, 6 last half); white chalk on the chalkboard` });
 export const PHASES = Array.from({ length: 8 }, (_, k) => phaseCel(k));
-export const CHALK_PHASES = Array.from({ length: 8 }, (_, k) => phaseCel(k, true));
 const [phase0, , phase2, , phase4, , phase6] = PHASES;
 // The big half-lit moon AO labels, 190 units across its radius.
 export const moonFace = cel('moonFace', () => [moonOps(0, 0, 190, Math.PI / 2, { seed: 7, alpha: 0.7 })],
@@ -271,10 +272,11 @@ const orbit = shot('orbit', up(orbitCaps.until), (ctx) => {
   ];
 });
 // count: the eight shapes counted (AP), the teacher on the left.
-const COUNT_O = { name: 'count', actor: sam, audience, items: (ctx, j) => CHALK_PHASES[j]({}), n: 8, cols: 4, gap: 190, scale: 1, label: 'shapes' };
+const COUNT_O = { name: 'count', actor: sam, audience, items: (ctx, j) => PHASES[j]({}), n: 8, cols: 4, gap: 190, scale: 1, label: 'shapes', ghost: 0 };
 const count = counting(COUNT_O);
 
-const LOOK2 = 'chalkboard~ghost:0.08';
+// The chalk chapter keeps the shot before, half wiped; the count's grid is drawn on a clean slate (RE-12).
+const LOOK2 = 'chalkboard~ghost:0.15';
 const chapter2 = lookOn(LOOK2, chapter({ title: 'the sun lights half', actor: sam, audience, card: card('the sun lights half') }, orbit, count));
 
 // ---------- 3. one month ----------

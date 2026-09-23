@@ -29,12 +29,12 @@ card: false
 ---
 
 # the sun lights half
-look: chalkboard~ghost:0.08
+look: chalkboard~ghost:0.15
 - voice: moon-sun
   name: orbit
   by: sam
   what: the sun, the earth, the moon going round it lit on the sun's side; what the earth sees, inset
-- show: counting({ items: phase, n: 8, cols: 4, gap: 190, scale: 1, label: 'shapes' })
+- show: counting({ items: phase, n: 8, cols: 4, gap: 190, scale: 1, label: 'shapes', ghost: 0 })
   name: count
   what: the eight shapes counted, a digit and a tally mark each
   sound: a pop a shape
