@@ -192,7 +192,9 @@ sam --name walk` needs no map because its joints are the biped rig's.
 For a character a child drew, print the **rig sheet** (`hdf hand --template
 --rig biped > out/rig-sheet.pdf`), have them draw a piece in each box, and
 `hdf sketch photo.jpg --sheet biped --name mia` makes a puppet with the same
-biped names that walks from the vocabulary (details in references/assets.md).
+biped names that walks from the vocabulary (details in references/assets.md);
+`--face stick` grafts on a face that talks when the head is drawn without one,
+and `--roles` names colours the printed table got wrong.
 With no sheet, `hdf sketch drawing.png --auto --name mia` (an `.svg` always)
 auto-rigs one standing figure, arms clear of the body; rough, so check
 `out/sketch-<id>-rig.jpg` and fix pivots in the workbench (`hdf dev`, R).
@@ -715,7 +717,9 @@ These need eyes, and they are the review list:
 - **Doodle**: a photo with a recorded source and licence; drawings that
   change what the object is rather than decorate it; see engines.md.
 - **Cast.** On the model sheet, every expression reads at 240 px and the
-  views agree (same fox from the side and the front). A cycle strip reads as
+  views agree (same fox from the side and the front). Look at it once in a
+  dark look too (`--look chalkboard`): a `light` fill on skin is invisible on
+  the whiteboard. A cycle strip reads as
   its verb: a walk walks, the gallop is the horse's. A retargeted cycle whose
   feet slide needs `ground` in the map, not a fix in the film.
 - **Speech.** The mouth moves only while letters arrive; the bubble sits

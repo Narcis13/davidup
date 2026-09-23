@@ -807,6 +807,8 @@ A child draws a character in labelled boxes and it walks (4.0 W1,
 hdf hand --template --rig biped > out/rig-sheet.pdf          # print it (--rig biped,biped-front adds the face-on page)
 hdf sketch mia.jpg --sheet biped --name mia                  # the photo -> the puppet 'mia' and its sheet, walking
 hdf sketch mia.jpg mia-front.jpg --name mia                  # with the face-on page: views side and front
+hdf sketch mia.jpg mia-front.jpg --name mia --face stick     # the stick's face grafted on, so it talks (4.0 RE-3)
+hdf sketch mia.jpg --name mia --roles ask                    # the colour table to mia.roles.json; --roles '#hex=role,...'
 hdf hand --template --rig biped --drawn > out/rig-drawn.jpg  # a sheet drawn in by the package (tests, a demo)
 ```
 
@@ -827,8 +829,16 @@ eye), the rest thinned to strokes as the hand sheet thins letters. Colour
 with the ink round it, so a coloured-in area is one `fill` with `finish: true`
 that reaches under its outline and swallows colouring over the line; a thin
 run of colour is a stroke of its own. The colour most lines are drawn in is
-`ink`, as is any dark grey; the others get roles from `autoRoles` (the nearest
-house fill or accent), so looks recolour the drawing. A greyscale photo still
+`ink`, as is any dark grey, unless it is mostly a fill lighter than the pen by
+0.12 or more (dark trousers: `shade`); a skin tone (hue 15 to 45°) is `skin`,
+a role every look has; the others get roles from `autoRoles` (the nearest
+house fill or accent), so looks recolour the drawing, and `--roles` (as `hdf
+svg` takes it, or inline `#hex=role,...`) names any of them. Paper the lines
+close in on a piece that is coloured in (a pompom, an eye's white; half a
+percent of the piece or more) is kept as a `light` fill (4.0 RE-5); a drawing
+in line only keeps its insides open. `--face stick` grafts the stick's face
+onto a head drawn without one (`graftFace`, 4.0 RE-3), so it lip-syncs and
+emotes. A greyscale photo still
 reads, but light colours drop out and dark ones become ink.
 
 The puppet has the standard biped names in painter order far arm, far leg,
@@ -1546,7 +1556,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf hand --export-ttf <id\|house> [--family] [--pen 4.5] [--no-composites] [--text '...'] [--out dir]` | a hand as a TrueType font (4.0 D3): `out/<id>.ttf`, each glyph its centre lines swept by the pen (pressure, slant, overshoot and hook as `handText` pens them), composed glyphs as composites; `out/<id>-ttf.png` the proof, the font set by skia over the hand lettered |
 | `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip (its own, else the vocabulary's) → `assets/sheets/<id>.jpg` |
 | `hdf hand --template --rig biped[,biped-front] [--paper] [--drawn]` | the rig sheet a character is drawn on (4.0 W1), a box a piece; `--drawn` one drawn in by the package, as a JPEG |
-| `hdf sketch <photo.jpg ...> --name <id> [--sheet biped\|biped-front] [--licence] [--cycle walk] [--root] [--no-sheet]` | a photographed rig sheet into the store as a puppet with the standard biped names (lines as strokes, coloured-in areas as fills, the face-on sheet adding the front view); `out/sketch-<id>-trace.jpg` and its sheet with the walk as the strip |
+| `hdf sketch <photo.jpg ...> --name <id> [--sheet biped\|biped-front] [--face none\|stick] [--face-r] [--roles ask\|file\|#hex=role,...] [--licence] [--cycle walk] [--root] [--no-sheet]` | a photographed rig sheet into the store as a puppet with the standard biped names (lines as strokes, coloured-in areas as fills, the face-on sheet adding the front view); `out/sketch-<id>-trace.jpg` and its sheet with the walk as the strip |
 | `hdf sketch <drawing.png\|.svg> --auto --name <id> [--view front\|side] [--licence] [--cycle walk] [--root] [--no-sheet]` | one drawing auto-rigged (4.0 W3): cut at the joints its skeleton gives, stood at rest with the pose `drawn` its own; `out/sketch-<id>-rig.jpg` and its sheet |
 | `hdf script <brief.md> [--out film.js] [--dry] [--force]`, `hdf script --check <film>` | a brief in the script dialect to the beat sheet and a timeline stub (4.0 E5, below) |
 | `hdf lint <film> [--audience <name>] [--ar 16:9]` | the rules over every frame's list; exits 1 on any finding |

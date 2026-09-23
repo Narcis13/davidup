@@ -83,12 +83,15 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     [--no-face] [--root dir] [--no-sheet]   a stick puppet: joints and bones compiled
                                     to parts in three views, a face, standard biped names; writes src/<id>.stick.json
                                     and imports it (then hdf retarget --clip me --to <id> --name walk, no map)
-  sketch  <photo.jpg ...> --name <id> [--sheet biped|biped-front] [--licence own] [--cycle walk] [--root dir] [--no-sheet]
+  sketch  <photo.jpg ...> --name <id> [--sheet biped|biped-front] [--face none|stick] [--face-r 38] [--roles ask|file|#hex=role,...]
+          [--licence own] [--cycle walk] [--root dir] [--no-sheet]
                                     a character drawn on a rig sheet (hdf hand --template --rig biped) into the store
                                     as a puppet: each box's lines as strokes, its coloured-in blobs as fills, pinned at
                                     the printed dots, the standard biped names, the other side mirrored (a face-on
                                     sheet adds the front view); writes out/sketch-<id>-trace.jpg and its sheet with the
-                                    vocabulary's walk (then hdf retarget --clip me --to <id> --name walk, no map)
+                                    vocabulary's walk (then hdf retarget --clip me --to <id> --name walk, no map);
+                                    --face stick grafts the stick's face on a head drawn without one, so it talks;
+                                    --roles names colours' roles (ask: the table to <id>.roles.json, then stops)
           <drawing.png|.svg> --auto --name <id> [--view front|side]
                                     one drawing with no sheet (4.0 W3): its skeleton labelled, cut at the joints,
                                     each piece read as a box, limbs hung at rest and the pose 'drawn' its own;

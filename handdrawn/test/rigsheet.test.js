@@ -15,8 +15,9 @@ import { puppet } from '../core/puppet.js';
 import { rng } from '../core/rand.js';
 import { retarget } from '../core/retarget.js';
 import { RIGS } from '../core/rig.js';
-import { K, PIECES, RIG, RIG_SHEETS, jointsIn, readRigSheet, rigBoxes, rigPuppet } from '../core/rigsheet.js';
-import { stickMap } from '../core/stick.js';
+import { K, PIECES, RIG, RIG_SHEETS, jointsIn, readRigSheet, rigBoxes, rigPuppet, rolesOf } from '../core/rigsheet.js';
+import { FACE_PARTS, graftFace, stickMap } from '../core/stick.js';
+import { LOOKS, resolveRole } from '../core/looks.js';
 import { drawnRigSheet, planesOf, rigTemplatePdf, TEST_FIGURE } from '../cli/sketch.mjs';
 import { letterSheet, synthHand } from '../cli/hand.mjs';
 import { poseJSON, walker } from './walker.js';
@@ -263,9 +264,101 @@ test('hdf hand --template --rig, hdf sketch: one command from a photographed she
     assert.equal(again.code, 0, again.out);
     assert.match(again.out, /keeps cycle walk \(retargeted from me\)/);
 
+    // 4.0 RE-3, RE-4: a face grafted on, a colour named; --roles ask writes the table and stops.
+    const faced = hdf('sketch', file, '--name', 'mia', '--root', root, '--out', dir, '--no-sheet', '--face', 'stick', '--roles', '#d8433b=accents.0');
+    assert.equal(faced.code, 0, faced.out);
+    assert.match(faced.out, /parts: .* head eye pupil brow-l brow-r mouth arm-r .* \(the face grafted: it talks\)/);
+    assert.match(faced.out, /^#d\w{5} +\d+ +accents\.0 +map$/m);
+    assert.match(faced.out, /^#f\w{5} +\d+ +skin +auto$/m);
+    assert.match(faced.out, /keeps cycle walk/);
+    const asked = hdf('sketch', file, '--name', 'mia', '--root', root, '--roles', 'ask');
+    assert.equal(asked.code, 0, asked.out);
+    assert.equal(JSON.parse(readFileSync(join(dir, 'mia.roles.json'), 'utf8'))[asked.out.match(/^(#\w{6}) +\d+ +skin/m)[1]], 'skin');
+    assert.doesNotMatch(asked.out, /puppet {2}[0-9a-f]{40}/, 'nothing stored');
+    assert.equal(hdf('sketch', file, '--name', 'x', '--root', root, '--face', 'drawn').code, 2);
+    assert.equal(hdf('sketch', file, '--name', 'x', '--root', root, '--face-r', '40').code, 2);
+    assert.match(hdf('sketch', file, '--name', 'x', '--root', root, '--roles', '#d8433b=nope').out, /roles: #d8433b -> "nope"/);
+
     assert.match(hdf('sketch', file, '--sheet', 'biped-front', '--name', 'x', '--root', root).out, /the photo is the biped sheet, not biped-front/);
     assert.equal(hdf('sketch', file, '--root', root).code, 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---------- 4.0 RE-3 to RE-5: a face that talks, roles, paper inside the lines ----------
+
+test('rig sheet (RE-3): graftFace gives a sketched puppet the stick face after its head, in each of its views', () => {
+  for (const reads of [[side()], [side(), readOf('biped-front')]]) {
+    const { payload } = rigPuppet(reads, { name: 'mia' }), g = graftFace(payload);
+    const names = Object.keys(g.parts), at = names.indexOf('head');
+    assert.deepEqual(names.slice(at, at + 6), ['head', ...FACE_PARTS]);
+    assert.deepEqual(names.filter((n) => !FACE_PARTS.includes(n)), Object.keys(payload.parts), 'the sketch keeps its parts and order');
+    assert.deepEqual(g.inputs.eye, ['open', 'happy', 'sleep', 'wide', 'half', 'wink']);
+    assert.deepEqual(g.poses.rest, { eye: 'open', mouth: 0 });
+    // One view: plain op lists, as the sketch's own; two: by view.
+    const m = g.parts.mouth.variants['3'];
+    if (payload.views.length === 1) assert.ok(Array.isArray(m)); else assert.deepEqual(Object.keys(m), ['side', 'front']);
+    assert.deepEqual(lintPuppet(g, 'mia'), []);
+    const p = puppet(g);
+    for (const mouth of [0, 3, 5]) assert.ok(p({ ...p.rest, mouth, eye: 'happy' }).kids.length);
+    assert.throws(() => graftFace(g), /has a face already \(eye, pupil, brow-l, brow-r, mouth\)/);
+  }
+  const bare = rigPuppet(side(), { name: 'mia' }).payload;
+  assert.throws(() => graftFace({ ...bare, skeleton: undefined }), /no skeleton with hip, neck and head/);
+  // The head's radius: 23 of the sheet's 26 mm by default, or as given.
+  const eyeX = (g) => Math.max(...g.parts.pupil.ops.flatMap((o) => o.path.$p[0].filter((_, i) => i % 2 === 1)));
+  assert.ok(eyeX(graftFace(bare, { r: 60 })) > eyeX(graftFace(bare)));
+});
+
+// rolesOf over made-up reads: one piece per mark, colours as a photo reads them.
+const readsOf = (fills, pen = [0.12, 0.09, 0.18]) => [{ pieces: { body: {
+  lines: [{ rgb: pen, len: 400, w: 0.8 }],
+  blobs: fills.map(([h, area]) => ({ rgb: hexRgb(h), area })),
+  dots: [],
+} } }];
+
+test('rig sheet (RE-4): skin is skin, a dark fill lighter than the pen is shade, and --roles names the rest', () => {
+  const { table, roleOf } = rolesOf(readsOf([['#3b6fd4', 900], ['#f3c9a2', 700], ['#4b4f58', 300], ['#26221f', 60], ['#f2b705', 200]]));
+  const role = (h) => roleOf(hexRgb(h));
+  assert.equal(role('#f3c9a2'), 'skin');
+  assert.equal(role('#4b4f58'), 'shade', 'dark trousers, the pen darker still');
+  assert.equal(role('#26221f'), 'ink', 'a black shoe as dark as the pen stays ink');
+  assert.equal(roleOf([0.12, 0.09, 0.18]), 'ink', 'the pen');
+  assert.ok(table.every((r) => r.how === 'auto'));
+  // Skin reads as skin in every look, the pale ones and the boards.
+  for (const l of Object.values(LOOKS)) assert.match(resolveRole('skin', l), /^#[0-9a-f]{6}$/, l.name);
+  assert.equal(resolveRole('skin', { ...LOOKS.paperInk, name: 'old', palette: { ...LOOKS.paperInk.palette, skin: undefined } }).length, 7, 'a look made before skin: its blush, paled');
+  // Not skin: a red, a yellow, a brown too dark, a pink.
+  for (const h of ['#d8433b', '#f2b705', '#6e3f1c', '#f08a8a']) assert.notEqual(rolesOf(readsOf([[h, 500]])).roleOf(hexRgb(h)), 'skin', h);
+
+  // --roles: a colour within 0.15 of a given one takes its role; the nearest given wins; the rest stay auto.
+  const given = rolesOf(readsOf([['#3b6fd4', 900], ['#f2b705', 200], ['#f3c9a2', 700]]), { roles: { '#3a70d0': 'fills.0', '#f2b705': 'fills.3', '#00ff00': 'accents.3' } });
+  assert.equal(given.roleOf(hexRgb('#3b6fd4')), 'fills.0');
+  assert.equal(given.roleOf(hexRgb('#f2b705')), 'fills.3');
+  assert.equal(given.roleOf(hexRgb('#f3c9a2')), 'skin');
+  assert.deepEqual(given.table.map((r) => r.how).sort(), ['auto', 'auto', 'map', 'map']);
+  assert.throws(() => rolesOf(readsOf([]), { roles: { '#3b6fd4': 'fills.9x' } }), /roles: #3b6fd4 -> "fills.9x"/);
+  assert.throws(() => rolesOf(readsOf([]), { roles: { blue: 'fills.0' } }), /'blue' is not a colour/);
+});
+
+test('rig sheet (RE-5): paper the lines close in on a coloured-in drawing is a light fill; a drawing in line only stays open', () => {
+  const POM = '#fff6d8', pom = [[2, -55, 5.5, 5]].map(([x, y, rx, ry]) => Array.from({ length: 19 }, (_, i) => [x + rx * Math.cos((i / 18) * 2 * Math.PI), y + ry * Math.sin((i / 18) * 2 * Math.PI)]))[0];
+  const T = TEST_FIGURE.biped, head = { ...T.head, fills: [...T.head.fills, [POM, pom]], lines: [...T.head.lines, pom] };
+  const lineOnly = { lines: T.body.lines };
+  const p = photograph(drawnRigSheet({ sheet: 'biped', dpi: 200, figure: { ...T, head, body: lineOnly } }), QUAD, { seed: 9 });
+  const read = readRigSheet(p.img, { rgb: p.rgb });
+  const paper = read.pieces.head.blobs.filter((b) => b.paper);
+  assert.equal(paper.length, 1, 'the pompom');
+  const [cx, cy] = centroid(paper[0].subs[0]);
+  assert.ok(Math.hypot(cx - 2, cy + 55) < 1.5, `pompom at ${cx.toFixed(1)}, ${cy.toFixed(1)}`);
+  assert.ok(Math.abs(paper[0].area - Math.PI * 5.5 * 5) < 0.35 * Math.PI * 5.5 * 5, `area ${paper[0].area}`);
+  assert.deepEqual(read.pieces.body.blobs.filter((b) => b.paper), [], 'a body in line only has no fill');
+  const { payload, table } = rigPuppet(read, { name: 'mia' });
+  const light = payload.parts.head.ops.filter((o) => o.role === 'light');
+  assert.equal(light.length, 1);
+  assert.equal(light[0].finish, true);
+  assert.ok(!table.some((r) => r.role === 'paper'), 'the pompom takes no part in the colours');
+  assert.equal(payload.parts.body.ops.filter((o) => o.op === 'fill').length, 0);
+});
+

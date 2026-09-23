@@ -31,13 +31,15 @@ import { FRAME, PAPERS, drawMarks, frameMap, frameOrigin, readCode, sample, skel
 import { VOCABULARY } from './actor.js';
 import { bounds, circle, ellipse, fill, mkPath, poly, serialise, stroke } from './list.js';
 import { VIEW_DIRS, puppet } from './puppet.js';
-import { autoRoles } from './svg.js';
+import { LOOKS, hsl, parse, resolveRole } from './looks.js';
+import { autoRoles, distance } from './svg.js';
 import { traceAlpha } from './trace.js';
 
 export const PPM = 6;                          // pixels per mm when reading
 export const INK = 0.45, INK_C = 0.22, SOFT = 0.78, CHROMA = 0.16;   // of the paper: ink (dark, grey); any mark; a colour
 export const BLOB = 2.6;                       // mm: a mark this thick is filled, not a line
 export const MARGIN = 1.2;                     // mm of a box's inside left out, so its border never reads
+export const PAPER_IN = 0.005;                 // of a drawing's area: paper closed in by its lines kept as a fill
 
 // The figure, side view, in mm: the ground at 0, up negative, facing right. units: its height in the puppet.
 export const RIG = Object.freeze({
@@ -163,6 +165,8 @@ export function drawRigTemplate(ctx, paper = 'a4', sheet = 'biped') {
     'from the rings at the shoulders, the legs from the rings at the hips. Leave a box empty to use the side one.',
     'Photograph the whole sheet, flat, all four black corners and the squares along the bottom in the picture.',
   ];
+  // 4.0 RE-3: hdf sketch --face stick grafts a face that moves onto a head drawn without one.
+  say.push('For a face that talks, leave the face off the head and use hdf sketch --face stick.');
   say.forEach((line, i) => ctx.fillText(line, 0, 17 + 3.2 * i));
 
   for (const b of rigBoxes(sheet)) {
@@ -270,8 +274,8 @@ function colourClasses(colour, C, L, rgb, pc, n, least) {
 }
 
 // A box's rasters (lum 0..1 and, when the photo has colour, r g b) -> { lines: [{ pts, w, rgb, closed, len }],
-// blobs: [{ subs, rgb, area }], dots: [{ c, r, rgb }] } in raster pixels, blobs in painter order (coloured-in
-// areas biggest first, then solid ink). skip: pixels no colour is read from (the printed dot and rings).
+// blobs: [{ subs, rgb, area, ink?, paper? }], dots: [{ c, r, rgb }] } in raster pixels, blobs in painter order
+// (coloured-in areas biggest first, then paper the lines close in, then solid ink). skip: pixels no colour is read from (the printed dot and rings).
 //
 // Ink is dark and grey (under INK of the paper, less colourful than INK_C): a pen's lines, a black shoe, an eye.
 // Colour is any other mark (under SOFT of the paper, or more colourful than CHROMA) that is not the grey halo
@@ -331,6 +335,29 @@ export function readBox({ lum, rgb = null, skip = null }, { ppm = PPM, blob = BL
     }
   }
   blobs.push(...found.sort((a, b) => b.area - a.area));
+  // Paper inside the lines (4.0 RE-5): a pompom or an eye's white, left the paper's colour in a drawing that is
+  // coloured in elsewhere, reads as no colour at all. An area of paper the marks close in (clear of the box's
+  // edge, not a sliver) of at least PAPER_IN of the drawing is kept as a fill the look's `light` paints, reaching
+  // under the line round it as a coloured-in area does. A drawing in line only has no such fills: its insides stay
+  // open, as drawn.
+  if (found.length) {
+    const marks = new Uint8Array(n);
+    for (let i = 0; i < n; i++) marks[i] = ink[i] | colour[i] | covered[i];
+    const shut = closing(marks, w, h, 0.25 * ppm), open = new Uint8Array(n);
+    for (let i = 0; i < n; i++) open[i] = shut[i] ? 0 : 1;
+    const holes = components(opening(open, w, h, 0.5 * ppm), w, h).filter((c) => c.box[0] > 0 && c.box[1] > 0 && c.box[2] < w - 1 && c.box[3] < h - 1);
+    let outside = 0;
+    for (const c of components(open, w, h)) if (c.box[0] === 0 || c.box[1] === 0 || c.box[2] === w - 1 || c.box[3] === h - 1) outside += c.area;
+    const least = Math.max(3 * ppm * ppm, PAPER_IN * (n - outside));
+    for (const c of holes.sort((a, b) => b.area - a.area)) {
+      if (c.area < least) continue;
+      const hole = new Uint8Array(n);
+      for (const i of c.px) hole[i] = 1;
+      const under = grow(hole, w, h, 0.4 * ppm), px = [];
+      for (let i = 0; i < n; i++) if (under[i]) px.push(i);
+      blobs.push({ subs: outline(px), rgb: colourOf(c.px), area: c.area, paper: true });
+    }
+  }
   // Ink: dots (small, round, solid), blobs (thick), lines (the rest).
   for (const c of components(ink, w, h)) {
     const bw = c.box[2] - c.box[0] + 1, bh = c.box[3] - c.box[1] + 1, size = Math.max(bw, bh);
@@ -387,7 +414,7 @@ export function readRigSheet(img, { rgb = null, sheet, ppm = PPM, blob = BLOB } 
     const mmC = ([x, y]) => [rect[0] + x / ppm - b.px, rect[1] + y / ppm - b.py];
     pieces[b.piece] = {
       lines: got.lines.map((l) => ({ pts: simplify(l.pts.map(mmPx), 0.18), w: l.w / ppm, rgb: l.rgb, closed: l.closed, len: l.len / ppm })),
-      blobs: got.blobs.map((f) => ({ subs: f.subs.map((s) => { const out = []; for (let i = 0; i < s.length; i += 2) out.push(mmC([s[i], s[i + 1]])); return out; }), rgb: f.rgb, area: f.area / (ppm * ppm), ...(f.ink ? { ink: true } : {}) })),
+      blobs: got.blobs.map((f) => ({ subs: f.subs.map((s) => { const out = []; for (let i = 0; i < s.length; i += 2) out.push(mmC([s[i], s[i + 1]])); return out; }), rgb: f.rgb, area: f.area / (ppm * ppm), ...(f.ink ? { ink: true } : {}), ...(f.paper ? { paper: true } : {}) })),
       dots: got.dots.map((d) => ({ c: mmC(d.c), r: d.r / ppm, rgb: d.rgb })),
     };
   }
@@ -402,19 +429,37 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const nearest = (clusters, rgb) => clusters.reduce((bi, c, i) => (dist(c.rgb, rgb) < dist(clusters[bi].rgb, rgb) ? i : bi), 0);
 
 // Every mark's colour (lines by length x width, blobs and dots by area) clustered (within 0.2 of each other in
-// rgb, largest first); the lines' main colour is ink, and so is any dark grey; the rest get roles by autoRoles. Returns { roleOf(rgb), table: [{ hex, area, role }] }.
-export function rolesOf(reads) {
+// rgb, largest first); the lines' main colour is ink, and so is any dark grey; the rest get roles by autoRoles.
+// Then (4.0 RE-4): a skin tone (SKIN) is `skin`; a dark grey drawn mostly as a fill, lighter than the pen by
+// DARKER or more, is `shade`, so dark trousers and the line round them stay two roles; and `roles` ({ '#hex':
+// role }, as hdf svg takes) names the role of any colour within 0.15 of a given one (core/svg.js distance), the
+// nearest given colour winning. Paper the lines close in (readBox) is `light` and takes no part.
+// Returns { roleOf(rgb), table: [{ hex, area, role, how: 'auto' | 'map' }] }.
+export const SKIN = Object.freeze({ hue: [15, 45], sat: [0.2, 0.85], light: [0.55, 0.88] });
+export const DARKER = 0.12;
+export const isSkin = (hex) => {
+  const [h, sat, l] = hsl(hex), within = (v, [a, b]) => v >= a && v <= b;
+  return within(h, SKIN.hue) && within(sat, SKIN.sat) && within(l, SKIN.light);
+};
+export function rolesOf(reads, { roles = {} } = {}) {
+  const given = Object.entries(roles ?? {}).map(([k, role]) => {
+    let key;
+    try { key = hex(parse(k).slice(0, 3).map((v) => v / 255)); } catch { throw new Error(`roles: '${k}' is not a colour (#rrggbb)`); }
+    try { resolveRole(role, LOOKS.paperInk); } catch (e) { throw new Error(`roles: ${k} -> ${JSON.stringify(role)}: ${e.message}`); }
+    return [key, role];
+  });
   const marks = [];
   for (const r of reads) for (const p of Object.values(r.pieces)) {
-    for (const l of p.lines) marks.push([l.rgb, l.len * l.w]);
-    for (const f of p.blobs) marks.push([f.rgb, f.area]);
-    for (const d of p.dots) marks.push([d.rgb, Math.PI * d.r * d.r]);
+    for (const l of p.lines) marks.push([l.rgb, l.len * l.w, 'line']);
+    for (const f of p.blobs) if (!f.paper) marks.push([f.rgb, f.area, 'fill']);
+    for (const d of p.dots) marks.push([d.rgb, Math.PI * d.r * d.r, 'dot']);
   }
   marks.sort((a, b) => b[1] - a[1]);
   const clusters = [];
-  for (const [rgb, area] of marks) {
-    const c = clusters.find((k) => dist(k.rgb, rgb) < 0.2);
-    if (c) { c.sum = c.sum.map((v, i) => v + rgb[i] * area); c.area += area; c.rgb = c.sum.map((v) => v / c.area); } else clusters.push({ rgb, sum: rgb.map((v) => v * area), area });
+  for (const [rgb, area, kind] of marks) {
+    let c = clusters.find((k) => dist(k.rgb, rgb) < 0.2);
+    if (c) { c.sum = c.sum.map((v, i) => v + rgb[i] * area); c.area += area; c.rgb = c.sum.map((v) => v / c.area); } else clusters.push((c = { rgb, sum: rgb.map((v) => v * area), area, fill: 0 }));
+    if (kind === 'fill') c.fill += area;
   }
   const rows = clusters.map((c) => ({ hex: hex(c.rgb), area: Math.round(c.area) }));
   // The colour most of the lines are drawn in is the ink, whatever pen it was; autoRoles places the rest.
@@ -426,8 +471,18 @@ export function rolesOf(reads) {
   const grey = (c) => Math.max(...c.rgb) <= 0.35 && Math.max(...c.rgb) - Math.min(...c.rgb) < 0.15;
   const rest = rows.filter((_, i) => i !== main && !grey(clusters[i]));
   const auto = autoRoles(main >= 0 ? [{ hex: '#000000', area: 0 }, ...rest] : rest);
-  rows.forEach((r, i) => { if (i === main || grey(clusters[i])) auto[r.hex] = 'ink'; });
-  const table = rows.map((r) => ({ ...r, role: auto[r.hex] }));
+  const penL = main >= 0 ? hsl(rows[main].hex)[2] : 0;
+  rows.forEach((r, i) => {
+    if (i === main) auto[r.hex] = 'ink';
+    else if (grey(clusters[i])) auto[r.hex] = main >= 0 && clusters[i].fill > clusters[i].area / 2 && hsl(r.hex)[2] - penL >= DARKER ? 'shade' : 'ink';
+    else if (isSkin(r.hex)) auto[r.hex] = 'skin';
+  });
+  const mapped = (h) => {
+    let best = null;
+    for (const [k, role] of given) { const d = distance(h, k); if (d < 0.15 && (!best || d < best.d)) best = { d, role }; }
+    return best?.role;
+  };
+  const table = rows.map((r) => { const m = mapped(r.hex); return { ...r, role: m ?? auto[r.hex], how: m ? 'map' : 'auto' }; });
   const roleOf = (rgb) => table[nearest(clusters, rgb)]?.role ?? 'ink';
   return { roleOf, table };
 }
@@ -443,11 +498,12 @@ const u = ([x, y]) => [r2(x * K), r2(y * K)];
 export function opsOf(p, roleOf, name, mirror = false) {
   if (!p) return [];
   const m = mirror ? ([x, y]) => [-x, y] : (q) => q, U = (q) => u(m(q)), out = [];
-  const finish = (role) => /^(fills|accents)\./.test(role);
+  // A coloured-in area takes the look's finish (a marker's passes, a crayon's strokes); solid ink does not.
+  const finish = (f, role) => !f.ink && role !== 'ink';
   for (const f of p.blobs) {
-    const role = roleOf(f.rgb);
+    const role = f.paper ? 'light' : roleOf(f.rgb);
     if (role === 'paper') continue;
-    out.push(fill(mkPath(f.subs.map((s) => ({ pts: s.flatMap(U), closed: true }))), role, { ...(finish(role) ? { finish: true } : {}), name }));
+    out.push(fill(mkPath(f.subs.map((s) => ({ pts: s.flatMap(U), closed: true }))), role, { ...(finish(f, role) ? { finish: true } : {}), name }));
   }
   for (const l of [...p.lines].sort((a, b) => b.len - a.len)) {
     if (l.pts.length < 2) continue;
@@ -483,11 +539,11 @@ export function jointsIn(view) {
 }
 
 // Rig sheet reads (one readRigSheet() result or a list: the side sheet, and the front one when there is one) ->
-// { payload, table, blank }: a puppet payload with the standard biped names, views ['side'] or ['side', 'front'].
-export function rigPuppet(reads, { name = 'sketch', desc } = {}) {
+// { payload, table, blank } (roles: rolesOf's map of given colours): a puppet payload with the standard biped names, views ['side'] or ['side', 'front'].
+export function rigPuppet(reads, { name = 'sketch', desc, roles } = {}) {
   const list = [reads].flat(), side = list.find((r) => r.sheet === 'biped'), front = list.find((r) => r.sheet === 'biped-front');
   if (!side) throw new Error('rig sheet: the side sheet (biped) is needed; the front one only adds a view');
-  const { roleOf, table } = rolesOf(list);
+  const { roleOf, table } = rolesOf(list, { roles });
   const views = front ? ['side', 'front'] : ['side'], at = Object.fromEntries(views.map((V) => [V, jointsIn(V)]));
   const parts = {};
   for (const [n, parent, joint] of ORDER) {

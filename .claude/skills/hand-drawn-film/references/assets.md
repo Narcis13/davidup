@@ -323,6 +323,9 @@ whose licence is `unknown`.
 hdf hand --template --rig biped > out/rig-sheet.pdf          # --rig biped,biped-front adds the face-on page
 hdf sketch mia.jpg --sheet biped --name mia                  # -> puppet 'mia', out/sketch-mia-trace.jpg, its sheet with the walk
 hdf sketch mia.jpg mia-front.jpg --name mia                  # + the front view
+hdf sketch mia.jpg mia-front.jpg --name mia --face stick     # + the stick's face, so it talks (head drawn with no face)
+hdf sketch mia.jpg --name mia --roles ask                    # the colour table to mia.roles.json; stops
+hdf sketch mia.jpg --name mia --roles '#3b6fd4=fills.0,#f2b705=fills.3'   # name a colour's role (or a JSON file)
 hdf hand --template --rig biped --drawn > out/rig-drawn.jpg  # a sheet drawn in by the package, to try it
 ```
 
@@ -335,12 +338,28 @@ sheet flat with the four corners and the squares along the bottom in it.
 The puppet has the standard biped names (`head, body, hips, arm-l, fore-l,
 hand-l, leg-l, shin-l, foot-l`, the same with -r), so `A.pose('cheer')`,
 `A.cycle('walk', t)` and every vocabulary entry apply, and `hdf retarget
---clip me --to mia --name walk` needs no map. It has no face parts (the face
-is part of the head drawing), so expressions change nothing. Coloured-in areas
-are fills with `finish: true` in roles from the house palette, the outline
-colour is `ink`: the look recolours it. Check `out/sketch-<id>-trace.jpg`
-first when a piece looks wrong: lines red, fills blue, dots green, blank boxes
-crossed out.
+--clip me --to mia --name walk` needs no map. With a drawn face it has no face
+parts (the face is part of the head drawing), so expressions change nothing
+and it cannot lip-sync. For a character that talks, leave the face off the
+head and pass `--face stick` (`--auto` too): the stick puppet's eye, pupil,
+brows and mouth are grafted on after the head (`core/stick.js graftFace`), on
+the sketch's own neck and head, so `mouth()`, expressions and `lookAt` work;
+`--face-r <units>` sizes it (default 23 of the sheet's 26 mm). The default
+`--face none` keeps a child's own face.
+
+Roles: coloured-in areas are fills with `finish: true`, the outline colour is
+`ink`, a skin tone is `skin` (every look has one: a peach on the boards, a tan
+on paperInk), a dark fill lighter than the pen is `shade` (dark trousers stay
+apart from their outline), and paper the lines close in on a coloured-in
+piece (a white pompom, an eye's white, a sole) is a `light` fill. The rest go
+to the nearest paperInk house fill or accent, whose index means another hue
+in another look (paperInk's `accents.2` is yellow, the whiteboard's green):
+read the printed table and name them with `--roles` (`#hex=role,...` or a
+JSON file; a colour within 0.15 of a given one takes its role). Check
+`out/sketch-<id>-trace.jpg` first when a piece looks wrong: lines red, fills
+blue, dots green, blank boxes crossed out. Then check the model sheet in a
+light look **and once in a dark one** (`hdf sheet store <id> --poses --look
+chalkboard`): a `light` or `paper` fill is invisible on the whiteboard.
 
 ## The workbench: posing a puppet by hand (4.0 W2)
 

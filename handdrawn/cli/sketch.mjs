@@ -8,14 +8,23 @@
 //                                                                  (a test figure; --rig biped-front for its face)
 //   hdf sketch mia.png --auto --name mia [--view front|side]       one drawing, no sheet (4.0 W3): cut at the joints
 //                                                                  core/autorig.js finds; an .svg is always --auto
+//   hdf sketch mia.jpg mia-front.jpg --name mia --face stick       the stick's face grafted on the head (drawn with
+//                                                                  no face), so it talks, emotes and looks (RE-3);
+//                                                                  --face-r 38 the head's radius in puppet units
+//   hdf sketch mia.jpg --name mia --roles ask                      the colour table to mia.roles.json; stops
+//   hdf sketch mia.jpg --name mia --roles '#3b6fd4=fills.0,#4b4f58=shade'    colours to roles (or a JSON file)
 //
 // Each photo's sheet is read off its code; --sheet says which it must be. The puppet goes into the store (licence
 // own unless --licence says) with the standard biped names, so the vocabulary poses and walks it, and `hdf
 // retarget --clip me --to mia --name walk` needs no map. Writes out/sketch-<id>-trace[-front].jpg (the photo
 // straightened, lines in red, fills outlined in blue, dots in green) and the store sheet with the walk as its strip
 // (the puppet's own walk when it has one, the vocabulary's otherwise).
-import { existsSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+//
+// Roles (core/rigsheet.js rolesOf): the pen is ink, a skin tone `skin`, a dark fill lighter than the pen `shade`,
+// paper the lines close in `light`, the rest the nearest house fill or accent. The table printed says which, and
+// `--roles` (as hdf svg takes it) names any of them; a colour within 0.15 of a given one takes its role.
+import { existsSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { loadImage } from 'skia-canvas';
 import { APPM, PARTS, TALL, autoRig, figureOf } from '../core/autorig.js';
 import { FRAME, PAPERS, frameOrigin, sample } from '../core/handsheet.js';
@@ -23,13 +32,14 @@ import { poly, stroke } from '../core/list.js';
 import { LOOKS } from '../core/looks.js';
 import { hash32, rng } from '../core/rand.js';
 import { ORDER, PIECES, RIG_SHEETS, drawRigTemplate, jointsIn, readRigSheet, rigBoxes, rigPuppet } from '../core/rigsheet.js';
+import { graftFace } from '../core/stick.js';
 import { traceAlpha } from '../core/trace.js';
 import { putPayload } from './import.mjs';
 import { UsageError } from './load.mjs';
 import { outDir, paint } from './sheets.mjs';
 import { storeSheet } from './sheet.mjs';
 import { skiaCanvas } from './skia.mjs';
-import { keepRetargeted } from './svg.mjs';
+import { keepRetargeted, readRoles } from './svg.mjs';
 
 const PT = 72 / 25.4;   // points per mm
 const str = (v) => (v === undefined || v === true ? '' : String(v));
@@ -290,16 +300,42 @@ async function rigCheck(P, rig, file) {
   await c.toFile(file, { quality: 0.88 });
 }
 
+// --face stick | none (the default: a child's own drawn face is the point) and --roles (ask, a file, #hex=role,...).
+const FACES = ['none', 'stick'];
+function faceOf(flags) {
+  const f = str(flags.face) || 'none';
+  if (!FACES.includes(f)) throw new UsageError(`sketch: --face ${f} (expected ${FACES.join(' | ')})`);
+  if (flags.faceR !== undefined && !(+flags.faceR > 0)) throw new UsageError(`sketch: --face-r ${flags.faceR} (a radius in puppet units, above 0)`);
+  if (flags.faceR !== undefined && f !== 'stick') throw new UsageError('sketch: --face-r sizes a grafted face; add --face stick');
+  return f;
+}
+const rolesFlag = (flags) => (flags.roles && flags.roles !== 'ask' ? readRoles(String(flags.roles), 'sketch') : undefined);
+function withFace(payload, flags) {
+  if (faceOf(flags) !== 'stick') return payload;
+  try { return graftFace(payload, flags.faceR === undefined ? {} : { r: +flags.faceR }); } catch (e) { throw new UsageError(`sketch: --face stick: ${e.message.replace(/^graftFace: /, '')}`); }
+}
+const tableText = (table) => table.map((r) => `${r.hex}  ${String(r.area).padStart(6)}  ${r.role.padEnd(10)} ${r.how ?? 'auto'}\n`).join('');
+// --roles ask: the table to <name>.roles.json beside the (first) file, then stop.
+function askRoles(table, file, name, again) {
+  const out = join(dirname(file), `${name}.roles.json`);
+  writeFileSync(resolve(out), `${JSON.stringify(Object.fromEntries(table.map((r) => [r.hex, r.role])), null, 2)}\n`);
+  process.stdout.write(`${tableText(table)}${out}  edit the roles, then: ${again} --roles ${out}\n`);
+  return 0;
+}
+
 async function runAuto(args, flags, name) {
   if (args.length !== 1) throw new UsageError(`sketch --auto: one drawing at a time (got ${args.length})`);
   const view = str(flags.view) || 'front';
   if (view !== 'front' && view !== 'side') throw new UsageError(`sketch: --view ${view} (expected front | side)`);
   const [file] = args, P = await drawingPlanes(file);
   let got;
-  try { got = autoRig(P, { name, view }); } catch (e) { throw new UsageError(`sketch: ${basename(file)}: ${e.message.replace(/^autorig: /, '')}`); }
-  const { payload, table, copied, blank, found } = got;
+  faceOf(flags);
+  try { got = autoRig(P, { name, view, roles: rolesFlag(flags) }); } catch (e) { throw new UsageError(`sketch: ${basename(file)}: ${e.message.replace(/^autorig: /, '')}`); }
+  const { table, copied, blank, found } = got;
   process.stdout.write(`${basename(file)}: one drawing, ${view} view; found ${found.length ? found.join(', ') : 'no limbs'}${copied.length ? `; ${copied.join(', ')} drawn from the other side` : ''}\n`);
-  process.stdout.write(table.map((r) => `${r.hex}  ${String(r.area).padStart(6)}  ${r.role}\n`).join(''));
+  if (flags.roles === 'ask') return askRoles(table, file, name, `hdf sketch ${file} --auto --name ${name}`);
+  process.stdout.write(tableText(table));
+  const payload = withFace(got.payload, flags);
   keepRetargeted(payload, name, flags);
   const code = await putPayload({
     kind: 'puppet', name, bytes: Buffer.from(JSON.stringify(payload)), abs: resolve(file),
@@ -337,21 +373,24 @@ export async function run(args, flags) {
     photos.push({ file, ...p, read });
   }
   if (want && !photos.some((q) => q.read.sheet === want)) throw new UsageError(`sketch: no photo is the ${want} sheet (${photos.map((q) => `${basename(q.file)} is ${q.read.sheet}`).join(', ')})`);
+  faceOf(flags);
   let got;
-  try { got = rigPuppet(photos.map((q) => q.read), { name }); } catch (e) { throw new UsageError(`sketch: ${e.message.replace(/^rig sheet: /, '')}`); }
-  const { payload, table, blank } = got;
+  try { got = rigPuppet(photos.map((q) => q.read), { name, roles: rolesFlag(flags) }); } catch (e) { throw new UsageError(`sketch: ${e.message.replace(/^rig sheet: /, '')}`); }
+  const { table, blank } = got;
   for (const q of photos) {
     const n = Object.keys(q.read.pieces).length, all = PIECES[q.read.sheet].length;
     process.stdout.write(`${basename(q.file)}: the ${q.read.sheet} sheet, ${n} of ${all} pieces drawn${q.read.blank.length ? ` (blank: ${q.read.blank.join(', ')})` : ''}\n`);
   }
-  process.stdout.write(table.map((r) => `${r.hex}  ${String(r.area).padStart(6)}  ${r.role}\n`).join(''));
+  if (flags.roles === 'ask') return askRoles(table, photos[0].file, name, `hdf sketch ${args.join(' ')} --name ${name}`);
+  process.stdout.write(tableText(table));
+  const payload = withFace(got.payload, flags);
   keepRetargeted(payload, name, flags);
   const names = photos.map((q) => basename(q.file)).join(', ');
   const code = await putPayload({
     kind: 'puppet', name, bytes: Buffer.from(JSON.stringify(payload)), abs: resolve(photos[0].file),
     flags: { licence: 'own', credit: `drawn on a rig sheet, read by hdf sketch from ${names}`, source: names, tags: 'puppet,sketch,biped', ...flags },
   });
-  process.stdout.write(`  parts: ${Object.keys(payload.parts).join(' ')}\n  views: ${payload.views.join(', ')}${blank.length ? `\n  drawn blank (they draw nothing): ${blank.join(', ')}` : ''}\n`);
+  process.stdout.write(`  parts: ${Object.keys(payload.parts).join(' ')}${payload.parts.mouth ? ' (the face grafted: it talks)' : ''}\n  views: ${payload.views.join(', ')}${blank.length ? `\n  drawn blank (they draw nothing): ${blank.join(', ')}` : ''}\n`);
   for (const q of photos) {
     const file = join(outDir(flags), `sketch-${name}-trace${q.read.sheet === 'biped' ? '' : '-front'}.jpg`);
     await traceCheck(q, q.read, file);

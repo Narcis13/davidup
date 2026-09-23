@@ -2,6 +2,7 @@
 //
 //   hdf svg assets/src/fox.svg --name fox --licence own --roles assets/src/fox.roles.json
 //   hdf svg fox.svg --name fox --roles ask          the colour table to fox.roles.json next to the SVG; stops
+//   hdf svg fox.svg --name fox --roles '#e8734a=fills.0,#f3c9a2=skin'              the map inline
 //   hdf svg star.svg --name star --kind motif        one op list, no rig
 //   [--flatten 0.6] [--units 300] [--credit] [--source] [--tags] [--desc] [--root ../other-store] [--no-sheet]
 //
@@ -57,9 +58,17 @@ export async function run([file], flags) {
   }
 }
 
-function readRoles(path) {
-  if (!existsSync(path)) throw new UsageError(`svg: --roles ${path}: no such file (--roles ask writes one)`);
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new UsageError(`svg: --roles ${path} is not JSON (${e.message})`); }
+// --roles: a JSON file ({ "#hex": role }) or the map inline, '#e8734a=fills.0,#f3c9a2=skin'. cmd names the command.
+export function readRoles(arg, cmd = 'svg') {
+  if (/^#[0-9a-f]{3,8}=/i.test(arg)) {
+    return Object.fromEntries(arg.split(',').map((kv) => kv.trim()).filter(Boolean).map((kv) => {
+      const i = kv.indexOf('=');
+      if (i < 1 || i === kv.length - 1) throw new UsageError(`${cmd}: --roles ${kv}: expected #hex=role`);
+      return [kv.slice(0, i), kv.slice(i + 1)];
+    }));
+  }
+  if (!existsSync(arg)) throw new UsageError(`${cmd}: --roles ${arg}: no such file (--roles ask writes one; or #hex=role,...)`);
+  try { return JSON.parse(readFileSync(arg, 'utf8')); } catch (e) { throw new UsageError(`${cmd}: --roles ${arg} is not JSON (${e.message})`); }
 }
 
 // A pose, view or cycle frame that swings a part past the viewBox would fail `cel-box` on import, so the box

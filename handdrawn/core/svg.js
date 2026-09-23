@@ -442,7 +442,7 @@ const HOUSE = LOOKS.paperInk.palette;
 const CANDIDATES = [...HOUSE.fills.map((c, i) => [`fills.${i}`, c]), ...HOUSE.accents.map((c, i) => [`accents.${i}`, c])];
 
 // How far apart two colours read: hue (weighted by how saturated both are), saturation and lightness.
-function distance(a, b) {
+export function distance(a, b) {
   const [h0, s0, l0] = hsl(a), [h1, s1, l1] = hsl(b);
   const dh = Math.min(Math.abs(h0 - h1), 360 - Math.abs(h0 - h1)) / 180;
   return dh * Math.min(s0, s1) * 2 + Math.abs(s0 - s1) + Math.abs(l0 - l1);

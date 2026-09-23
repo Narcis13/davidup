@@ -183,7 +183,7 @@ function along(pts, S, d) {
 // standard biped names in one view, the colours' roles (as a rig sheet's), the limbs found and copied, the parts
 // that came out empty, and rig: { w, h, label (Int8Array, PARTS index or -1), joints { name: [x, y] px }, bones
 // [[a, b]] } for a picture of what was found.
-export function autoRig(P, { name = 'drawing', view = 'front', desc } = {}) {
+export function autoRig(P, { name = 'drawing', view = 'front', desc, roles } = {}) {
   if (view !== 'front' && view !== 'side') throw new Error(`autorig: view '${view}' (expected front | side)`);
   const F = figureOf(P), { w, h } = P.img, n = w * h, ppm = F.height / TALL, mm = 1 / ppm;
   const got = skelOfMask({ mask: F.mask, w, h, x0: 0, y0: 0, s: 1 }, 'biped', { h: F.height, paths: true, corners: true });
@@ -350,13 +350,13 @@ export function autoRig(P, { name = 'drawing', view = 'front', desc } = {}) {
     const flat = (s) => { const out = []; for (let k = 0; k < s.length; k += 2) out.push(atC([s[k], s[k + 1]])); return out; };
     pieces[part] = {
       lines: read.lines.map((l) => ({ pts: l.pts.map(atPx), w: l.w / ppm, rgb: l.rgb, closed: l.closed, len: l.len / ppm })),
-      blobs: read.blobs.map((f) => ({ subs: f.subs.map(flat), rgb: f.rgb, area: f.area / (ppm * ppm), ...(f.ink ? { ink: true } : {}) })),
+      blobs: read.blobs.map((f) => ({ subs: f.subs.map(flat), rgb: f.rgb, area: f.area / (ppm * ppm), ...(f.ink ? { ink: true } : {}), ...(f.paper ? { paper: true } : {}) })),
       dots: read.dots.map((d) => ({ c: atC(d.c), r: d.r / ppm, rgb: d.rgb })),
     };
     backs[part] = traceAlpha(plane, cw, ch, { threshold: 127, step: 1, eps: 0.3 * ppm, minArea: 4 }).sub.map((s) => flat(s.pts));
   }
   if (!pieces.body) throw new Error('autorig: the body came out empty; draw a trunk between the head and the legs');
-  const { roleOf, table } = rolesOf([{ pieces }]);
+  const { roleOf, table } = rolesOf([{ pieces }], { roles });
 
   // The payload: the rig sheet's painter order, pivots at rest, the ground under the feet.
   const u = ([x, y]) => [r2(x * K), r2(y * K)];

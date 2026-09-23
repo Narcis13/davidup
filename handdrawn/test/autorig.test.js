@@ -12,6 +12,7 @@ import { autoRig, PARTS } from '../core/autorig.js';
 import { bounds } from '../core/list.js';
 import { lintPuppet } from '../core/lint.js';
 import { puppet } from '../core/puppet.js';
+import { graftFace } from '../core/stick.js';
 import { drawingPlanes, drawnFigure, figureSvg } from '../cli/sketch.mjs';
 
 const POSE = { 'arm-l': 40, 'arm-r': -40, 'fore-l': 20, 'fore-r': -20, 'leg-l': 12, 'leg-r': -12 };
@@ -31,6 +32,12 @@ test('autorig: a drawing face on is cut into the fifteen biped parts, stood at r
   assert.equal(payload.parts.body.ops[0].role, 'paper', 'each piece has its silhouette under it, as cut paper');
   assert.ok(table.some((r) => r.role === 'ink'), 'the pen is ink');
   assert.deepEqual(lintPuppet(payload, 'kid'), []);
+  // hdf sketch --auto --face stick (4.0 RE-3): the face sits on the head where it was drawn, the eyes either side.
+  const g = graftFace(payload), hx = payload.skeleton.joints.head[0];
+  assert.deepEqual(lintPuppet(g, 'kid'), []);
+  const px = g.parts.pupil.ops.map((o) => { const xs = o.path.$p[0].filter((_, i) => i % 2 === 1); return xs.reduce((a, b) => a + b) / xs.length - hx; });
+  assert.equal(px.length, 2);
+  assert.ok(px[0] < 0 && px[1] > 0 && Math.abs(px[0] + px[1]) < 2, `pupils about the head: ${px}`);
 
   // The pose it was drawn at, as world angles (a forearm's is the arm's plus its own), to within the cut's roughness.
   const d = payload.poses.drawn, near = (got, want, tol, what) => assert.ok(Math.abs(got - want) <= tol, `${what}: ${got}, drawn at ${want}`);

@@ -43,8 +43,10 @@
 //   compileStick(src)    the puppet payload (memoised per source object)
 //   puppet(src)          the same as puppet(compileStick(src))
 //   stickMap(d)          a retarget map for a stick payload (source or compiled), or a rig sheet's (4.0 W1)
+//   graftFace(payload)   a sketched puppet (hdf sketch) given the stick's face, so it talks (4.0 RE-3)
 import { circle, ellipse, fill, line, mmul, poly, rotate, serialise, stroke, translate, xf } from './list.js';
 import { HAND_POSES } from './face.js';
+import { K, RIG } from './rigsheet.js';
 
 export const STICK_VIEWS = Object.freeze(['side', 'three-quarter', 'front']);
 export const STYLES = Object.freeze(['line', 'tube']);
@@ -481,4 +483,54 @@ export function stickMap(d) {
   put('head', 'neck', 'head', 'shoulder-l', 'head');
   const ground = ['leg-l', 'leg-r'].filter((n) => parts[n]);
   return { rig: 'biped', facing: 1, desc: `derived from the ${isStick(d) || d?.stick ? 'stick' : 'rig sheet of'} ${src.name ?? ''}: each bone on the rig's joints of its name, -l side 1`, parts, ground };
+}
+
+// ---------- a face for a sketched puppet (4.0 RE-3) ----------
+
+export const FACE_PARTS = Object.freeze(['eye', 'pupil', 'brow-l', 'brow-r', 'mouth']);
+
+// A puppet read off paper (hdf sketch, a rig sheet or one drawing) has a head that is one drawing: no eye, pupil,
+// brows or mouth to move, so no lip sync, no expressions and no pupils to look with. This gives it the stick's
+// face: a stick compiled on the payload's own hip, chest, neck and head (its `skeleton`) with a head of radius r,
+// whose five face parts go into the payload's views after `head` in painter order, with their inputs and rest
+// pose. r defaults to the size a drawn head fills its guide circle at (23 of the sheet's 26 mm). views: the
+// payload's own. Returns a new payload; a puppet with a face already is refused.
+export function graftFace(payload, { r, views } = {}) {
+  const J = payload?.skeleton?.joints, name = payload?.name ?? '?';
+  if (!J?.hip || !J?.neck || !J?.head) throw new Error(`graftFace: '${name}' has no skeleton with hip, neck and head (hdf sketch writes one)`);
+  if (!payload.parts?.head) throw new Error(`graftFace: '${name}' has no head`);
+  const has = FACE_PARTS.filter((n) => payload.parts[n]);
+  if (has.length) throw new Error(`graftFace: '${name}' has a face already (${has.join(', ')})`);
+  const R = r ?? (RIG.headR * K * 23) / 26;
+  if (!(R > 0)) throw new Error(`graftFace: the head radius must be above 0, got ${r}`);
+  const V = views ?? payload.views ?? ['side'], byView = !Array.isArray(payload.parts.head.ops);
+  const bad = V.filter((v) => !STICK_VIEWS.includes(v));
+  if (bad.length) throw new Error(`graftFace: '${name}' is in view ${bad.join(', ')}; a face grafts onto ${STICK_VIEWS.join(', ')}`);
+  const src = stickSource({ name, h: payload.units });
+  src.joints = { ...src.joints, hip: J.hip, chest: J.chest ?? src.joints.chest, neck: J.neck, head: J.head };
+  // One drawing face on (hdf sketch --auto) has its joints where it was drawn, not on the hip's line.
+  if (!byView && V[0] === 'front') src.front = { neck: J.neck, head: J.head };
+  src.head = { r: r2(R), face: true };
+  src.views = [...V];
+  const stick = compileStick(src);
+  // A value by view as the payload keeps it: the same object in a payload with views, the one view's value alone.
+  const own = (v) => (v && typeof v === 'object' && !Array.isArray(v) && V.some((k) => k in v) ? (byView ? Object.fromEntries(V.map((k) => [k, v[k]])) : v[V[0]]) : v);
+  const face = Object.fromEntries(FACE_PARTS.map((n) => {
+    const p = stick.parts[n], out = { ...p };
+    if (p.ops) out.ops = own(p.ops);
+    if (p.pivot) out.pivot = own(p.pivot);
+    if (p.variants) out.variants = Object.fromEntries(Object.entries(p.variants).map(([k, v]) => [k, own(v)]));
+    return [n, out];
+  }));
+  const parts = {};
+  for (const [n, p] of Object.entries(payload.parts)) {
+    parts[n] = p;
+    if (n === 'head') Object.assign(parts, face);
+  }
+  return {
+    ...payload,
+    inputs: { ...(payload.inputs ?? {}), ...stick.inputs },
+    poses: { ...(payload.poses ?? {}), rest: { ...(payload.poses?.rest ?? {}), ...stick.poses.rest } },
+    parts,
+  };
 }

@@ -90,51 +90,51 @@ export const LOOKS = Object.freeze({
   // the fruit-fly film: warm paper, brown inks, four riso accents
   paperInk: mkLook('paperInk', {
     paper: '#f3e6cf', paperBand: 'rgba(255,238,200,.65)', ink: '#1e1630', night: '#0b0d1f', chalk: '#e8ecff', chalkDim: '#8d97c9', guide: 'rgba(70,100,255,.55)',
-    fills: ['#e79256', '#c99a5a', '#b8864e', '#d9b078'], shade: '#3a2214', light: '#fff1d6', blush: '#c8473f',
+    fills: ['#e79256', '#c99a5a', '#b8864e', '#d9b078'], shade: '#3a2214', light: '#fff1d6', blush: '#c8473f', skin: '#e8b48a',
     accents: ['#ff2bd6', '#28f0e0', '#ffe22b', '#5cff5c'], inks: ['#1e1630', '#c8473f', '#2b5fb8'],
   }, 'hatch', 'bands'),
   // the flipbook: cream stock, fluorescent riso inks, halftone dots, dark purple night
   risoPop: mkLook('risoPop', {
     paper: '#f0ece2', paperBand: null, ink: '#22366b', night: '#2a2050', chalk: '#f3ebb1', chalkDim: '#8f86c8', guide: 'rgba(34,54,107,.5)',
-    fills: ['#ff48b0', '#0078bf', '#ffe800', '#00a95c', '#ff6c2f', '#765ba7'], shade: '#22366b', light: '#fff9c8', blush: '#ff48b0',
+    fills: ['#ff48b0', '#0078bf', '#ffe800', '#00a95c', '#ff6c2f', '#765ba7'], shade: '#22366b', light: '#fff9c8', blush: '#ff48b0', skin: '#ffb59a',
     accents: ['#ff48b0', '#0078bf', '#ffe800', '#00a95c'], inks: ['#0078bf', '#ff48b0', '#ffe800', '#22366b'],
   }, 'halftone', 'cream'),
   // the paper boat: sea blues, cream sky, flat shapes under a regular dot screen
   screenSea: mkLook('screenSea', {
     paper: '#e8e6db', paperBand: null, ink: '#1f1e2d', night: '#1a1c2e', chalk: '#e8e6db', chalkDim: '#8a93a6', guide: 'rgba(10,80,131,.5)',
-    fills: ['#0a5083', '#518e9d', '#becacc', '#e4a05c', '#91906a', '#e8c84a', '#c8473f', '#051630'], shade: '#051630', light: '#f4f2e8', blush: '#e4a05c',
+    fills: ['#0a5083', '#518e9d', '#becacc', '#e4a05c', '#91906a', '#e8c84a', '#c8473f', '#051630'], shade: '#051630', light: '#f4f2e8', blush: '#e4a05c', skin: '#eab98c',
     accents: ['#c8473f', '#e8c84a', '#518e9d', '#f0a0b0'], inks: ['#0a5083', '#051630', '#e8c84a'],
   }, 'dots', 'cream'),
   // near-monochrome cream and charcoal, thin graphite lines
   pencilMinimal: mkLook('pencilMinimal', {
     paper: '#f4efe4', paperBand: null, ink: '#201f1b', night: '#27251f', chalk: '#d9d2c2', chalkDim: '#7d786c', guide: 'rgba(32,31,27,.35)',
-    fills: ['#e8d6cc', '#e0e2d0', '#dad2c5', '#f4efe4'], shade: '#5e5a50', light: '#ffffff', blush: '#c9a9a0',
+    fills: ['#e8d6cc', '#e0e2d0', '#dad2c5', '#f4efe4'], shade: '#5e5a50', light: '#ffffff', blush: '#c9a9a0', skin: '#ead2c2',
     accents: ['#8a8a55', '#b0483a', '#7e8aa0', '#c9a15a'], inks: ['#201f1b', '#8a8a55'],
   }, 'graphite', 'cream', { pen: { w: 1.6, wobble: 1.2 } }),
   // chalk on navy only
   blueprintNight: mkLook('blueprintNight', {
     paper: '#0b0d1f', paperBand: null, ink: '#e8ecff', night: '#0b0d1f', chalk: '#e8ecff', chalkDim: '#8d97c9', guide: 'rgba(150,170,255,.7)',
-    fills: ['#1a2040', '#22306a', '#2c3a80', '#141a33'], shade: '#8d97c9', light: '#ffffff', blush: '#7fe7ff',
+    fills: ['#1a2040', '#22306a', '#2c3a80', '#141a33'], shade: '#8d97c9', light: '#ffffff', blush: '#7fe7ff', skin: '#4a3f6b',
     accents: ['#7fe7ff', '#ff6fd8', '#ffe22b', '#5fe08a'], inks: ['#e8ecff', '#7fe7ff'],
   }, 'hatch', 'night'),
   // doodles on photos: pastel paper, near-black brush pen, watercolour fills
   doodlePastel: mkLook('doodlePastel', {
     paper: '#efd2d1', paperBand: null, ink: '#23202b', night: '#2c2f5e', chalk: '#f7f3e8', chalkDim: '#a9acd6', guide: 'rgba(0,80,255,.5)',
-    fills: ['#f2a7b3', '#8fc4e8', '#f6d46b', '#9fd3a8', '#f3b27a', '#c3a6e0'], shade: '#6b6577', light: '#fffdf7', blush: '#f28aa0',
+    fills: ['#f2a7b3', '#8fc4e8', '#f6d46b', '#9fd3a8', '#f3b27a', '#c3a6e0'], shade: '#6b6577', light: '#fffdf7', blush: '#f28aa0', skin: '#f6c9a8',
     accents: ['#e8505b', '#3f7fd1', '#f0b429', '#4caf7d'], inks: ['#23202b', '#e8505b'],
   }, 'wash', 'pastel', { pen: { w: 4, wobble: 1.4 } }),
   // Gilliam by way of stage3d: printed card on a table, flat colours, pieces pinned with brass fasteners
   // (accents.2) that cast soft shadows
   cutout: mkLook('cutout', {
     paper: '#e6dcc4', paperBand: null, ink: '#2a2220', night: '#1e1b26', chalk: '#f4ecd8', chalkDim: '#9c9280', guide: 'rgba(42,34,32,.4)',
-    fills: ['#d0632f', '#2f6f73', '#d9a441', '#7b8f5a', '#b98a6a', '#394a6d'], shade: '#4a3a30', light: '#f8f1df', blush: '#c9573f',
+    fills: ['#d0632f', '#2f6f73', '#d9a441', '#7b8f5a', '#b98a6a', '#394a6d'], shade: '#4a3a30', light: '#f8f1df', blush: '#c9573f', skin: '#dcae88',
     accents: ['#b8352a', '#2f6f73', '#c49a3c', '#7d4f86'], inks: ['#2a2220', '#b8352a'],
   }, 'flat', 'card', { pen: { w: 2.2, wobble: 0.6 } }, { cutout: CUTOUT }),
   // the classroom whiteboard: a cool white board with a glare and a tray, round-tip markers in black, blue,
   // red and green (inks.N) drawing every pen line (penTool), fills coloured in with a marker's passes
   whiteboard: mkLook('whiteboard', {
     paper: '#eceeea', paperBand: null, ink: '#1d1f24', night: '#23272e', chalk: '#f4f5f2', chalkDim: '#9aa1a8', guide: 'rgba(31,95,201,.35)',
-    fills: ['#8db7ea', '#f2a0a0', '#9ed39a', '#f6d46e', '#c4a5e0', '#f5b574'], shade: '#3c424a', light: '#ffffff', blush: '#ef8686',
+    fills: ['#8db7ea', '#f2a0a0', '#9ed39a', '#f6d46e', '#c4a5e0', '#f5b574'], shade: '#3c424a', light: '#ffffff', blush: '#ef8686', skin: '#f7c49a',
     accents: ['#d8342f', '#1f5fc9', '#23924a', '#ef9a1c'], inks: ['#1d1f24', '#1f5fc9', '#d8342f', '#23924a'],
   }, 'marker', 'board', { pen: { w: 3.4, wobble: 0.7 } }, { penTool: 'bullet' }),
   // the classroom chalkboard: green-black slate with the haze of old lessons and a wooden ledge, white chalk
@@ -142,7 +142,7 @@ export const LOOKS = Object.freeze({
   // fills rubbed in with the side of a stick. ~ghost:<alpha> keeps the last shot, half erased, under the next.
   chalkboard: mkLook('chalkboard', {
     paper: '#2a3b33', paperBand: null, ink: '#eef0e6', night: '#161f1b', chalk: '#eef0e6', chalkDim: '#8e9d94', guide: 'rgba(238,240,230,.28)',
-    fills: ['#6f8fa8', '#a87f86', '#7f9d72', '#b3a266', '#8d7fa3', '#b08868'], shade: '#7d8c84', light: '#fbfcf5', blush: '#e8a0ab',
+    fills: ['#6f8fa8', '#a87f86', '#7f9d72', '#b3a266', '#8d7fa3', '#b08868'], shade: '#7d8c84', light: '#fbfcf5', blush: '#e8a0ab', skin: '#c79c7e',
     accents: ['#f4d36b', '#f0a3b8', '#96cfe6', '#a6dc92'], inks: ['#eef0e6', '#f4d36b', '#f0a3b8', '#96cfe6'],
   }, 'chalk', 'slate', { pen: { w: 3.2, wobble: 1.1 }, chalk: { w: 3.2, wobble: 1.3, dash: 13, gap: 2.6 } }, { penTool: 'chalk', dust: 1 }),
   // wax crayons on construction paper, for the youngest audience (kids-5 picks it): a cream sheet with a tooth
@@ -150,7 +150,7 @@ export const LOOKS = Object.freeze({
   // skipping the tooth (tooth), fills coloured in with a crayon going back and forth, the paper showing through
   crayon: mkLook('crayon', {
     paper: '#efe3c6', paperBand: null, ink: '#2e2a3a', night: '#2d3057', chalk: '#fbf6e8', chalkDim: '#a7a2b8', guide: 'rgba(46,42,58,.3)',
-    fills: ['#e8534a', '#3d7fd6', '#f2b632', '#4fae5a', '#f08a3c', '#9468c8'], shade: '#5b4f63', light: '#fffaf0', blush: '#ef7f8e',
+    fills: ['#e8534a', '#3d7fd6', '#f2b632', '#4fae5a', '#f08a3c', '#9468c8'], shade: '#5b4f63', light: '#fffaf0', blush: '#ef7f8e', skin: '#f3b98a',
     accents: ['#d8342f', '#2f6fd0', '#2f9a47', '#8a4fc0'], inks: ['#2e2a3a', '#d8342f', '#2f6fd0', '#2f9a47'],
   }, 'wax', 'construction', { pen: { w: 3.6, wobble: 1.3 }, crayon: { w: 7, wobble: 1.6 } }, { penTool: 'crayon', tooth: 1, thick: 1.5 }),
   // a page of a school notebook: off-white ruled paper, blue rules (the guide role), a red margin (accents.0) and
@@ -159,7 +159,7 @@ export const LOOKS = Object.freeze({
   // stickyNote, marginDoodle; a page turns with cut('flip', ...)
   notebook: mkLook('notebook', {
     paper: '#f8f6ee', paperBand: null, ink: '#1d2b53', night: '#1c2238', chalk: '#f6f4ea', chalkDim: '#9aa0b4', guide: 'rgba(79,134,198,.55)',
-    fills: ['#f7d154', '#7fb8e8', '#f59ab5', '#8fd19e', '#f5a25d', '#b79be0'], shade: '#5c5a66', light: '#ffffff', blush: '#f28c9c',
+    fills: ['#f7d154', '#7fb8e8', '#f59ab5', '#8fd19e', '#f5a25d', '#b79be0'], shade: '#5c5a66', light: '#ffffff', blush: '#f28c9c', skin: '#f6c7a0',
     accents: ['#d8342f', '#1f5fc9', '#23924a', '#e08a1c'], inks: ['#1d2b53', '#d8342f', '#1f5fc9', '#23924a'],
   }, 'felt', 'ruled', { pen: { w: 2.4, wobble: 0.9 }, felt: { w: 2.4, wobble: 0.9 } }, { penTool: 'felt' }),
 });
@@ -303,7 +303,7 @@ export function derive(look, { hue = 0, sat = 1, light = 0, from, name } = {}) {
   const p = b.palette, f = (c) => lighten(saturate(rotateHue(c, hue), sat), light);
   return withLook(b, {
     name: name ?? `${b.name}~h${hue}s${sat}l${light}`,
-    palette: { fills: p.fills.map(f), accents: p.accents.map(f), inks: p.inks.map(f), shade: f(p.shade), blush: f(p.blush) },
+    palette: { fills: p.fills.map(f), accents: p.accents.map(f), inks: p.inks.map(f), shade: f(p.shade), blush: f(p.blush), ...(p.skin ? { skin: f(p.skin) } : {}) },
   });
 }
 
@@ -347,7 +347,7 @@ export function duotone(look, a, b) {
     name: `${base.name}~duo`, finish: 'halftone',
     palette: {
       ink: a, night: shade(a, 0.6), chalk: paper, chalkDim: mix(a, paper, 0.5), guide: alpha(a, 0.5),
-      fills: [a, b, mix(a, b, 0.5), tint(a, 0.5), tint(b, 0.5)], shade: a, light: paper, blush: b,
+      fills: [a, b, mix(a, b, 0.5), tint(a, 0.5), tint(b, 0.5)], shade: a, light: paper, blush: b, skin: tint(b, 0.5),
       accents: [b, a, tint(b, 0.4), tint(a, 0.4)], inks: [a, b],
     },
   });
@@ -381,6 +381,8 @@ export function resolveRole(role, look) {
     if (role[0] === '#' || /^rgba?\(/.test(role)) throw new Error(`role '${role}': raw colours are not roles; use a palette role (ink, fills.0, ...)`);
     const [key, idx] = role.split('.');
     let v = p[key];
+    // A look made before the skin role (4.0 RE-4) has none: its blush, paled.
+    if (key === 'skin' && v === undefined && idx === undefined && typeof p.blush === 'string') v = tint(p.blush, 0.55);
     if (idx !== undefined) {
       if (!Array.isArray(v)) throw new Error(`role '${role}': '${key}' is not a list`);
       v = v[+idx % v.length];
