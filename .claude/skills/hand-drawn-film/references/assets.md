@@ -375,6 +375,24 @@ re-importing over the puppet; moved pivots do not. A puppet built in code
 (a film's `cast`) and any puppet in a bundle are posed read-only: `copy
 state` gives the pose as JSON for the film's source.
 
+## One drawing, auto-rigged (4.0 W3)
+
+```bash
+hdf sketch mia.png --auto --name mia               # face on; a PNG, a scan on plain paper, a clear PNG
+hdf sketch mia.svg --name mia                      # an SVG is always --auto
+hdf sketch mia.png --auto --view side --name mia   # in profile
+```
+
+For when there is no rig sheet: one figure, standing, arms clear of the body,
+legs apart. The cut is found, not drawn, so it is rough: look at
+`out/sketch-<id>-rig.jpg` (a colour a part, the bones over it) and move a
+pivot in the workbench (`hdf dev <film>`, R) rather than redrawing. At rest the
+limbs hang (the vocabulary's zero); the pose `drawn` is the drawing as it was,
+so `A.pose('drawn')` shows it. A limb it cannot see (an arm behind the body
+in profile) is copied from the other side. Arms held against the body, hands
+above the head or a head apart from the body defeat it: say so, and offer the
+rig sheet.
+
 ## Clips, skeletons, retargeting, the phone
 
 A clip is traced poses: `frames[k] = { outer, lines, skel? }`, `h` the

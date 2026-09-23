@@ -845,6 +845,47 @@ dots green) and the store sheet with the walk as its strip: `hdf sheet store
 has none of its own. A blank box is reported and its part draws nothing; a
 blank body is an error. Re-reading a sheet keeps retargeted cycles.
 
+### One drawing, no sheet: auto-rig
+
+A figure drawn once, on plain paper or a clear background, rigs itself (4.0
+W3, `core/autorig.js`); rough by nature, and the workbench (W2) moves what it
+gets wrong:
+
+```bash
+hdf sketch mia.png --auto --name mia            # face on (the default); a scan, a PNG with alpha
+hdf sketch mia.svg --name mia                   # an SVG is always --auto
+hdf sketch mia.png --auto --view side --name mia
+```
+
+It works on one standing figure with its arms clear of its body and its legs
+apart (a star, an A, arms out). The silhouette (every mark, or the alpha) is
+closed over by a mm and filled, and read as a figure 180 mm tall, as on a rig
+sheet. `core/rig.js` labels its skeleton (the feet the lowest ends, the head
+the highest, the hands the two longest of the rest; `skelOfMask(..., { paths:
+true, corners: true })` hands back the paths). A limb's pivot is where its
+path gets no wider than the limb's middle, half its width back inside; the
+elbow and wrist sit at 0.42 and 0.78 of the rest of the way to the tip, the
+knee and ankle at 0.47 and 0.86; the neck is the trunk's narrowest point
+above the shoulders. Pixels go to the part whose stretch of skeleton is
+nearest along the silhouette, then limbs are cut straight across at each
+joint (perpendicular to the bone, or to the two bones' mean at a bend) and the
+trunk at the neck; each joint takes a disc of the limb's half-width from the
+part above, so the piece below turns in a round socket. Each part reads as a
+rig sheet's box (strokes, coloured-in fills, dots, roles over the whole
+drawing) over its silhouette as a `paper` fill, so pieces hide each other as
+cut paper does.
+
+At rest every arm, forearm, thigh and shin hangs straight down and the body
+stands (the vocabulary's zero); hands and feet keep their angle to the limb,
+the head to the body. The angles it was drawn at are the pose `drawn`, so
+`p({ ...p.rest, ...p.poses.drawn })` is the drawing. The standard biped
+names, `views: [view]`, sockets in the hands, `skeleton` for a map-free
+retarget, a box that holds the vocabulary's cycles. Of two limbs the one
+further left in the picture is -l; a limb found once (an arm behind the body
+in profile) is drawn for both sides, mirrored face on. `hdf sketch --auto`
+writes `out/sketch-<id>-rig.jpg` (the drawing tinted a colour a part, the
+bones and joints over it) and the store sheet with the walk as its strip.
+
 ### The workbench: posing by hand (4.0 W2)
 
 `hdf dev <film>` has a **Rig** tab (`R`) beside the cel sliders: one puppet
@@ -1506,6 +1547,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf sheet store <id> [--pose p] [--cycle c]` | a puppet in the store: every pose, every variant, a cycle as a strip (its own, else the vocabulary's) → `assets/sheets/<id>.jpg` |
 | `hdf hand --template --rig biped[,biped-front] [--paper] [--drawn]` | the rig sheet a character is drawn on (4.0 W1), a box a piece; `--drawn` one drawn in by the package, as a JPEG |
 | `hdf sketch <photo.jpg ...> --name <id> [--sheet biped\|biped-front] [--licence] [--cycle walk] [--root] [--no-sheet]` | a photographed rig sheet into the store as a puppet with the standard biped names (lines as strokes, coloured-in areas as fills, the face-on sheet adding the front view); `out/sketch-<id>-trace.jpg` and its sheet with the walk as the strip |
+| `hdf sketch <drawing.png\|.svg> --auto --name <id> [--view front\|side] [--licence] [--cycle walk] [--root] [--no-sheet]` | one drawing auto-rigged (4.0 W3): cut at the joints its skeleton gives, stood at rest with the pose `drawn` its own; `out/sketch-<id>-rig.jpg` and its sheet |
 | `hdf script <brief.md> [--out film.js] [--dry] [--force]`, `hdf script --check <film>` | a brief in the script dialect to the beat sheet and a timeline stub (4.0 E5, below) |
 | `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |

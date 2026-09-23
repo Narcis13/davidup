@@ -216,7 +216,7 @@ function drawAssembly(ctx, [ax, ay], k) {
 const pct = (a, q) => { const s = Float32Array.from(a).sort(); return s[Math.min(s.length - 1, Math.floor(s.length * q))]; };
 
 // The pixels within r of a mask's pixels (a dilation by a disc), through the distance transform of its complement.
-function grow(mask, w, h, r) {
+export function grow(mask, w, h, r) {
   if (r <= 0) return mask;
   const inv = new Uint8Array(w * h);
   for (let i = 0; i < inv.length; i++) inv[i] = mask[i] ? 0 : 1;
@@ -236,7 +236,7 @@ function opening(mask, w, h, r) {
 }
 
 // The closing of a mask by a disc of radius r (grow, then shrink back): gaps narrower than 2r filled.
-function closing(mask, w, h, r) {
+export function closing(mask, w, h, r) {
   const g = grow(mask, w, h, r), inv = new Uint8Array(w * h);
   for (let i = 0; i < inv.length; i++) inv[i] = g[i] ? 0 : 1;
   const back = grow(inv, w, h, r);
@@ -279,9 +279,10 @@ function colourClasses(colour, C, L, rgb, pc, n, least) {
 // to lines. A coloured-in area is closed over, taken together with the ink round it (so it reaches under its
 // outline, and a crayon over the line joins it), opened by a disc so thin marks fall away, and kept when most of
 // what it covers is colour; its colour is the mean of its colour pixels. Colour left over is a coloured line.
-export function readBox({ lum, rgb = null, skip = null }, { ppm = PPM, blob = BLOB } = {}) {
-  const { w, h } = lum, n = w * h, paper = pct(lum.data, 0.9);
-  const pc = rgb ? rgb.map((c) => pct(c.data, 0.9) || 1) : null;
+// paper: [lum, [r, g, b]] when the caller knows it (a piece cut from a drawing may be all colour, 4.0 W3).
+export function readBox({ lum, rgb = null, skip = null }, { ppm = PPM, blob = BLOB, paper: known } = {}) {
+  const { w, h } = lum, n = w * h, paper = known?.[0] ?? pct(lum.data, 0.9);
+  const pc = rgb ? known?.[1] ?? rgb.map((c) => pct(c.data, 0.9) || 1) : null;
   const L = new Float32Array(n), C = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     L[i] = Math.min(1, lum.data[i] / (paper || 1));
@@ -439,7 +440,7 @@ const u = ([x, y]) => [r2(x * K), r2(y * K)];
 
 // A read piece as ops in the part's own units (its pivot the origin): its blobs as readBox ordered them (coloured-in
 // areas biggest first, then solid ink), then lines longest first, then dots; mirror: x -> -x (the -l side face on).
-function opsOf(p, roleOf, name, mirror = false) {
+export function opsOf(p, roleOf, name, mirror = false) {
   if (!p) return [];
   const m = mirror ? ([x, y]) => [-x, y] : (q) => q, U = (q) => u(m(q)), out = [];
   const finish = (role) => /^(fills|accents)\./.test(role);
@@ -458,7 +459,7 @@ function opsOf(p, roleOf, name, mirror = false) {
 }
 
 // The parts in painter order (see the top of this file) with their parents and pivot joints.
-const ORDER = Object.freeze([
+export const ORDER = Object.freeze([
   ['arm-l', 'body', 'shoulder-l'], ['fore-l', 'arm-l', 'elbow-l'], ['hand-l', 'fore-l', 'wrist-l'],
   ['leg-l', 'hips', 'hip-l'], ['shin-l', 'leg-l', 'knee-l'], ['foot-l', 'shin-l', 'ankle-l'],
   ['leg-r', 'hips', 'hip-r'], ['shin-r', 'leg-r', 'knee-r'], ['foot-r', 'shin-r', 'ankle-r'],
@@ -532,19 +533,24 @@ export function rigPuppet(reads, { name = 'sketch', desc } = {}) {
     sockets: Object.fromEntries(['l', 'r'].map((s) => [`hand-${s}`, { part: `hand-${s}`, at: hand, angle: 90 }])),
     skeleton: { joints, bones },
   };
-  // Grown to hold the vocabulary's cycles untempered in every view (a walking leg's turned box reaches under the
-  // ground), so the actor walks it at full swing; a pose that lies down is still tempered to fit.
+  payload.box = holdCycles(payload, box);
+  return { payload, table, blank };
+}
+
+// A payload's box grown to hold the vocabulary's cycles untempered in every view (a walking leg's turned box
+// reaches under the ground), so the actor walks it at full swing; a pose that lies down is still tempered to fit.
+export function holdCycles(payload, box = payload.box) {
+  const views = payload.views ?? [null];
   const p = puppet({ ...payload }), known =   // a copy: puppet() memoises per payload object, and the box changes
     (q) => Object.fromEntries(Object.entries(q).filter(([k]) => p.parts.includes(k)));
   for (const [cyc, c] of Object.entries(VOCABULARY.cycles)) {
     if (!(VOCABULARY.needs[cyc] ?? []).every((n) => p.parts.includes(n))) continue;
     for (const { lift: _l, ...q } of c.frames) for (const V of views) {
-      const b = bounds(p({ ...p.rest, ...known(q), dir: VIEW_DIRS[V] }).kids);
+      const b = bounds(p({ ...p.rest, ...known(q), ...(V ? { dir: VIEW_DIRS[V] } : {}) }).kids);
       if (b) box = unite(box, b);
     }
   }
-  payload.box = box.map(r2);
-  return { payload, table, blank };
+  return box.map(r2);
 }
 const unite = (a, b) => {
   const x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]);

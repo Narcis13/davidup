@@ -6,6 +6,8 @@
 //   hdf sketch mia.jpg mia-front.jpg --name mia                    with the face-on sheet: views side and front
 //   hdf hand --template --rig biped --drawn > out/rig-drawn.jpg    a sheet drawn in by the package, a 300 dpi JPEG
 //                                                                  (a test figure; --rig biped-front for its face)
+//   hdf sketch mia.png --auto --name mia [--view front|side]       one drawing, no sheet (4.0 W3): cut at the joints
+//                                                                  core/autorig.js finds; an .svg is always --auto
 //
 // Each photo's sheet is read off its code; --sheet says which it must be. The puppet goes into the store (licence
 // own unless --licence says) with the standard biped names, so the vocabulary poses and walks it, and `hdf
@@ -15,11 +17,13 @@
 import { existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { loadImage } from 'skia-canvas';
+import { APPM, PARTS, TALL, autoRig, figureOf } from '../core/autorig.js';
 import { FRAME, PAPERS, frameOrigin, sample } from '../core/handsheet.js';
 import { poly, stroke } from '../core/list.js';
 import { LOOKS } from '../core/looks.js';
 import { hash32, rng } from '../core/rand.js';
-import { PIECES, RIG_SHEETS, drawRigTemplate, readRigSheet, rigBoxes, rigPuppet } from '../core/rigsheet.js';
+import { ORDER, PIECES, RIG_SHEETS, drawRigTemplate, jointsIn, readRigSheet, rigBoxes, rigPuppet } from '../core/rigsheet.js';
+import { traceAlpha } from '../core/trace.js';
 import { putPayload } from './import.mjs';
 import { UsageError } from './load.mjs';
 import { outDir, paint } from './sheets.mjs';
@@ -159,18 +163,175 @@ async function traceCheck({ img, rgb }, read, file) {
   await c.toFile(file, { quality: 0.88 });
 }
 
+// ---------- one drawing (4.0 W3) ----------
+
+// The test figure standing in one drawing, as a child colours one in and then goes round it with a pen: a round
+// head on a neck, a red top, blue jeans, skin arms and hands, black shoes, brown hair, face on (the shoulders and
+// hips apart) or in profile (both sides on one line), each part turned by pose (degrees, as a puppet's joints).
+// -> { fills: [[colour, pts]], lines: [pts] (the outline round the whole, then the mouth), dots: [[x, y, r]],
+// joints: { part: [x, y] } (each part's pivot as drawn) } in mm, the ground at y = 0, the hip over x = 0.
+const ROUND = (cx, cy, r, n = 36) => ring(cx, cy, r, r, n);
+export const FIGURE = Object.freeze({
+  body: { front: [[TOP, [[-20, -52], [20, -52], [23, -40], [17, 3], [-17, 3], [-23, -40]]]], side: [[TOP, [[-12, -52], [12, -52], [15, -40], [13, 3], [-13, 3], [-15, -40]]]] },
+  head: { front: [[SKIN, [[-5, -6], [5, -6], [5, 4], [-5, 4]]], [SKIN, ROUND(0, -21, 23)], [HAIR, [[-23, -24], [-19, -38], [0, -45], [19, -38], [23, -24], [15, -33], [0, -36], [-15, -33]]]],
+    side: [[SKIN, [[-5, -6], [5, -6], [5, 4], [-5, 4]]], [SKIN, ROUND(2, -21, 23)], [HAIR, [[-21, -27], [-16, -39], [-2, -45], [14, -43], [24, -33], [18, -33], [6, -37], [-8, -33], [-14, -23], [-20, -17]]]] },
+  arm: [[TOP, capsule(27, 6.5)]], fore: [[SKIN, capsule(26, 4.8)]], hand: [[SKIN, ROUND(0, 7, 6.5, 20)]],
+  leg: [[JEANS, capsule(34, 7.5)]], shin: [[JEANS, capsule(33, 6.5)]],
+  foot: { front: [[SHOE, ring(0, 4, 8, 4.5, 20)]], side: [[SHOE, [[-6, -3], [6, -3], [7, 2], [20, 3], [24, 7], [-6, 7]]]] },
+});
+export function figureShapes({ view = 'front', pose = {}, k = 4 } = {}) {
+  const J = jointsIn(view), jointOf = Object.fromEntries(ORDER.map(([n, par, j]) => [n, [par, j]])), world = {};
+  const place = (n) => {
+    if (world[n]) return world[n];
+    const [par, j] = jointOf[n], a = pose[n] ?? 0;
+    if (!par) return (world[n] = { at: J[j], a });
+    const P = place(par), v = [J[j][0] - J[jointOf[par][1]][0], J[j][1] - J[jointOf[par][1]][1]], t = (P.a * Math.PI) / 180;
+    return (world[n] = { at: [P.at[0] + v[0] * Math.cos(t) - v[1] * Math.sin(t), P.at[1] + v[0] * Math.sin(t) + v[1] * Math.cos(t)], a: P.a + a });
+  };
+  const out = { fills: [], lines: [], dots: [], joints: {} };
+  let X = null;
+  for (const [n] of ORDER) {
+    if (n === 'hips') continue;
+    const { at, a } = place(n), t = (a * Math.PI) / 180, f = FIGURE[n.replace(/-(l|r)$/, '')];
+    X = ([x, y]) => [at[0] + x * Math.cos(t) - y * Math.sin(t), at[1] + x * Math.sin(t) + y * Math.cos(t)];
+    for (const [c, pts] of Array.isArray(f) ? f : f[view]) out.fills.push([c, pts.map(X)]);
+    out.joints[n] = at;
+    if (n === 'head') {
+      const face = view === 'front' ? { eyes: [[-8, -23], [8, -23]], mouth: [[-7, -11], [0, -8], [7, -11]] } : { eyes: [[13, -24]], mouth: [[15, -10], [21, -12]] };
+      for (const [x, y] of face.eyes) out.dots.push([...X([x, y]), 1.8]);
+      out.mouth = face.mouth.map(X);
+    }
+  }
+  // The pen round the whole: the fills' silhouette, traced.
+  const W = 260, H = 240, ox = W / 2, oy = H - 10, c = skiaCanvas(W * k, H * k), g = c.getContext('2d');
+  g.scale(k, k); g.translate(ox, oy); g.fillStyle = '#000';
+  for (const [, pts] of out.fills) { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fill(); }
+  const { sub } = traceAlpha(g.getImageData(0, 0, W * k, H * k).data, W * k, H * k, { threshold: 127, step: 1, eps: 0.8, minArea: 20 });
+  for (const s of sub) {
+    const pts = [];
+    for (let i = 0; i < s.pts.length; i += 2) pts.push([s.pts[i] / k - ox, s.pts[i + 1] / k - oy]);
+    out.lines.push([...pts, pts[0]]);
+  }
+  out.lines.push(out.mouth);
+  delete out.mouth;
+  return out;
+}
+
+// The figure drawn at k px a mm, the house pen on its lines: a skia canvas (white, or clear with alpha: true).
+export function drawnFigure({ view = 'front', pose = {}, k = 4, alpha = false, w = 1 } = {}) {
+  const S = figureShapes({ view, pose }), W = 260, H = 240, ox = W / 2, oy = H - 10;
+  const canvas = skiaCanvas(Math.round(W * k), Math.round(H * k)), ctx = canvas.getContext('2d');
+  if (!alpha) { ctx.fillStyle = '#fbf8f1'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+  ctx.save(); ctx.scale(k, k); ctx.translate(ox, oy);
+  for (const [c, pts] of S.fills) { ctx.fillStyle = c; ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); }
+  for (const [x, y, r] of S.dots) { ctx.fillStyle = '#1e1630'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+  const list = S.lines.map((pts) => stroke(poly(pts.map(([x, y]) => [ox + x, oy + y]), false), 'ink', { w }));
+  paint(list, { look: LOOKS.paperInk, W, H, width: canvas.width, onto: canvas, seed: hash32('figure', view) });
+  return canvas;
+}
+
+// The same figure as an SVG: flat fills, black outlines (what a vector drawing app exports).
+export function figureSvg({ view = 'front', pose = {} } = {}) {
+  const S = figureShapes({ view, pose }), W = 260, H = 240, ox = W / 2, oy = H - 10;
+  const d = (pts, close) => `M${pts.map(([x, y]) => `${(ox + x).toFixed(2)} ${(oy + y).toFixed(2)}`).join('L')}${close ? 'Z' : ''}`;
+  return [`<svg xmlns="http://www.w3.org/2000/svg" width="${W * 4}" height="${H * 4}" viewBox="0 0 ${W} ${H}">`,
+    ...S.fills.map(([c, pts]) => `<path d="${d(pts, true)}" fill="${c}"/>`),
+    ...S.dots.map(([x, y, r]) => `<circle cx="${(ox + x).toFixed(2)}" cy="${(oy + y).toFixed(2)}" r="${r}" fill="#1e1630"/>`),
+    ...S.lines.map((pts) => `<path d="${d(pts, false)}" fill="none" stroke="#1e1630" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`),
+    '</svg>'].join('\n');
+}
+
+// An image's pixels as a drawing's planes: colour over white where it is clear, and its alpha when it has any (clear
+// in over 1% of the image; `clear` says so for a crop of it, whose edge may be off the image).
+function drawingPlanesOf(rgba, w, h, clear) {
+  if (clear === undefined) { let n = 0; for (let i = 3; i < rgba.length; i += 4) if (rgba[i] < 250) n++; clear = n > 0.01 * w * h; }
+  const alpha = clear ? new Float32Array(w * h) : null, rgb = [0, 1, 2].map(() => new Float32Array(w * h)), lum = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const a = rgba[4 * i + 3] / 255, [R, G, B] = [0, 1, 2].map((c) => (rgba[4 * i + c] / 255) * a + (1 - a));
+    rgb[0][i] = R; rgb[1][i] = G; rgb[2][i] = B;
+    lum[i] = 0.299 * R + 0.587 * G + 0.114 * B;
+    if (alpha) alpha[i] = a;
+  }
+  return { img: { data: lum, w, h }, rgb, alpha };
+}
+
+// A drawing file (PNG, JPEG, SVG) -> planes with the figure TALL * APPM px tall and a margin round it: read once
+// to find the figure, then drawn again at that scale (off the image's edge its paper, or clear).
+export async function drawingPlanes(file) {
+  const img = await loadImage(file), s0 = Math.min(4, 1200 / Math.max(img.width, img.height));
+  const at = (s, [x0, y0, cw, ch] = [0, 0, Math.ceil(img.width * s), Math.ceil(img.height * s)], clear) => {
+    const c = skiaCanvas(cw, ch), g = c.getContext('2d');
+    if (clear === false) { g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch); }
+    g.drawImage(img, -x0, -y0, img.width * s, img.height * s);
+    return drawingPlanesOf(g.getImageData(0, 0, cw, ch).data, cw, ch, clear);
+  };
+  const P0 = at(s0), F = figureOf(P0), k = (TALL * APPM) / F.height, s1 = s0 * k, m = 12 * APPM;
+  const [bx0, by0, bx1, by1] = F.box.map((v) => v * k);
+  return at(s1, [Math.floor(bx0 - m), Math.floor(by0 - m), Math.ceil(bx1 - bx0 + 2 * m), Math.ceil(by1 - by0 + 2 * m)], !!P0.alpha);
+}
+
+// The drawing with what the rig found over it: each part tinted, the bones white over black, the joints dotted.
+async function rigCheck(P, rig, file) {
+  const { w, h, label } = rig, c = skiaCanvas(w, h), g = c.getContext('2d'), im = g.createImageData(w, h);
+  const hue = (k) => { const a = (k * 137.5) % 360, f = (n) => { const q = (n + a / 30) % 12; return 0.5 - 0.5 * Math.max(-1, Math.min(q - 3, 9 - q, 1)); }; return [f(0), f(8), f(4)]; };
+  const tint = PARTS.map((_, k) => hue(k));
+  for (let i = 0; i < w * h; i++) {
+    const base = [P.rgb[0][i], P.rgb[1][i], P.rgb[2][i]], t = label[i] >= 0 ? tint[label[i]] : null;
+    im.data.set([...base.map((v, ch) => (t ? 0.55 * v + 0.45 * t[ch] : v) * 255), 255], 4 * i);
+  }
+  g.putImageData(im, 0, 0);
+  g.lineCap = 'round';
+  for (const [wd, col] of [[5, '#000'], [2.5, '#fff']]) {
+    g.lineWidth = wd; g.strokeStyle = col;
+    for (const [a, b] of rig.bones) { const p = rig.joints[a], q = rig.joints[b]; if (!p || !q) continue; g.beginPath(); g.moveTo(...p); g.lineTo(...q); g.stroke(); }
+  }
+  for (const p of Object.values(rig.joints)) { g.fillStyle = '#000'; g.beginPath(); g.arc(...p, 5, 0, Math.PI * 2); g.fill(); g.fillStyle = '#ffd400'; g.beginPath(); g.arc(...p, 3.2, 0, Math.PI * 2); g.fill(); }
+  await c.toFile(file, { quality: 0.88 });
+}
+
+async function runAuto(args, flags, name) {
+  if (args.length !== 1) throw new UsageError(`sketch --auto: one drawing at a time (got ${args.length})`);
+  const view = str(flags.view) || 'front';
+  if (view !== 'front' && view !== 'side') throw new UsageError(`sketch: --view ${view} (expected front | side)`);
+  const [file] = args, P = await drawingPlanes(file);
+  let got;
+  try { got = autoRig(P, { name, view }); } catch (e) { throw new UsageError(`sketch: ${basename(file)}: ${e.message.replace(/^autorig: /, '')}`); }
+  const { payload, table, copied, blank, found } = got;
+  process.stdout.write(`${basename(file)}: one drawing, ${view} view; found ${found.length ? found.join(', ') : 'no limbs'}${copied.length ? `; ${copied.join(', ')} drawn from the other side` : ''}\n`);
+  process.stdout.write(table.map((r) => `${r.hex}  ${String(r.area).padStart(6)}  ${r.role}\n`).join(''));
+  keepRetargeted(payload, name, flags);
+  const code = await putPayload({
+    kind: 'puppet', name, bytes: Buffer.from(JSON.stringify(payload)), abs: resolve(file),
+    flags: { licence: 'own', credit: `one drawing, rigged by hdf sketch --auto from ${basename(file)}`, source: basename(file), tags: 'puppet,sketch,autorig,biped', ...flags },
+  });
+  const drawn = Object.entries(payload.poses.drawn).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(', ');
+  process.stdout.write(`  parts: ${Object.keys(payload.parts).join(' ')}\n  pose drawn: ${drawn || 'all at rest'}${blank.length ? `\n  cut out empty (they draw nothing): ${blank.join(', ')}` : ''}\n`);
+  const check = join(outDir(flags), `sketch-${name}-rig.jpg`);
+  await rigCheck(P, got.rig, check);
+  process.stdout.write(`${check}  the drawing cut into its parts, the bones found over it\n`);
+  if (flags.sheet !== false) await storeSheet(name, { root: flags.root, cycle: str(flags.cycle) || 'walk' });
+  process.stdout.write(`next: hdf dev <film> and R (the Rig tab) to move a pivot the cut got wrong; hdf sheet store ${name} --poses (the pose drawn is the drawing)\n`);
+  return code;
+}
+
 export async function run(args, flags) {
-  if (!args.length) throw new UsageError('sketch: need a photo of a rig sheet (print one: hdf hand --template --rig biped > out/rig-sheet.pdf)');
+  if (typeof flags.auto === 'string') { args = [flags.auto, ...args]; flags = { ...flags, auto: true }; }   // --auto mia.png
+  if (!args.length) throw new UsageError('sketch: need a photo of a rig sheet (print one: hdf hand --template --rig biped > out/rig-sheet.pdf), or one drawing with --auto');
   const name = str(flags.name);
   if (!name) throw new UsageError('sketch: need --name <id>, e.g. hdf sketch mia.jpg --sheet biped --name mia');
+  for (const f of args) if (!existsSync(f)) throw new UsageError(`sketch: no file ${f}`);
+  if (flags.auto || args.some((f) => /\.svg$/i.test(f))) return runAuto(args, flags, name);
   const want = typeof flags.sheet === 'string' ? flags.sheet : '';   // --no-sheet is sheet: false
   if (want && !RIG_SHEETS[want]) throw new UsageError(`sketch: --sheet ${want} (expected ${Object.keys(RIG_SHEETS).join(' | ')})`);
-  for (const f of args) if (!existsSync(f)) throw new UsageError(`sketch: no file ${f}`);
   const photos = [];
   for (const file of args) {
     const p = await planes(file);
     let read;
-    try { read = readRigSheet(p.img, { rgb: p.rgb, ...(args.length === 1 && want ? { sheet: want } : {}) }); } catch (e) { throw new UsageError(`sketch: ${basename(file)}: ${e.message.replace(/^rig sheet: /, '')}`); }
+    try { read = readRigSheet(p.img, { rgb: p.rgb, ...(args.length === 1 && want ? { sheet: want } : {}) }); } catch (e) {
+      const marks = /corner marks/.test(e.message) ? `; one drawing, not a rig sheet? hdf sketch ${basename(file)} --auto --name ${name}` : '';
+      throw new UsageError(`sketch: ${basename(file)}: ${e.message.replace(/^(rig|hand) sheet: /, '')}${marks}`);
+    }
     const twin = photos.find((q) => q.read.sheet === read.sheet);
     if (twin) throw new UsageError(`sketch: ${basename(twin.file)} and ${basename(file)} are both the ${read.sheet} sheet`);
     photos.push({ file, ...p, read });

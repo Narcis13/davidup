@@ -88,6 +88,10 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     the printed dots, the standard biped names, the other side mirrored (a face-on
                                     sheet adds the front view); writes out/sketch-<id>-trace.jpg and its sheet with the
                                     vocabulary's walk (then hdf retarget --clip me --to <id> --name walk, no map)
+          <drawing.png|.svg> --auto --name <id> [--view front|side]
+                                    one drawing with no sheet (4.0 W3): its skeleton labelled, cut at the joints,
+                                    each piece read as a box, limbs hung at rest and the pose 'drawn' its own;
+                                    writes out/sketch-<id>-rig.jpg (an .svg is always --auto)
   align   <id> [--text "..."] [--json words.json] [--estimate] [--show] [--model base] [--lang en] [--root dir]
                                     word timing for a sample, stored on its entry: a transcriber (faster-whisper or
                                     whisper-timestamped under $HDF_PYTHON) laid onto the copy, any tool's words

@@ -138,8 +138,12 @@ export function skelOf(outer, rig, { h, facing = 1, s, whisker } = {}) {
 }
 
 // The same from a mask in hand: R is { mask, w, h, x0, y0, s } as rasterise() returns it (pixel (i, j) is
-// the point (x0 + (i + .5) / s, y0 + (j + .5) / s)); o.h is the figure's height in those units.
-export function skelOfMask(R, rig, { h: H, facing = 1, whisker } = {}) {
+// the point (x0 + (i + .5) / s, y0 + (j + .5) / s)); o.h is the figure's height in those units. paths: true
+// (biped) also returns the skeleton paths the joints were read off (4.0 W3): { trunk: hip -> head, arms, legs:
+// each from where it joins the trunk out to its end, in the order of their joints' numbers }; corners: true counts
+// as an end the corner pixel that pruning a fork's two whiskers leaves (a round head, a mitten; clips keep the
+// ends they were rigged with).
+export function skelOfMask(R, rig, { h: H, facing = 1, whisker, paths = false, corners = false } = {}) {
   if (!RIGS[rig]) throw new Error(`rig: '${rig}' is not a rig (have ${Object.keys(RIGS).join(', ')})`);
   const { w } = R, sc = R.s ?? 1;
   if (!R.w) return { joints: {} };
@@ -148,7 +152,11 @@ export function skelOfMask(R, rig, { h: H, facing = 1, whisker } = {}) {
   const sk = largest(thin, R.w, R.h), nb = degrees(sk, R.w, R.h);
   const at = (i) => [R.x0 + ((i % w) + 0.5) / sc, R.y0 + (Math.floor(i / w) + 0.5) / sc];
   const ends = [];
-  for (let i = 0; i < sk.length; i++) if (sk[i] && nb[i] === 1) ends.push(i);
+  for (let i = 0; i < sk.length; i++) {
+    if (!sk[i] || nb[i] > (corners ? 2 : 1) || !nb[i]) continue;
+    const q = nbrs(sk, R.w, R.h, i);
+    if (q.length === 1 || Math.max(Math.abs((q[0] % w) - (q[1] % w)), Math.abs(Math.floor(q[0] / w) - Math.floor(q[1] / w))) === 1) ends.push(i);
+  }
   const X = (i) => at(i)[0] * facing, Y = (i) => at(i)[1];
   const J = {};
   const put = (name, i) => { if (i !== undefined && i >= 0) J[name] = at(i).map(r1); };
@@ -212,7 +220,9 @@ export function skelOfMask(R, rig, { h: H, facing = 1, whisker } = {}) {
   if (arms.length) J.shoulder = mean(arms.map((l) => at(l.join)));
   pair(legs, 'knee', 'ankle', '', T);
   pair(arms, 'elbow', 'wrist', '', T);
-  return { joints: J };
+  if (!paths) return { joints: J };
+  const out = (l) => [...l.path].reverse().map(at);
+  return { joints: J, paths: { trunk: pathOf(T, hip).map(at), arms: arms.map(out), legs: legs.map(out) } };
 }
 
 // Joints missing from some frames, filled in along the loop from the nearest frames that have them.

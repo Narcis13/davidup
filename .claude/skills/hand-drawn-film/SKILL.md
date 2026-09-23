@@ -193,6 +193,9 @@ For a character a child drew, print the **rig sheet** (`hdf hand --template
 --rig biped > out/rig-sheet.pdf`), have them draw a piece in each box, and
 `hdf sketch photo.jpg --sheet biped --name mia` makes a puppet with the same
 biped names that walks from the vocabulary (details in references/assets.md).
+With no sheet, `hdf sketch drawing.png --auto --name mia` (an `.svg` always)
+auto-rigs one standing figure, arms clear of the body; rough, so check
+`out/sketch-<id>-rig.jpg` and fix pivots in the workbench (`hdf dev`, R).
 To pose a stored puppet by hand, `hdf dev <film>` has a **Rig** tab (`R`):
 drag its joints (IK on hands and feet), record a pose or a cycle's frames,
 move a pivot a sketch got wrong or a socket; each edit is written back to the
