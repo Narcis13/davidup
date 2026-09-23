@@ -5,12 +5,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { alignOf, checkAlign, clearAligns, estimateAlign, fitWords, packAlign, spokenOf, unpackAlign, wordsOf } from '../core/align.js';
+import { alignOf, alignSpan, checkAlign, checkFitted, clearAligns, estimateAlign, fitWords, packAlign, spokenOf, trimGhosts, unpackAlign, wordsOf } from '../core/align.js';
 import { captions } from '../core/captions.js';
 import { SR, setPcm, toWav16 } from '../core/synth.js';
+import { decodeWav, voicedSpan } from '../core/wav.js';
 import { register } from '../core/store.js';
 import { film, seq, shot } from '../core/tree.js';
 import { paper, meta, walk } from '../core/list.js';
@@ -195,6 +196,55 @@ test('hdf align: --json and --estimate store on the entry, --show reads, no tran
     assert.match(r.out, /0\.750 +1\.200 +there\./);
     assert.match(r.out, /4 words over 2\.10 s, by json/);
     assert.notEqual(hdf('align', 'nope', '--root', dir).code, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('RE-6: whisper\'s ghost words (the prompt repeated at the end) are trimmed, and a fit on them throws', () => {
+  const G = JSON.parse(readFileSync(join(ROOT, 'test/fixtures/whisper-ghosts.json'), 'utf8'));
+  const st = readCatalogue(join(ROOT, 'assets')), x = decodeWav(readFileSync(st.payloadPath(st.entry(G.id))));
+  const dur = x.length / SR, voiced = voicedSpan(x);
+  assert.equal(G.words.length, 64);
+  // As it was: the copy fits the ghosts, every word at 9.02 s, 0.20 s in all. That is refused now.
+  const raw = fitWords(G.text, G.words, 'whisper');
+  assert.ok(alignSpan(raw) < 0.3, `span ${alignSpan(raw)}`);
+  assert.throws(() => checkFitted(raw, voiced), /covers only 0\.\d\d s of 8\.90 s voiced.*--json.*--prompt/);
+  // Trimmed: the zero-length run at the file's end goes; the few ghosts left before it lose to the real words.
+  const heard = trimGhosts(G.words, { dur, voiced });
+  assert.ok(heard.length < 40 && heard.length >= 32, `${heard.length} left`);
+  const A = fitWords(G.text, heard, 'whisper');
+  assert.equal(A.words.length, 32);
+  checkFitted(A, voiced);
+  assert.ok(alignSpan(A) > 8.5, `span ${alignSpan(A)}`);
+  assert.deepEqual([A.words[0].t0, A.words[31].text, A.words[31].t0], [0, 'half.', 8.46]);
+  // A word starting 0.3 s past the voiced end goes too, wherever it sits.
+  assert.deepEqual(trimGhosts([{ text: 'a', t0: 0, t1: 1 }, { text: 'b', t0: 1.5, t1: 1.6 }, { text: 'c', t0: 1, t1: 1.2 }], { dur: 5, voiced: [0, 1.1] }).map((w) => w.text), ['a', 'c']);
+});
+
+test('hdf align: ghost words in --json are trimmed; only ghosts, or a fit covering under half the voiced span, is refused', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-ghost-'));
+  try {
+    const wav = join(dir, 'line.wav');
+    writeFileSync(wav, toWav16(spoken([[0.3, 1.2], [1.6, 2.4]], 2.6)));
+    assert.equal(hdf('import', wav, '--kind', 'sample', '--name', 'line', '--licence', 'own', '--root', dir, '--desc', 'Hello there. Moon rise.').code, 0);
+    const json = join(dir, 'words.json'), ghosts = ['hello', 'there', 'moon', 'rise'].map((text) => ({ text, t0: 2.58, t1: 2.58 }));
+    writeFileSync(json, JSON.stringify([{ text: 'hello', t0: 0.3, t1: 0.7 }, { text: 'there', t0: 0.75, t1: 1.2 }, { text: 'moon', t0: 1.6, t1: 1.9 }, { text: 'rise', t0: 2, t1: 2.4 }, ...ghosts]));
+    let r = hdf('align', 'line', '--root', dir, '--json', json);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /4 words over 2\.10 s, by json/);
+    writeFileSync(json, JSON.stringify(ghosts));
+    r = hdf('align', 'line', '--root', dir, '--json', json);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /all 4 of the tool's words are ghosts/);
+    // A transcriber that prints ghosts is refused the same way (a fake python standing in for cli/align.py).
+    const py = join(dir, 'python');
+    writeFileSync(py, `#!/bin/sh\ncase "$*" in *--prompt*) exit 9;; esac\necho '${JSON.stringify([{ text: 'hello', t0: 1, t1: 1.1 }, { text: 'there', t0: 1.1, t1: 1.2 }])}'\n`);
+    chmodSync(py, 0o755);
+    const run = (...a) => { const q = spawnSync(process.execPath, ['cli/hdf.mjs', 'align', 'line', '--root', dir, ...a], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, HDF_PYTHON: py } }); return { code: q.status, out: q.stdout + q.stderr }; };
+    r = run();
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /covers only 0\.\d\d s of 2\.10 s voiced/);
+    // The copy is not whisper's prompt unless asked (the fake fails when it gets one).
+    assert.match(run('--prompt').out, /cli\/align\.py failed \(9\)/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

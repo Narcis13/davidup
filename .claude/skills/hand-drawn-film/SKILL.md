@@ -306,6 +306,9 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
 - **Captions and voiced lines.** Put the copy on the sample (`--desc "..."`
   on import), then run `hdf align <id>`: it uses faster-whisper under
   `$HDF_PYTHON` if that is installed, and otherwise stores an estimate.
+  The copy is not whisper's prompt (`--prompt` adds a spelling hint). Ghost
+  words past the voice's end are dropped, and a timing that covers under
+  half the voice is refused rather than stored.
   `captions(id, { t0 })` letters the words as they are spoken, underlines
   the spoken word, and is drawn with `CAPS.draw(t, { W, H })` in the shot.
   With no recording, `captions(['line one', 'line two'], { t0, audience })`
@@ -327,7 +330,8 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
 - **Lip sync.** A voiced say's mouth is the recording's own. By default it
   comes from the voice band's energy, one letter A to H or X per 1/12 s.
   `hdf align <id> --mouth` stores Rhubarb's track if `rhubarb` is on PATH,
-  and otherwise stores the energy track. `actor.mouth(id, t, t0)` moves a
+  and otherwise stores the energy track. If Rhubarb crashes (1.14 segfaults
+  on some Macs), it stores the energy track and names the signal. `actor.mouth(id, t, t0)` moves a
   mouth with no bubble; put `voice(id, t0)` in the score. A puppet that draws
   its own mouths names them `A` to `H`.
   Captions do not count as words. Lint warns `caption-sync` on an estimate

@@ -96,10 +96,12 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     one drawing with no sheet (4.0 W3): its skeleton labelled, cut at the joints,
                                     each piece read as a box, limbs hung at rest and the pose 'drawn' its own;
                                     writes out/sketch-<id>-rig.jpg (an .svg is always --auto)
-  align   <id> [--text "..."] [--json words.json] [--estimate] [--show] [--model base] [--lang en] [--root dir]
+  align   <id> [--text "..."] [--json words.json] [--estimate] [--show] [--model base] [--lang en] [--prompt ["..."]] [--root dir]
                                     word timing for a sample, stored on its entry: a transcriber (faster-whisper or
                                     whisper-timestamped under $HDF_PYTHON) laid onto the copy, any tool's words
-                                    (--json), or the estimate; captions(id) and say(..., { voice: id }) read it
+                                    (--json), or the estimate; captions(id) and say(..., { voice: id }) read it.
+                                    Ghost words past the voiced end are dropped; a fit under half the voiced span
+                                    is refused. --prompt gives whisper the copy (or a string) as a spelling hint
           <id> --mouth [--json cues.json] [--estimate] [--show] [--recognizer phonetic]
                                     the mouth track: Rhubarb (on PATH or $RHUBARB), a tool's cues, or the energy
                                     track; a voiced say and actor.mouth(id, t) read it

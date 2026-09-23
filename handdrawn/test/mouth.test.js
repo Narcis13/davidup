@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkMouth, clearMouths, cuesMouth, energyMouth, mouthAt, mouthFrom, mouthIndex } from '../core/mouth.js';
@@ -139,5 +139,18 @@ test('hdf align --mouth: no rhubarb stores the energy track, --json takes cues, 
     assert.match(r.out, /15 frames of mouth, by json/);
     writeFileSync(cues, JSON.stringify([{ start: 0, end: 1, value: 'Z' }]));
     assert.notEqual(hdf({}, 'align', 'line', '--mouth', '--json', cues, '--root', dir).code, 0);
+    // RE-7: a Rhubarb killed by a signal (1.14 segfaults on some Macs) stores the energy track and says why;
+    // one that exits non-zero is still an error.
+    const rh = join(dir, 'rhubarb');
+    writeFileSync(rh, '#!/bin/sh\nkill -SEGV $$\n');
+    chmodSync(rh, 0o755);
+    r = hdf({ RHUBARB: rh }, 'align', 'line', '--mouth', '--root', dir);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /rhubarb was killed by SIGSEGV; storing the energy track/);
+    assert.equal(readCatalogue(dir).entry('line').mouth.by, 'energy');
+    writeFileSync(rh, '#!/bin/sh\necho "no such recognizer" >&2\nexit 2\n');
+    r = hdf({ RHUBARB: rh }, 'align', 'line', '--mouth', '--root', dir);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /rhubarb failed \(2\):\nno such recognizer/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

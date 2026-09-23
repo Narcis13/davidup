@@ -1397,14 +1397,22 @@ stores a better timing on the entry, so a render needs nothing installed:
 
 ```bash
 hdf align moon-para --text "The moon does not make its own light. ..."   # faster-whisper or whisper-timestamped under $HDF_PYTHON
+hdf align moon-para --prompt "Ştefan"      # the same, with a spelling hint for a name whisper gets wrong
 hdf align moon-para --json words.json      # any tool's [{ text, t0, t1 }]
 hdf align moon-para --estimate             # store the estimate as it is
 hdf align moon-para --show                 # what a render would use; writes nothing
 ```
 
 The transcriber's words go onto the copy through a word-level edit distance,
-so its spelling and punctuation never reach the screen. With no transcriber
-installed, `hdf align` stores the estimate and says so. On `moon-para`
+so its spelling and punctuation never reach the screen. That is why the copy
+is not whisper's prompt: given one, faster-whisper can repeat it at the end of
+the file as zero-length words. `--prompt` opts back in, with the copy or with
+a string of names. Before the fit, `hdf align` drops the trailing run of
+zero-length words (or words starting in the file's last 0.05 s) and any word
+starting 0.3 s past the voiced end. After it, a fit covering under half the
+voiced span is refused rather than stored. The same checks apply to
+`--json`. With no transcriber installed, `hdf align` stores the estimate and
+says so. On `moon-para`
 (18 s, `say`), the estimate's word starts are 0.16 s from whisper's on
 average (0.45 s at worst).
 
@@ -1460,7 +1468,9 @@ When a cue is laid on the grid, a frame takes the cue that covers most of it.
 A shut cue of a quarter frame or more wins the frame outright, so a quick m,
 b or p still closes the lips. `--recognizer phonetic` gives Rhubarb its
 language-free recogniser for a line that is not in English. With Rhubarb
-missing, the energy track is stored and the command says so.
+missing, or killed by a signal (1.14 segfaults on some Macs), the energy
+track is stored and the command says why. Rhubarb exiting with an error is
+still an error.
 
 ```js
 const HELLO = FOX.say('Hello there!', 0.75, { voice: 'hello-there' });

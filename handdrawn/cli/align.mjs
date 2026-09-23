@@ -10,11 +10,15 @@
 // The copy is --text, else the stored alignment's, else the entry's desc. Without --json or --estimate the
 // transcriber is cli/align.py under $HDF_PYTHON (else python3) with faster-whisper or whisper-timestamped;
 // when neither is installed the estimate is stored instead and the command says how to get one. --model
-// names the whisper model (base), --lang its language.
+// names the whisper model (base), --lang its language. The copy is not whisper's prompt (given one, it repeats
+// it as ghost words at the end): fitWords lays the heard words onto it. --prompt hands whisper the copy (or
+// --prompt "Ştefan, Ioana" a string) for names it misspells. Words past the voiced end are dropped before the
+// fit, and a fit covering under half the voiced span is an error, not a stored alignment.
 //
 //   hdf align moon-1 --mouth                the mouth track (4.0 V3): Rhubarb Lip Sync (`rhubarb` on PATH, or
 //                                           RHUBARB=/path/to/rhubarb) with the copy as its dialog, stored as
-//                                           `mouth` on the entry; without it the energy track, said so
+//                                           `mouth` on the entry; without it, or when it is killed by a signal,
+//                                           the energy track, said so
 //   hdf align moon-1 --mouth --json cues.json   any tool's cues ([{ start, end, value }] or { mouthCues })
 //   hdf align moon-1 --mouth --estimate     the energy track, stored as such
 //   hdf align moon-1 --mouth --show         what a render would use now, a letter per 1/12 s; writes nothing
@@ -24,12 +28,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { alignSpan, estimateAlign, fitWords, packAlign, unpackAlign } from '../core/align.js';
+import { alignSpan, checkFitted, estimateAlign, fitWords, packAlign, trimGhosts, unpackAlign } from '../core/align.js';
 import { ASSET_ROOT, readCatalogue } from '../core/assets.js';
 import { SYNC_MAX } from '../core/lint.js';
 import { checkMouth, cuesMouth, energyMouth } from '../core/mouth.js';
 import { SR } from '../core/synth.js';
-import { decodeWav } from '../core/wav.js';
+import { decodeWav, voicedSpan } from '../core/wav.js';
 import { UsageError } from './load.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -56,12 +60,12 @@ export async function run([id], flags) {
     const file = resolve(String(flags.json));
     if (!existsSync(file)) throw new UsageError(`align: no such file '${flags.json}'`);
     const got = JSON.parse(readFileSync(file, 'utf8'));
-    A = fitWords(text || null, Array.isArray(got) ? got : got.words, 'json');
+    A = fitHeard(text, Array.isArray(got) ? got : got.words, wav, 'json');
   } else if (flags.estimate) {
     A = estimateOrSay(text, wav, id);
   } else {
     const heard = transcribe(wav, text, flags);
-    if (heard) A = fitWords(text || null, heard, 'whisper');
+    if (heard) A = fitHeard(text, heard, wav, 'whisper');
     else {
       process.stderr.write(`align: no transcriber (python3 -m pip install faster-whisper, or HDF_PYTHON=<venv>/bin/python); storing the estimate\n`);
       A = estimateOrSay(text, wav, id);
@@ -91,25 +95,30 @@ function mouth(id, e, st, wav, text, flags) {
     M = energyMouth(decodeWav(readFileSync(wav)));
   } else {
     const cues = rhubarb(wav, text, flags);
-    if (cues) M = cuesMouth(cues, sec, 'rhubarb');
-    else {
-      process.stderr.write('align: no rhubarb (https://github.com/DanielSWolf/rhubarb-lip-sync/releases, on PATH or RHUBARB=<path>); storing the energy track\n');
-      M = energyMouth(decodeWav(readFileSync(wav)));
-    }
+    M = cues ? cuesMouth(cues, sec, 'rhubarb') : energyMouth(decodeWav(readFileSync(wav)));
   }
   st.put({ ...e, mouth: { by: M.by, shapes: M.shapes } }, st.payload(e));
   printMouth(id, M);
   return 0;
 }
 
-// Rhubarb's cues, or null when it is not installed. Any other failure is an error.
+// Rhubarb's cues, or null (said why) when it is not installed or is killed by a signal (1.14 segfaults on some
+// Macs), so the energy track is stored. A non-zero exit is an error.
 function rhubarb(wav, text, flags) {
   const dir = mkdtempSync(join(tmpdir(), 'hdf-rhubarb-'));
   try {
     const args = ['-f', 'json', '-q', ...(flags.recognizer ? ['-r', String(flags.recognizer)] : [])];
     if (text.trim()) { writeFileSync(join(dir, 'dialog.txt'), text); args.push('-d', join(dir, 'dialog.txt')); }
     const r = spawnSync(process.env.RHUBARB || 'rhubarb', [...args, wav], { encoding: 'utf8', maxBuffer: 64 << 20 });
-    if (r.error?.code === 'ENOENT') return null;
+    if (r.error?.code === 'ENOENT') {
+      process.stderr.write('align: no rhubarb (https://github.com/DanielSWolf/rhubarb-lip-sync/releases, on PATH or RHUBARB=<path>); storing the energy track\n');
+      return null;
+    }
+    if (r.error) throw new Error(`align: rhubarb failed: ${r.error.message}`);
+    if (r.status === null || r.signal) {
+      process.stderr.write(`align: rhubarb was killed by ${r.signal ?? 'a signal'}; storing the energy track\n`);
+      return null;
+    }
     if (r.status !== 0) throw new Error(`align: rhubarb failed (${r.status}):\n${r.stderr}`);
     return JSON.parse(r.stdout).mouthCues;
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -125,9 +134,19 @@ function estimateOrSay(text, wav, id) {
   return estimateAlign(text, decodeWav(readFileSync(wav)));
 }
 
+// A tool's words laid onto the copy: ghosts trimmed first, the fit refused when it covers too little.
+function fitHeard(text, heard, wav, by) {
+  const x = decodeWav(readFileSync(wav)), voiced = voicedSpan(x), kept = trimGhosts(heard, { dur: x.length / SR, voiced });
+  if (heard?.length && !kept.length) throw new UsageError(`align: all ${heard.length} of the tool's words are ghosts (zero-length, or past the voiced end); check the words, or store --estimate`);
+  const A = fitWords(text || null, kept, by);
+  try { checkFitted(A, voiced); } catch (err) { throw new UsageError(err.message); }
+  return A;
+}
+
 // The transcriber's words, or null when neither library is installed. Any other failure is an error.
 function transcribe(wav, text, flags) {
-  const args = [join(HERE, 'align.py'), wav, '--model', str(flags.model) || 'base', ...(text ? ['--text', text] : []), ...(flags.lang ? ['--lang', String(flags.lang)] : [])];
+  const prompt = flags.prompt === true ? text : str(flags.prompt);
+  const args = [join(HERE, 'align.py'), wav, '--model', str(flags.model) || 'base', ...(prompt ? ['--prompt', prompt] : []), ...(flags.lang ? ['--lang', String(flags.lang)] : [])];
   const r = spawnSync(PY(), args, { encoding: 'utf8', maxBuffer: 64 << 20 });
   if (r.error?.code === 'ENOENT') return null;
   if (r.status === 3) return null;

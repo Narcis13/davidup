@@ -150,6 +150,31 @@ export function fitWords(text, got, by = 'json') {
   return { text, by, words: out.map((w) => ({ text: w.text, t0: r3(w.t0), t1: r3(w.t1) })) };
 }
 
+// trimGhosts(heard, { dur, voiced }) => the words minus the ones the audio never spoke: the trailing run that
+// is zero-length or starts within 0.05 s of the file's end (whisper, given a prompt, repeats it there), and any
+// word starting after the voiced span's end plus 0.3 s. `voiced` is wav.js voicedSpan's [t0, t1], or null.
+export function trimGhosts(heard, { dur, voiced } = {}) {
+  let out = [...(heard ?? [])];
+  const t0 = (w) => +(w.t0 ?? w.start), t1 = (w) => +(w.t1 ?? w.end);
+  while (out.length) {
+    const w = out[out.length - 1];
+    if (t1(w) - t0(w) <= 1e-9 || (Number.isFinite(dur) && t0(w) >= dur - 0.05)) out.pop(); else break;
+  }
+  if (voiced) out = out.filter((w) => !(t0(w) > voiced[1] + 0.3));
+  return out;
+}
+
+// checkFitted(A, voiced): throws when the fitted words (first t0 to last t1) cover under half the voiced span,
+// which is a tool's timing gone wrong (ghost words piled at one instant), not a take.
+export function checkFitted(A, voiced) {
+  if (!voiced || !A.words.length) return;
+  const span = alignSpan(A), v = voiced[1] - voiced[0];
+  if (span < 0.5 * v) {
+    throw new Error(`align: the transcriber's timing covers only ${span.toFixed(2)} s of ${v.toFixed(2)} s voiced ` +
+      '(a --json whose times are off, or whisper repeating a --prompt as ghost words); check the words, or store --estimate');
+  }
+}
+
 // ---------- by id ----------
 
 // The catalogue's stored form ([text, t0, t1] per word) and back.
