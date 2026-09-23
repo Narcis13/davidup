@@ -137,8 +137,9 @@ test('the round trip: the moon film\'s brief makes the beat sheet the film carri
   const block = src.split('\n').slice(sheet.start, sheet.end).join('\n');
   assert.equal(r.sheet, block, 'hdf script work/moon/moon.md prints the sheet moon.js was built from');
   assert.deepEqual(sheetDiff(sheet.rows, await loadFilm('work/moon/moon.js')), []);
-  // The four chapters the brief names, every recipe it shows, and the teacher in each card.
-  assert.deepEqual(rowsOf(r.film).map((x) => x.recipe).filter((x) => x !== '-'), ['AN', 'AN', 'AO', 'AP', 'AN', 'AS', 'AN', 'AY', 'AW', 'S']);
+  // The four chapters the brief names and every recipe it shows: the first chapter opens on the title the hand
+  // writes (card: false), the other three on their cards.
+  assert.deepEqual(rowsOf(r.film).map((x) => x.recipe).filter((x) => x !== '-'), ['AN', 'AO', 'AN', 'AP', 'AN', 'AS', 'AY', 'AN', 'AW', 'S']);
   assert.equal(r.film.audience, 'kids-7');
   // A sheet that no longer matches the film is found, row by row.
   const moved = sheet.rows.map((x, k) => (k === 3 ? { ...x, dur: x.dur + 1 } : x));
