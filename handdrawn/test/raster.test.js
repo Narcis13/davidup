@@ -13,7 +13,7 @@ import { fill, circle, line, stroke, text, paper, walk, group } from '../core/li
 import { withLook } from '../core/looks.js';
 import { cut, film, place, seq, shot } from '../core/tree.js';
 import { frameRenderer, produceFrames } from '../cli/frames.mjs';
-import { goldenOf } from '../cli/golden.mjs';
+import { goldenOf, sampleOf } from '../cli/golden.mjs';
 import { skiaCanvas } from '../cli/skia.mjs';
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
@@ -113,6 +113,17 @@ test('workers split the film and deliver the same frames in order', async () => 
 test('mini matches its golden', { skip: process.platform !== 'darwin' && 'goldens are written on darwin-arm64' }, async () => {
   const want = JSON.parse(readFileSync(new URL('../films/goldens/mini.json', import.meta.url), 'utf8'));
   assert.deepEqual(await goldenOf('films/mini.js', mini, { workers: 2 }), want);
+});
+
+// 4.0 RE-10: a sampled golden (a long lesson's) is the full golden's frames at its sample, and the whole wav.
+test('a golden sampled at N frames draws those frames as the full golden does', async () => {
+  assert.deepEqual(sampleOf(100, 4), [12, 37, 62, 87]);
+  assert.deepEqual(sampleOf(3, 24), [0, 1, 2]);
+  const full = await goldenOf('films/mini.js', mini, { workers: 1 }), sample = sampleOf(mini.n, 6);
+  const some = await goldenOf('films/mini.js', mini, { sample });
+  assert.deepEqual(some.sample, sample);
+  assert.deepEqual(some.frames, Object.fromEntries(sample.map((i) => [i, full.frames[i]])));
+  assert.equal(some.wav, full.wav);
 });
 
 test('a disk-cached second run reads layers back and draws the same frames', async () => {

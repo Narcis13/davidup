@@ -49,14 +49,16 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     - text: ..., - voice: <sample>, - <name> says: ..., - sign: ...) -> the beat sheet,
                                     every length the film's own (recipes from their copy and audience, speech at reading
                                     speed, recordings by their word timing); writes the stub work/<film>/<film>.js, or
-                                    replaces only the beat-sheet comment in a film that exists
+                                    replaces only the beat-sheet comment in a film that exists (the <film>.js
+                                    beside the brief first: films/moon.md scripts films/moon.js)
           --check <film.js>         the round trip: the film's beat-sheet comment against what it plays; exits 1 on a
                                     difference
   lint    <film.js>                 review checklist over lists; exits 1 on any finding (a line per chapter after)
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
           [--ar 1:1|16:9|9:16]      check the film as rendered at another aspect
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
-  golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json; --alpha: <film>-alpha.json
+  golden  <film.js> write|check [--workers N] [--sample N]   with --look: goldens/<film>-<look>.json; --alpha:
+                                    <film>-alpha.json; --sample N: N frames spread over the film (check reuses them)
   dev     <film.js> [--port 4321] [--root dir]   player with hot reload (edits jump it to the first changed frame);
                                     its Rig tab poses a stored puppet by dragging (FK, IK on hands and feet), records
                                     poses and cycle frames, moves pivots and sockets, and writes the puppet back to

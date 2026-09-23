@@ -19,6 +19,8 @@
 // dwells), so a longer label gets longer on screen and a lesson for five-year-olds runs slower than one for
 // adults. Give `dur` to fix it (the timing inside stays; a longer shot holds at the end). The lettering is
 // written on in stroke order at the audience's pen speed; titleCard's `hand:` puts a drawn hand to the pen (T6).
+// titlePlan, labelledPlan, countingPlan, cyclePlan, hopTimes and quizTimes give a film the same times (and
+// the nodes and places the recipe letters) from the same options, for its score or for what it draws on top.
 //
 // actor: here the actor is the teacher, not the subject: a cast member standing at the side (`side`, `h` its
 // rest pose's drawn height) facing us, idling on the twos, presenting the title, pointing at what arrives,
@@ -123,11 +125,22 @@ export const apple = cel('apple', () => {
 // With a hand the words are written at the audience's reading speed, a word at a time (writeOn's schedule:
 // the hand comes in over HAND_LEAD, a word takes 1 / read seconds), and the hand leaves after the last.
 const HAND_LEAD = 0.4;
-function titlePlan(o) {
+function titleTiming(o) {
   const A = audienceOf(o.audience), t0 = o.at, hand = !!o.hand;
   const t1 = t0 + (hand ? HAND_LEAD + words(o.title) / A.read : writeT(o.title, A)), u1 = t1 + 0.3;
   const t2 = o.sub ? u1 + (hand ? words(o.sub) / A.read : writeT(o.sub, A)) : u1;
   return { A, t0, t1, u1, t2, hand, end: t2 + readT(`${o.title} ${o.sub ?? ''}`, A) + (hand ? 0.4 : 0) };
+}
+// The card's lettering as it draws it: the title, the swash under it, the sub, and the hand's schedules.
+function titleNodes(o, P) {
+  const { A } = P, s = o.size * A.text;
+  const x = o.x ?? (o.actor ? (o.side === 'right' ? 440 : 640) : 540);
+  const title = letters(o.title, x, o.y, { size: s, align: 'center', valign: 'bottom', width: o.width, role: o.role, seed: o.seed });
+  const [bx, by, bw, bh] = bounds(title.kids) ?? [x - o.width / 2, o.y - s, o.width, s];
+  const swash = stroke(spline([[bx - 10, by + bh + 22], [bx + bw * 0.5, by + bh + 12], [bx + bw + 16, by + bh + 20]], { n: 6 }), o.swash, { w: Math.max(3, s * 0.06), wobble: 1.2, seed: o.seed + 1, name: 'swash' });
+  const sub = o.sub && letters(o.sub, x, by + bh + 34 + s * 0.55, { size: s * 0.55, align: 'center', valign: 'top', width: o.width, role: o.role, seed: o.seed + 2 });
+  const W = { per: 'word', wps: A.read };
+  return { s, title, swash, sub: sub || null, onTitle: { ...W, at: P.t0, lead: HAND_LEAD }, onSub: { ...W, at: P.u1, lead: 0 } };
 }
 // AN. Title card (3 to 5 s): after a beat the title is written on (centred, wrapped to `width`) at the pen's
 // pace, a swash underlines it, the `sub` writes under it; the actor, at the side, presents it as the title is
@@ -135,17 +148,11 @@ function titlePlan(o) {
 // scale, skin, ink) and a drawn hand writes it all, a word at a time at the audience's reading speed,
 // lifting between words (T6), then leaves.
 export const titleCard = recipe('AN', 'title', {
-  dur: (o) => titlePlan(o).end, title: 'why does the moon change shape?', sub: null, audience: 'general', actor: null,
+  dur: (o) => titleTiming(o).end, title: 'why does the moon change shape?', sub: null, audience: 'general', actor: null,
   side: 'right', h: 380, x: null, y: 500, size: 108, width: 760, role: 'ink', swash: 'accents.0', at: 0.25, pose: 'present', seed: 150,
   hand: null,
 }, (ctx, o) => {
-  const P = titlePlan(o), { A } = P, t = ctx.t, s = o.size * A.text;
-  const x = o.x ?? (o.actor ? (o.side === 'right' ? 440 : 640) : 540);
-  const title = letters(o.title, x, o.y, { size: s, align: 'center', valign: 'bottom', width: o.width, role: o.role, seed: o.seed });
-  const [bx, by, bw, bh] = bounds(title.kids) ?? [x - o.width / 2, o.y - s, o.width, s];
-  const swash = stroke(spline([[bx - 10, by + bh + 22], [bx + bw * 0.5, by + bh + 12], [bx + bw + 16, by + bh + 20]], { n: 6 }), o.swash, { w: Math.max(3, s * 0.06), wobble: 1.2, seed: o.seed + 1, name: 'swash' });
-  const sub = o.sub && letters(o.sub, x, by + bh + 34 + s * 0.55, { size: s * 0.55, align: 'center', valign: 'top', width: o.width, role: o.role, seed: o.seed + 2 });
-  const W = { per: 'word', wps: A.read }, onTitle = { ...W, at: P.t0, lead: HAND_LEAD }, onSub = { ...W, at: P.u1, lead: 0 };
+  const P = titleTiming(o), t = ctx.t, { s, title, swash, sub, onTitle, onSub } = titleNodes(o, P);
   const pTitle = P.hand ? writing(title, onTitle).p(t) : ramp(P.t0, P.t1, t), pSub = P.hand && sub ? writing(sub, onSub).p(t) : ramp(P.u1, P.t2, t);
   // The hand on whichever part is being written; after the last, it goes back the way it came.
   const H = P.hand && { look: ctx.look, scale: s / 100, ...(o.hand === true ? {} : o.hand) }, last = sub || swash;
@@ -164,6 +171,14 @@ export const titleCard = recipe('AN', 'title', {
     hand,
   ];
 }, { anchor: { name: 'title' }, cast: false, square: true });
+// AN's plan, for a film that builds on the card (4.0 RE-8): its times (the title written t0 to t1, the swash to
+// u1, the sub to t2, the end), the nodes it letters (title, swash, sub: writerSounds(title, { ...write, t0 })
+// is the pen on the title, a circle round `title` rings it) and the hand's schedule for the title (`write`),
+// from the same options, in the square's units.
+export const titlePlan = (opts = {}) => {
+  const o = { ...titleCard.defaults, ...opts }, P = titleTiming(o), N = titleNodes(o, P);
+  return { t0: P.t0, t1: P.t1, u1: P.u1, t2: P.t2, end: P.end, title: N.title, swash: N.swash, sub: N.sub, write: P.hand ? N.onTitle : null };
+};
 
 // ---------- chapters (4.0 E1) ----------
 
@@ -210,6 +225,16 @@ function labelPlan(o) {
   }
   return { A, labels: out, end: t + A.dwell };
 }
+// The subject as AO places it, and where each label's word sits (its `from`).
+function labelSite(o, ctx, s) {
+  const subject = place(o.x, o.y, { scale: o.scale }, group('subject', [o.subject(ctx, 'ink')]));
+  return { subject, froms: labelFroms(o.labels, [o.x, o.y], bounds([subject]) ?? [o.x, o.y, 0, 0], o.reach, s) };
+}
+// The j-th label's word, lettered beside its `from` on the side away from its point.
+function labelWord(o, j, from, s) {
+  const l = o.labels[j], right = from[0] >= l.at[0], gap = s * 0.25;
+  return letters(l.text, from[0] + (right ? gap : -gap), from[1] + s * 0.3, { size: s, align: right ? 'left' : 'right', role: o.role, seed: o.seed + 20 + j });
+}
 // AO. Labelled subject (3 to 8 s): the subject drawn at (x, y) by `scale`, then one label at a time: a dot on
 // the part (`at`), a leader line out to where the word sits (`from`, or `reach` out past the side of the subject the part is on, at its height),
 // the word written on beside it; the camera eases a little towards each label as it arrives (`nudge`, 0 for
@@ -221,15 +246,14 @@ export const labelled = recipe('AO', 'labelled', {
   per: null, audience: 'general', actor: null, side: 'left', h: 300, size: 44, role: 'ink', leader: 'inks.1', nudge: 0.1, at: 0.4, pose: 'point-r', seed: 160,
 }, (ctx, o) => {
   const P = labelPlan(o), { A } = P, t = ctx.t, s = o.size * A.text, c = [o.x, o.y];
-  const subject = place(o.x, o.y, { scale: o.scale }, group('subject', [o.subject(ctx, 'ink')]));
-  const froms = labelFroms(o.labels, c, bounds([subject]) ?? [o.x, o.y, 0, 0], o.reach, s);
+  const { subject, froms } = labelSite(o, ctx, s);
   const kids = o.labels.map((l, j) => {
     const q = P.labels[j];
     if (t < q.t0) return null;
-    const from = froms[j], right = from[0] >= l.at[0], gap = s * 0.25;
+    const from = froms[j];
     const dot = fill(circle(l.at[0], l.at[1], 5, 16), o.leader, { name: 'dot' });
     const lead = stroke(line(l.at[0], l.at[1], from[0], from[1]), o.leader, { w: 2.4, wobble: 1, seed: o.seed + j, name: 'leader' });
-    const word = letters(l.text, from[0] + (right ? gap : -gap), from[1] + s * 0.3, { size: s, align: right ? 'left' : 'right', role: o.role, seed: o.seed + 20 + j });
+    const word = labelWord(o, j, from, s);
     return group(`label${j}`, [dot, writeOn(ramp(q.t0, q.lead, t), lead), writeOn(ramp(q.lead, q.w1, t), word)]);
   });
   // The camera: towards the newest label's middle by `nudge`, eased over 0.5 s; home over the last dwell.
@@ -248,6 +272,17 @@ export const labelled = recipe('AO', 'labelled', {
     o.actor && presenter(o.actor, ctx, { x: o.side === 'right' ? 920 : 150, feet: 1010, h: o.h, side: o.side, pose: o.pose, k: reach(t, first) * u, seed: o.seed }),
   ];
 }, { anchor: { name: 'subject' }, cast: false, square: true });
+// AO's plan, for a film that builds on it (4.0 RE-8): each label's times (the dot at t0, the leader drawn to
+// `lead`, the word written by w1), where its word sits (`from`), the word as AO letters it (`word`) and its ink
+// box (`box`); and the shot's end. From the same options, in the square's units; the subject is measured at
+// ctx (by default its first frame), as AO measures it each frame.
+export const labelledPlan = (opts = {}, ctx = { t: 0, W: 1080, H: 1080, CX: 540, CY: 540 }) => {
+  const o = { ...labelled.defaults, ...opts }, P = labelPlan(o), s = o.size * P.A.text, { froms } = labelSite(o, ctx, s);
+  return {
+    labels: P.labels.map((q, j) => { const word = labelWord(o, j, froms[j], s); return { ...q, from: froms[j], word, box: bounds([word]) }; }),
+    end: P.end,
+  };
+};
 
 // ---------- AP. counting ----------
 
@@ -305,6 +340,13 @@ export const counting = recipe('AP', 'counting', {
     o.actor && presenter(o.actor, ctx, { x: o.side === 'right' ? 930 : 150, feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.t(o.n - 1) + P.per) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
 }, { anchor: { name: 'items' }, cast: false, square: true });
+// AP's plan, for the score and a film that builds on it (4.0 RE-8): when each object pops in and where it sits
+// (`items`: [{ t0, at }]), the seconds an object (`per`), when the total is written (`label`, null without
+// one) and the end, from the same options, in the square's units.
+export const countingPlan = (opts = {}) => {
+  const o = { ...counting.defaults, ...opts }, P = countPlan(o);
+  return { items: Array.from({ length: o.n }, (_, j) => ({ t0: P.t(j), at: slot(j, o.n, o) })), per: P.per, label: P.lab, end: P.end };
+};
 
 // ---------- AQ. compare ----------
 
@@ -465,7 +507,7 @@ export const process = recipe('AR', 'process', {
 
 // ---------- AS. cycle diagram ----------
 
-function cyclePlan(o) {
+function cycleTiming(o) {
   const A = audienceOf(o.audience), steps = o.steps.map(stepOf), n = steps.length, out = [];
   if (n < 2) throw new TypeError('cycleDiagram: needs two steps or more');
   let t = o.at + (o.centre ? writeT(o.centre, A) + readT(o.centre, A) : 0);
@@ -485,11 +527,11 @@ function cyclePlan(o) {
 // dwell a step), each node swelling as it passes. `centre` letters a title in the middle first. The teacher
 // points, then cheers once the loop is closed. steps: [{ text, cel }] or strings.
 export const cycleDiagram = recipe('AS', 'cycle', {
-  dur: (o) => cyclePlan(o).end, steps: ['rain', 'river', 'sea', 'cloud'], travel: true, laps: 1, lap: null, per: null, centre: null,
+  dur: (o) => cycleTiming(o).end, steps: ['rain', 'river', 'sea', 'cloud'], travel: true, laps: 1, lap: null, per: null, centre: null,
   audience: 'general', actor: null, side: 'left', h: 300, x: null, y: 520, r: 270, node: 38, start: -Math.PI / 2,
   size: 44, role: 'ink', ring: 'inks.1', marker: 'accents.0', at: 0.4, pose: 'point-r', seed: 200,
 }, (ctx, o) => {
-  const P = cyclePlan(o), { A } = P, t = ctx.t, s = o.size * A.text, n = P.steps.length, cx = middleX(o, o.x), cy = o.y, R = o.r;
+  const P = cycleTiming(o), { A } = P, t = ctx.t, s = o.size * A.text, n = P.steps.length, cx = middleX(o, o.x), cy = o.y, R = o.r;
   const ang = (j) => o.start + (j / n) * Math.PI * 2, pt = (a, r = R) => [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
   const gapA = (o.node + 14) / R;
   // The marker's angle while it travels, and how much each node swells as it passes (0..1).
@@ -535,6 +577,15 @@ export const cycleDiagram = recipe('AS', 'cycle', {
     o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.nodes[n - 1].a0 + 0.4) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
 }, { anchor: { name: 'cycle' }, cast: false, square: true });
+// AS's plan, for the score and a film that builds on it (4.0 RE-8): each step's times (the node pops in at t0,
+// its name written w0 to w1, the arrow on from a0) and its node's centre (`at`); the marker's laps (`lap`:
+// [start, end], null without `travel`), the centre's title written by `centre` (null without one), and the
+// end. From the same options, in the square's units.
+export const cyclePlan = (opts = {}) => {
+  const o = { ...cycleDiagram.defaults, ...opts }, P = cycleTiming(o), n = P.steps.length, cx = middleX(o, o.x);
+  const at = (j) => { const a = o.start + (j / n) * Math.PI * 2; return [cx + Math.cos(a) * o.r, o.y + Math.sin(a) * o.r]; };
+  return { steps: P.nodes.map((q, j) => ({ ...q, at: at(j) })), lap: o.travel ? [P.l0, P.l1] : null, centre: o.centre ? P.c1 : null, end: P.end };
+};
 
 // ---------- AT. number line ----------
 

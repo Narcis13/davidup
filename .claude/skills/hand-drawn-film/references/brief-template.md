@@ -75,5 +75,5 @@ hand: true                        options: hand, sub, look, card (false), hold, 
 - sign: <a> <b>                   the sign-off, last
 ```
 
-`work/moon/moon.md` is the pattern: the acceptance film of 4.0, four
-chapters, 98 s at kids-7.
+`handdrawn/films/moon.md` is the pattern: the acceptance film of 4.0, four
+chapters, 107.6 s at kids-7, beside the film it scripts (`films/moon.js`).

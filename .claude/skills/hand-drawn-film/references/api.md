@@ -547,12 +547,15 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `bird(d, x, y, s, o = {})` A small bird (v1 held-once). <sub>recipes/doodle.js</sub>
 - `boat` mode 'ink': light body under a faint finish, ink line; 'blueprint': chalk line only. <sub>recipes/shots.js</sub>
 - `chapter(head, ...nodes)` chapter(title | { title, sub, actor, audience, hand, card, hold, ... <sub>recipes/teach.js</sub>
+- `countingPlan(opts = {})` AP's plan, for the score and a film that builds on it (4.0 RE-8): when each object pops in and where it sits (`items`: [{ t0, at }]), the seconds an object (`per`), when the total is written (`label`, null without one) and the end, from ... <sub>recipes/teach.js</sub>
+- `cyclePlan(opts = {})` AS's plan, for the score and a film that builds on it (4.0 RE-8): each step's times (the node pops in at t0, its name written w0 to w1, the arrow on from a0) and its node's centre (`at`); the marker's laps (`lap`: [start, end], null ... <sub>recipes/teach.js</sub>
 - `dialogueOf(opts = {})` The dialogue an AY shot with these options plays: its turns, lines and events(t) for the score. <sub>recipes/teach.js</sub>
 - `ellipseRot(x, y, rx, ry, rot = 0, n = 64)` An ellipse turned by rot about its centre. <sub>recipes/shots.js</sub>
 - `flower` A flower to label (AO's default): petals, a centre, a stem, a leaf, roots. <sub>recipes/teach.js</sub>
 - `hog(d, x, y, s, o = {})` The hedgehog of v1 held-once and night-shift: gouache body, quill wash, brush outline, dot eyes, a scarf (the anchor colour). <sub>recipes/doodle.js</sub>
 - `hop(a, b, t, h)` From a to b over t = 0..1 on an arc h high. <sub>recipes/doodle.js</sub>
 - `hopTimes(opts = {})` The seconds into an AT shot at which each hop starts (for the score: a note a hop), from the same options. <sub>recipes/teach.js</sub>
+- `labelledPlan(opts = {}, ctx = { t: 0, W: 1080, H: 1080, CX: 540, CY: 540 })` AO's plan, for a film that builds on it (4.0 RE-8): each label's times (the dot at t0, the leader drawn to `lead`, the word written by w1), where its word sits (`from`), the word as AO letters it (`word`) and its ink box (`box`); and ... <sub>recipes/teach.js</sub>
 - `lastFrame(node)` A shot's last frame as a print for printsOnALine (AF): (ctx) => list. <sub>recipes/doodle.js</sub>
 - `lin(a, b, t)` From a to b over t = 0..1 in a straight line. <sub>recipes/doodle.js</sub>
 - `map` A drawn map to trace a route over (AX's default), 760 by 560 units about its centre: a lake, a river, hills, trees and two houses. <sub>recipes/teach.js</sub>
@@ -563,6 +566,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `seed` A seed, the first of AR's default process (seed, sprout, flower). <sub>recipes/teach.js</sub>
 - `spark(d, x, y, s, o = {})` The spark: a flame with legs (v1 night-shift). Its roles do not change in the chalk pass, so it looks the same in and out of the light. <sub>recipes/doodle.js</sub>
 - `sprout` A sprout with two leaves, the second of AR's default process. <sub>recipes/teach.js</sub>
+- `titlePlan(opts = {})` AN's plan, for a film that builds on the card (4.0 RE-8): its times (the title written t0 to t1, the swash to u1, the sub to t2, the end), the nodes it letters (title, swash, sub: writerSounds(title, { ...write, t0 }) is the pen on the ... <sub>recipes/teach.js</sub>
 
 ## Packs (`handdrawn/packs/<pack>.js`)
 

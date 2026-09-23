@@ -245,6 +245,14 @@ from `shots.js`. `films/lesson.js` runs AN to AQ on the whiteboard,
 | AX | `mapRoute({ map, path, label, ends })` | the map drawn over `draw` (1.2 s), the first end written, the journey (`travel`, or the route's length at `speed` 320 units a second, at least 1.5 s), the X 0.35 s, the second end and the label written, read, a dwell | `map` (a cel, default `map` with `MAP_AT`, `(ctx) => node`, or a cutout photo whose `path` is in its 0..1 u, v) drawn on in stroke order (a photo pops); a pin (or a `marker` cel, turned to face the way) travels the spline through `path` with a dashed trail; an X at the end, `ends` written under the ends, `label` lettered along the route's chord on the side it does not bow to |
 | AY | `dialogueShot({ actor, other, lines })` | the dialogue's own timing (T9: each line at the reading pace, held through the reply), then 0.25 s and a dwell | two actors (default two sticks, `sam` and a child `kit`) `h` tall (`[left, right]`, default 330 and 270) with their feet on a `ground` line at `x`, facing each other and looking at the speaker (`gaze`); `lines` are `[speaker, text, { kind, emote, voice }]`, the speaker `0` / `'left'`, `1` / `'right'` or the actor; `dialogueOf(opts)` is the same dialogue for the score (`.events(shot.t0)`); every line counts for `words`, so a long exchange is several shots |
 
+**Building on a recipe.** A film that draws on top of a teaching recipe, or scores it, takes the recipe's
+own times and nodes from the same options instead of redoing its arithmetic (4.0 RE-8):
+`titlePlan(o)` (AN: `{ t0, t1, u1, t2, end, title, swash, sub, write }`, so `writerSounds(P.title, { ...P.write,
+t0 })` is the pen), `labelledPlan(o)` (AO: each label's `{ t0, lead, w1, from, word, box }`, so
+`circleAround(group({ box }, [word]), p)` rings one), `countingPlan(o)` (AP: `items: [{ t0, at }]`, `per`,
+`label`), `cyclePlan(o)` (AS: `steps: [{ t0, w0, w1, a0, at }]`, `lap`), `hopTimes(o)` (AT) and `quizTimes(o)`
+(AW). All are in the square's units. `films/moon.js` uses the first three.
+
 A number line's numbers and a growth's counted values are words for lint
 like any lettering: a count from 0 to 8 is nine, and each value must stay up
 for the audience's reading time (the counting pace already does).

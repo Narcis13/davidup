@@ -1,7 +1,7 @@
 // hdf script <brief.md> (4.0 E5): a brief written in a small dialect becomes the beat sheet the skill expects,
-// plus a timeline stub at work/<film>/<film>.js with the recipes named. The skill writes the film; this tool
-// does the arithmetic. No time in the sheet is estimated here: the stub is written first, loaded as a film,
-// and the sheet is read off what that film plays. So every length comes from the same code that draws the
+// plus a timeline stub at work/<film>/<film>.js (or the <film>.js beside the brief) with the recipes named.
+// The skill writes the film; this tool does the arithmetic. No time in the sheet is estimated here: the stub
+// is written first, loaded as a film, and the sheet is read off what that film plays. So every length comes from the same code that draws the
 // shot: a recipe's own timing from its copy and the audience, a line of speech at the reading speed or the
 // length of its recording, a narration from its sample's word timing, a chapter's card and hold.
 //
@@ -330,6 +330,14 @@ export function stubOf(brief, { out, store = readCatalogue() } = {}) {
     const castIds = [who, other].filter((x) => x && x !== 'null' && x !== 'false').map((x) => [...cast.values()].find((c) => c.v === x)?.id ?? x);
     const lines = [];
     let sound = '';
+    // A quiz's score, voiced or not: a pop as each option arrives, a tick a wrong one struck, a ding on the answer.
+    const quizScore = () => {
+      lines.push(`const ${v}T = quizTimes(${v}O);`);
+      recipes.add('quizTimes');
+      core.add('pop').add('tick').add('ding');
+      scoreLines.push(`...${v}T.options.flatMap((t) => pop(${at(name)} + t))`, `...${v}T.ticks.flatMap((t) => tick(${at(name)} + t))`, `...ding(${at(name)} + ${v}T.ding)`);
+      return 'a pop an option, a tick a wrong one, a ding';
+    };
     if (S.voice !== undefined) {
       const V = sample(String(S.voice), b.line, S.copy);
       if (!V.recorded) throw new UsageError(`line ${b.line}: a voice under a shot must be recorded (no sample '${V.id}' in the store)`);
@@ -338,15 +346,12 @@ export function stubOf(brief, { out, store = readCatalogue() } = {}) {
       lines.push(`const ${v}O = ${opts};`);
       lines.push(`const ${v} = ${exportName}({ ...${v}O, dur: ${S.dur ?? `up(Math.max(${exportName}(${v}O).dur, LEAD + said(${js(V.id)}) + AUD.dwell))`} });`);
       scoreLines.push(`voice(${js(V.id)}, ${at(name)} + LEAD)`);
-      sound = `voice ${V.id}`;
+      sound = [`voice ${V.id}`, exportName === 'quiz' && quizScore()].filter(Boolean).join('; ');
     } else {
       const withDur = S.dur ? block([...pre, `dur: ${S.dur}`]) : opts;
       if (exportName === 'quiz') {
-        lines.push(`const ${v}O = ${withDur};`, `const ${v} = quiz(${v}O);`, `const ${v}T = quizTimes(${v}O);`);
-        recipes.add('quizTimes');
-        core.add('tick').add('ding');
-        scoreLines.push(`...${v}T.ticks.flatMap((t) => tick(${at(name)} + t))`, `...ding(${at(name)} + ${v}T.ding)`);
-        sound = 'a tick a wrong one, a ding';
+        lines.push(`const ${v}O = ${withDur};`, `const ${v} = quiz(${v}O);`);
+        sound = quizScore();
       } else if (exportName === 'dialogueShot') {
         lines.push(`const ${v}O = ${withDur};`, `const ${v} = dialogueShot(${v}O);`);
         recipes.add('dialogueOf');
@@ -576,7 +581,9 @@ export async function script(briefPath, { out, loadFilm, store } = {}) {
   const abs = resolve(briefPath);
   if (!existsSync(abs)) throw new UsageError(`no brief ${briefPath}`);
   const brief = { ...parseBrief(readFileSync(abs, 'utf8'), { file: briefPath }), file: abs };
-  const target = resolve(out ?? join(PKG, 'work', brief.name, `${brief.name}.js`));
+  // A brief beside its film (films/moon.md, films/moon.js) scripts that film; otherwise the stub goes to work/.
+  const beside = join(dirname(abs), `${brief.name}.js`);
+  const target = resolve(out ?? (existsSync(beside) ? beside : join(PKG, 'work', brief.name, `${brief.name}.js`)));
   const { source, plan } = stubOf(brief, { out: target, store });
   const dir = dirname(target), made = !existsSync(dir);
   mkdirSync(dir, { recursive: true });

@@ -481,7 +481,9 @@ right one ringed; `quizTimes` for the tick and the ding), AX `mapRoute` (a
 marker travels a route over a drawn `map` or a cutout photo, the label along
 it), AY `dialogueShot` (two actors on a ground playing T9's `dialogue`;
 `dialogueOf` for the score), and `chapter` (E1) that opens each chapter
-of a lesson with AN. `process` shares its name with Node's global: import it
+of a lesson with AN. A film that builds on a recipe takes its times and nodes
+from the same options: `titlePlan`, `labelledPlan`, `countingPlan` and
+`cyclePlan` (RE-8), as `hopTimes` and `quizTimes` do for the score. `process` shares its name with Node's global: import it
 as `process as steps` in a film that also reads `process.argv`.
 
 `textOnPath(str, path, { size, offset, align, at })` (core) letters one line
@@ -1571,7 +1573,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf script <brief.md> [--out film.js] [--dry] [--force]`, `hdf script --check <film>` | a brief in the script dialect to the beat sheet and a timeline stub (4.0 E5, below) |
 | `hdf lint <film> [--audience <name>] [--ar 16:9]` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
-| `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |
+| `hdf golden <film> write\|check [--workers N] [--sample N]` | sha256 per frame at 480 px plus the wav; `--sample N` keeps N frames spread over a long film (the golden lists them, check renders those) |
 | `hdf dev <film> [--port 4321] [--root dir]` | the player with hot reload; its Rig tab poses a stored puppet by dragging and writes poses, cycle frames, pivots and sockets back to `<store>/src/<id>.puppet.json` and the store (4.0 W2) |
 | `hdf bundle <film> [--out dir]` | one self-contained HTML player |
 | `hdf photo <img> --name <id> [--credit] [--source] [--js photos.js] [--flood\|--keep] [--punch u,v]` | a cutout with its silhouette, colours table and check sheet |
@@ -1752,7 +1754,8 @@ recorded is timed from its `copy:`.
 ```bash
 hdf script work/moon/moon.md          # prints the beat sheet; writes work/moon/moon.js if it is not there
 hdf script work/moon/moon.md          # again, once the film is written: replaces only its beat-sheet comment
-hdf script --check work/moon/moon.js  # the round trip: does the film still play its sheet? exits 1 if not
+hdf script films/moon.md              # the 4.0 film's brief: beside its film, it scripts films/moon.js
+hdf script --check films/moon.js      # the round trip: does the film still play its sheet? exits 1 if not
 ```
 
 Nothing is estimated by the tool itself: it writes the stub, loads it as a
@@ -1760,8 +1763,8 @@ film and reads the sheet off what that film plays, so a recipe's length is
 the recipe's own (from its copy and the audience), a line is the dialogue's,
 a narration is its captions' (the sample's word timing). The stub is a film
 from the first run (`hdf board`, `hdf lint` and `hdf dev` work on it), with
-the recipes named, the cast built, the score's voices, lines, ticks and ding
-placed by shot name. The skill writes the film from there; `--check` keeps
+the recipes named, the cast built, the score's voices, lines, and a quiz's
+pops, ticks and ding (voiced or not) placed by shot name. The skill writes the film from there; `--check` keeps
 the sheet honest as it does. The sheet's columns are the skill's: `t dur shot
 look recipe cast sound what`, a line per chapter above its shots.
 

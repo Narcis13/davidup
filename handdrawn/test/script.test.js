@@ -28,8 +28,6 @@ async function scripted(text) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 const row = (r, name) => rowsOf(r.film).find((x) => x.shot === name);
-// The moon film lives in work/ (gitignored, like the other acceptance films): its tests need it on this machine.
-const MOON = existsSync('work/moon/moon.md') && existsSync('work/moon/moon.js') ? false : 'work/moon is not on this machine (hdf script work/moon/moon.md makes it)';
 
 test('parseBrief: header fields and prose, chapters with options, beats with sub-items, a call over several lines', () => {
   const b = parseBrief([
@@ -113,6 +111,21 @@ test('recordings: a narration lasts its captions, a voice under a shot stretches
   await assert.rejects(scripted('- show: labeled({ n: 1 })'), /no recipe 'labeled'/);
 });
 
+test('a quiz scores its options, strikes and answer, voiced or not', async () => {
+  fromStore(['hello-there']);
+  const Q = "quiz({ question: 'which one flies?', options: ['fish', 'bird', 'cat'], answer: 1 })";
+  for (const voiced of [false, true]) {
+    const r = await scripted(['look: whiteboard', 'cast: sam', 'actor: sam', `- show: ${Q}`, voiced && '  voice: hello-there', '  name: quiz'].filter(Boolean).join('\n'));
+    assert.match(r.source, /const quizShotT = quizTimes\(quizShotO\);/);
+    assert.match(r.source, /\.\.\.quizShotT\.options\.flatMap\(\(t\) => pop\(at\('quiz'\) \+ t\)\)/);
+    assert.match(r.source, /\.\.\.quizShotT\.ticks\.flatMap\(\(t\) => tick\(at\('quiz'\) \+ t\)\)/);
+    assert.match(r.source, /\.\.\.ding\(at\('quiz'\) \+ quizShotT\.ding\)/);
+    assert.equal(/voice\('hello-there', at\('quiz'\) \+ LEAD\)/.test(r.source), voiced);
+    assert.match(r.sheet, new RegExp(`${voiced ? 'voice hello-there; ' : ''}a pop an option, a tick a wrong one, a ding`));
+    assert.deepEqual(sheetDiff(readSheet(r.source).rows, r.film), []);
+  }
+});
+
 test('an identifier nothing defines becomes a stub cel; recipes by letter; shot variables clear of imports', async () => {
   const r = await scripted("look: paperInk\n- show: AO({ subject: (ctx) => moon({}), labels: [{ text: 'lit', at: [600, 500] }] })\n- show: labelled");
   assert.match(r.source, /const moon = stub\('moon'\);/);
@@ -130,13 +143,13 @@ test('dialogueShot other: false: one actor alone in the middle, every line its o
   assert.throws(() => dialogueShot({ actor: SAM, other: false, lines: [[1, 'who?']] }), /who is alone/);
 });
 
-test('the round trip: the moon film\'s brief makes the beat sheet the film carries, and the film plays it', { skip: MOON }, async () => {
-  const src = readFileSync('work/moon/moon.js', 'utf8'), sheet = readSheet(src);
+test('the round trip: the moon film\'s brief makes the beat sheet the film carries, and the film plays it', async () => {
+  const src = readFileSync('films/moon.js', 'utf8'), sheet = readSheet(src);
   assert.ok(sheet && sheet.rows.length > 10, 'moon.js carries a beat sheet');
-  const r = await script('work/moon/moon.md', { out: join(tmpdir(), `hdf-moon-${process.pid}`, 'moon.js'), loadFilm });
+  const r = await script('films/moon.md', { out: join(tmpdir(), `hdf-moon-${process.pid}`, 'moon.js'), loadFilm });
   const block = src.split('\n').slice(sheet.start, sheet.end).join('\n');
-  assert.equal(r.sheet, block, 'hdf script work/moon/moon.md prints the sheet moon.js was built from');
-  assert.deepEqual(sheetDiff(sheet.rows, await loadFilm('work/moon/moon.js')), []);
+  assert.equal(r.sheet, block, 'hdf script films/moon.md prints the sheet moon.js was built from');
+  assert.deepEqual(sheetDiff(sheet.rows, await loadFilm('films/moon.js')), []);
   // The four chapters the brief names and every recipe it shows: the first chapter opens on the title the hand
   // writes (card: false), the other three on their cards.
   assert.deepEqual(rowsOf(r.film).map((x) => x.recipe).filter((x) => x !== '-'), ['AN', 'AO', 'AN', 'AP', 'AN', 'AS', 'AY', 'AN', 'AW', 'S']);
@@ -147,8 +160,8 @@ test('the round trip: the moon film\'s brief makes the beat sheet the film carri
   assert.equal(withSheet(src, block), src, 'putting the same sheet back changes nothing');
 });
 
-test('hdf script --check exits 0 on the moon', { skip: MOON }, () => {
-  assert.equal(hdf('script', '--check', 'work/moon/moon.js').code, 0);
+test('hdf script --check exits 0 on the moon', () => {
+  assert.equal(hdf('script', '--check', 'films/moon.js').code, 0);
 });
 
 test('hdf script: --check exits 1 on a film whose sheet is stale; a new stub is written, an old film keeps its code', () => {
@@ -165,8 +178,11 @@ test('hdf script: --check exits 1 on a film whose sheet is stale; a new stub is 
     const r = hdf('script', '--check', out);
     assert.equal(r.code, 1);
     assert.match(r.out, /row 1: the sheet says the sea 0\.00 \+2\.50 - paperInk, the film plays the sea 0\.00 \+3\.00/);
-    // Scripting again replaces the sheet only: the edit and the author's line stay.
-    assert.equal(hdf('script', join(dir, 'b.md'), '--out', out).code, 0);
+    // Scripting again replaces the sheet only: the edit and the author's line stay. With no --out the film is
+    // the b.js beside the brief (as films/moon.md scripts films/moon.js).
+    const s = hdf('script', join(dir, 'b.md'));
+    assert.equal(s.code, 0, s.out);
+    assert.match(s.out, /b\.js exists: replaced its beat sheet only/);
     const again = readFileSync(out, 'utf8');
     assert.match(again, /shot\('the sea', 3/);
     assert.match(again, /the author's own line/);
