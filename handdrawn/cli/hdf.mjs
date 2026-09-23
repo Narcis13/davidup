@@ -54,6 +54,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     difference
   lint    <film.js>                 review checklist over lists; exits 1 on any finding (a line per chapter after)
           [--audience <name>]       check against another audience's profile (general, beginner, kids-9, kids-7, kids-5)
+          [--ar 1:1|16:9|9:16]      check the film as rendered at another aspect
   changed <film.js> [--ar]          frames whose list hash moved since last render, before/after grid
   golden  <film.js> write|check [--workers N]   with --look: goldens/<film>-<look>.json; --alpha: <film>-alpha.json
   dev     <film.js> [--port 4321] [--root dir]   player with hot reload (edits jump it to the first changed frame);

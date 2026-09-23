@@ -6,29 +6,42 @@ import { bounds, norm } from '../core/list.js';
 // A duration worked out from a recipe's content, up to the next drawn frame (1/12 s).
 export const onGrid = (s) => Math.ceil(s * FPS - 1e-6) / FPS;
 
-// recipe(letter, name, defaults, layer, { ground, anchor, crop, camera, cast }) => R
+// recipe(letter, name, defaults, layer, { ground, anchor, crop, camera, cast, square }) => R
 //   ground   'paper' | 'night' | 'none' (the layer draws its own first op)
 //   anchor   meta data, a list of them, or (o) => either
 //   cast     false: the actor is the recipe's own business (a teaching recipe's presenter), not its subject
+//   square   true: the layer is laid out on the 1080 square (the teaching recipes); in any other frame it is
+//            drawn on the square and centred in it (R.squareLayer), the ground and the metas left outside
 // dur may be a function of the options (the teaching recipes time themselves from their copy and audience);
 // what it returns is put on the grid.
-export function recipe(letter, name, defaults, layer, { ground = 'paper', anchor, crop = false, camera, cast: casts = true } = {}) {
+export function recipe(letter, name, defaults, layer, { ground = 'paper', anchor, crop = false, camera, cast: casts = true, square = false } = {}) {
   const prep = (o) => (casts ? cast(o) : o);
+  const draw = square ? (ctx, o) => onSquare(ctx, (c) => layer(c, o)) : layer;
   const R = (opts = {}) => {
     const o = prep({ ...defaults, ...opts });
     const anchors = [typeof (o.anchor ?? anchor) === 'function' ? (o.anchor ?? anchor)(o) : (o.anchor ?? anchor)].flat().filter(Boolean);
     const dur = typeof o.dur === 'function' ? onGrid(o.dur(o)) : o.dur;
     return shot(o.name ?? name, dur, (ctx) => [
       ground === 'paper' ? paper() : ground === 'night' ? night() : null,
-      ...norm(layer(ctx, o)),
+      ...norm(draw(ctx, o)),
       ...anchors.map((a) => meta('anchor', a)),
       (o.crop ?? crop) && meta('intent', 'crop'),
     ], { recipe: letter, camera: o.camera ?? camera, fit: o.fit, look: o.look });
   };
   R.layer = (ctx, opts = {}) => layer(ctx, prep({ ...defaults, ...opts }));
+  if (square) R.squareLayer = (ctx, opts = {}) => norm(draw(ctx, prep({ ...defaults, ...opts })));
   R.recipe = letter;
   R.defaults = defaults;
   return Object.freeze(R);
+}
+
+const SQ = 1080;
+// A layer laid out on the 1080 square, drawn centred in a frame of another aspect (16:9 across, 9:16 down):
+// draw(ctx) gets the square's W, H, CX and CY and its ops go in a group 'square'. At 1:1 it is draw(ctx).
+export function onSquare(ctx, draw) {
+  const { W = SQ, H = SQ } = ctx;
+  if (W === SQ && H === SQ) return draw(ctx);
+  return [group({ name: 'square', xf: translate((W - SQ) / 2, (H - SQ) / 2) }, norm(draw({ ...ctx, W: SQ, H: SQ, CX: SQ / 2, CY: SQ / 2 })))];
 }
 
 // An actor as a subject: its state drawn centred on its box, h units tall (the boat is 138), mirrored for

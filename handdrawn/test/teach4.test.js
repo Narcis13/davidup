@@ -117,3 +117,71 @@ test('a lesson of the four with sam lints clean at kids-9 and kids-5', () => {
     assert.deepEqual(lint(f), [], audience);
   }
 });
+
+// ---------- RE-1, RE-2: lessons at any aspect ----------
+
+import { format } from '../core/fit.js';
+import { mmul } from '../core/list.js';
+import { lintAll } from '../core/lint.js';
+import { chapter, compare, counting, cycleDiagram, growth, labelled, numberLine, process, titleCard, onSquare } from '../recipes/shots.js';
+import * as SHOTS from '../recipes/shots.js';
+
+const TEACH = [titleCard, labelled, counting, compare, process, cycleDiagram, numberLine, growth, questionCard, quiz, mapRoute, dialogueShot];
+// A named op's box in frame units (every group's transform applied, as lint measures it); strip drops the
+// groups' own boxes (a puppet's are its rig's reach), leaving the ink.
+function placed(list, name, strip = false) {
+  let b = null;
+  const visit = (ops, m) => { for (const op of ops) { if (b) return; if (op.op !== 'meta' && op.name === name) { b = bounds([strip ? unboxed(op) : op], m); return; } if (op.kids) visit(op.kids, op.op === 'group' ? mmul(m, op.xf) : m); } };
+  visit(list, [1, 0, 0, 1, 0, 0]);
+  return b;
+}
+const anchorBox = (list) => placed(list, list.find((op) => op.op === 'meta' && op.tag === 'anchor')?.data?.name);
+const atAr = (s, ar, u = 0.8) => frame(film({ name: 'x', look: 'whiteboard', timeline: seq(s) }), Math.min(s.n - 1, Math.round(u * s.dur * FPS)), { ar }).list;
+
+test('RE-1: the twelve teaching recipes draw on the square, centred in a 16:9 or 9:16 frame', () => {
+  const opts = { actor: SAM, audience: 'kids-7' };
+  for (const R of TEACH) {
+    const s = R(R === dialogueShot ? { actor: SAM, other: KIT } : opts), sq = anchorBox(atAr(s, '1:1'));
+    assert.equal(typeof R.squareLayer, 'function', R.recipe);
+    assert.ok(sq, `${R.recipe} has its anchor at 1:1`);
+    for (const ar of ['16:9', '9:16']) {
+      const { W, H } = format(ar), list = atAr(s, ar), b = anchorBox(list), dx = (W - 1080) / 2, dy = (H - 1080) / 2;
+      assert.equal(list[0].op, 'paper', `${R.recipe} ${ar}: the ground stays first`);
+      assert.ok(list.some((op) => op.name === 'square'), `${R.recipe} ${ar}: wrapped`);
+      // Centred: the same place relative to the frame's centre as on the square.
+      for (const [j, d] of [[0, dx], [1, dy], [2, 0], [3, 0]]) assert.ok(Math.abs(b[j] - (sq[j] + d)) < 1, `${R.recipe} ${ar}: [${b}] vs [${sq}] + (${dx}, ${dy})`);
+    }
+    assert.ok(!atAr(s, '1:1').some((op) => op.name === 'square'), `${R.recipe}: the identity at 1:1`);
+  }
+  // A chapter's card is a titleCard, so it is square too.
+  const ch = chapter({ title: 'one month', actor: SAM, audience: 'kids-7' }, questionCard({ text: 'why?' }));
+  assert.ok(frame(film({ name: 'x', look: 'whiteboard', timeline: ch }), 6, { ar: '16:9' }).list.some((op) => op.name === 'square'));
+  // Recipes A to Z keep their layout.
+  const A = Object.values(SHOTS).find((R) => R?.recipe === 'A');
+  assert.ok(!atAr(A(), '16:9').some((op) => op.name === 'square'));
+  // Films composing their own layers get the same wrap.
+  assert.equal(onSquare({ W: 1080, H: 1080 }, () => 'same'), 'same');
+  let seen;
+  const [g] = onSquare({ t: 1, W: 1080, H: 1920, CX: 540, CY: 960 }, (c) => { seen = c; return []; });
+  assert.deepEqual([g.name, g.xf[4], g.xf[5]], ['square', 0, 420]);
+  assert.deepEqual(seen, { t: 1, W: 1080, H: 1080, CX: 540, CY: 540 });
+});
+
+test('RE-1: the presenter stands on the square at 9:16, feet 420 units down', () => {
+  const s = titleCard({ title: 'the moon', actor: SAM, audience: 'kids-7' });
+  const a = placed(atAr(s, '1:1'), 'presenter', true), b = placed(atAr(s, '9:16'), 'presenter', true);
+  assert.ok(Math.abs(b[1] + b[3] - (a[1] + a[3] + 420)) < 1, `${b} vs ${a}`);
+});
+
+test('RE-2: text-size and subject-size score on the short side, so a lesson lints the same at every aspect', () => {
+  // Small lettering for kids-7, so there is something to find.
+  const tl = seq(titleCard({ title: 'a title', size: 30, audience: 'kids-7' }), labelled({ size: 12, scale: 0.2, audience: 'kids-7' }), signOffShot({ a: 'x', b: 'y', rings: null }));
+  const key = (fs) => fs.filter((f) => f.rule === 'text-size' || f.rule === 'subject-size').map((f) => `${f.rule} ${f.shot} ${f.detail}`).sort();
+  const sq = key(lintAll(film({ name: 'x', look: 'whiteboard', audience: 'kids-7', timeline: tl })).findings);
+  assert.ok(sq.some((f) => f.startsWith('text-size')), sq.join('\n'));
+  assert.ok(sq.some((f) => f.startsWith('subject-size')), sq.join('\n'));
+  for (const ar of ['16:9', '9:16']) {
+    assert.deepEqual(key(lintAll(film({ name: 'x', look: 'whiteboard', audience: 'kids-7', timeline: tl })).findings), key(lintAll(film({ name: 'x', look: 'whiteboard', audience: 'kids-7', timeline: tl }), { ar }).findings), ar);
+    assert.deepEqual(sq, key(lintAll(film({ name: 'x', look: 'whiteboard', audience: 'kids-7', format: ar, timeline: tl })).findings), `native ${ar}`);
+  }
+});

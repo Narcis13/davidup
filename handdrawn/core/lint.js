@@ -3,6 +3,7 @@
 // finding names the shot and the first frame it shows up on. Findings are deduplicated per rule, shot
 // and subject, which is what makes one broken rule one finding.
 import { FPS } from './curves.js';
+import { format } from './fit.js';
 import { audienceOf } from './audience.js';
 import { contrastOf, textUnits } from './legible.js';
 import { bounds, mmul, norm } from './list.js';
@@ -26,7 +27,7 @@ export const RULES = Object.freeze({
   'cut-adjacent': 'two cuts in a row',
   'cut-orphan': "a cut's outgoing or incoming shot never plays: cut(kind, dur, a, b) is only the transition, write seq(a, cut(kind, dur, a, b), b)",
   'sign-off': "no sign-off, or it is still being written 1.5 s before the end (a clip, meta('intent', 'clip') in its last frame, needs none)",
-  'subject-size': 'the anchor subject is under the readability floor at 240 px',
+  'subject-size': 'the anchor subject is under the readability floor at 240 px on the short side',
   'subject-crop': "the anchor subject is cut by the frame edge without meta('intent', 'crop')",
   grid: 'a cue off the 1/12 s grid',
   voice: "a voice names a sample the store does not have (or cannot decode), or runs past the film's end",
@@ -37,7 +38,7 @@ export const RULES = Object.freeze({
   'hand-missing': 'the look names a hand the store lacks, or the sign-off falls back to the house hand for a glyph',
   source: 'Math.random, Date, ctx.filter, shadowBlur or a gradient in the film source',
   'foot-slide': 'a walking actor\'s planted ankle drifts more than 2 units between frames (walk it with walkTo)',
-  'text-size': "lettering whose x-height at 240 px wide is under the audience's minX (the sign-off does not count)",
+  'text-size': "lettering whose x-height at 240 px on the short side is under the audience's minX (the sign-off does not count)",
   'text-dwell': "text on screen for less than the audience's perWord seconds a word (captions of a recording and the sign-off do not count)",
   'text-contrast': "text in a colour the look resolves to under the audience's contrast ratio against what it is drawn on",
   'caption-overlap': 'two pieces of text whose ink boxes cross in one frame',
@@ -57,7 +58,7 @@ export const SYNC_MAX = 3;         // s of estimated word timing before caption-
 // the audience's words (4.0 T10; general has none), then this. A board (white or black) carries a lesson's title
 // and labels; a crayon drawing a word or two of big letters beside the picture; a notebook page a heading and notes.
 export const WORDS = Object.freeze({ doodlePastel: 3, cutout: 3, whiteboard: 12, chalkboard: 12, crayon: 6, notebook: 12 });
-export const FLOOR_PX = 24;        // the subject's long side at a 240 px wide render
+export const FLOOR_PX = 24;        // the subject's long side at a render 240 px on the short side
 export const SIGN_OFF_LEAD = 1.5;  // seconds the finished sign-off must hold before the end
 const MAX_CUT = 1, MAX_SCRIBBLES = 2, TOL = 1, MAX_BOB = 1;
 const OVERLAP = 2;                 // stage units two text boxes must share both ways to cross
@@ -204,12 +205,12 @@ const anchorLabel = (d) => (d.cel !== undefined ? `cel '${d.cel}'` : d.name !== 
 
 // inspect(film, { audience }) => { findings, shots, warnings } where shots summarise each play for `hdf board`:
 // { name, f0, n, dur, look, anchor, recipe, camera, finishes, words }. audience (a key of AUDIENCES or a
-// record) overrides the film's own for the check.
-export function inspect(film, { audience } = {}) {
-  const F = finder(), W = finder(), shots = [];
+// record) overrides the film's own for the check. ar ('16:9', ...) checks the film as rendered at that aspect.
+export function inspect(film, { audience, ar } = {}) {
+  const F = finder(), W = finder(), shots = [], target = ar ? format(ar) : film.format;
   const A = audienceOf(audience ?? film.audience ?? 'general'), aud = typeof (audience ?? film.audience) === 'string' ? audience ?? film.audience : 'general';
   const onScreen = new Map();   // text-dwell and text-contrast: str => Map(film frame => { shot, c: contrast | null })
-  const sizes = new Map();      // text-size: str => its largest x-height at 240 px, where (written on, it grows)
+  const sizes = new Map();      // text-size: str => its largest x-height at 240 px on the short side, where (written on, it grows)
   // A chapter's title card (4.0 E1) is its own allowance: it carries the chapter's title as the sign-off
   // carries the signature, so its words do not count, whatever the look allows.
   const cards = new Set(chapters(film).filter((c) => c.card).map((c) => c.node.kids[0]));
@@ -223,7 +224,7 @@ export function inspect(film, { audience } = {}) {
       const i = p.i(k);
       const report = (rule, detail, key) => F.add(rule, name, i, detail, key);
       let ev;
-      try { ev = evalShot(film, node, k, { i, look: p.look }); } catch (e) { report('draw', e.message, 'draw'); return; }
+      try { ev = evalShot(film, node, k, { i, target, look: p.look }); } catch (e) { report('draw', e.message, 'draw'); return; }
       s.look ??= lookName(ev.look);
       s.lookObj ??= ev.look;
       const { list, env } = ev;
@@ -236,7 +237,7 @@ export function inspect(film, { audience } = {}) {
       const units = withHand(handOf(ev.look), () => textUnits(list, ev.look));
       overlaps(units, report);
       for (const u of units) {
-        const px = u.x === null ? null : u.x * 240 / env.W, z = sizes.get(u.str);
+        const px = u.x === null ? null : u.x * 240 / Math.min(env.W, env.H), z = sizes.get(u.str);
         if (!u.sign && px !== null && (!z || px > z.px)) sizes.set(u.str, { px, shot: name, i });
         let e = onScreen.get(u.str);
         if (!e) onScreen.set(u.str, (e = new Map()));
@@ -263,7 +264,7 @@ export function inspect(film, { audience } = {}) {
       if (drawn.length && drawn.every(([, boxes]) => !boxes.length)) report('anchor', `anchor names ${drawn.map(([d]) => anchorLabel(d)).join(' / ')} but the shot does not draw it`, 'anchor');
       for (const [d, boxes] of drawn) {
         for (const b of boxes) {
-          const px = Math.max(b[2], b[3]) * 240 / env.W;
+          const px = Math.max(b[2], b[3]) * 240 / Math.min(env.W, env.H);
           if (!size || px > size.px) size = { px, i, label: anchorLabel(d) };
           const out = b[0] < -TOL || b[1] < -TOL || b[0] + b[2] > env.W + TOL || b[1] + b[3] > env.H + TOL;
           if (out && !got.crop) report('subject-crop', `${anchorLabel(d)} at ${fmtBox(b)} crosses the ${env.W}x${env.H} frame edge`, 'crop');
@@ -275,7 +276,7 @@ export function inspect(film, { audience } = {}) {
       if (e.n > MAX_BOB * FPS) F.add('actor-cycle', name, e.i, `actor '${who}' has no cycle '${cyc}'; its fallback bob is on screen ${(e.n / FPS).toFixed(2)} s (at most ${MAX_BOB} s): give it the cycle, or ask for one it has`, b);
     }
     if (s.finishes.size > 1 && !looked) F.add('one-look', name, p.f0, `two finishes in one shot: ${[...s.finishes].join(', ')}`, 'finish');
-    if (size && size.px < FLOOR_PX) F.add('subject-size', name, size.i, `${size.label} is at most ${size.px.toFixed(1)} px at 240 px wide (floor ${FLOOR_PX})`, 'size');
+    if (size && size.px < FLOOR_PX) F.add('subject-size', name, size.i, `${size.label} is at most ${size.px.toFixed(1)} px at 240 px on the short side (floor ${FLOOR_PX})`, 'size');
     const words = [...s.words].reduce((a, w) => a + countWords(w), 0), allow = s.lookObj ? wordAllowance(s.lookObj, A) : 0;
     const by = s.lookObj && resolveLook(s.lookObj).words === undefined && A.words != null ? `audience ${aud}` : `look ${s.look}`;
     delete s.lookObj;
@@ -283,7 +284,7 @@ export function inspect(film, { audience } = {}) {
     shots.push(s);
   }
   readRules(onScreen, A, aud, F);
-  for (const [str, z] of sizes) if (z.px < A.minX - 1e-9) F.add('text-size', z.shot, z.i, `"${clip(str)}" has an x-height of ${z.px.toFixed(1)} px at 240 px wide (audience ${aud}: at least ${A.minX}); letter it larger`, str);
+  for (const [str, z] of sizes) if (z.px < A.minX - 1e-9) F.add('text-size', z.shot, z.i, `"${clip(str)}" has an x-height of ${z.px.toFixed(1)} px at 240 px on the short side (audience ${aud}: at least ${A.minX}); letter it larger`, str);
   cutFloorRule(film, A, aud, F);
   timelineRules(film, F);
   handRule(film, F);
@@ -666,16 +667,16 @@ export function warnAssets(film) {
     .map(([id, a]) => ({ rule: 'inline-asset', warn: true, shot: null, frame: null, detail: `'${id}': ${Math.round(a.src.length / 1024)} KB of data URL; hdf import --v2 it and name the id in assets` }));
 }
 
-// lint(film, { source, audience }) => findings [{ rule, shot, frame, line?, detail }], source rules first.
-// audience overrides the film's profile (film({ audience })) for the check.
+// lint(film, { source, audience, ar }) => findings [{ rule, shot, frame, line?, detail }], source rules first.
+// audience overrides the film's profile (film({ audience })) for the check; ar the aspect it is checked at.
 export function lint(film, o = {}) {
   return lintAll(film, o).findings;
 }
 
 // Findings and warnings in one pass over the film: { findings, warnings } (warnings: inline assets, and
 // caption-sync from the frames).
-export function lintAll(film, { source, audience } = {}) {
-  const got = inspect(film, { audience });
+export function lintAll(film, { source, audience, ar } = {}) {
+  const got = inspect(film, { audience, ar });
   return { findings: [...(source ? lintSource(source) : []), ...got.findings], warnings: [...warnAssets(film), ...warnLength(film), ...got.warnings] };
 }
 

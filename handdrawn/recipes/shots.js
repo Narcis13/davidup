@@ -23,7 +23,7 @@ import {
 import { bounds, norm } from '../core/list.js';
 import { recipe } from './recipe.js';
 
-export { actorFigure } from './recipe.js';
+export { actorFigure, onSquare } from './recipe.js';
 
 const TAU = Math.PI * 2;
 const lerp = (a, b, u) => a + (b - a) * u;

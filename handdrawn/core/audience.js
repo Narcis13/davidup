@@ -3,7 +3,7 @@
 // viewer's in words a second, dwell the seconds anything new stays before the next thing, count the seconds
 // per counted object.
 // What lint reads (core/lint.js, `film({ audience })`): words a shot may carry outside the sign-off (null: the
-// look's allowance, as before 4.0), minX the least x-height of any lettering at a 240 px wide render (px),
+// look's allowance, as before 4.0), minX the least x-height of any lettering at a render 240 px on its short side (px),
 // perWord the seconds a piece of text must stay on screen for each of its words, cutFloor the shortest shot
 // (s), contrast the least contrast ratio of text on what it is drawn over. look is the look a film for that
 // audience gets when it names none (4.0 L3: kids-5 picks the crayon look). general is what lint asked before

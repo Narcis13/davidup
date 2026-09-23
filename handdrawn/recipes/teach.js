@@ -28,7 +28,8 @@
 //
 // Words: every lettered string counts against the allowance (digits too): the film's audience's (4.0 T10,
 // film({ audience })), or for a general film the look's (12 a shot on the whiteboard; `look.words` wins).
-// Coordinates are v1's: a 1080 square around (540, 540).
+// Coordinates are v1's: a 1080 square around (540, 540). In a 16:9 or 9:16 frame the square is drawn centred
+// (recipe's `square`), the ground edge to edge; R.squareLayer(ctx, o) is the same for a film's own layers.
 import {
   fill, stroke, group, circle, ellipse, line, poly, spline, arc, rect, roundRect, at, len, place, cel, ramp, ease, reveal, handText, textOnPath, cam,
   pin, on, photo, dialogue, actorOf, puppet, stickSource,
@@ -162,7 +163,7 @@ export const titleCard = recipe('AN', 'title', {
     o.actor && presenter(o.actor, ctx, { x: o.side === 'right' ? 890 : 190, feet: 1010, h: o.h, side: o.side, pose: o.pose, k: reach(t, P.t1 - 0.2), emote: t >= P.t2 ? 'happy' : null, seed: o.seed }),
     hand,
   ];
-}, { anchor: { name: 'title' }, cast: false });
+}, { anchor: { name: 'title' }, cast: false, square: true });
 
 // ---------- chapters (4.0 E1) ----------
 
@@ -246,7 +247,7 @@ export const labelled = recipe('AO', 'labelled', {
     ]),
     o.actor && presenter(o.actor, ctx, { x: o.side === 'right' ? 920 : 150, feet: 1010, h: o.h, side: o.side, pose: o.pose, k: reach(t, first) * u, seed: o.seed }),
   ];
-}, { anchor: { name: 'subject' }, cast: false });
+}, { anchor: { name: 'subject' }, cast: false, square: true });
 
 // ---------- AP. counting ----------
 
@@ -303,7 +304,7 @@ export const counting = recipe('AP', 'counting', {
     total && group('total', [total]),
     o.actor && presenter(o.actor, ctx, { x: o.side === 'right' ? 930 : 150, feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.t(o.n - 1) + P.per) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
-}, { anchor: { name: 'items' }, cast: false });
+}, { anchor: { name: 'items' }, cast: false, square: true });
 
 // ---------- AQ. compare ----------
 
@@ -354,7 +355,7 @@ export const compare = recipe('AQ', 'compare', {
     sign,
     o.actor && presenter(o.actor, ctx, { x: mid, feet: 1030, h: o.h, pose: t >= P.s1 ? 'present' : 'think', k: t >= P.s1 ? reach(t, P.s1) : reach(t, P.tl), emote: t >= P.s1 ? 'happy' : 'thinking', seed: o.seed }),
   ];
-}, { anchor: { name: 'compare' }, cast: false });
+}, { anchor: { name: 'compare' }, cast: false, square: true });
 
 // ---------- 4.0 E3: process, cycle, number line, growth (AR to AU) ----------
 
@@ -460,7 +461,7 @@ export const process = recipe('AR', 'process', {
     group({ name: 'process', box: bounds(cards.map((c) => stroke(roundRect(c.x, c.y, c.w, c.h, 18), 'ink', { w: 0 }))) }, kids),
     o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.cards[P.cards.length - 1].w1) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
-}, { anchor: { name: 'process' }, cast: false });
+}, { anchor: { name: 'process' }, cast: false, square: true });
 
 // ---------- AS. cycle diagram ----------
 
@@ -533,7 +534,7 @@ export const cycleDiagram = recipe('AS', 'cycle', {
     marker,
     o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.nodes[n - 1].a0 + 0.4) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
-}, { anchor: { name: 'cycle' }, cast: false });
+}, { anchor: { name: 'cycle' }, cast: false, square: true });
 
 // ---------- AT. number line ----------
 
@@ -629,7 +630,7 @@ export const numberLine = recipe('AT', 'number line', {
     marker && group('marker', [marker]),
     o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.ring) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
-}, { anchor: { name: 'numberLine' }, cast: false });
+}, { anchor: { name: 'numberLine' }, cast: false, square: true });
 
 // The seconds into an AT shot at which each hop starts (for the score: a note a hop), from the same options.
 export const hopTimes = (opts = {}) => linePlan({ ...numberLine.defaults, ...opts }).segs.flatMap((g) => g.at);
@@ -686,7 +687,7 @@ export const growth = recipe('AU', 'growth', {
     group({ name: 'growth', box: [cx - 200, floor - o.height - s * 1.6, 400, o.height + s * 1.6] }, [body && group('rising', body), number && group('count', [number])]),
     o.actor && presenter(o.actor, ctx, { x: standX(o, 150, 930), feet: 1010, h: o.h, side: o.side, pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.g1) : reach(t, o.at), emote: done ? 'happy' : null, seed: o.seed }),
   ];
-}, { anchor: { name: 'growth' }, cast: false });
+}, { anchor: { name: 'growth' }, cast: false, square: true });
 
 // ---------- 4.0 E4: question, quiz, map, dialogue (AV to AY) ----------
 
@@ -727,7 +728,7 @@ export const questionCard = recipe('AV', 'question', {
     ]),
     stand(o, ctx, { pose: o.pose, k: reach(t, P.q1), emote: t >= P.q1 ? o.emote : null }),
   ];
-}, { anchor: { name: 'question' }, cast: false });
+}, { anchor: { name: 'question' }, cast: false, square: true });
 
 // ---------- AW. quiz ----------
 
@@ -793,7 +794,7 @@ export const quiz = recipe('AW', 'quiz', {
     group({ name: 'quiz', box }, [writeOn(ramp(o.at, P.q1, t), question), ...rows, dots]),
     stand(o, ctx, { pose: done ? 'cheer' : pointing ? 'point-r' : 'think', k: done ? reach(t, P.ding) : pointing ? reach(t, P.p1) : reach(t, P.p0), emote: done ? 'happy' : thinking ? 'thinking' : null }),
   ];
-}, { anchor: { name: 'quiz' }, cast: false });
+}, { anchor: { name: 'quiz' }, cast: false, square: true });
 
 // The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding),
 // the pause, each option's arrival (a pop each, 4.0 V4) and the shot's own end, from the same options, for the
@@ -894,7 +895,7 @@ export const mapRoute = recipe('AX', 'map', {
     marker && group('marker', [marker]),
     stand(o, ctx, { pose: done ? 'cheer' : o.pose, k: done ? reach(t, P.x1) : reach(t, o.at), emote: done ? 'happy' : null }),
   ];
-}, { anchor: { name: 'route' }, cast: false });
+}, { anchor: { name: 'route' }, cast: false, square: true });
 
 // ---------- AY. dialogue shot ----------
 
@@ -947,7 +948,7 @@ export const dialogueShot = recipe('AY', 'dialogue', {
     group({ name: 'pair', cache: 'never' }, [figure(a, 0), b && figure(b, 1)]),
     talk.draw(t),
   ];
-}, { anchor: { name: 'pair' }, cast: false });
+}, { anchor: { name: 'pair' }, cast: false, square: true });
 
 // The dialogue an AY shot with these options plays: its turns, lines and events(t) for the score.
 export const dialogueOf = (opts = {}) => talkOf({ ...dialogueShot.defaults, ...opts }).talk;

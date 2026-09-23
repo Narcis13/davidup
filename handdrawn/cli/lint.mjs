@@ -5,6 +5,8 @@
 // hdf lint <film.js> --audience kids-5: the film against another audience's profile (4.0 T10) instead of its
 // own (film({ audience }), 'general' by default).
 //
+// hdf lint <film.js> --ar 16:9: the film as rendered at another aspect (every shot's fit applied), not its own.
+//
 // A film in chapters (4.0 E1) ends with a line per chapter: its span, shots, cuts, recipes and findings.
 //
 // hdf lint packs/<pack>.js: a pack is not a film; its findings are `pack-mirror`, one per cel whose store
@@ -13,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ASSET_ROOT, readCatalogue, sha } from '../core/assets.js';
 import { AUDIENCES } from '../core/audience.js';
+import { FORMATS } from '../core/fit.js';
 import { chapterReport, formatChapter, lintAll, lintPack, formatFinding } from '../core/lint.js';
 import { mirrorPayload, packCels, readManifest } from './donate.mjs';
 import { UsageError } from './load.mjs';
@@ -21,8 +24,10 @@ export async function run([path], flags, { loadFilm }) {
   if (path && isPack(resolve(path))) return lintPackFile(resolve(path), flags);
   const audience = flags.audience;
   if (audience !== undefined && !Object.hasOwn(AUDIENCES, audience)) throw new UsageError(`lint: --audience takes ${Object.keys(AUDIENCES).join(', ')} (got '${audience}')`);
+  const ar = flags.ar;
+  if (ar !== undefined && !Object.hasOwn(FORMATS, ar)) throw new UsageError(`lint: --ar takes ${Object.keys(FORMATS).join(', ')} (got '${ar}')`);
   const film = await loadFilm(path);
-  const { findings, warnings } = lintAll(film, { source: readFileSync(resolve(path), 'utf8'), audience });
+  const { findings, warnings } = lintAll(film, { source: readFileSync(resolve(path), 'utf8'), audience, ar });
   const file = basename(path);
   for (const f of [...warnings, ...findings]) process.stdout.write(formatFinding(f, file) + '\n');
   for (const r of chapterReport(film, findings)) process.stdout.write(formatChapter(r) + '\n');

@@ -92,7 +92,7 @@ test('text-size: an x-height under the audience\'s minX at 240 px; a lettered gr
   // x-height 0.48 of the size, at 240 / 1080: size 30 is 3.2 px, size 50 is 5.3 px.
   assert.equal(found(small(30), 'text-size').length, 0);
   const [x] = found(small(30), 'text-size', { audience: 'kids-5' });
-  assert.match(x.detail, /"label" has an x-height of 3\.2 px at 240 px wide \(audience kids-5: at least 5\)/);
+  assert.match(x.detail, /"label" has an x-height of 3\.2 px at 240 px on the short side \(audience kids-5: at least 5\)/);
   assert.equal(found(small(50), 'text-size', { audience: 'kids-5' }).length, 0);
   assert.equal(found(small(20), 'text-size').length, 1, 'too small for anyone');
   for (const str of ['moon', 'the moon has no light', 'ABC 123']) {

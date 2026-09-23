@@ -1549,7 +1549,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf sketch <photo.jpg ...> --name <id> [--sheet biped\|biped-front] [--licence] [--cycle walk] [--root] [--no-sheet]` | a photographed rig sheet into the store as a puppet with the standard biped names (lines as strokes, coloured-in areas as fills, the face-on sheet adding the front view); `out/sketch-<id>-trace.jpg` and its sheet with the walk as the strip |
 | `hdf sketch <drawing.png\|.svg> --auto --name <id> [--view front\|side] [--licence] [--cycle walk] [--root] [--no-sheet]` | one drawing auto-rigged (4.0 W3): cut at the joints its skeleton gives, stood at rest with the pose `drawn` its own; `out/sketch-<id>-rig.jpg` and its sheet |
 | `hdf script <brief.md> [--out film.js] [--dry] [--force]`, `hdf script --check <film>` | a brief in the script dialect to the beat sheet and a timeline stub (4.0 E5, below) |
-| `hdf lint <film>` | the rules over every frame's list; exits 1 on any finding |
+| `hdf lint <film> [--audience <name>] [--ar 16:9]` | the rules over every frame's list; exits 1 on any finding |
 | `hdf changed <film>` | frames whose list hash moved since the last render, as before/after pairs |
 | `hdf golden <film> write\|check [--workers N]` | sha256 per frame at 480 px plus the wav |
 | `hdf dev <film> [--port 4321] [--root dir]` | the player with hot reload; its Rig tab poses a stored puppet by dragging and writes poses, cycle frames, pivots and sockets back to `<store>/src/<id>.puppet.json` and the store (4.0 W2) |
@@ -1814,7 +1814,7 @@ that reads the asset store needs `hdf dev` or `hdf bundle`).
 - a shot that does not start on paper, night or a backdrop;
 - two finishes in one shot, or a look op inside a shot (unless it is an `inset`
   print);
-- a missing anchor, or an anchor under 24 px at 240 px wide, or one cut by the
+- a missing anchor, or an anchor under 24 px at 240 px on the short side, or one cut by the
   frame edge without `meta('intent', 'crop')`;
 - more than two scribbled parts;
 - a cel drawing outside its declared box;
@@ -1836,9 +1836,12 @@ that reads the asset store needs `hdf dev` or `hdf bundle`).
 `beginner`, `kids-9`, `kids-7` or `kids-5`, the same keys the teaching
 recipes, `say`, `dialogue` and `captions` take (`core/audience.js
 AUDIENCES`). Lint checks the film against that profile; `hdf lint <film>
---audience kids-5` checks it against another one without touching the film.
+--audience kids-5` checks it against another one without touching the film,
+and `--ar 16:9` checks it as rendered at another aspect. Sizes are measured at
+a render 240 px on the frame's short side, so a lesson lints the same at every
+aspect.
 
-| profile | words a shot | least x-height at 240 px | on screen a word | shortest shot | contrast |
+| profile | words a shot | least x-height at 240 px (short side) | on screen a word | shortest shot | contrast |
 |---|---|---|---|---|---|
 | general | the look's | 2.5 px | 0.15 s | none | 3:1 |
 | beginner | 16 | 3.5 px | 0.3 s | 1 s | 4.5:1 |

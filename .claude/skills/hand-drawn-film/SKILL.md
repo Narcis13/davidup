@@ -131,7 +131,7 @@ the importers and the Figma conventions: `references/assets.md`.
 (`group('die', ...)`, `stroke(p, 'ink', { name: 'die' })`, marks like
 `seedDot` are `group('seedDot')`). A puppet is a cel: `meta('anchor', { cel:
 'fox' })`. Several anchor metas in one shot are alternatives: one of them must
-be drawn and big enough (24 px at 240 px wide). Recipes take `anchor: { ... }
+be drawn and big enough (24 px at 240 px on the short side). Recipes take `anchor: { ... }
 | [ ... ]` to replace theirs. Lint checks that each shot anchors something;
 that it is *the same* thing across cuts is on you (review list). A small
 anchor like the seed dot (~6 px at 240 px) cannot pass alone: pair it with
@@ -654,7 +654,7 @@ box; words beyond the look's allowance (0; doodle and cutout 3, spoken words
 included; `look.words` to change it); a cut over 1 s or two cuts in a row;
 no sign-off, or one still writing 1.5 s before the end (a clip, with
 `meta('intent', 'clip')` in its last frame, needs none); an anchor under
-24 px at 240 px wide, or cut by the frame edge without `meta('intent',
+24 px at 240 px on the short side, or cut by the frame edge without `meta('intent',
 'crop')`; cues off the 1/12 s grid; `Math.random`, `Date`, filters,
 `shadowBlur` or gradients in the source. From 3.0: a recipe asking an actor
 for a cycle it lacks with the fallback bob on screen over 1 s
@@ -683,7 +683,7 @@ none. The score's cues carry `chapters: [{ n, title, t0, dur }]`.
 For a lesson, name the audience on the film: `film({ ..., audience:
 'kids-7' })` (general, beginner, kids-9, kids-7, kids-5; 4.0 T10). Lint then
 checks that profile: words a shot (it replaces the look's allowance;
-`look.words` still wins), lettering whose x-height at 240 px is too small
+`look.words` still wins), lettering whose x-height at 240 px on the short side is too small
 (`text-size`), text up for less than its words need (`text-dwell`; a
 recording's captions and the sign-off exempt), text too faint on what it sits
 on for as long as it needs reading (`text-contrast`), two pieces of text

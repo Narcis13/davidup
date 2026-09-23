@@ -554,6 +554,7 @@ Each takes `{ photo, name, dur, look, ... }` and returns a shot.
 - `lastFrame(node)` A shot's last frame as a print for printsOnALine (AF): (ctx) => list. <sub>recipes/doodle.js</sub>
 - `lin(a, b, t)` From a to b over t = 0..1 in a straight line. <sub>recipes/doodle.js</sub>
 - `map` A drawn map to trace a route over (AX's default), 760 by 560 units about its centre: a lake, a river, hills, trees and two houses. <sub>recipes/teach.js</sub>
+- `onSquare(ctx, draw)` A layer laid out on the 1080 square, drawn centred in a frame of another aspect (16:9 across, 9:16 down): draw(ctx) gets the square's W, H, CX and CY and its ops go in a group 'square'. <sub>recipes/recipe.js</sub>
 - `pointsIn(path, n, seed, shrink = 0.85)` Seeded points inside a path (rejection sampling in its box). <sub>recipes/shots.js</sub>
 - `quizTimes(opts = {})` The seconds into an AW shot of each wrong option's strike (a tick each) and of the answer's ring (a ding), the pause, each option's arrival (a pop each, 4.0 V4) and the shot's own end, from the same options, for the score. <sub>recipes/teach.js</sub>
 - `risoCard(plates, { inks = ['inks.0', 'inks.1', 'inks.2'], angles = [0.26, 1.31, 0], cell = 7, seed = 30, box =, ...` A riso card: plates [[kids...] per ink] printed as halftone plates (v1 risoCard). <sub>recipes/shots.js</sub>
