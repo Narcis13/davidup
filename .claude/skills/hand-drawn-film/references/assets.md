@@ -473,7 +473,9 @@ the model sheet of every store puppet it reads and registers them as davidup
 assets (`hdf-<film>` video, `hdf-<puppet>-model` image) in
 `<project>/assets/hdf/`; `scripts/davidup-hdf-clip.ts <composition.json>
 <item-id>` renders the film a video item names (`"name": "hdf:<film>"` or
-`--film`) into that item's asset. Both take `--look`, `--frames N` and
+`--film`) into that item's asset. The name is a film's name, not a path
+(RE-13): it is looked up in `handdrawn/films/`, then beside `composition.json`
+(the project), then `handdrawn/work/<film>/`. Both take `--look`, `--frames N` and
 `--dry-run`, and rewrite only the `assets` array of `composition.json`.
 `davidup-hdf-clip.ts --alpha [mov|webm]` renders the film on no stock with its
 transparency (`hdf render --alpha`), and `register_asset` records `hasAlpha`,
@@ -487,6 +489,10 @@ film's store puppets and its module's `cast` export (name -> actor or puppet).
 `hdf-to-davidup.ts --fonts [a,b]` writes the film's hand (or those named, store
 ids or `house`) with `hdf hand --export-ttf` and registers `hdf-<hand>-font`, a
 font asset of family `hdf-<hand>`, for `add_text`'s `font`.
+A model sheet, sprite or font made from a store entry is registered with that
+entry's `credit` and `licence` (davidup assets carry both, RE-14; the render
+is the film's own and carries none). `validate` warns `W_ASSET_CREDIT` on a
+CC-BY or CC-BY-SA asset without a credit.
 Cues both ways (4.0 D4): every film command takes `--cues-from <composition.json
 | cues.json> [--at <item|seconds>]`, and a film reads those marks with
 `atMark(name, { or })` / `marksNamed(name, { or })` (core/cuemarks.js) and
@@ -503,8 +509,11 @@ The davidup MCP server does both scripts' work in one call (4.0 D5):
 cues, sprites, states, spriteHeight, video }` renders with `hdf render`,
 registers the clip with `register_asset { replace: true }` (in the open
 project's `assets/hdf/`, or `handdrawn/out/davidup/` on a standalone server),
-then `place` adds a video item (add_video's fields, named `hdf:<film>`) or
-`item` repoints one; with either, the film reads the composition's marks and
+then `place` adds a video item (add_video's fields, named `hdf:<film>` by the
+film's basename, so no machine path lands in the composition; the tool's
+result carries the path as `film`, and warns when that name would not find
+the same file again) or `item` repoints one (`film` defaults to the item's
+name); with either, the film reads the composition's marks and
 writes its chapters back as markers (`cues: false` for neither). `sprites`
 (`true` for the cast `hdf sprite --film <film> --cast` lists, or names)
 registers `hdf-<name>-sprite` sheets. A film given as a path must sit under

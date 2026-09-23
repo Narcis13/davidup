@@ -9,4 +9,5 @@ on beside a photograph of the full moon, turns to it and says goodnight. He is a
 It writes `assets/`, `composition.json` and `output/moon-real.mp4`, none of which are committed.
 
 `full-moon.jpg`: "FullMoon2010.jpg" by Gregory H. Revera, CC BY-SA 3.0, via Wikimedia Commons, scaled to
-1290 px wide.
+1290 px wide. The composition carries the credit too: the asset is registered with `credit` and
+`licence: "CC-BY-SA"`, and the editor's Library shows it under the thumbnail.

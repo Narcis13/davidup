@@ -4,6 +4,7 @@ export * from "./fps.js";
 export { MAX_LOOP_REPEATS, timelineMarkers, trackMarkerTimes, type TimelineMarker } from "./markers.js";
 export { validate as validateComposition } from "./validator.js";
 export {
+  ASSET_LICENCES,
   AssetSchema,
   AudioAssetSchema,
   AudioTrackSchema,
@@ -41,6 +42,7 @@ export {
   VIDEO_FIT_MODES,
   VideoFitSchema,
   VideoItemSchema,
+  type AssetLicence,
 } from "./zod.js";
 export {
   applySchemaDefaults,

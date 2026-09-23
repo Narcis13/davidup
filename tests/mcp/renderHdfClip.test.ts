@@ -3,12 +3,14 @@
 // (node + skia-canvas + ffmpeg), so these tests render real, short clips.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { CompositionStore, dispatchTool, TOOLS, type DispatchRouter, type ToolDeps } from "../../src/mcp/index.js";
 
+const hdfRootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "handdrawn");
 const tool = (name: string) => TOOLS.find((t) => t.name === name)!;
 
 function session(extra: Partial<ToolDeps> = {}, router?: DispatchRouter) {
@@ -31,7 +33,8 @@ afterEach(() => {
   if (envWas === undefined) delete process.env.DAVIDUP_HDF_ROOT; else process.env.DAVIDUP_HDF_ROOT = envWas;
 });
 
-describe("render_hdf_clip", () => {
+// Each test renders with hdf (node, skia-canvas, ffmpeg): seconds alone, more under a full run.
+describe("render_hdf_clip", { timeout: 60_000 }, () => {
   it("renders a film, registers it and places it on the timeline in one call", async () => {
     const { store, call } = session();
     await ok(call("create_composition", { width: 640, height: 360, fps: 24, duration: 3 }));
@@ -106,6 +109,8 @@ describe("render_hdf_clip", () => {
     expect(r.sprites[0]).toMatchObject({ assetId: "hdf-sam-sprite", frameHeight: 64, cycles: { walk: { start: 0 } } });
     const asset = store.toJSON().assets.find((a) => a.id === "hdf-sam-sprite");
     expect(asset).toMatchObject({ type: "image", sheet: { frameHeight: 64 } });
+    // RE-14: the store entry's credit and licence come with it.
+    expect(asset).toMatchObject({ licence: "own", credit: expect.stringMatching(/^sam, drawn on the rig sheets/) });
     await ok(call("add_layer", { id: "fg", z: 0 }));
     await ok(call("add_sprite", { layerId: "fg", asset: "hdf-sam-sprite", x: 0, y: 0, width: 50, height: 64, cycle: "walk" }));
     expect((await ok(call("validate", {}))).valid).toBe(true);
@@ -146,6 +151,41 @@ describe("render_hdf_clip", () => {
     expect(inProject.ok ? "ok" : inProject.error.code).toBe("E_NOT_FOUND");
   });
 
+  // RE-13: the item is named by the film's name, never its path, and that name finds the film again.
+  it("names the item hdf:<film> for a path too, and a re-render with `item` alone finds its film", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hdf-clip-name-"));
+    tmps.push(root);
+    const project = { root, compositionPath: join(root, "composition.json"), libraryIndexPath: null, assetsDir: null, loadedAt: 0 };
+    const projectControls = { current: () => project, list: () => [], open: async () => project, create: async () => project };
+    const { store, call } = session({ projectControls, probeVideo: (src: string) => import("../../src/drivers/node/ffprobe.js").then((m) => m.probeVideo(join(root, src))) });
+    await ok(call("create_composition", { width: 640, height: 360, fps: 24, duration: 3 }));
+    await ok(call("add_layer", { id: "fg", z: 0 }));
+
+    const mini = join(hdfRootDir, "films", "mini.js");
+    const a = await ok(call("render_hdf_clip", { film: mini, frames: 2, width: 160, place: {}, cues: false }));
+    expect(a.film).toBe(mini);
+    expect(store.toJSON().items[a.itemId]!.name).toBe("hdf:mini");
+    expect(a.warnings ?? []).toEqual([]);
+    const again = await ok(call("render_hdf_clip", { item: a.itemId, frames: 3, width: 160, cues: false }));
+    expect(again.film).toBe(mini);
+
+    // A film beside the composition is found by its name; one in a folder is not, and the tool says so.
+    const reexport = `export * from ${JSON.stringify(pathToFileURL(mini).href)};\nexport { default } from ${JSON.stringify(pathToFileURL(mini).href)};\n`;
+    writeFileSync(join(root, "near-mini.js"), reexport);
+    mkdirSync(join(root, "films"));
+    writeFileSync(join(root, "films", "far-mini.js"), reexport);
+    const near = await ok(call("render_hdf_clip", { film: "near-mini.js", frames: 2, width: 160, asset: "near", place: {}, cues: false }));
+    expect(near.film).toBe(join(root, "near-mini.js"));
+    expect(store.toJSON().items[near.itemId]!.name).toBe("hdf:near-mini");
+    expect((await ok(call("render_hdf_clip", { item: near.itemId, frames: 2, width: 160, cues: false }))).film).toBe(join(root, "near-mini.js"));
+    const far = await ok(call("render_hdf_clip", { film: join(root, "films", "far-mini.js"), frames: 2, width: 160, asset: "far", place: {}, cues: false }));
+    expect(store.toJSON().items[far.itemId]!.name).toBe("hdf:far-mini");
+    expect(JSON.stringify(store.toJSON())).not.toContain(root);
+    expect(far.warnings).toEqual([expect.stringMatching(/does not find .*far-mini\.js again; pass `film`/)]);
+    const lost = await call("render_hdf_clip", { item: far.itemId, frames: 2, width: 160, cues: false });
+    expect(lost.ok ? "ok" : lost.error.code).toBe("E_NOT_FOUND");
+  });
+
   it("refuses what it cannot do, with a hint", async () => {
     const { call } = session();
     await ok(call("create_composition", { width: 640, height: 360, fps: 24, duration: 3 }));
@@ -159,6 +199,7 @@ describe("render_hdf_clip", () => {
     expect(await code({ film: "mini", video: false })).toBe("E_INVALID_VALUE");
     expect(await code({ film: "mini", item: "nope" })).toBe("E_NOT_FOUND");
     expect(await code({ film: "mini", ar: "4:3" })).toBe("E_INVALID_VALUE");
+    expect(await code({})).toBe("E_INVALID_VALUE"); // no film, and no item to name one
 
     process.env.DAVIDUP_HDF_ROOT = mkdtempSync(join(tmpdir(), "no-hdf-"));
     tmps.push(process.env.DAVIDUP_HDF_ROOT);

@@ -110,6 +110,10 @@ export default film({
 
 - Positions come from `W H CX CY`, never literal frame pixels (1080 is the
   short side in logical units; recipes lay out on a 1080 square around 540).
+  The teaching recipes (AN to AY, and so chapter cards) centre that square
+  in a 16:9 or 9:16 frame themselves, ground and anchors outside it, so a
+  lesson can be any format; a lesson's own layer does the same through
+  `onSquare(ctx, draw)`. A to Z are re-fitted by the shot's `fit`.
 - Colours are **roles** (`ink`, `paper`, `fills.2`, `accents.0`, `{ base,
   tint, shade, alpha, mix }`), resolved against the current look. Raw hex
   only ever goes into a look's palette (`withLook`, see `looks.md`) or an
@@ -305,12 +309,19 @@ A.place(x, y, s, { ...state, reach: { 'hand-r': [px, py] } })   // a hand on a s
   line.wav --kind sample --name <id> --licence own`; name `<id>` in `assets`
   and add `voice('<id>', t)` to the score. The package never synthesises
   speech. The score ducks 9 dB under it; lint fails a line past the end.
+  A child on screen wants a child's voice, and macOS `say` has none (Samantha
+  under a boy's mouth reads as a grown-up). edge-tts has two:
+  `edge-tts --voice en-US-AnaNeural --text "..." --write-media line.mp3`
+  (then `ffmpeg -i line.mp3 line.wav`) and `en-GB-MaisieNeural`; piper's
+  models are grown-ups. Keep one voice per
+  character across the film, and say which you used in the credit.
 - **Captions and voiced lines.** Put the copy on the sample (`--desc "..."`
   on import), then run `hdf align <id>`: it uses faster-whisper under
   `$HDF_PYTHON` if that is installed, and otherwise stores an estimate.
   The copy is not whisper's prompt (`--prompt` adds a spelling hint). Ghost
   words past the voice's end are dropped, and a timing that covers under
-  half the voice is refused rather than stored.
+  half the voice is refused rather than stored, so a plain `hdf align <id>`
+  is the whole job; `--json words.json` is only for another tool's words.
   `captions(id, { t0 })` letters the words as they are spoken, underlines
   the spoken word, and is drawn with `CAPS.draw(t, { W, H })` in the shot.
   With no recording, `captions(['line one', 'line two'], { t0, audience })`
@@ -368,7 +379,11 @@ the film changes nothing but `look` (and `paper: null` on doodle recipes, so
 the card stock shows). So do the boards: `--look whiteboard` or `--look
 chalkboard` restyles any film; each allows 12 words a shot, a lesson's title
 and labels. `--look 'chalkboard~ghost:0.15'` (or `withLook('chalkboard', {
-ghost: 0.15 })`) lays each shot over the one before it, wiped not quite clean.
+ghost: 0.15 })`) lays each shot over the one before it, wiped not quite clean;
+`shot(name, dur, draw, { ghost: 0 })` (or `ghost:` on a recipe) wipes one shot
+clean, a count say, without giving up the chapter's ghost. A cel drawn in both
+boards names its roles per look instead of twice: `{ base: 'fills.3', by: {
+chalkboard: 'light' } }` (looks.md, Roles).
 `--look crayon` (or `'crayon~sheet:sky'`) redraws any film in wax crayon on
 construction paper; it allows 6 words a shot, and a film with `audience:
 'kids-5'` and no `look` gets it. `--look notebook` puts any film on a page of
@@ -578,13 +593,23 @@ back as composition markers; `hdf cues <film>` prints the cue file.
 one tool: `render_hdf_clip { film, look, ar, width, frames, alpha, place |
 item, cues, sprites, states, video }` renders the film, registers the clip
 (`hdf-<film>`, replaced on a re-run) and with `place` adds the video item
-(named `hdf:<film>`, sound kept when the film has a score) or with `item`
-points an existing one at it; a placed clip is cut to the composition's marks
+(named `hdf:<film>`, the film's name with no folder, sound kept when the film
+has a score) or with `item` points an existing one at it (`film` may then be
+left out: the item's name finds it in `handdrawn/films`, the project or
+`handdrawn/work/<film>/`); a placed clip is cut to the composition's marks
 and its chapters come back as markers, as with `davidup-hdf-clip.ts`;
 `sprites: true` registers the cast's sheets. It blocks while hdf renders, so
 try things with `frames` and a small `width`.
 `list_engine_capabilities.handdrawn.films` names the films it can render.
 `examples/hdf-clip/agent.mjs` is the pattern.
+
+**Credits in davidup.** An asset carries its `credit` and `licence` (CC0
+CC-BY CC-BY-SA OFL PD own unknown): `register_asset { ..., credit, licence }`,
+and the editor's Library shows the credit on the card. Register a photo you
+found with both; `validate` warns `W_ASSET_CREDIT` on a CC-BY or CC-BY-SA
+asset with no credit. The bridge copies the store's credit and licence onto
+the model sheets, sprites and fonts it registers. `examples/hdf-moon/build.mjs`
+(the 4.0 film's davidup half) registers its moon photo that way.
 
 ## Procedure
 
@@ -773,10 +798,8 @@ These need eyes, and they are the review list:
   `'blueprint'`. An actor draws in its own roles whatever the mode.
 - Recipe subjects: `(ctx, mode) => node` everywhere except G, whose
   `subject(pose, ctx)` gets `{ x, y, dir, t, k, i }`.
-- A recipe's camera (A pushes in) can cut a tall subject off at the top
-  without a lint finding (seen in the acceptance run): check the grid. A pack
-  cel that stands on `y = 0` (`server`, `lamp`, `teapot`) needs its `y` lower
-  than a centred one.
+- A pack cel that stands on `y = 0` (`server`, `lamp`, `teapot`) needs its
+  `y` lower than a centred one.
 - A recipe without an `extras` option (most of them) is extended by a custom
   shot around its layer: `shot('x', 2, (ctx) => [night(), ...doubling.layer(ctx, o), yourOps])`.
 - Never write the shape `import X from '...'` inside a comment: the bundler

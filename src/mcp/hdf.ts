@@ -11,10 +11,11 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Marker, SpriteSheet } from "../schema/types.js";
+import { ASSET_LICENCES, type AssetLicence } from "../schema/zod.js";
 
 export class HdfError extends Error {}
 
@@ -37,13 +38,49 @@ export const hdfOut = (root = requireRoot()) => join(root, "out");
 /** A value safe as a file name and an asset id: `paperInk~hand:test` → `paperInk-hand-test`. */
 export const slug = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 
-/** A film path as given, or a bare name for `handdrawn/films/<name>.js`. */
-export function filmPath(ref: string, cwd = process.cwd()): string {
+/** The name a film goes by in a composition (`hdf:<name>`, RE-13): its module's basename without `.js`. */
+export const filmName = (ref: string) => basename(ref).replace(/\.js$/, "");
+
+/** True for a film named rather than pathed: `mini`, `sam-moon.js`. */
+export const isFilmName = (ref: string) => /^[A-Za-z0-9._-]+$/.test(ref) && !ref.startsWith(".");
+
+/**
+ * A film by name (RE-13): `handdrawn/films/<name>.js`, then `<dir>/<name>.js` for each of `near` (the
+ * composition's folder), then `handdrawn/work/<name>/<name>.js`. null when none of them is a file.
+ */
+export function findFilm(name: string, near: string[] = [], root = requireRoot()): string | null {
+  const file = `${filmName(name)}.js`;
+  const tries = [join(root, "films", file), ...near.map((d) => join(d, file)), join(root, "work", filmName(name), file)];
+  return tries.find((f) => existsSync(f)) ?? null;
+}
+
+/** A film path as given, or a name found by {@link findFilm} (`near`: the composition's folder). */
+export function filmPath(ref: string, cwd = process.cwd(), near: string[] = []): string {
   const direct = resolve(cwd, ref);
   if (existsSync(direct)) return direct;
-  const named = join(requireRoot(), "films", ref.endsWith(".js") ? ref : `${ref}.js`);
-  if (existsSync(named)) return named;
-  throw new HdfError(`no film '${ref}' (neither ${direct} nor ${named})`);
+  const named = isFilmName(ref) ? findFilm(ref, near) : null;
+  if (named) return named;
+  throw new HdfError(`no film '${ref}' (neither ${direct} nor ${isFilmName(ref) ? `${filmName(ref)}.js in handdrawn/films, ${near.length ? `${near.join(", ")} or ` : ""}handdrawn/work/${filmName(ref)}/` : "a name"})`);
+}
+
+/**
+ * What handdrawn's store says of an entry (RE-14): its `credit` (when it has one) and `licence`, for the
+ * davidup asset made from it. `house`, the package's own hand, is `own`. Empty for a name the store does not
+ * hold (a cast member a film module defines, say).
+ */
+export function storeCredit(id: string, root = hdfRoot()): { credit?: string; licence?: AssetLicence } {
+  if (id === "house") return { licence: "own" };
+  if (!root) return {};
+  let e: { credit?: unknown; licence?: unknown } | undefined;
+  try {
+    e = (JSON.parse(readFileSync(join(root, "assets", "catalogue.json"), "utf8")) as Record<string, typeof e>)[id];
+  } catch { return {}; }
+  if (!e) return {};
+  const licence = (ASSET_LICENCES as readonly unknown[]).includes(e.licence) ? (e.licence as AssetLicence) : undefined;
+  return {
+    ...(typeof e.credit === "string" && e.credit.trim() ? { credit: e.credit.trim() } : {}),
+    ...(licence ? { licence } : {}),
+  };
 }
 
 /** Runs `hdf <args>` under node in the package directory; resolves to its stdout. */

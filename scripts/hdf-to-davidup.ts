@@ -15,6 +15,9 @@
 //                                 TrueType font (`hdf hand --export-ttf`),
 //                                 family `hdf-<hand>`, for add_text's `font`
 //
+// A sheet, sprite or font drawn from a store entry carries that entry's
+// `credit` and `licence` (RE-14); the render, which is the film's own, none.
+//
 // Cues both ways (4.0 D4): the render reads the project's composition as its marks (`--cues-from`), in
 // the seconds of the video item that plays `hdf-<film>` (--at, or the one item that plays it), so a film
 // cut to `atMark`/`marksNamed` lands on the project's beats and markers; and for every video item that
@@ -50,7 +53,7 @@
 
 import {
   BridgeError, chapterMarkers, describe, filmCast, filmCues, filmHand, filmInfo, filmPath, frameCount, handFont, modelSheet, parseArgs, projectRoot,
-  registerFiles, renderFilm, runMain, shown, slug, spriteSheet, writeMarkers, type CueOpts, type Planned,
+  registerFiles, renderFilm, runMain, shown, slug, spriteSheet, storeCredit, writeMarkers, type CueOpts, type Planned,
 } from "./hdf-bridge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -116,12 +119,13 @@ async function main(): Promise<number> {
   }
 
   const planned: Planned[] = video ? [{ id: videoId, type: "video", file: await renderFilm(path, { look, frames, ...cues }) }] : [];
-  for (const p of puppets) planned.push({ id: `hdf-${slug(p)}-model`, type: "image", file: await modelSheet(p) });
+  // A sheet, a sprite or a font drawn from a store entry carries its credit and licence (RE-14).
+  for (const p of puppets) planned.push({ id: `hdf-${slug(p)}-model`, type: "image", file: await modelSheet(p), ...storeCredit(p) });
   for (const p of sprites) {
     const s = await spriteSheet(p, { film: path, look, states, h });
-    planned.push({ id: `hdf-${slug(p)}-sprite`, type: "image", file: s.png, sheet: s.sheet });
+    planned.push({ id: `hdf-${slug(p)}-sprite`, type: "image", file: s.png, sheet: s.sheet, ...storeCredit(p) });
   }
-  for (const h of fonts) planned.push({ id: `hdf-${slug(h)}-font`, type: "font", file: await handFont(h), family: `hdf-${slug(h)}` });
+  for (const h of fonts) planned.push({ id: `hdf-${slug(h)}-font`, type: "font", file: await handFont(h), family: `hdf-${slug(h)}`, ...storeCredit(h) });
   if (!planned.length) throw new BridgeError("nothing to register (--no-video with no sheets, no --sprites and no --fonts)");
   const done = await registerFiles(join(root!, "composition.json"), planned);
   const lines = done.flatMap(({ asset, warnings }) => [describe(asset), ...warnings.map((w) => `  warning: ${w}`)]);

@@ -17,8 +17,9 @@
 // composition markers (`source: "hdf:<item>"`, replaced on every run), which the editor draws on its
 // ruler. --no-cues does neither.
 //
-// The item names its film in its `name` — `hdf:<film>`, a film in
-// handdrawn/films/ or a path — or the film comes from --film:
+// The item names its film in its `name` — `hdf:<film>`, the film's name (RE-13: looked up in
+// handdrawn/films/, then beside composition.json, then handdrawn/work/<film>/) or a path — or the film
+// comes from --film:
 //
 //   "fox": { "type": "video", "asset": "fox-clip", "name": "hdf:fox-and-teapot", ... }
 //
@@ -35,7 +36,7 @@
 //   --help      this text
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   alphaCodec, BridgeError, chapterMarkers, describe, filmCues, filmPath, frameCount, parseArgs, registerFiles, renderFilm,
   runMain, shown, writeMarkers,
@@ -64,7 +65,7 @@ async function main(): Promise<number> {
   if (!ref) {
     throw new BridgeError(`item '${itemId}' names no film: give it a name '${PREFIX}<film>' or pass --film <film.js|name>`);
   }
-  const path = filmPath(ref);
+  const path = filmPath(ref, process.cwd(), [dirname(file)]);
   const look = typeof flags.look === "string" ? flags.look : undefined;
   const frames = frameCount(flags.frames);
   const alpha = alphaCodec(flags.alpha);

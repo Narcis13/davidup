@@ -59,6 +59,8 @@
 //      an audio-track marker that never plays inside the composition (before
 //      the track's `trimIn`, past its source, or placed past the end)
 //                                              → W_MARKER_OUTSIDE
+//  21. A CC-BY or CC-BY-SA asset with no `credit` (RE-14): the licence
+//      wants attribution the composition does not carry → W_ASSET_CREDIT
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
@@ -94,7 +96,8 @@ export type ValidationWarningCode =
   | "W_VIDEO_NO_AUDIO_STREAM"
   | "W_ITEM_MULTI_PARENT"
   | "W_GROUP_ANCHOR_NO_BOX"
-  | "W_MARKER_OUTSIDE";
+  | "W_MARKER_OUTSIDE"
+  | "W_ASSET_CREDIT";
 
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
@@ -171,8 +174,22 @@ export function validate(input: unknown): ValidationResult {
   validateSingleParent(comp, warnings);
   validateGroupAnchorBox(comp, warnings);
   validateMarkers(comp, warnings);
+  validateAssetCredits(comp, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Credit (RE-14, W_ASSET_CREDIT): an attribution licence with nothing to
+// attribute. A render of the composition would use the asset uncredited.
+function validateAssetCredits(comp: Composition, warnings: ValidationWarning[]): void {
+  comp.assets.forEach((a, i) => {
+    if ((a.licence !== "CC-BY" && a.licence !== "CC-BY-SA") || a.credit) return;
+    warnings.push({
+      code: "W_ASSET_CREDIT",
+      message: `Asset "${a.id}" is ${a.licence} but has no credit; the licence asks for one (register_asset's \`credit\`).`,
+      path: `assets.${i}.credit`,
+    });
+  });
 }
 
 // Markers (4.0 D4, W_MARKER_OUTSIDE): a marker no one can reach. A tool

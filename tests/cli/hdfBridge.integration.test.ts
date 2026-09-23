@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { scaffoldProject } from "../../src/cli/scaffold.js";
 import * as skia from "skia-canvas";
@@ -145,6 +146,8 @@ describe("hdf-to-davidup --fonts", () => {
     expect(out).toMatch(/hdf-test-font {2}font {2}assets\/hdf\/hdf-test-font\.ttf {2}\(family hdf-test\)/);
     const asset = (await listAssets(root)).find((a) => a.id === "hdf-test-font");
     expect(asset).toMatchObject({ type: "font", family: "hdf-test", src: "assets/hdf/hdf-test-font.ttf" });
+    // RE-14: the store's credit and licence for the hand come with it.
+    expect(asset).toMatchObject({ licence: "own", credit: expect.stringMatching(/^synthesised from the house hand/) });
 
     const store = new CompositionStore();
     const call = async (name: string, args: Record<string, unknown>) => {
@@ -193,6 +196,16 @@ describe("davidup-hdf-clip", () => {
     expect((await listAssets(root)).find((a) => a.id === "ball")).toMatchObject({ type: "video", duration: 0.5 });
     // The item itself is untouched.
     expect(JSON.parse(readFileSync(file, "utf8")).items.clip).toEqual(doc.items.clip);
+
+    // RE-13: a name the films folder does not hold is looked up beside composition.json.
+    const mini = pathToFileURL(join(REPO, "handdrawn", "films", "mini.js")).href;
+    writeFileSync(join(root, "my-mini.js"), `export * from ${JSON.stringify(mini)};\nexport { default } from ${JSON.stringify(mini)};\n`);
+    const named = JSON.parse(readFileSync(file, "utf8"));
+    named.items.clip.name = "hdf:my-mini";
+    writeFileSync(file, JSON.stringify(named, null, 2));
+    const dry = bun("davidup-hdf-clip.ts", file, "clip", "--dry-run");
+    expect(dry.code, dry.err).toBe(0);
+    expect(dry.out).toMatch(/hdf render \S*my-mini\.js/);
   });
 
   // 4.0 D1: an overlay. The film is drawn on no stock and registered with its alpha, as ProRes 4444 or VP9.

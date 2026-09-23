@@ -41,7 +41,7 @@ import { useToasts } from '~/composables/useToasts'
 // in `composition.assets`. The remove button uses these to decide whether
 // to call `remove_asset` directly or to confirm with the user first.
 type CompositionLike = {
-  assets?: ReadonlyArray<{ id?: unknown; type?: unknown }>
+  assets?: ReadonlyArray<{ id?: unknown; type?: unknown; credit?: unknown; licence?: unknown }>
   items?: Record<string, { type?: unknown; asset?: unknown; font?: unknown }>
   // Read by "behavior from selection" (v1.1 S19) — the selected item's tweens
   // become an executable behavior body.
@@ -117,6 +117,9 @@ interface AssetUsageEntry {
   registered: boolean
   usages: number
   usingItemIds: ReadonlyArray<string>
+  /** The registered asset's credit and licence (RE-14), shown under the thumbnail. */
+  credit?: string
+  licence?: string
 }
 
 const assetIndex = computed<Map<string, AssetUsageEntry>>(() => {
@@ -128,11 +131,15 @@ const assetIndex = computed<Map<string, AssetUsageEntry>>(() => {
   for (const a of comp.assets ?? []) {
     const id = typeof a?.id === 'string' ? a.id : null
     if (!id) continue
+    const credit = {
+      ...(typeof a.credit === 'string' && a.credit ? { credit: a.credit } : {}),
+      ...(typeof a.licence === 'string' && a.licence ? { licence: a.licence } : {}),
+    }
     if (!map.has(id)) {
-      map.set(id, { registered: true, usages: 0, usingItemIds: [] })
+      map.set(id, { registered: true, usages: 0, usingItemIds: [], ...credit })
     } else {
       const cur = map.get(id)!
-      map.set(id, { ...cur, registered: true })
+      map.set(id, { ...cur, registered: true, ...credit })
     }
   }
   const items = comp.items ?? {}
@@ -144,7 +151,7 @@ const assetIndex = computed<Map<string, AssetUsageEntry>>(() => {
     for (const ref of refs) {
       const cur = map.get(ref) ?? { registered: false, usages: 0, usingItemIds: [] }
       map.set(ref, {
-        registered: cur.registered,
+        ...cur,
         usages: cur.usages + 1,
         usingItemIds: [...cur.usingItemIds, itemId],
       })

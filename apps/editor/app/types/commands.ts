@@ -297,6 +297,9 @@ const registerAsset = z.object({
     sheet: z.record(z.string(), z.unknown()).optional(),
     // 4.0 D5: swap an asset of the same id in place (a re-rendered clip).
     replace: z.boolean().optional(),
+    // RE-14: where the asset came from; the engine checks the licence list.
+    credit: z.string().min(1).optional(),
+    licence: z.string().min(1).optional(),
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,

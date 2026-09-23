@@ -1625,15 +1625,20 @@ bun run scripts/hdf-to-davidup.ts walk-on --project ~/videos/promo --sprites --n
 `--project` takes a project directory or a name from the editor's recents
 (`davidup list`). The film is a path or a bare name from `handdrawn/films/`.
 `davidup-hdf-clip` reads the film from the item's `name`, `"hdf:<film>"`, or
-from `--film`; the item keeps its box, timing and fit. Both take `--look`,
+from `--film`; the item keeps its box, timing and fit. The name is the film's
+name, never a path: it is looked up in `films/`, then beside
+`composition.json`, then in `work/<film>/`. A model sheet, sprite or font made
+from a store entry is registered with the entry's `credit` and `licence`, which
+davidup assets carry (its `validate` warns on a CC-BY asset with no credit). Both take `--look`,
 `--frames N` (a quick first N frames) and `--dry-run` (print what it would
 register; renders nothing). Re-running replaces the assets in place, so after
 editing a film, run the script again. Place a registered film with `add_video`
 or from the editor like any other clip.
 
 From an agent the same thing is one MCP call (4.0 D5): davidup's
-`render_hdf_clip` renders a film, registers the clip and places it (or points
-an existing video item at it), cut to the composition's marks with its
+`render_hdf_clip` renders a film, registers the clip and places it as
+`hdf:<film>` (or points an existing video item at it, the film then read from
+its name), cut to the composition's marks with its
 chapters written back as markers, and with `sprites` registers the cast's
 sheets. `examples/hdf-clip/agent.mjs` builds a card declaratively and
 summons the fox-wave overlay onto it that way; `hdf sprite --film <film>

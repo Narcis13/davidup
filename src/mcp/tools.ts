@@ -81,6 +81,7 @@ import {
 } from "../schema/validator.js";
 import type { FontAsset, Marker, Tween } from "../schema/types.js";
 import {
+  ASSET_LICENCES,
   AUDIO_ASSET_EXTENSIONS,
   VIDEO_ASSET_EXTENSIONS,
   VIDEO_FIT_MODES,
@@ -101,13 +102,17 @@ import {
   castNames,
   chapterMarkers,
   filmCues,
+  filmName,
+  findFilm,
   HDF_ASPECTS,
   HdfError,
   hdfRoot,
+  isFilmName,
   renderFilm,
   replaceMarkers,
   slug,
   spriteSheet,
+  storeCredit,
   type AlphaCodec,
 } from "./hdf.js";
 import {
@@ -737,13 +742,17 @@ const registerAsset = defineTool({
     `Video assets accept ${VIDEO_ASSET_EXTENSIONS.join(", ")} and are probed for duration, width, ` +
     "height, fps, hasAlpha, codec, pixelFormat, and hasAudio; a `warnings` entry flags >=4K resolution, " +
     ">60s duration, or an exotic codec (e.g. AV1). For audio and video, if ffprobe is unavailable " +
-    "the asset is registered without metadata and a `warnings` entry is returned.",
+    "the asset is registered without metadata and a `warnings` entry is returned. " +
+    `Any asset may carry its \`credit\` (the attribution line) and \`licence\` (${ASSET_LICENCES.join(", ")}); ` +
+    "a CC-BY or CC-BY-SA asset with no credit gets a `warnings` entry here and W_ASSET_CREDIT from validate.",
   inputSchema: {
     id: z.string().min(1),
     type: z.enum(["image", "font", "audio", "video"]),
     src: z.string().min(1),
     family: z.string().min(1).optional(),
     sheet: SpriteSheetSchema.optional(),
+    credit: z.string().min(1).optional().describe("Who made it and where it is from, as the credits must say it."),
+    licence: z.enum(ASSET_LICENCES).optional(),
     replace: z
       .boolean()
       .optional()
@@ -753,8 +762,16 @@ const registerAsset = defineTool({
   handler: async (args, deps) => {
     const { store } = deps;
     const replace = { replace: args.replace === true };
+    const credit = {
+      ...(args.credit !== undefined ? { credit: args.credit } : {}),
+      ...(args.licence !== undefined ? { licence: args.licence } : {}),
+    };
+    const creditWarnings =
+      (args.licence === "CC-BY" || args.licence === "CC-BY-SA") && !args.credit
+        ? [`Asset "${args.id}" is ${args.licence} but has no credit; the licence asks for one (pass \`credit\`).`]
+        : [];
     if (args.type === "audio") {
-      const warnings: string[] = [];
+      const warnings: string[] = [...creditWarnings];
       let metadata: AudioMetadata = {};
       // Probe only supported containers — an unsupported src is rejected by
       // store.registerAsset below, so skip the wasted subprocess.
@@ -778,7 +795,7 @@ const registerAsset = defineTool({
         }
       }
       store.registerAsset(
-        { id: args.id, type: "audio", src: args.src, ...metadata },
+        { id: args.id, type: "audio", src: args.src, ...metadata, ...credit },
         args.compositionId,
         replace,
       );
@@ -788,7 +805,7 @@ const registerAsset = defineTool({
     }
 
     if (args.type === "video") {
-      const warnings: string[] = [];
+      const warnings: string[] = [...creditWarnings];
       let metadata: VideoMetadata = {};
       // Probe only supported containers — an unsupported src is rejected by
       // store.registerAsset below, so skip the wasted subprocess.
@@ -815,7 +832,7 @@ const registerAsset = defineTool({
       // Advisory limit warnings only make sense once the probe succeeded.
       warnings.push(...videoMetadataWarnings(metadata));
       store.registerAsset(
-        { id: args.id, type: "video", src: args.src, ...metadata },
+        { id: args.id, type: "video", src: args.src, ...metadata, ...credit },
         args.compositionId,
         replace,
       );
@@ -831,18 +848,19 @@ const registerAsset = defineTool({
         src: args.src,
         ...(args.family !== undefined ? { family: args.family } : {}),
         ...(args.sheet !== undefined ? { sheet: args.sheet } : {}),
+        ...credit,
       },
       args.compositionId,
       replace,
     );
-    return { ok: true as const };
+    return creditWarnings.length > 0 ? { ok: true as const, warnings: creditWarnings } : { ok: true as const };
   },
 });
 
 const listAssets = defineTool({
   name: "list_assets",
   title: "List assets",
-  description: "List all registered assets in declaration order.",
+  description: "List all registered assets in declaration order, each with its `credit` and `licence` when it has them.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
   },
@@ -2920,14 +2938,14 @@ function resolveHdfFilm(
   exists: (p: string) => boolean,
   films: () => string[],
 ): string {
-  const named = /^[A-Za-z0-9._-]+$/.test(ref) && !ref.startsWith(".");
-  if (named) {
-    const file = path.join(root, "films", ref.endsWith(".js") ? ref : `${ref}.js`);
-    if (exists(file)) return file;
+  if (isFilmName(ref)) {
+    const file = findFilm(ref, projectRoot ? [projectRoot] : [], root);
+    if (file) return file;
     throw new MCPToolError(
       "E_NOT_FOUND",
       `No hand-drawn film "${ref}".`,
-      `Films in ${path.join(root, "films")}: ${films().join(", ") || "none"}. Or pass a path to a film module.`,
+      `Films in ${path.join(root, "films")}: ${films().join(", ") || "none"}; a name is also looked up in ` +
+        `${projectRoot ? "the project and " : ""}handdrawn/work/${filmName(ref)}/. Or pass a path to a film module.`,
     );
   }
   const file = path.resolve(projectRoot ?? process.cwd(), ref);
@@ -2974,7 +2992,7 @@ const HDF_PLACE = z
   .strict()
   .describe(
     "Put the clip on the timeline as a new video item (add_video's fields; x/y default 0, width/height the composition's, " +
-      "fit contain, keepAudio true when the film has a score). The item is named `hdf:<film>`.",
+      "fit contain, keepAudio true when the film has a score). The item is named `hdf:<film>`, the film's name without its folder or `.js`.",
   );
 
 const renderHdfClip = defineTool({
@@ -2984,7 +3002,8 @@ const renderHdfClip = defineTool({
     "Summon an imperative hand-drawn film into this declarative composition in one call: renders a film of the handdrawn package " +
     "(`hdf render`: characters, lettering and diagrams drawn frame by frame on Canvas 2D, 12 drawings a second, with its own score) " +
     "and registers the clip as a video asset (id `asset`, default `hdf-<film>[-<look>]`). " +
-    "`film` is a name in handdrawn/films (e.g. \"fox-wave\", \"on-beat\", \"lesson\"; list_engine_capabilities.handdrawn.films lists them) or a path to a film module. " +
+    "`film` is a name in handdrawn/films (e.g. \"fox-wave\", \"on-beat\", \"lesson\"; list_engine_capabilities.handdrawn.films lists them), then in the project, then handdrawn/work/<name>/, or a path to a film module; " +
+      "with `item` it defaults to the film the item's name gives (`hdf:<film>`). " +
     "`look` restyles it (a preset: paperInk, risoPop, whiteboard, chalkboard, crayon, notebook, ...; modifiers too, e.g. \"paperInk~hand:test\"); " +
     "`ar` picks the frame (1:1, 16:9, 9:16; default the film's); `width` the output width in px (default 1080); `frames` renders only the first N drawings (a quick look). " +
     "`alpha` draws no paper and keeps the transparency (true or \"mov\": ProRes 4444; \"webm\": VP9, which the editor's browser preview also plays), so the clip is an overlay over whatever lies under it. " +
@@ -2995,9 +3014,9 @@ const renderHdfClip = defineTool({
     "registered as images `hdf-<name>-sprite` with their `sheet`, so add_sprite with `cycle: \"walk\"` walks them; `video: false` draws only the sheets. " +
     "Blocks until hdf finishes: seconds for a short clip, a minute or more for a long film at full size (use `frames` or a smaller `width` to try things). " +
     "Needs the handdrawn package beside davidup (the repo checkout, or DAVIDUP_HDF_ROOT) and node on PATH: E_FEATURE_UNAVAILABLE otherwise. " +
-    "Returns `{ clip: { assetId, src, duration, width, height, hasAlpha, hasAudio }, itemId?, markers?, marks?, sprites?, warnings? }`.",
+    "Returns `{ film, clip: { assetId, src, duration, width, height, hasAlpha, hasAudio }, itemId?, markers?, marks?, sprites?, warnings? }` (`film`: the module's path).",
   inputSchema: {
-    film: z.string().min(1),
+    film: z.string().min(1).optional().describe("A film name or a path to a film module. Optional with `item`, whose name `hdf:<film>` gives it."),
     look: z.string().min(1).optional(),
     ar: z.enum(HDF_ASPECTS).optional(),
     width: z.number().int().min(64).max(3840).optional(),
@@ -3038,14 +3057,25 @@ const renderHdfClip = defineTool({
     }
     if (!video && args.sprites === undefined) throw new MCPToolError("E_INVALID_VALUE", "Nothing to do: `video: false` and no `sprites`.");
 
-    const film = resolveHdfFilm(args.film, root, project?.root ?? null, path, fs.existsSync, () =>
-      fs.readdirSync(path.join(root, "films")).filter((f) => f.endsWith(".js")).map((f) => f.slice(0, -3)).sort());
     const doc = deps.store.toJSON(args.compositionId);
     const existing = args.item !== undefined ? doc.items[args.item] : undefined;
     if (args.item !== undefined && !existing) throw new MCPToolError("E_NOT_FOUND", `No item "${args.item}".`);
     if (existing && existing.type !== "video") {
       throw new MCPToolError("E_INVALID_VALUE", `Item "${args.item}" is a ${existing.type}, not a video.`, "Pass `place` to add a new video item instead.");
     }
+    // RE-13: an item names its film `hdf:<name>`, so a re-render with `item` alone finds it.
+    const itemName = typeof existing?.name === "string" && existing.name.startsWith("hdf:") ? existing.name.slice(4).trim() : "";
+    const ref = args.film ?? itemName;
+    if (!ref) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        args.item ? `Item "${args.item}" names no film.` : "Pass `film`.",
+        args.item ? "Pass `film`, or name the item `hdf:<film>` (update_item)." : "A name in handdrawn/films or a path to a film module.",
+      );
+    }
+    const projectRoot = project?.root ?? null;
+    const film = resolveHdfFilm(ref, root, projectRoot, path, fs.existsSync, () =>
+      fs.readdirSync(path.join(root, "films")).filter((f) => f.endsWith(".js")).map((f) => f.slice(0, -3)).sort());
     const alpha: AlphaCodec | undefined = args.alpha === true ? "mov" : args.alpha === false ? undefined : args.alpha;
     const look = args.look;
     const dest = project ? path.join(project.root, HDF_ASSET_DIR) : path.join(root, "out", "davidup");
@@ -3064,7 +3094,7 @@ const renderHdfClip = defineTool({
       warnings.push(...(((r.result as { warnings?: string[] })?.warnings) ?? []));
       return copy;
     };
-    const out: Record<string, unknown> = {};
+    const out: Record<string, unknown> = { film };
 
     if (video) {
       // The clip's own seconds, for the marks it is cut to: the item's (its start less its trimIn), or a
@@ -3103,13 +3133,17 @@ const renderHdfClip = defineTool({
           const r = await call("add_video", {
             asset: assetId, x: x ?? 0, y: y ?? 0, ...stripUndefined(rest),
             keepAudio: keepAudio ?? meta.hasAudio === true,
-            name: `hdf:${args.film}`.slice(0, 80),
+            name: `hdf:${filmName(film)}`.slice(0, 80),
             ...(args.compositionId ? { compositionId: args.compositionId } : {}),
           });
           if (!r.ok) throw new MCPToolError(r.error.code, `add_video: ${r.error.message}`, r.error.hint);
           const res = r.result as { itemId: string; warnings?: string[] };
           itemId = res.itemId;
           warnings.push(...(res.warnings ?? []));
+          // The name keeps no folder, so a film given by path that its name does not find again needs `film` on a re-render.
+          if (!isFilmName(ref) && findFilm(filmName(film), projectRoot ? [projectRoot] : [], root) !== film) {
+            warnings.push(`Item "${itemId}" is named hdf:${filmName(film)}, which does not find ${film} again; pass \`film\` when you re-render it.`);
+          }
         }
         if (itemId) out.itemId = itemId;
 
@@ -3138,7 +3172,7 @@ const renderHdfClip = defineTool({
       if (missing.length || !names.length) {
         throw new MCPToolError(
           "E_NOT_FOUND",
-          names.length ? `Not in ${args.film}'s cast: ${missing.join(", ")}.` : `${args.film} has no cast to draw.`,
+          names.length ? `Not in ${ref}'s cast: ${missing.join(", ")}.` : `${ref} has no cast to draw.`,
           `Its cast: ${cast.join(", ") || "none"} (store puppets it reads, and its module's \`cast\` export).`,
         );
       }
@@ -3146,7 +3180,7 @@ const renderHdfClip = defineTool({
       for (const name of names) {
         const s = await spriteSheet(name, { film, look, states: args.states?.join(","), h: args.spriteHeight }).catch(hdfFailed);
         const assetId = `hdf-${slug(name)}-sprite`;
-        const copy = await registered(assetId, "image", s.png, { sheet: s.sheet });
+        const copy = await registered(assetId, "image", s.png, { sheet: s.sheet, ...storeCredit(name, root) });
         sprites.push({ assetId, src: srcOf(copy), ...s.sheet });
       }
       out.sprites = sprites;

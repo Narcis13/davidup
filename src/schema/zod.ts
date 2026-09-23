@@ -176,11 +176,23 @@ export const SpriteSheetSchema = strictObject({
   anchor: strictObject({ x: z.number(), y: z.number() }).optional(),
 });
 
+// Where an asset came from (RE-14): `credit` the line a film must carry
+// ("FullMoon2010.jpg by Gregory H. Revera, CC BY-SA 3.0"), `licence` one of
+// handdrawn's store licences. Both optional; the validator warns
+// (W_ASSET_CREDIT) when a CC-BY or CC-BY-SA asset carries no credit.
+export const ASSET_LICENCES = ["CC0", "CC-BY", "CC-BY-SA", "OFL", "PD", "own", "unknown"] as const;
+export type AssetLicence = (typeof ASSET_LICENCES)[number];
+const ASSET_CREDIT = {
+  credit: z.string().min(1).optional(),
+  licence: z.enum(ASSET_LICENCES).optional(),
+};
+
 export const ImageAssetSchema = strictObject({
   id: z.string().min(1),
   type: z.literal("image"),
   src: z.string().min(1),
   sheet: SpriteSheetSchema.optional(),
+  ...ASSET_CREDIT,
 });
 
 export const FontAssetSchema = strictObject({
@@ -188,6 +200,7 @@ export const FontAssetSchema = strictObject({
   type: z.literal("font"),
   src: z.string().min(1),
   family: z.string().min(1),
+  ...ASSET_CREDIT,
 });
 
 // External audio asset (v0.2 §S2). Container extensions accepted by
@@ -224,6 +237,7 @@ export const AudioAssetSchema = strictObject({
   sampleRate: z.number().int().positive().optional(),
   channels: z.number().int().positive().optional(),
   codec: z.string().min(1).optional(),
+  ...ASSET_CREDIT,
 });
 
 // External video asset (v0.2 §S6). Container extensions accepted by
@@ -271,6 +285,7 @@ export const VideoAssetSchema = strictObject({
   codec: z.string().min(1).optional(),
   pixelFormat: z.string().min(1).optional(),
   hasAudio: z.boolean().optional(),
+  ...ASSET_CREDIT,
 });
 
 export const AssetSchema = z.discriminatedUnion("type", [

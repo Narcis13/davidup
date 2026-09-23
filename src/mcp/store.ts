@@ -39,6 +39,7 @@ import {
   AUDIO_ASSET_EXTENSIONS,
   VIDEO_ASSET_EXTENSIONS,
   COMPOSITION_VERSION,
+  type AssetLicence,
   ItemSchema,
   isSupportedAudioSrc,
   isSupportedVideoSrc,
@@ -164,7 +165,16 @@ export interface RegisterAssetInput {
   hasAlpha?: boolean;
   pixelFormat?: string;
   hasAudio?: boolean;
+  // Any type (RE-14): where the asset came from.
+  credit?: string;
+  licence?: AssetLicence;
 }
+
+/** An asset's (or an input's) credit and licence, only those it has. */
+const creditOf = (input: { credit?: string | undefined; licence?: AssetLicence | undefined }) => ({
+  ...(input.credit !== undefined ? { credit: input.credit } : {}),
+  ...(input.licence !== undefined ? { licence: input.licence } : {}),
+});
 
 export interface AddLayerInput {
   id?: string;
@@ -781,6 +791,7 @@ export class CompositionStore {
         type: "image",
         src: input.src,
         ...(input.sheet !== undefined ? { sheet: structuredClone(input.sheet) } : {}),
+        ...creditOf(input),
       });
     } else if (input.type === "font") {
       if (!input.family || input.family.length === 0) {
@@ -794,6 +805,7 @@ export class CompositionStore {
         type: "font",
         src: input.src,
         family: input.family,
+        ...creditOf(input),
       });
     } else if (input.type === "audio") {
       if (!isSupportedAudioSrc(input.src)) {
@@ -814,6 +826,7 @@ export class CompositionStore {
         ...(input.sampleRate !== undefined ? { sampleRate: input.sampleRate } : {}),
         ...(input.channels !== undefined ? { channels: input.channels } : {}),
         ...(input.codec !== undefined ? { codec: input.codec } : {}),
+        ...creditOf(input),
       });
     } else if (input.type === "video") {
       if (!isSupportedVideoSrc(input.src)) {
@@ -837,6 +850,7 @@ export class CompositionStore {
         ...(input.codec !== undefined ? { codec: input.codec } : {}),
         ...(input.pixelFormat !== undefined ? { pixelFormat: input.pixelFormat } : {}),
         ...(input.hasAudio !== undefined ? { hasAudio: input.hasAudio } : {}),
+        ...creditOf(input),
       });
     } else {
       throw new MCPToolError(
@@ -2504,9 +2518,10 @@ function cloneAsset(asset: Asset): Asset {
         type: "image",
         src: asset.src,
         ...(asset.sheet !== undefined ? { sheet: structuredClone(asset.sheet) } : {}),
+        ...creditOf(asset),
       };
     case "font":
-      return { id: asset.id, type: "font", src: asset.src, family: asset.family };
+      return { id: asset.id, type: "font", src: asset.src, family: asset.family, ...creditOf(asset) };
     case "audio":
       return {
         id: asset.id,
@@ -2516,6 +2531,7 @@ function cloneAsset(asset: Asset): Asset {
         ...(asset.sampleRate !== undefined ? { sampleRate: asset.sampleRate } : {}),
         ...(asset.channels !== undefined ? { channels: asset.channels } : {}),
         ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
+        ...creditOf(asset),
       };
     case "video":
       return {
@@ -2530,6 +2546,7 @@ function cloneAsset(asset: Asset): Asset {
         ...(asset.codec !== undefined ? { codec: asset.codec } : {}),
         ...(asset.pixelFormat !== undefined ? { pixelFormat: asset.pixelFormat } : {}),
         ...(asset.hasAudio !== undefined ? { hasAudio: asset.hasAudio } : {}),
+        ...creditOf(asset),
       };
   }
 }

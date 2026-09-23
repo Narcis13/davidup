@@ -20,6 +20,8 @@ interface AssetUsageEntry {
   registered: boolean
   usages: number
   usingItemIds: ReadonlyArray<string>
+  credit?: string
+  licence?: string
 }
 
 const props = defineProps<{
@@ -148,6 +150,18 @@ const mediaType = computed<MediaType>(() => {
 
 const isAudioMedia = computed(() => mediaType.value === 'audio')
 const isVideoMedia = computed(() => mediaType.value === 'video')
+
+// RE-14: who made it, as the composition registered it (else the library
+// entry's own), with its licence: "Gregory H. Revera · CC-BY-SA".
+const creditLine = computed<string | null>(() => {
+  if (props.item.kind !== 'asset' && props.item.kind !== 'font') return null
+  const raw = props.item.raw as { credit?: unknown; licence?: unknown } | undefined
+  const pick = (a: unknown, b: unknown) => (typeof a === 'string' && a ? a : typeof b === 'string' && b ? b : '')
+  const credit = pick(props.assetUsage?.credit, raw?.credit)
+  const licence = pick(props.assetUsage?.licence, raw?.licence)
+  if (!credit && (!licence || licence === 'own')) return null
+  return [credit, licence].filter(Boolean).join(' · ')
+})
 
 const mediaDuration = computed<number | undefined>(() => {
   const raw = props.item.raw as { duration?: unknown } | undefined
@@ -528,6 +542,7 @@ function onRemove(event: Event): void {
         {{ displayName }}
       </h3>
       <p class="sub" :title="subtitle">{{ subtitle }}</p>
+      <p v-if="creditLine" class="credit" :title="creditLine" data-testid="library-credit">{{ creditLine }}</p>
       <p
         class="prov"
         :class="{ 'prov-overridden': isOverridden }"
@@ -906,6 +921,16 @@ function onRemove(event: Event): void {
 .sub {
   font-size: 11px;
   color: #909090;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.credit {
+  font-size: 10px;
+  color: #a0a0a0;
+  font-style: italic;
   margin: 0;
   white-space: nowrap;
   overflow: hidden;

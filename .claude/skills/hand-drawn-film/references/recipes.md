@@ -35,7 +35,11 @@ const open = establishing({ name: 'open', dur: 2, subject: () => gpu({ spin: 0 }
   puppet whose poses swing wide reads small. A's push-in stops short of
   cutting the subject (pass `crop: true` to cut it on purpose).
 - Coordinates inside recipes are v1's: a 1080 square around (540, 540).
-  Other formats are handled by the shot's `fit` (default `anchor`).
+  Other formats are handled by the shot's `fit` (default `anchor`), except
+  the teaching recipes (AN to AY), made with `recipe(..., { square: true })`:
+  at 16:9 or 9:16 their layer is drawn on the square and centred (a group
+  `square`; `R.squareLayer(ctx, o)` gives it), with the ground and the metas
+  outside. A film's own layer beside them: `onSquare(ctx, draw)`.
 - `R.defaults` lists every option with its value; api.md lists the names.
 
 ## Ink look (the fruit-fly film)

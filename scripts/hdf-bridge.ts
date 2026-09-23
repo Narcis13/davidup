@@ -19,10 +19,11 @@ import { CompositionStore, dispatchTool, TOOLS } from "../src/mcp/index.js";
 import { HdfError, replaceMarkers, slug, type AlphaCodec } from "../src/mcp/hdf.js";
 import { probeVideo } from "../src/drivers/node/ffprobe.js";
 import type { Asset, Marker, SpriteSheet } from "../src/schema/types.js";
+import type { AssetLicence } from "../src/schema/zod.js";
 
 // The calls into hdf live with the MCP tool that makes them too (render_hdf_clip, 4.0 D5).
 export {
-  chapterMarkers, filmCues, filmPath, handFont, modelSheet, renderFilm, sheetOf, slug, spriteSheet,
+  chapterMarkers, filmCues, filmPath, handFont, modelSheet, renderFilm, sheetOf, slug, spriteSheet, storeCredit,
   type AlphaCodec, type CueFile, type CueOpts, type SpriteJson, type SpriteOpts,
 } from "../src/mcp/hdf.js";
 
@@ -160,6 +161,9 @@ export interface Planned {
   family?: string;
   /** An image that is a sprite sheet (4.0 D2). */
   sheet?: SpriteSheet;
+  /** The store entry's credit and licence (RE-14). */
+  credit?: string;
+  licence?: AssetLicence;
 }
 
 export interface Registered {
@@ -191,7 +195,11 @@ export async function registerFiles(compositionFile: string, planned: Planned[])
   for (const p of planned) {
     const src = `${ASSET_DIR}/${slug(p.id)}${extname(p.file)}`;
     copyFileSync(p.file, join(root, src));
-    const r = await dispatchTool(REGISTER, { id: p.id, type: p.type, src, ...(p.sheet ? { sheet: p.sheet } : {}), ...(p.family ? { family: p.family } : {}) }, deps);
+    const r = await dispatchTool(REGISTER, {
+      id: p.id, type: p.type, src,
+      ...(p.sheet ? { sheet: p.sheet } : {}), ...(p.family ? { family: p.family } : {}),
+      ...(p.credit ? { credit: p.credit } : {}), ...(p.licence ? { licence: p.licence } : {}),
+    }, deps);
     if (!r.ok) throw new BridgeError(`register_asset ${p.id}: ${r.error.message}${r.error.hint ? ` (${r.error.hint})` : ""}`);
     const asset = store.getAsset(p.id)!;
     const at = doc.assets.findIndex((a: { id?: string }) => a?.id === p.id);

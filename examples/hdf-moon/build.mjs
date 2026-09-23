@@ -16,8 +16,8 @@
 // 5. Checks it: every cut of the clip, on the composition timeline, is within half a drawn frame (1/24 s)
 //    of a `cut` marker. Exits 1 if not.
 //
-// full-moon.jpg is committed (Gregory H. Revera, CC BY-SA 3.0; see README.md). Nothing the script writes
-// is (see .gitignore).
+// full-moon.jpg is committed (Gregory H. Revera, CC BY-SA 3.0; see README.md) and registered with that
+// credit and licence (RE-14), so validate is clean. Nothing the script writes is committed (see .gitignore).
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,6 +30,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", ".."), HDF = join(REPO, "handdrawn");
 const W = 1920, H = 1080, DUR = 12, CUTS = [3.5, 7.5];
 const PHOTO = { w: 1290, h: 1226 }, MOON_H = 940;   // full-moon.jpg's size; drawn MOON_H tall, right of centre
+const MOON_CREDIT = "\"FullMoon2010.jpg\" by Gregory H. Revera, CC BY-SA 3.0, via Wikimedia Commons";
 
 function run(cmd, args, cwd = REPO) {
   const r = spawnSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
@@ -69,7 +70,7 @@ const file = join(HERE, "composition.json");
 let clip;
 try {
   await call("create_composition", { width: W, height: H, fps: 24, duration: DUR, background: "#000000" });
-  await call("register_asset", { id: "moon", type: "image", src: join(HERE, "full-moon.jpg") });
+  await call("register_asset", { id: "moon", type: "image", src: join(HERE, "full-moon.jpg"), licence: "CC-BY-SA", credit: MOON_CREDIT });
   await call("register_asset", { id: "hand", type: "font", src: ttf, family: `hdf-${HAND}` });
   await call("register_asset", { id: "pad", type: "audio", src: padWav });
   await call("add_audio_track", { id: "pad", asset: "pad", start: 0, end: DUR, volume: 0.8, markers: CUTS.map((t) => ({ t, name: "cut" })) });
