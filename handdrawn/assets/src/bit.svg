@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Bit, the little computer of how-ai-learns: a monitor head on a boxy body, a screen face (eyes, brows, four
+     mouths, cheeks), three dials on its chest that turn (dial-1 .. dial-3, the "tiny dials" of training), an
+     antenna that lags the head (data-follow) with a bulb that lights (bulb: off | on), two short arms with mitts
+     and a socket in each, two feet. Front view only. Drawn by hand in the Figma conventions; import:
+     hdf svg assets/src/bit.svg --name bit --licence own --roles assets/src/bit.roles.json -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-178 -382 356 394" width="356" height="394" data-units="334" data-desc="Bit, a little computer that learns: a screen face with nine eyes (open happy sleep wide half wink x star off), four mouths and brows; three dials on its chest; an antenna that follows, its bulb off or on; short arms, a socket in each mitt">
+  <g id="leg-l" data-parent="body">
+    <circle id="pivot" cx="-30" cy="-44" r="3" fill="#00a0ff"/>
+    <rect x="-38" y="-46" width="16" height="34" rx="6" fill="#5c5a66"/>
+    <rect x="-38" y="-46" width="16" height="34" rx="6" fill="none" stroke="#1d2b53"/>
+    <path d="M-56 0 C-58 -12 -48 -20 -34 -20 C-20 -20 -12 -12 -12 0 Z" fill="#f59ab5"/>
+    <path d="M-56 0 C-58 -12 -48 -20 -34 -20 C-20 -20 -12 -12 -12 0 Z" fill="none" stroke="#1d2b53"/>
+  </g>
+  <g id="leg-r" data-parent="body">
+    <circle id="pivot" cx="30" cy="-44" r="3" fill="#00a0ff"/>
+    <rect x="22" y="-46" width="16" height="34" rx="6" fill="#5c5a66"/>
+    <rect x="22" y="-46" width="16" height="34" rx="6" fill="none" stroke="#1d2b53"/>
+    <path d="M12 0 C12 -12 20 -20 34 -20 C48 -20 58 -12 56 0 Z" fill="#f59ab5"/>
+    <path d="M12 0 C12 -12 20 -20 34 -20 C48 -20 58 -12 56 0 Z" fill="none" stroke="#1d2b53"/>
+  </g>
+  <g id="arm-l" data-parent="body">
+    <circle id="pivot" cx="-66" cy="-132" r="3" fill="#00a0ff"/>
+    <circle id="socket:hand-l" cx="-84" cy="-66" r="2" fill="#00a0ff" data-angle="90"/>
+    <path d="M-72 -138 C-80 -122 -86 -104 -90 -84 L-76 -80 C-72 -100 -66 -116 -60 -128 Z" fill="#7fb8e8"/>
+    <path d="M-72 -138 C-80 -122 -86 -104 -90 -84 L-76 -80 C-72 -100 -66 -116 -60 -128 Z" fill="none" stroke="#1d2b53"/>
+    <circle cx="-84" cy="-70" r="14" fill="#ffffff"/>
+    <circle cx="-84" cy="-70" r="14" fill="none" stroke="#1d2b53"/>
+  </g>
+  <g id="body">
+    <circle id="pivot" cx="0" cy="-44" r="3" fill="#00a0ff"/>
+    <rect x="-14" y="-166" width="28" height="20" rx="4" fill="#5c5a66"/>
+    <rect x="-14" y="-166" width="28" height="20" rx="4" fill="none" stroke="#1d2b53"/>
+    <rect x="-72" y="-152" width="144" height="112" rx="24" fill="#7fb8e8"/>
+    <rect x="-54" y="-132" width="108" height="72" rx="12" fill="#ffffff"/>
+    <rect x="-54" y="-132" width="108" height="72" rx="12" fill="none" stroke="#1d2b53"/>
+    <polyline points="-44,-120 -40,-116" fill="none" stroke="#1d2b53" stroke-width="1.6"/>
+    <polyline points="-16,-120 -20,-116" fill="none" stroke="#1d2b53" stroke-width="1.6"/>
+    <polyline points="-14,-120 -10,-116" fill="none" stroke="#1d2b53" stroke-width="1.6"/>
+    <polyline points="14,-120 10,-116" fill="none" stroke="#1d2b53" stroke-width="1.6"/>
+    <polyline points="16,-120 20,-116" fill="none" stroke="#1d2b53" stroke-width="1.6"/>
+    <polyline points="44,-120 40,-116" fill="none" stroke="#1d2b53" stroke-width="1.6"/>
+    <polyline points="-10,-70 10,-70" fill="none" stroke="#1d2b53" stroke-width="2"/>
+    <polyline points="-14,-76 14,-76" fill="none" stroke="#1d2b53" stroke-width="2"/>
+    <circle cx="-52" cy="-50" r="4" fill="#f59ab5"/>
+    <rect x="-72" y="-152" width="144" height="112" rx="24" fill="none" stroke="#1d2b53"/>
+  </g>
+  <g id="dial-1" data-parent="body">
+    <circle id="pivot" cx="-30" cy="-100" r="3" fill="#00a0ff"/>
+    <circle cx="-30" cy="-100" r="14" fill="#f7d154"/>
+    <circle cx="-30" cy="-100" r="14" fill="none" stroke="#1d2b53"/>
+    <polyline points="-30,-100 -30,-111" fill="none" stroke="#1d2b53" stroke-width="3"/>
+  </g>
+  <g id="dial-2" data-parent="body">
+    <circle id="pivot" cx="0" cy="-100" r="3" fill="#00a0ff"/>
+    <circle cx="0" cy="-100" r="14" fill="#f7d154"/>
+    <circle cx="0" cy="-100" r="14" fill="none" stroke="#1d2b53"/>
+    <polyline points="0,-100 0,-111" fill="none" stroke="#1d2b53" stroke-width="3"/>
+  </g>
+  <g id="dial-3" data-parent="body">
+    <circle id="pivot" cx="30" cy="-100" r="3" fill="#00a0ff"/>
+    <circle cx="30" cy="-100" r="14" fill="#f7d154"/>
+    <circle cx="30" cy="-100" r="14" fill="none" stroke="#1d2b53"/>
+    <polyline points="30,-100 30,-111" fill="none" stroke="#1d2b53" stroke-width="3"/>
+  </g>
+  <g id="arm-r" data-parent="body">
+    <circle id="pivot" cx="66" cy="-132" r="3" fill="#00a0ff"/>
+    <circle id="socket:hand-r" cx="84" cy="-66" r="2" fill="#00a0ff" data-angle="90"/>
+    <path d="M72 -138 C80 -122 86 -104 90 -84 L76 -80 C72 -100 66 -116 60 -128 Z" fill="#7fb8e8"/>
+    <path d="M72 -138 C80 -122 86 -104 90 -84 L76 -80 C72 -100 66 -116 60 -128 Z" fill="none" stroke="#1d2b53"/>
+    <circle cx="84" cy="-70" r="14" fill="#ffffff"/>
+    <circle cx="84" cy="-70" r="14" fill="none" stroke="#1d2b53"/>
+  </g>
+  <g id="head" data-parent="body">
+    <circle id="pivot" cx="0" cy="-158" r="3" fill="#00a0ff"/>
+    <rect x="-104" y="-238" width="14" height="34" rx="6" fill="#5c5a66"/>
+    <rect x="-104" y="-238" width="14" height="34" rx="6" fill="none" stroke="#1d2b53"/>
+    <rect x="90" y="-238" width="14" height="34" rx="6" fill="#5c5a66"/>
+    <rect x="90" y="-238" width="14" height="34" rx="6" fill="none" stroke="#1d2b53"/>
+    <rect x="-94" y="-292" width="188" height="136" rx="28" fill="#7fb8e8"/>
+    <rect x="-74" y="-276" width="148" height="104" rx="16" fill="#1c2238" data-finish="false"/>
+    <polyline points="-62,-262 -48,-268" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <polyline points="-64,-252 -60,-254" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <ellipse cx="-50" cy="-196" rx="9" ry="5" fill="#f59ab5" data-finish="false"/>
+    <ellipse cx="50" cy="-196" rx="9" ry="5" fill="#f59ab5" data-finish="false"/>
+    <rect x="-74" y="-276" width="148" height="104" rx="16" fill="none" stroke="#1d2b53"/>
+    <circle cx="70" cy="-165" r="3.5" fill="#8fd19e" data-finish="false"/>
+    <rect x="-94" y="-292" width="188" height="136" rx="28" fill="none" stroke="#1d2b53"/>
+  </g>
+  <g id="eye" data-parent="head" data-variants data-finish="false">
+    <g id="open">
+      <rect x="-36" y="-246" width="16" height="28" rx="8" fill="#8fd19e"/>
+      <rect x="20" y="-246" width="16" height="28" rx="8" fill="#8fd19e"/>
+    </g>
+    <g id="happy">
+      <path d="M-40 -226 C-38 -240 -18 -240 -16 -226" fill="none" stroke="#8fd19e" stroke-width="6"/>
+      <path d="M16 -226 C18 -240 38 -240 40 -226" fill="none" stroke="#8fd19e" stroke-width="6"/>
+    </g>
+    <g id="sleep">
+      <path d="M-40 -232 C-36 -222 -20 -222 -16 -232" fill="none" stroke="#8fd19e" stroke-width="6"/>
+      <path d="M16 -232 C20 -222 36 -222 40 -232" fill="none" stroke="#8fd19e" stroke-width="6"/>
+    </g>
+    <g id="wide">
+      <circle cx="-28" cy="-232" r="15" fill="none" stroke="#8fd19e" stroke-width="5"/>
+      <circle cx="-28" cy="-232" r="6" fill="#8fd19e"/>
+      <circle cx="28" cy="-232" r="15" fill="none" stroke="#8fd19e" stroke-width="5"/>
+      <circle cx="28" cy="-232" r="6" fill="#8fd19e"/>
+    </g>
+    <g id="half">
+      <path d="M-36 -232 L-20 -232 L-20 -226 C-20 -221 -24 -218 -28 -218 C-32 -218 -36 -221 -36 -226 Z" fill="#8fd19e"/>
+      <path d="M20 -232 L36 -232 L36 -226 C36 -221 32 -218 28 -218 C24 -218 20 -221 20 -226 Z" fill="#8fd19e"/>
+    </g>
+    <g id="wink">
+      <rect x="-36" y="-246" width="16" height="28" rx="8" fill="#8fd19e"/>
+      <path d="M16 -226 C18 -240 38 -240 40 -226" fill="none" stroke="#8fd19e" stroke-width="6"/>
+    </g>
+    <g id="x">
+      <path d="M-40 -244 L-16 -220 M-16 -244 L-40 -220" fill="none" stroke="#8fd19e" stroke-width="6"/>
+      <path d="M16 -244 L40 -220 M40 -244 L16 -220" fill="none" stroke="#8fd19e" stroke-width="6"/>
+    </g>
+    <g id="star">
+      <path d="M-28 -250 L-24 -236 L-10 -232 L-24 -228 L-28 -214 L-32 -228 L-46 -232 L-32 -236 Z" fill="#f7d154"/>
+      <path d="M28 -250 L32 -236 L46 -232 L32 -228 L28 -214 L24 -228 L10 -232 L24 -236 Z" fill="#f7d154"/>
+    </g>
+    <g id="off"/>
+  </g>
+  <g id="brow-l" data-parent="head" data-slide="y:-6..4:1" data-when="eye:open|wide|half|wink|x" data-finish="false">
+    <circle id="pivot" cx="-28" cy="-256" r="2" fill="#00a0ff"/>
+    <polyline points="-38,-256 -18,-256" fill="none" stroke="#8fd19e" stroke-width="5"/>
+  </g>
+  <g id="brow-r" data-parent="head" data-slide="y:-6..4:1" data-when="eye:open|wide|half|wink|x" data-finish="false">
+    <circle id="pivot" cx="28" cy="-256" r="2" fill="#00a0ff"/>
+    <polyline points="18,-256 38,-256" fill="none" stroke="#8fd19e" stroke-width="5"/>
+  </g>
+  <g id="mouth-0" data-parent="head" data-finish="false">
+    <polyline points="-12,-198 12,-198" fill="none" stroke="#8fd19e" stroke-width="5"/>
+  </g>
+  <g id="mouth-1" data-parent="head" data-finish="false">
+    <ellipse cx="0" cy="-198" rx="8" ry="6" fill="#8fd19e"/>
+  </g>
+  <g id="mouth-2" data-parent="head" data-finish="false">
+    <path d="M-16 -204 L16 -204 C16 -190 8 -184 0 -184 C-8 -184 -16 -190 -16 -204 Z" fill="#8fd19e"/>
+  </g>
+  <g id="mouth-3" data-parent="head" data-finish="false">
+    <path d="M-18 -204 C-12 -188 12 -188 18 -204" fill="none" stroke="#8fd19e" stroke-width="5"/>
+  </g>
+  <g id="antenna" data-parent="head" data-follow="lag:2,damp:0.6">
+    <circle id="pivot" cx="0" cy="-292" r="3" fill="#00a0ff"/>
+    <polyline points="0,-292 0,-318" fill="none" stroke="#1d2b53" stroke-width="3"/>
+  </g>
+  <g id="bulb" data-parent="antenna" data-variants>
+    <g id="off">
+      <circle cx="0" cy="-324" r="9" fill="#5c5a66"/>
+      <circle cx="0" cy="-324" r="9" fill="none" stroke="#1d2b53"/>
+    </g>
+    <g id="on">
+      <circle cx="0" cy="-324" r="10" fill="#d8342f"/>
+      <circle cx="0" cy="-324" r="10" fill="none" stroke="#1d2b53"/>
+      <polyline points="-3,-328 -1,-330" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+      <path d="M-22 -324 L-16 -324 M16 -324 L22 -324 M-15 -339 L-11 -335 M15 -339 L11 -335 M0 -346 L0 -340" fill="none" stroke="#d8342f" stroke-width="2.5"/>
+    </g>
+  </g>
+  <g id="pose:rest" data-joints=""/>
+  <g id="pose:wave" data-joints="arm-r:-140,head:-4,eye:happy,mouth:3,bulb:on"/>
+  <g id="pose:cheer" data-joints="arm-l:150,arm-r:-150,head:-6,eye:happy,mouth:2,bulb:on"/>
+  <circle id="ground" cx="0" cy="0" r="2" fill="#00a0ff"/>
+</svg>

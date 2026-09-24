@@ -26,7 +26,7 @@ const hdf = (...args) => spawnSync(process.execPath, ['cli/hdf.mjs', ...args], {
 
 test('films/ holds the seven ported films, fox-and-teapot and cutout-fox, each with a golden', async () => {
   const all = await films();
-  assert.deepEqual(all.map((f) => f.name).sort(), ['asking', 'chapters', 'cutout-fox', 'fly-style', 'follow', 'four-looks', 'fox-and-teapot', 'fox-wave', 'gallop', 'growing', 'held-once', 'hello', 'holding', 'lesson', 'marked', 'mini', 'mini-voice', 'moon', 'moon-book', 'narrated', 'on-beat', 'one-year', 'pointing', 'quiz-time', 'sam-moon', 'sums', 'walk-on', 'written']);
+  assert.deepEqual(all.map((f) => f.name).sort(), ['asking', 'chapters', 'cutout-fox', 'fly-style', 'follow', 'four-looks', 'fox-and-teapot', 'fox-wave', 'gallop', 'growing', 'held-once', 'hello', 'holding', 'how-ai-learns', 'lesson', 'marked', 'mini', 'mini-voice', 'moon', 'moon-book', 'narrated', 'on-beat', 'one-year', 'pointing', 'quiz-time', 'sam-moon', 'sums', 'walk-on', 'written']);
   for (const f of all) assert.ok(existsSync(join(FILMS, 'goldens', `${f.name}.json`)), `no golden for ${f.name}; run hdf golden ${f.file} write --workers 1`);
 });
 

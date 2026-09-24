@@ -1,0 +1,30 @@
+ai-open	N	AI is everywhere. It unlocks your phone, picks your next song, and answers your questions.
+ai-title	N	But how does a computer actually learn? Let's find out.
+ai-meet	N	This is Sam. And this is Bit: a brand-new computer that knows... absolutely nothing. Sam wants to teach Bit one simple thing: how to spot a cat.
+ai-rules	N	The old way is to write rules. Pointy ears. Fur. A long, fluffy tail. Easy!
+ai-until	N	Until someone else walks in.
+ai-messy	N	The real world is way too messy for rules. So, let's try something completely different.
+ai-examples	N	Instead of rules, we show Bit examples. Lots of them. A picture, and the right answer. Cat. Dog. Cat. Cat. Dog.
+ai-guess	N	At first, Bit just guesses.
+ai-dials	N	Every time it's wrong, it turns its tiny dials, just a little, so next time it's a bit less wrong.
+ai-again	N	Then again. And again. A million times.
+ai-pattern	N	This time, nobody told Bit what a cat looks like. It found the pattern by itself. That's called machine learning.
+ai-shown	N	Well... it only knows what it's been shown.
+ai-inside	N	So what's inside Bit? Not a tiny brain. Just numbers.
+ai-signals	N	A picture goes in as numbers. They flow through layers of tiny switches, and each dial sets how strongly one switch listens to the next.
+ai-billions	N	Learning just means finding the right setting for every dial. Today's biggest AIs have billions of them.
+ai-library	N	Chatbots learn the same way, but with words. They read a gigantic library: more text than you could read in thousands of lifetimes.
+ai-game	N	And they practise one game, over and over: guess the next word.
+ai-answer	N	Play that game well enough, and you can write a whole answer, one word at a time.
+ai-catch	N	But here's the catch. A chatbot guesses what sounds right, not what's true.
+ai-friend	N	So treat AI like a clever friend who's sometimes confidently wrong. Ask good questions. Check the answers. And keep your own brain switched on.
+bit-cat	B	It's a cat!
+bit-cat-q	B	Um... a cat?
+bit-dog	B	A dog!
+bit-cat91	B	It's a cat! Ninety-one percent sure!
+bit-wrong	B	Yes! Foxes are small wild cats.
+bit-fox	B	It's a fox!
+fox-im	F	I'm a fox.
+fox-comeon	F	Oh, come on.
+fox-family	F	Actually, foxes are in the dog family.
+fox-finally	F	Finally.
