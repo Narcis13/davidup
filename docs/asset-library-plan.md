@@ -2,8 +2,9 @@
 
 A plan for a single, searchable asset library that both apps read and write,
 that an agent can query before it composes, and that we can grow with assets
-made in house. Written 2026-09-24 against `92574bc` (hdf 4.0 through E5, W3
-open; davidup v1.3 with L-1 and B-5..B-8 closed). Nothing here is built.
+made in house. Written 2026-09-24 against `034b90b` (hdf 4.0 complete with W3,
+rough edges RE4-1..RE4-6 closed; davidup v1.3 with L-1, B-5..B-8 and
+RE-14 closed). Nothing here is built.
 
 Same shape as `hand-drawn-film-v4-plan.md`: one session per block, a
 done-when, one commit `assets: <id> <title>`, both test suites green
@@ -32,7 +33,8 @@ live (`handdrawn/assets`, `~/.davidup/library/{assets,fonts}`,
 `<project>/library/assets`, `<project>/assets/hdf`, and paths relative to a
 composition), three record shapes, two hashes (sha1 in hdf, sha256 in the
 editor), no search worth the name on either side (both are AND-substring,
-unranked), no previews for most kinds, no provenance on the davidup side, and
+unranked), no previews for most kinds, provenance on the davidup side only as two
+optional fields on the composition asset (RE-14), and
 no way for a davidup composition to use a Met cutout that hdf already holds
 or for an hdf film to use a paper texture the editor uploaded.
 
@@ -62,11 +64,11 @@ Each row is a fact of the code, with where to look.
 | area | davidup today | hdf today | consequence |
 |---|---|---|---|
 | identity | composition `assets[]` keyed by a per-composition `id` with a `src` path (`src/schema/zod.ts:276`); editor uploads hash with sha256 (`apps/editor/app/services/asset_pipeline.ts:490`); hand-authored srcs never hashed | `catalogue.json` id → entry with `sha` (sha1) and `blobs/<sha>.<ext>` (`core/assets.js:1-9`) | the same PNG is two things in the two apps and three things across projects |
-| record | image/font/audio/video with ffprobe facts only; `library/index.json` entries come in two flavours (hand `{id,name,url}` and pipeline `{id:hash,kind,hash,size,...}`), and cards read `raw.type` while uploads write `kind` (`LibraryCard.vue:136`, `useLibraryDrag.ts`) | seven kinds, closed `LICENCES`, credit, source, tags, desc, per-kind fields (`core/assets.js:39-63`) | no licence, credit or tags on any davidup asset; an uploaded video loses its badge and drops onto the stage as a sprite |
+| record | image/font/audio/video with ffprobe facts only; `library/index.json` entries come in two flavours (hand `{id,name,url}` and pipeline `{id:hash,kind,hash,size,...}`), and cards read `raw.type` while uploads write `kind` (`LibraryCard.vue:136`, `useLibraryDrag.ts`) | seven kinds, closed `LICENCES`, credit, source, tags, desc, per-kind fields (`core/assets.js:39-63`) | a davidup asset can carry `credit` and `licence` (RE-14) but no source, tags or desc, and a library entry carries none of them; an uploaded video loses its badge and drops onto the stage as a sprite |
 | search | `list_library` substring over id/name/description (`library_index.ts search`), editor-hosted only (`requireLibraryControls`) | `hdf find` AND-substring over id/name/tags/desc/credit/source, no rank, exact `--kind` only (`core/assets.js:265-271`) | an agent asking for "warm paper" or "a dog" gets nothing unless the word is literally in the record |
 | previews | `library_thumbnail.ts` renders every asset as an image sprite at t=0.5, resolves global items against the *project* root, falls back to a placeholder | `hdf sheet store <id>` per kind (puppet, hand, motif, cutout) written to gitignored `assets/sheets/` | no preview for audio, video or font in the MCP path; hdf sheets are not reachable from davidup |
 | resolution | `global:` → `~/.davidup/library`, `bundled:` → package fonts, else raw path (`src/assets/node.ts:218`); ffprobe in `register_asset` probes the raw relative path; nothing checks a file exists | `fromStore(ids)` reads the store next to the package or `{id, from}` (`cli/load.mjs:26-44`); `peek()` for looks | a composition moved to another machine finds nothing; a typo'd src registers fine and fails at render |
-| provenance | none | licence, credit, source on every entry; lint `credit` for `unknown` | davidup cannot print a credits card and cannot tell CC-BY from a screenshot |
+| provenance | optional `credit` + `licence` on every composition asset, same enum as hdf (`ASSET_LICENCES`, `src/schema/zod.ts`, RE-14), `W_ASSET_CREDIT` when CC-BY/CC-BY-SA has no credit; nothing on library entries or uploads | licence, credit, source on every entry; lint `credit` for `unknown` | provenance is typed into each composition by hand and is lost when the same file is used in the next project |
 | derived assets | hdf clips, sprites, model sheets, hand fonts copied to `<project>/assets/hdf/` by `render_hdf_clip` and `scripts/hdf-*.ts`; no record of what made them | puppets from SVG, hands from TTF, mirrors from packs: the source file is named in `file`, nothing says how to remake it | a regenerated clip is a new file with no link to the film, the look or the frames it came from |
 | seed | `scripts/seed-global-library.ts` rewrites `index.json` with `assets: []`, wiping uploaded global assets; `X_profile.png` sits in `~/.davidup/library/assets` uncatalogued | `hdf import` is the only door, and `hdf photo` writes a data-URL module first | the "global pool" forgets what was put in it |
 | cross-app | `render_hdf_clip` (D5) is the only bridge, one direction, by copy | `S16` scripts, one direction, by copy | a Met cutout cannot be a davidup sprite; an editor upload cannot be an hdf stock |
@@ -120,7 +122,11 @@ Each row is a fact of the code, with where to look.
 - **Provenance is mandatory.** `licence` stays hdf's closed enum
   (`CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`); `unknown` is
   accepted with a warning and flagged by `asset check`. `credit` and
-  `source` are strings, empty allowed for `own`.
+  `source` are strings, empty allowed for `own`. `assetlib`'s `LICENCES`
+  and davidup's `ASSET_LICENCES` (RE-14) are one list: a test asserts
+  they are equal. `use.davidup.args` copies the record's `credit` and
+  `licence` into the composition asset, so `W_ASSET_CREDIT` and a
+  credits card work without the agent typing them.
 - **A made asset says how it was made.** `made: { tool, from: [ids], args,
   at }` on any record produced by our own tools (`hdf render`, `hdf sprite`,
   `hdf hand --export-ttf`, a davidup render, a synth sample). `asset remake
