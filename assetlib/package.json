@@ -1,0 +1,21 @@
+{
+  "name": "assetlib",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One asset library for davidup and hdf: shelves of content-addressed blobs with records",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./*": "./*"
+  },
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

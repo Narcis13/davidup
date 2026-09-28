@@ -1,0 +1,4 @@
+{
+"logo": {"kind":"image","media":"raster","name":"Logo","desc":"The studio logo","licence":"own","credit":"","source":"","tags":["brand"],"added":"2026-09-28","by":"fixture","sha":"9985af57998c468939014af42a464d22a75e9204c7616e449fb1b733b1759612","ext":"png","bytes":74,"w":2,"h":2},
+"studio-logo": {"kind":"image","media":"raster","name":"Studio logo","desc":"The same logo, kept in the user pool","licence":"own","credit":"","source":"","tags":["brand"],"added":"2026-09-28","by":"fixture","sha":"9985af57998c468939014af42a464d22a75e9204c7616e449fb1b733b1759612","ext":"png","bytes":74,"w":2,"h":2}
+}

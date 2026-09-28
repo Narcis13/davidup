@@ -1,0 +1,4 @@
+{
+"fox": {"kind":"image","media":"raster","name":"Fox","desc":"An orange fox, flat colour","licence":"own","credit":"","source":"","tags":["animal","orange"],"added":"2026-09-28","by":"fixture","sha":"cd7cd0d997478908af7d5f39aa4ea101fa526acc5ae70afb97714c4bd4f43b53","ext":"png","bytes":75,"w":4,"h":3,"alpha":false},
+"logo": {"kind":"image","media":"raster","name":"Logo","desc":"The studio logo","licence":"own","credit":"","source":"","tags":["brand"],"added":"2026-09-28","by":"fixture","sha":"9985af57998c468939014af42a464d22a75e9204c7616e449fb1b733b1759612","ext":"png","bytes":74,"w":2,"h":2,"alpha":false}
+}
