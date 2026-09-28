@@ -693,6 +693,8 @@ hdf import work/teapot.png --kind cutout --name teapot --licence CC0 --credit "T
 hdf find teapot                     # ranked: id, kind, licence, what it takes, why it matched, its sheet and credit
 hdf find --kind puppet              # the whole kind
 hdf find --look paperInk            # what a look can use (stocks and hands)
+asset thumb --all                   # a picture per entry, drawn by hdf (cli/previews.mjs), in assets/thumbs/
+asset sheet fox teapot hershey-script --out out/candidates.png   # several in one look
 ```
 
 `assets/catalogue.json` holds one entry per id (`kind`, `sha`, `licence`,
@@ -701,6 +703,13 @@ hdf find --look paperInk            # what a look can use (stocks and hands)
 same file are one blob. `hdf import` validates the payload against its kind's
 schema (`core/assets.js`) before anything is written, and `--licence` is
 closed: `CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`.
+
+The thumbs are hdf's previewers (`cli/previews.mjs`, registered with the asset
+library by `cli/host.mjs`, which `asset` and davidup find next to `assetlib/`):
+a puppet at rest or its turnaround, a hand's pangram, a motif, a cutout with
+its silhouette traced round it, four frames of a clip as sticks, a sample's
+waveform under its words, a stock at 1:1 under a pen stroke. They are 480 x 320
+in paperInk and gitignored; `hdf sheet store <id>` stays the full check sheet.
 
 A film names store assets instead of inlining them. `fromStore` reads the
 records at the top of the module, `assets` declares the ids for the loader:

@@ -4,6 +4,7 @@
 //   assets/blobs/<sha>.webp      raster payloads (cutout pixels, paper stocks)
 //   assets/blobs/<sha>.json      data payloads (clips, puppets, hands, motifs)
 //   assets/sheets/<id>.jpg       check sheets, regenerated, gitignored
+//   assets/thumbs/<sha>.png      previews (asset thumb; hdf draws them, cli/previews.mjs), gitignored
 //
 // The engine is assetlib (<repo>/assetlib, asset-library plan H1): this store is its `house` shelf, and what
 // is here is hdf's view of it -- the seven kinds hdf draws, the checks only hdf knows (a clip's track, a

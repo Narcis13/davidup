@@ -23,6 +23,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { check, LEVELS } from './check.js';
+import { loadHosts } from './hosts.js';
 import { imageInfo } from './image.js';
 import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, migrateSha256, openLibrary, readShelf, standardShelves } from './index.js';
 import { defaultProbes } from './probe.js';
@@ -45,7 +46,8 @@ usage: asset <verb> [args] [--project <dir>] [--json]
   rm      <id...> [--shelf]         remove, with the blob and thumb when nothing else on the shelf shares them
   mv      <id> --to <shelf> [--from <shelf>]   move blob, thumb and entry (the editor's promote)
   gc      [--dry] [--shelf]         delete blobs and thumbs no entry points at
-  thumb   <id...> | --all [--shelf] [--force]  draw the previews (a card where no previewer is registered)
+  thumb   <id...> | --all [--shelf] [--force]  draw the previews: a host's picture where one draws the kind
+                                    (hdf's for its seven kinds), else a card
   sheet   <id...> [--cols n] [--cell px] [--out file]   one contact sheet PNG with id captions
   ls      [--shelf] [--kind]        every entry, shelf by shelf, with what shadows what
   check   [--shelf]                 licence unknown, missing blob, orphan, duplicate sha across shelves,
@@ -56,6 +58,8 @@ usage: asset <verb> [args] [--project <dir>] [--json]
 shelves: project (--project <dir>: <dir>/assets), user ($DAVIDUP_ASSETS, else ~/.davidup/assets),
          house ($DAVIDUP_HOUSE, else the repo's store). kinds: ${KINDS.join(' ')}
          licences: ${LICENCES.join(' ')}
+hosts:   previews are drawn by hdf (handdrawn/cli/host.mjs) when it is next to this package, and by the
+         modules $ASSETLIB_HOSTS names ('-' first: those alone)
 `;
 
 export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'thumb', 'sheet', 'ls', 'check', 'migrate'];
@@ -485,6 +489,11 @@ export async function main(argv = process.argv.slice(2), host = {}) {
   try {
     const parsed = parseArgs(rest);
     if (parsed.flags.help) { out.write(usageOf(verb)); return 0; }
+    if (host.discover) {
+      const found = await loadHosts(defined({ env: host.env, cwd: host.cwd }));
+      for (const w of found.warnings) err.write(`warning: ${w}\n`);
+      host = { ...host, previewers: { ...found.previewers, ...host.previewers } };
+    }
     const res = await run(verb, parsed, host);
     for (const w of res.warnings ?? []) err.write(`warning: ${w}\n`);
     out.write(parsed.flags.json ? `${JSON.stringify(res.data, null, 2)}\n` : res.text);
@@ -511,4 +520,4 @@ export function usageOf(verb) {
 
 // Run only when executed (also through the npm bin symlink), not when imported by tests or a host.
 const entry = process.argv[1] && existsSync(process.argv[1]) ? realpathSync(process.argv[1]) : '';
-if (entry === fileURLToPath(import.meta.url)) main().then((code) => { process.exitCode = code; });
+if (entry === fileURLToPath(import.meta.url)) main(process.argv.slice(2), { discover: true }).then((code) => { process.exitCode = code; });

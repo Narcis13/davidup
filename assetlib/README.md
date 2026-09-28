@@ -76,6 +76,16 @@ letter the same card; or it is a host's picture, unless it is the registered pre
 So a card gives way to a previewer registered later, and two apps sharing a shelf keep each other's pictures.
 A previewer that throws or returns no PNG gives the card and a warning, and is asked again next time.
 
+Previewers come from hosts (plan H3, `hosts.js`): an app that draws some kinds is an ES module whose default
+export is `{ name, previewers }`. `loadHosts()` loads the known ones (hdf's `handdrawn/cli/host.mjs`, when it
+is next to this package) and the modules `$ASSETLIB_HOSTS` names (`-` first: those alone), so the `asset` bin
+and davidup draw hdf's pictures without importing hdf, and draw cards when it is not there:
+
+```js
+const { previewers, hosts, warnings } = await loadHosts();
+const lib = openLibrary({ previewers });   // what the `asset` bin does for `thumb` and `sheet`
+```
+
 Every search hit carries `use`: the exact call that brings the record into each app, or null where the app
 cannot take it (plan A5, `use.js`). The agent copies it; it does not translate.
 

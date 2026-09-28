@@ -518,3 +518,22 @@ export interface Migration {
 }
 /** Rehashes every sha1 entry of a shelf as sha256: blobs renamed, not re-encoded; `dry` writes nothing. */
 export function migrateSha256(shelf: Shelf, opts?: { dry?: boolean }): Migration;
+
+// ---------- hosts (H3) ----------
+
+/** An app that draws some kinds: a module whose default export (or the module) is this. */
+export interface Host {
+  name?: string;
+  previewers?: Previewers;
+}
+export interface LoadedHosts {
+  hosts: { name: string; file: string; kinds: string[] }[];
+  /** Every host's previewers merged, later hosts taking a kind from earlier ones: pass to openLibrary. */
+  previewers: Previewers;
+  /** A host on disk that did not load, or registered something that is not a previewer. */
+  warnings: string[];
+}
+/** The hosts next to this package in the repo (hdf's handdrawn/cli/host.mjs); one not on disk is skipped. */
+export const KNOWN_HOSTS: string[];
+/** Loads KNOWN_HOSTS (`known` replaces them) and the modules $ASSETLIB_HOSTS names ('-' first: those alone). */
+export function loadHosts(opts?: { env?: Record<string, string | undefined>; known?: string[]; cwd?: string }): Promise<LoadedHosts>;

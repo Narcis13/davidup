@@ -10,6 +10,7 @@ handdrawn/assets/
   blobs/<sha>.webp|png|jpg   raster payloads (cutout pixels, paper stocks), the bytes as they came
   blobs/<sha>.json        data payloads (clips, puppets, hands, motifs)
   sheets/<id>.jpg         check sheets, regenerated, gitignored (pack:boat -> pack_boat.jpg)
+  thumbs/<sha>.png        one 480 x 320 picture per blob (`asset thumb --all`, hdf's cli/previews.mjs), gitignored
   src/                    sources worth keeping: fox.svg, fox.puppet.json, fox.roles.json, retarget maps
 ```
 

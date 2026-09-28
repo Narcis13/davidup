@@ -422,7 +422,9 @@ a pinned stale id errors, `davidup render` of a composition using
 New tools on `TOOLS`, no editor required: `search_assets` (the §4 query, the
 §4 result with `use`), `get_asset { id }` (record + shelves + made-from +
 made), `get_asset_preview { id | ids, sheet? }` (base64 PNG; `ids` returns
-the contact sheet). `list_library` serves `asset` and `font` items from the
+the contact sheet; its previewers come from `loadHosts()`, H3, so a cutout
+or a puppet is drawn by hdf when `handdrawn/` is next to `assetlib/`).
+`list_library` serves `asset` and `font` items from the
 library (`url` becomes the `asset:` src) so existing agents keep working.
 `server.json`, README count, `examples/mcp-demo.md`, `manifest.test.ts`
 updated (memory note: three places). **Done when** `tests/mcp/assets.test.ts`
@@ -726,7 +728,7 @@ then D and E in parallel, I when D4 exists, S last.
 | A6 | The `asset` CLI | 1 | A2 A3 A4 A5 | [x] |
 | H1 | `core/assets.js` on `assetlib`, sha256 | 1 | A2 | [x] |
 | H2 | `hdf find/import/remove/gc` become `asset` | 0.5 | A6 H1 | [x] |
-| H3 | hdf previewers | 1 | A4 H1 | [ ] |
+| H3 | hdf previewers | 1 | A4 H1 | [x] |
 | D1 | The `asset:` src scheme | 1 | A1 | [ ] |
 | D2 | MCP: search and read | 1 | A3 A4 D1 | [ ] |
 | D3 | MCP: write and use | 1 | A5 D2 | [ ] |
