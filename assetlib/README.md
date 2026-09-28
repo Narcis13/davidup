@@ -76,6 +76,28 @@ letter the same card; or it is a host's picture, unless it is the registered pre
 So a card gives way to a previewer registered later, and two apps sharing a shelf keep each other's pictures.
 A previewer that throws or returns no PNG gives the card and a warning, and is asked again next time.
 
+Every search hit carries `use`: the exact call that brings the record into each app, or null where the app
+cannot take it (plan A5, `use.js`). The agent copies it; it does not translate.
+
+```js
+lib.use('teapot');
+// { davidup: { tool: 'register_asset', args: { id: 'teapot', type: 'image', src: 'asset:teapot@c33b51e19728',
+//                  credit: 'Teapot, ca. 1755. The Metropolitan Museum of Art, Open Access (CC0)', licence: 'CC0' } },
+//   hdf: { assets: ['teapot'], code: "fromStore(['teapot'])",
+//          take: "photo(pin(fromStore(['teapot'])['teapot'], { x: 540, y: 540, h: 420 }))",
+//          look: 'doodlePastel~from:teapot' } }
+```
+
+davidup takes image, cutout and stock as `image`, video as `video`, audio and sample as `audio`, font as `font`
+(with its `family`), by an `asset:<id>@<sha12>` src; the record's credit (when not empty), licence and an
+image's sprite `sheet` are copied into the args. A puppet, hand or motif is offered through a record made from
+it (`made.from` names it: a puppet's sprite sheet, else an image; a hand's font; a motif's image), with `via`
+naming that record; with none, and for a clip, davidup's is null. `lib.made(id)` lists what was made from an id.
+hdf takes its seven kinds: `assets` for the film, `code` to read it, `take` to put it to work (a cutout placed,
+`actorOf(puppet(id))`, `clipFromStore(id)`, `voice(id, 0)`, the record for a stock or a motif) and `look` for
+a hand (`~hand:`) or a cutout's colours (`~from:`); a record off the house shelf is read with `{ from }`. A
+font is handed to `hdf hand --font` as `cli`. The house-shelf calls are run in hdf by `test/use.test.js`.
+
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
 

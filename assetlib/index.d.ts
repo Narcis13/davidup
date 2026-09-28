@@ -247,6 +247,8 @@ export interface LibraryHit extends SearchHit {
   path: string;
   /** The preview, or null until lib.preview has drawn it. */
   thumb: string | null;
+  /** The exact call that brings it into each app (A5). */
+  use: Use;
 }
 
 export interface SearchResult<H = SearchHit> {
@@ -366,6 +368,78 @@ export function lettering(s: string): string;
 /** Pixels tiled `cols` across (default √n rounded up), each over its id. */
 export function contactSheet(items: { id: string; pixels: Pixels }[], opts?: { cols?: number; cell?: number; gap?: number }): Sheet;
 
+// ---------- the use block (use.js, A5) ----------
+
+export type DavidupType = 'image' | 'video' | 'audio' | 'font';
+/** The davidup asset type of each kind; null for puppet, hand, motif and clip. */
+export const DAVIDUP_TYPE: Readonly<Record<Kind, DavidupType | null>>;
+/** What davidup takes in place of a puppet, hand or motif, best first (tests over the records made from it). */
+export const DAVIDUP_VIA: Readonly<Partial<Record<Kind, ((record: AssetRecord) => boolean)[]>>>;
+/** The hex a pin keeps: 12. */
+export const PIN: number;
+/** `asset:<id>@<sha12>`. */
+export function assetSrc(record: { id: string; sha: string }): string;
+/** Newest `added` first, then by id. */
+export function newest(a: { id: string; added?: string }, b: { id: string; added?: string }): number;
+
+/** register_asset's input for a library record (src/mcp/tools.ts). */
+export interface RegisterAssetArgs {
+  id: string;
+  type: DavidupType;
+  /** `asset:<id>@<sha12>`. */
+  src: string;
+  /** A font's family. */
+  family?: string;
+  /** An image's sprite sheet, when the record carries one. */
+  sheet?: Record<string, unknown>;
+  /** Left out when the record's is empty. */
+  credit?: string;
+  licence?: Licence;
+}
+
+export interface DavidupUse {
+  tool: 'register_asset';
+  args: RegisterAssetArgs;
+  /** For a puppet, hand or motif: the id of the record made from it that `args` registers. */
+  via?: string;
+  /** Other records made from it davidup could take instead. */
+  also?: string[];
+}
+
+export interface HdfUse {
+  /** What the film's `assets:` names: the id, or { id, from } off hdf's own store. */
+  assets?: (string | { id: string; from: string })[];
+  /** The line at the top of the film that reads it: `fromStore(['teapot'])`. */
+  code?: string;
+  /** The expression that puts it to work: `actorOf(puppet('fox'))`, `clipFromStore('horse')`, `voice('moon-look', 0)`. */
+  take?: string;
+  /** A look reading it: `paperInk~hand:<id>`, `doodlePastel~from:<id>`. */
+  look?: string;
+  /** For a font: `hdf hand --font <blob> --name <id> ...`. */
+  cli?: string;
+}
+
+export interface Use {
+  davidup: DavidupUse | null;
+  hdf: HdfUse | null;
+}
+
+export interface UseOptions {
+  /** The records made from this one (made.from names its id). */
+  made?: Partial<AssetRecord>[];
+  /** The shelf the record is on. */
+  root?: string;
+  /** The store hdf reads with no `from` (the house shelf); a record on any other root is read with `{ from }`. */
+  store?: string;
+  /** The blob (a font's `hdf hand --font` source). */
+  path?: string;
+}
+
+type UsableRecord = Partial<AssetRecord> & { id: string; kind: Kind; sha: string };
+export function useOf(record: UsableRecord, opts?: UseOptions): Use;
+export function davidupUse(record: UsableRecord, opts?: UseOptions): DavidupUse | null;
+export function hdfUse(record: UsableRecord, opts?: UseOptions): HdfUse | null;
+
 export interface Library {
   shelves: Shelf[];
   ids: string[];
@@ -376,7 +450,11 @@ export interface Library {
   get(ref: string): AssetRecord;
   resolve(ref: string): string;
   holders(hex: string): { shelf: string; id: string }[];
-  /** Ranked, filtered, explained, over the winning records (plan §4). */
+  /** The records made from a ref (made.from names its id), over the winning records, newest first. */
+  made(ref: string): AssetRecord[];
+  /** The exact call that brings a ref into each app (use.js), with the records made from it. */
+  use(ref: string): Use;
+  /** Ranked, filtered, explained, over the winning records (plan §4); every hit carries its `use`. */
   search(query?: string | SearchQuery): SearchResult<LibraryHit>;
   /** The cached thumb while it answers, else the kind's previewer, else the card; written to thumbs/<sha>.png. */
   preview(ref: string, opts?: { previewers?: Previewers; force?: boolean }): Promise<Preview>;

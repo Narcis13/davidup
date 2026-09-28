@@ -2,7 +2,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { KINDS, LICENCES, PREVIEW_WIDTH, decodePng, encodePng, openLibrary, readShelf } from "../../assetlib/index.js";
+import { z } from "zod";
+import { KINDS, LICENCES, PREVIEW_WIDTH, decodePng, encodePng, openLibrary, readShelf, useOf } from "../../assetlib/index.js";
+import { TOOLS } from "../../src/mcp/tools.js";
 import { probeVideo } from "../../src/drivers/node/ffprobe.js";
 import { ASSET_LICENCES, AssetSchema } from "../../src/schema/zod.js";
 
@@ -77,4 +79,28 @@ describe("assetlib from davidup", () => {
       rmSync(root, { recursive: true });
     }
   }, 20_000);   // the first ffprobe spawn on a cold machine can take seconds
+
+  it("gives register_asset args its own input schema takes (A5)", () => {
+    const tool = TOOLS.find((t) => t.name === "register_asset")!;
+    const input = z.object(tool.inputSchema).strict();
+    const sha = "ab12cd34ef56".padEnd(64, "0");
+    const own = { tags: [], licence: "CC-BY" as const, credit: "By someone", source: "", sha, ext: "x" };
+    const sheet = { frameWidth: 64, frameHeight: 64, columns: 4, count: 8, fps: 12 };
+    const records = [
+      { ...own, id: "logo", kind: "image" as const, name: "Logo", sheet },
+      { ...own, id: "teapot", kind: "cutout" as const, name: "Teapot" },
+      { ...own, id: "paper", kind: "stock" as const, name: "Paper" },
+      { ...own, id: "clouds", kind: "video" as const, name: "Clouds" },
+      { ...own, id: "bed", kind: "audio" as const, name: "Bed" },
+      { ...own, id: "moon-look", kind: "sample" as const, name: "Moon", credit: "" },
+      { ...own, id: "caveat", kind: "font" as const, name: "Caveat", family: "Caveat", licence: "OFL" as const },
+    ];
+    for (const record of records) {
+      const { davidup } = useOf(record);
+      expect(davidup?.tool).toBe("register_asset");
+      expect(input.parse(davidup!.args)).toEqual(davidup!.args);
+      expect(davidup!.args.src).toBe(`asset:${record.id}@ab12cd34ef56`);
+    }
+    expect(useOf(records[5]!).davidup!.args).not.toHaveProperty("credit");
+  });
 });

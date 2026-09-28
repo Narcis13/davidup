@@ -722,7 +722,7 @@ then D and E in parallel, I when D4 exists, S last.
 | A2 | Write: put, remove, gc, move | 1 | A1 | [x] |
 | A3 | Search | 1 | A1 | [x] |
 | A4 | Previews | 1 | A1 | [x] |
-| A5 | The `use` block | 0.5 | A1 | [ ] |
+| A5 | The `use` block | 0.5 | A1 | [x] |
 | A6 | The `asset` CLI | 1 | A2 A3 A4 A5 | [ ] |
 | H1 | `core/assets.js` on `assetlib`, sha256 | 1 | A2 | [ ] |
 | H2 | `hdf find/import/remove/gc` become `asset` | 0.5 | A6 H1 | [ ] |

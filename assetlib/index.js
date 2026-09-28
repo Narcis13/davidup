@@ -11,6 +11,7 @@
 //   lib.search({ q: 'warm paper', media: 'raster' });   // ranked hits with why, facets
 //   await lib.preview('teapot');       // { path, png, by, cached }: the host's previewer, else a card
 //   await lib.sheet(['teapot', 'fox']);   // one contact sheet PNG with id captions
+//   lib.use('teapot');                 // { davidup: { tool: 'register_asset', args }, hdf: { assets, code, ... } }
 //   await lib.put('user', { id: 'paper', kind: 'stock', ... }, bytes, { probes });   // one way in
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
@@ -26,11 +27,13 @@ import { colours, imageType, usesAlpha } from './image.js';
 import { PREVIEW_WIDTH, card, contactSheet, decodePng, fresh, previewer, tagOf, tagged } from './preview.js';
 import { SCHEMAS, mediaOf } from './record.js';
 import { searchIndex } from './search.js';
+import { newest, useOf } from './use.js';
 
 export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
 export { readShelf, sha } from './catalogue.js';
 export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
+export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
 export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
@@ -140,9 +143,9 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
 
   // id -> the shelves holding it, in search order; sha -> [{ shelf, id }] for every entry with those bytes.
   // Rebuilt after every write, which also drops the search index (built on the first search after).
-  let byId, bySha, finder;
+  let byId, bySha, finder, madeFrom;
   const index = () => {
-    byId = new Map(); bySha = new Map(); finder = null;
+    byId = new Map(); bySha = new Map(); finder = null; madeFrom = null;
     for (const s of read) {
       for (const id of s.ids) {
         if (!byId.has(id)) byId.set(id, []);
@@ -217,9 +220,31 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
     // Every shelf holding some bytes (a full sha or a 12+ hex prefix): [{ shelf, id }] in search order.
     holders: (hex) => bySha.get(shaOf(String(hex).replace(/^sha:/, ''))).map((h) => ({ ...h })),
 
+    // The records made from a ref (their made.from names its id), over the winning records, newest first.
+    made(ref) {
+      if (!madeFrom) {
+        madeFrom = new Map();
+        for (const id of lib.ids) {
+          const r = lib.get(id);
+          for (const from of new Set(r.made?.from ?? [])) {
+            if (!madeFrom.has(from)) madeFrom.set(from, []);
+            madeFrom.get(from).push(r);
+          }
+        }
+      }
+      const out = madeFrom.get(lib.locate(ref).id) ?? [];
+      return out.map((r) => ({ ...r })).sort(newest);
+    },
+    // The `use` block (use.js): { davidup, hdf }, each the exact call that brings the ref into that app, or
+    // null. A puppet, hand or motif is offered to davidup through a record made from it.
+    use(ref) {
+      const loc = lib.locate(ref);
+      return useOf(lib.get(ref), { made: lib.made(ref), root: loc.root, store: HOUSE_ROOT, path: loc.path });
+    },
+
     // Ranked, filtered, explained (plan §4; search.js): { count, total, facetsOf, facets, hits }. Each hit is
-    // { id, shelf, score, why, record, path, thumb } over the winning records (a shadowed one is not listed
-    // twice); `thumb` is null until lib.preview has drawn it. A string is `{ q }`.
+    // { id, shelf, score, why, record, path, thumb, use } over the winning records (a shadowed one is not
+    // listed twice); `thumb` is null until lib.preview has drawn it. A string is `{ q }`.
     search(query) {
       finder ??= searchIndex(lib.ids.map((id) => lib.get(id)));
       const out = finder.search(query, { rank, shelves: names });
@@ -227,6 +252,7 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
         const loc = lib.locate(h.id);
         h.path = loc.path;
         h.thumb = [loc.thumb, join(thumbCache, `${loc.entry.sha}.png`)].find((t) => existsSync(t)) ?? null;
+        h.use = lib.use(h.id);
       }
       return out;
     },
