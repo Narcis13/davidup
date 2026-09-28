@@ -15,7 +15,8 @@ handdrawn/assets/
 
 - An id is lower-case letters, digits and dashes; `pack:<cel>` is a pack
   cel's mirror, which only `hdf donate --manifest` writes.
-- `sha` is 40 hex over the payload bytes: two imports of the same file are
+- `sha` is 64 hex, the sha256 of the payload bytes (the store is assetlib's
+  house shelf; `asset check` lists what is off): two imports of the same file are
   one blob; re-importing an id replaces its entry and drops nothing else.
 - `catalogue.json` is one entry per line, ids sorted, so a change to one
   asset is a one-line diff. Never re-serialise it with a plain JSON writer

@@ -17,7 +17,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXM
 
 const SIL = { sub: [{ pts: [0, 0, 8, 0, 8, 8, 0, 8], closed: true }], box: [0, 0, 8, 8] };
 const CUTOUT = {
-  kind: 'cutout', name: 'teapot', sha: 'a'.repeat(40), ext: 'webp', file: 'teapot.png', tags: ['pot'],
+  kind: 'cutout', name: 'teapot', sha: 'a'.repeat(64), ext: 'webp', file: 'teapot.png', tags: ['pot'],
   credit: 'The Met', source: 'https://example.org', licence: 'CC0',
   box: [0, 0, 8, 8], w: 8, h: 8, sil: SIL, colours: [{ hex: '#c8473f', area: 0.6 }],
 };
@@ -36,7 +36,7 @@ const HAND = { glyphs: { a: { w: 44, s: [[[0, 0], [40, 0]]] } }, track: 6 };
 test('every kind has a schema and a licence list that is closed', () => {
   assert.deepEqual(KINDS, ['cutout', 'clip', 'puppet', 'hand', 'stock', 'motif', 'sample']);
   assert.deepEqual(LICENCES, ['CC0', 'CC-BY', 'CC-BY-SA', 'OFL', 'PD', 'own', 'unknown']);
-  assert.equal(sha('hello').length, 40);
+  assert.equal(sha('hello').length, 64, 'sha256 since H1');
   assert.equal(sha(Buffer.from('hello')), sha('hello'));
 });
 
@@ -48,7 +48,8 @@ test('the validators accept the fixtures and refuse a bad licence and a missing 
   assert.match(validate('teapot', { ...CUTOUT, w: 0 })[0], /^w: an integer > 0/);
   assert.match(validate('teapot', { ...CUTOUT, kind: 'sketch' })[0], /^kind 'sketch'/);
   assert.match(validate('tea pot', CUTOUT)[0], /^id 'tea pot'/);
-  assert.match(validate('teapot', { ...CUTOUT, sha: 'abc' })[0], /^sha: 40 hex/);
+  assert.match(validate('teapot', { ...CUTOUT, sha: 'abc' })[0], /^sha: 64 hex/);
+  assert.match(validate('teapot', { ...CUTOUT, sha: 'a'.repeat(40) })[0], /^sha: 64 hex.*a sha1: asset migrate --sha256/, 'hdf writes sha256 only');
   assert.match(validate('teapot', { ...CUTOUT, ext: 'json' })[0], /^ext 'json'/);
   // `colours` is the one optional cutout field: a module written before S1 still imports.
   assert.deepEqual(validate('teapot', { ...CUTOUT, colours: undefined }), []);
@@ -81,7 +82,7 @@ test('import: the payload lands in the store, the entry is the truth, and it is 
 
     const first = hdf('import', png, '--kind', 'cutout', '--name', 'x', '--root', root, '--licence', 'CC0', '--tags', 'test,tiny');
     assert.equal(first.code, 0, first.out);
-    assert.match(first.out, /^x +cutout +[0-9a-f]{40}\.png +CC0 +\(new\)$/m);
+    assert.match(first.out, /^x +cutout +[0-9a-f]{64}\.png +CC0 +\(new\)$/m);
 
     const st = readCatalogue(root), e = st.entry('x');
     assert.equal(e.sha, sha(PNG));
@@ -135,7 +136,7 @@ test('import --v2: a 2.0 data module becomes entries, and the records come back 
 
     const r = hdf('import', '--v2', mod, '--root', root, '--licence', 'CC0', '--tags', 'test');
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /^dot +cutout +[0-9a-f]{40}\.png +CC0 +\d+ KB +\(new\)$/m);
+    assert.match(r.out, /^dot +cutout +[0-9a-f]{64}\.png +CC0 +\d+ KB +\(new\)$/m);
     assert.match(r.out, /^ {2}assets: \['dot', 'trot'\],$/m);
 
     const st = readCatalogue(root);

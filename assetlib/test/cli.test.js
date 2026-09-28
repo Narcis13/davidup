@@ -295,8 +295,8 @@ test('asset check on the house shelf prints its real findings', async () => {
   assert.equal(code, 0, 'no errors on the house shelf');
   assert.equal(counts.error, 0);
   const of = (rule) => findings.filter((f) => f.rule === rule).map((f) => f.id).sort();
-  assert.deepEqual(of('sha1'), house.ids.filter((id) => isLegacySha(house.entry(id).sha)).sort(), 'every sha1 entry, until H1');
-  assert.ok(of('sha1').length > 0);
+  assert.deepEqual(of('sha1'), [], 'no sha1 entry: H1 rehashed the house shelf');
+  assert.ok(house.ids.every((id) => !isLegacySha(house.entry(id).sha)));
   assert.deepEqual(of('tags'), ['fox', 'octopus'], 'the two puppets with empty tags');
   assert.deepEqual(of('licence'), house.ids.filter((id) => house.entry(id).licence === 'unknown'));
   assert.deepEqual(of('desc'), house.ids.filter((id) => !house.entry(id).desc).sort());

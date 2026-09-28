@@ -5,12 +5,16 @@
 //   assets/blobs/<sha>.json      data payloads (clips, puppets, hands, motifs)
 //   assets/sheets/<id>.jpg       check sheets, regenerated, gitignored
 //
+// The engine is assetlib (<repo>/assetlib, asset-library plan H1): this store is its `house` shelf, and what
+// is here is hdf's view of it -- the seven kinds hdf draws, the checks only hdf knows (a clip's track, a
+// sample's word timing and mouth shapes, every payload's shape), the entry keyed by its `name`, the sheets.
 // An id is lower-case letters, digits and dashes; `pack:<cel>` is the mirror of a pack cel (3.0 S13), which
 // `hdf donate --manifest` writes and nothing else should.
 //
-// `sha` is 40 hex over the payload bytes, so two imports of the same file are one blob. The entry is what a
-// film refers to, by id; the blob is what the loader decodes. Every kind has a schema below and a validator
-// `hdf import` runs before anything is written -- plain JS checks, no library.
+// `sha` is 64 hex, the sha256 of the payload bytes (sha1 before H1; `asset migrate --sha256` rehashed the
+// shelf), so two imports of the same file are one blob. The entry is what a film refers to, by id; the blob
+// is what the loader decodes. Every kind has a schema below and a validator `hdf import` runs before anything
+// is written -- plain JS checks, no library.
 //
 //   const st = readCatalogue();                 // the store next to the package
 //   st.entry('teapot');                         // the catalogue entry, or an error naming the ones there are
@@ -21,10 +25,10 @@
 // Node only (fs, crypto). A film that names its assets by id imports `fromStore` from here and nothing else
 // out of this module; `hdf bundle` and `hdf dev` serve core/assets.web.js in its place, so the same film
 // plays in the browser. `cli/load.mjs` resolves the film's `assets` list the same way, for the renderer.
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { KINDS as LIBRARY_KINDS, LICENCES, SHA256, imageType, isLegacySha, readShelf, sha, validate as validateRecord } from '../../assetlib/index.js';
 import { mkPath } from './list.js';
 import { peek, register, setReader } from './store.js';
 import { setPcmReader } from './synth.js';
@@ -33,68 +37,49 @@ import { checkMouth } from './mouth.js';
 import { TRACKS, checkTrack } from './face.js';
 import { MARKS } from './glyphs.js';
 
-// The store next to the package (handdrawn/assets) unless a command names another root.
+export { LICENCES, imageType, sha };
+
+// The store next to the package (handdrawn/assets) unless a command names another root: the library's house
+// shelf until H4 moves it to <repo>/assets.
 export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
-
-export const KINDS = ['cutout', 'clip', 'puppet', 'hand', 'stock', 'motif', 'sample'];
-export const LICENCES = ['CC0', 'CC-BY', 'CC-BY-SA', 'OFL', 'PD', 'own', 'unknown'];
-
-// 40 hex over the payload bytes (a string is hashed as utf8), the blob's name and the entry's `sha`.
-export const sha = (bytes) => createHash('sha1').update(bytes).digest('hex');
 
 // ---------- schemas ----------
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const posNum = { why: 'a number > 0', ok: (v) => isNum(v) && v > 0 };
 const posInt = { why: 'an integer > 0', ok: (v) => Number.isInteger(v) && v > 0 };
-const path = { why: 'a path ({ sub: [{ pts, closed }], box })', ok: (v) => !!v && Array.isArray(v.sub) && Array.isArray(v.box) && v.sub.every((s) => Array.isArray(s.pts) && s.pts.length >= 4 && s.pts.length % 2 === 0) };
-const colourTable = { opt: true, why: 'a table of { hex, area } (see `hdf photo --refresh`)', ok: (v) => Array.isArray(v) && v.every((c) => c && typeof c.hex === 'string' && isNum(c.area)) };
 
-// Each kind: how its payload is stored, whether the entry carries a box, the entry fields it adds, and the
-// checks over a decoded JSON payload. `box` is [x, y, w, h] in the asset's own units.
+// Each kind: how its payload is stored, whether the entry carries a box, and the checks over a decoded JSON
+// payload. `box` is [x, y, w, h] in the asset's own units. The entry's fields are assetlib's (record.js
+// SCHEMAS); `fields` are the ones hdf checks harder, handed to assetlib's validate().
 export const SCHEMAS = {
-  cutout: { payload: 'raster', box: true, fields: { w: posInt, h: posInt, sil: path, colours: colourTable } },
-  clip: { payload: 'json', box: true, fields: { n: posInt, fps: posNum, h: { ...posNum, opt: true }, track: { opt: true, why: `a track's kind: ${TRACKS.join(' | ')} (4.0 K7)`, ok: (v) => TRACKS.includes(v) } }, checkPayload: checkClip },
-  puppet: { payload: 'json', box: true, fields: { units: posNum }, checkPayload: checkPuppet },
-  hand: { payload: 'json', fields: { glyphs: posInt, marks: { ...posInt, opt: true } }, checkPayload: checkHand },
-  stock: { payload: 'raster', box: true, fields: { w: posInt, h: posInt } },
+  cutout: { payload: 'raster', box: true },
+  clip: { payload: 'json', box: true, fields: { track: { opt: true, why: `a track's kind: ${TRACKS.join(' | ')} (4.0 K7)`, ok: (v) => TRACKS.includes(v) } }, checkPayload: checkClip },
+  puppet: { payload: 'json', box: true, checkPayload: checkPuppet },
+  hand: { payload: 'json', checkPayload: checkHand },
+  stock: { payload: 'raster', box: true },
   motif: { payload: 'json', box: true, checkPayload: checkMotif },
-  sample: { payload: 'audio', fields: { sec: { ...posNum, opt: true }, align: { opt: true, why: 'word timing (hdf align): { text, by, words: [[text, t0, t1], ...] }', ok: (v) => !checkAlign(v).length }, mouth: { opt: true, why: "mouth shapes (hdf align --mouth): { by, shapes: 'XBDCA...' }, a letter per 1/12 s", ok: (v) => !checkMouth(v).length } } },
+  sample: { payload: 'audio', fields: { align: { opt: true, why: 'word timing (hdf align): { text, by, words: [[text, t0, t1], ...] }', ok: (v) => !checkAlign(v).length }, mouth: { opt: true, why: "mouth shapes (hdf align --mouth): { by, shapes: 'XBDCA...' }, a letter per 1/12 s", ok: (v) => !checkMouth(v).length } } },
 };
 
-// The blob's extension for a payload: rasters keep the bytes they came in as (so a migrated cutout is the
-// same bytes it was inside the JS module, and the goldens do not move).
-export const EXTS = { raster: ['webp', 'png', 'jpg'], json: ['json'], audio: ['wav'] };
+// The kinds hdf draws, in the library's order: cutout clip puppet hand stock motif sample.
+export const KINDS = LIBRARY_KINDS.filter((k) => SCHEMAS[k]);
 
-// The image type of some bytes by their magic, or null.
-export function imageType(bytes) {
-  const b = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-  if (b.length > 12 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp';
-  if (b.length > 8 && b[0] === 0x89 && b.subarray(1, 4).toString('latin1') === 'PNG') return 'png';
-  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8) return 'jpg';
-  return null;
-}
+// What hdf hands assetlib's validate() and put: its own fields, and `file` (the name the payload came in as),
+// which the library leaves optional and every hdf entry has.
+const FIELDS = Object.fromEntries(KINDS.map((k) => [k, { file: { why: 'a string', ok: (v) => typeof v === 'string' }, ...SCHEMAS[k].fields }]));
 
 // ---------- validators ----------
 
-// Everything wrong with an entry, as sentences. An empty array is a valid entry.
+// Everything wrong with an entry, as sentences. An empty array is a valid entry. assetlib's checks with hdf's
+// fields, over hdf's kinds only, and a sha1 is refused: hdf writes sha256 since H1.
 export function validate(id, entry) {
-  const bad = [];
-  if (!id || typeof id !== 'string' || !/^(pack:)?[a-z0-9][a-z0-9-]*$/i.test(id)) bad.push(`id '${id}': lower-case letters, digits and dashes (a pack cel's mirror: pack:<cel>)`);
-  if (!entry || typeof entry !== 'object') return [...bad, 'entry: not an object'];
-  const s = SCHEMAS[entry.kind];
-  if (!s) return [...bad, `kind '${entry.kind}': expected ${KINDS.join(' | ')}`];
-  if (typeof entry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(entry.sha)) bad.push('sha: 40 hex over the payload bytes');
-  if (!EXTS[s.payload].includes(entry.ext)) bad.push(`ext '${entry.ext}': a ${entry.kind} payload is ${EXTS[s.payload].join(' or ')}`);
-  if (!LICENCES.includes(entry.licence)) bad.push(`licence '${entry.licence}': expected ${LICENCES.join(' | ')}`);
-  for (const k of ['name', 'file', 'credit', 'source']) if (typeof entry[k] !== 'string') bad.push(`${k}: a string`);
-  if (!Array.isArray(entry.tags) || entry.tags.some((t) => typeof t !== 'string')) bad.push('tags: an array of strings');
-  if (s.box && !(Array.isArray(entry.box) && entry.box.length === 4 && entry.box.every(isNum))) bad.push('box: [x, y, w, h] in the asset\'s own units');
-  for (const [k, f] of Object.entries(s.fields ?? {})) {
-    if (entry[k] === undefined) { if (!f.opt) bad.push(`${k}: missing (${f.why})`); continue; }
-    if (!f.ok(entry[k])) bad.push(`${k}: ${f.why}`);
+  if (entry && typeof entry === 'object' && !Array.isArray(entry) && !SCHEMAS[entry.kind]) {
+    return [...validateRecord(id, {}).filter((m) => m.startsWith('id ')), `kind '${entry.kind}': expected ${KINDS.join(' | ')}`];
   }
-  return bad;
+  const bad = validateRecord(id, entry, { fields: FIELDS });
+  if (!entry || typeof entry !== 'object' || SHA256.test(entry.sha)) return bad;
+  return [...bad.filter((m) => !m.startsWith('sha:')), `sha: 64 hex, the sha256 of the payload bytes${isLegacySha(entry.sha) ? ' (a sha1: asset migrate --sha256)' : ''}`];
 }
 
 // Everything wrong with a decoded payload for a kind (JSON kinds only; a raster or a wav is checked by its magic).
@@ -187,78 +172,46 @@ function checkMotif(d) { return Array.isArray(d) && d.length ? [] : ['motif: a n
 
 // ---------- the catalogue ----------
 
-const EMPTY = '{\n}\n';
-
-// The store rooted at `root`: the catalogue read once, the blobs on demand. Missing files read as empty, so a
-// fresh checkout has a store before anything is imported.
+// The store rooted at `root`: an assetlib shelf (the catalogue read once, the blobs on demand) as hdf reads
+// it. Missing files read as empty, so a fresh checkout has a store before anything is imported.
 export function readCatalogue(root = ASSET_ROOT) {
-  const dir = resolve(root), file = join(dir, 'catalogue.json');
-  const raw = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
-  const entries = new Map(Object.entries(raw));
+  const shelf = readShelf(root, resolve(root) === ASSET_ROOT ? { name: 'house' } : {});
+  const dir = shelf.root, entries = shelf.entries;
+  const of = (e) => (typeof e === 'string' ? st.entry(e) : e);
   const st = {
-    root: dir, file, entries,
-    get ids() { return [...entries.keys()].sort(); },
+    root: dir, file: shelf.file, entries, shelf,
+    get ids() { return shelf.ids; },
     has: (id) => entries.has(id),
     entry(id) {
       const e = entries.get(id);
       if (!e) throw new Error(`no asset '${id}' in ${dir} (has ${st.ids.join(', ') || 'none'}; try \`hdf find ${id}\`)`);
       return e;
     },
-    payloadPath: (e) => join(dir, 'blobs', `${(typeof e === 'string' ? st.entry(e) : e).sha}.${(typeof e === 'string' ? st.entry(e) : e).ext}`),
+    payloadPath: (e) => shelf.blobPath(of(e)),
     sheetPath: (id) => join(dir, 'sheets', `${id.replace(':', '_')}.jpg`),   // pack:boat -> pack_boat.jpg
-    payload(e) {
-      const entry = typeof e === 'string' ? st.entry(e) : e, p = st.payloadPath(entry);
-      if (!existsSync(p)) throw new Error(`asset '${entry.name}': blob ${entry.sha}.${entry.ext} is missing from ${join(dir, 'blobs')}`);
-      return readFileSync(p);
-    },
+    payload: (e) => shelf.payload(of(e)),
     json(e) { return JSON.parse(st.payload(e).toString('utf8')); },
     search: (words, opt) => search(st, words, opt),
-    // Hashes the payload, writes the blob if it is new, validates, replaces the entry, saves. Returns the entry.
+    // assetlib's put, keyed by the entry's name: hashes the payload (sha256), validates with hdf's checks,
+    // writes the blob if it is new, replaces the entry, saves. Returns the entry as stored.
     put(entry, bytes) {
-      const id = entry.name, full = { ...entry, sha: sha(bytes), ext: entry.ext ?? extOf(entry.kind, bytes) };
-      check(id, full);
-      mkdirSync(join(dir, 'blobs'), { recursive: true });
-      const p = st.payloadPath(full);
-      if (!existsSync(p)) writeFileSync(p, bytes);
-      entries.set(id, full);
-      st.save();
-      return full;
+      if (!SCHEMAS[entry?.kind]) throw new Error(`asset '${entry?.name}' is not a valid asset:\n  kind '${entry?.kind}': expected ${KINDS.join(' | ')}`);
+      return shelf.put({ ...entry, id: entry.name }, bytes, { fields: FIELDS }).entry;
     },
-    // Drops the entry, its sheets and its blob when no other entry shares it; saves. Returns the paths deleted.
+    // Drops the entry, its blob and thumb when no other entry shares them, and its sheets; saves. Returns the
+    // paths deleted.
     remove(id) {
-      const e = st.entry(id), gone = [];
-      entries.delete(id);
-      st.save();
-      const p = st.payloadPath(e);
-      if (![...entries.values()].some((o) => o.sha === e.sha && o.ext === e.ext) && existsSync(p)) { rmSync(p); gone.push(p); }
+      st.entry(id);
+      const gone = shelf.remove(id);
       for (const s of [st.sheetPath(id), st.sheetPath(id).replace(/\.jpg$/, '-model.jpg')]) if (existsSync(s)) { rmSync(s); gone.push(s); }
       return gone;
     },
     // Blobs no entry points at (a replaced payload's old bytes, a removed entry's), as paths.
-    orphans() {
-      const bd = join(dir, 'blobs');
-      if (!existsSync(bd)) return [];
-      const used = new Set([...entries.values()].map((e) => `${e.sha}.${e.ext}`));
-      return readdirSync(bd).filter((f) => /^[0-9a-f]{40}\.\w+$/.test(f) && !used.has(f)).sort().map((f) => join(bd, f));
-    },
+    orphans: () => shelf.orphans(),
     // One entry per line, ids sorted: a change to one asset is a one-line diff (keep it that way by hand too).
-    save() {
-      mkdirSync(dir, { recursive: true });
-      const ids = st.ids;
-      writeFileSync(file, ids.length ? `{\n${ids.map((k) => `${JSON.stringify(k)}: ${JSON.stringify(entries.get(k))}`).join(',\n')}\n}\n` : EMPTY);
-    },
+    save: () => shelf.save(),
   };
   return st;
-}
-
-function extOf(kind, bytes) {
-  const s = SCHEMAS[kind];
-  if (!s) throw new Error(`kind '${kind}': expected ${KINDS.join(' | ')}`);
-  if (s.payload === 'json') return 'json';
-  if (s.payload === 'audio') return 'wav';
-  const t = imageType(bytes);
-  if (!t) throw new Error(`a ${kind} payload must be a webp, png or jpeg image`);
-  return t;
 }
 
 // Catalogue entries whose id, name, tags, description or credit hold every word (case-insensitive), by id.

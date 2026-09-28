@@ -230,14 +230,14 @@ test('lintList: role and cel-box over a list that is not a shot (a model sheet)'
 
 test('pack-mirror: a pack cel whose store mirror is missing, moved or stale', () => {
   const cels = [
-    { name: 'ok', store: { id: 'pack:ok', sha: 'a'.repeat(40) } },
+    { name: 'ok', store: { id: 'pack:ok', sha: 'a'.repeat(64) } },
     { name: 'none' },
-    { name: 'gone', store: { id: 'pack:gone', sha: 'b'.repeat(40) } },
-    { name: 'moved', store: { id: 'pack:moved', sha: 'c'.repeat(40) } },
-    { name: 'stale', store: { id: 'pack:stale', sha: 'd'.repeat(40) } },
+    { name: 'gone', store: { id: 'pack:gone', sha: 'b'.repeat(64) } },
+    { name: 'moved', store: { id: 'pack:moved', sha: 'c'.repeat(64) } },
+    { name: 'stale', store: { id: 'pack:stale', sha: 'd'.repeat(64) } },
   ];
-  const stored = { 'pack:ok': 'a'.repeat(40), 'pack:moved': 'e'.repeat(40), 'pack:stale': 'd'.repeat(40) };
-  const fresh = { ok: 'a'.repeat(40), stale: 'f'.repeat(40) };
+  const stored = { 'pack:ok': 'a'.repeat(64), 'pack:moved': 'e'.repeat(64), 'pack:stale': 'd'.repeat(64) };
+  const fresh = { ok: 'a'.repeat(64), stale: 'f'.repeat(64) };
   const found = lintPack(cels, { fresh: (n) => fresh[n] ?? 'x', stored: (id) => stored[id] }, 'objects');
   assert.deepEqual(found.map((f) => [f.rule, f.shot, f.detail.split(':')[0]]), [
     ['pack-mirror', 'objects', 'none'], ['pack-mirror', 'objects', 'gone'], ['pack-mirror', 'objects', 'moved'], ['pack-mirror', 'objects', 'stale'],

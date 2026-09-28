@@ -126,7 +126,7 @@ test('hdf hand --font: Inter into a temp store, mini lettered in it; the errors'
   try {
     const r = hdf('hand', '--font', INTER, '--name', 'inter', '--glyphs', 'latin', '--licence', 'OFL');
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /^inter {2}hand {2}[0-9a-f]{40}\.json {2}OFL {2}\(new\)$/m);
+    assert.match(r.out, /^inter {2}hand {2}[0-9a-f]{64}\.json {2}OFL {2}\(new\)$/m);
     assert.match(r.out, /^256 glyphs from Inter \(latin 255\/258\), 8 marks; pressure [\d.]+\/1\/[\d.]+$/m);
     assert.match(r.out, /^the font lacks 3 latin: ȷ ẞ ŉ$/m);
     const st = readCatalogue(dir), e = st.entry('inter'), h = { ...st.json('inter'), name: 't4-inter' };

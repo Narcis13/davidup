@@ -36,7 +36,7 @@
    "sheet": "sheets/fly.jpg",
    "store": {
     "id": "pack:fly",
-    "sha": "e7bdb50a18fe52fcd737c5ac67a7c20dfe48de7c"
+    "sha": "fec507d82282b793328622b97b99e2c843d87a8543496cb3d7f0c29b8e11e365"
    }
   },
   {
@@ -65,7 +65,7 @@
    "sheet": "sheets/hedgehog.jpg",
    "store": {
     "id": "pack:hedgehog",
-    "sha": "05d5eab23a68709c074f36570d18b224b259800a"
+    "sha": "c3ac6480318fa4dfad4f7da94251f89632e2c40979eafa700be79c0d64f94789"
    }
   },
   {
@@ -94,7 +94,7 @@
    "sheet": "sheets/horse.jpg",
    "store": {
     "id": "pack:horse",
-    "sha": "3258391809453929cd36c285543146a5173bdf84"
+    "sha": "a939755db7659f92dff99e412f94648158d5f7774afa28e625c08d615fe42603"
    }
   },
   {
@@ -123,7 +123,7 @@
    "sheet": "sheets/held-tool.jpg",
    "store": {
     "id": "pack:held-tool",
-    "sha": "1e94634db6923f2308bf99f09e45540193f8d27d"
+    "sha": "27f34d34e9415abd499dce518a59082473918e9231bb340710ac187a5cf33f20"
    }
   },
   {
@@ -152,7 +152,7 @@
    "sheet": "sheets/writing-hand.jpg",
    "store": {
     "id": "pack:writing-hand",
-    "sha": "81f387aa9dd83bb8f74adc6e85ec3eb1d64be71e"
+    "sha": "88fd2588105eb94b22df05447cd2b34d27d627daf86c881b2018ebb3ef1079e9"
    }
   },
   {
@@ -176,7 +176,7 @@
    "sheet": "sheets/boat.jpg",
    "store": {
     "id": "pack:boat",
-    "sha": "338d808b42a718d07348d0f364838c19f15053a3"
+    "sha": "253e29fe5dc394d89c5d7c2669aa46a2f4973135b98eb587511a5d4c55a8ac3b"
    }
   },
   {
@@ -200,7 +200,7 @@
    "sheet": "sheets/book.jpg",
    "store": {
     "id": "pack:book",
-    "sha": "56f25a19fedf4a141fa7ad24f494975cbf1c2f3f"
+    "sha": "05034ea040690d3f4edd03d580fd9091b0d1dbeeda8c0cbda1dcd340966cf097"
    }
   },
   {
@@ -224,7 +224,7 @@
    "sheet": "sheets/lamp.jpg",
    "store": {
     "id": "pack:lamp",
-    "sha": "80f328e87d14223c92013659ea3f835b53a161cd"
+    "sha": "76a676479a9094d00b1707e3c19bf1636c08243f75b1c271a29fb4cd3dd7804b"
    }
   },
   {
@@ -253,7 +253,7 @@
    "sheet": "sheets/teapot.jpg",
    "store": {
     "id": "pack:teapot",
-    "sha": "7b5fc6dcf2adcb154fc35a330aa64c34ed751e34"
+    "sha": "42b55c0d1e0c2c2755c9e288033a5a1f407346c06bbe02eb535e782d86290e9d"
    }
   },
   {
@@ -277,7 +277,7 @@
    "sheet": "sheets/chip.jpg",
    "store": {
     "id": "pack:chip",
-    "sha": "58e9e145734798c1725df9cc33002ea5e750b5df"
+    "sha": "0ad2d5c8a0e4e4e3c4f622d4e48ac0e886b05d6c90a2f386391ad15d8f135a53"
    }
   },
   {
@@ -306,7 +306,7 @@
    "sheet": "sheets/gpu.jpg",
    "store": {
     "id": "pack:gpu",
-    "sha": "bbd392a4f50457d23cdb954bdf2ceb8d697a99d6"
+    "sha": "c0147403870a9c8db1b62e0e5865d4b28adb1cc3d6ac563db87af62ba60e6a8d"
    }
   },
   {
@@ -335,7 +335,7 @@
    "sheet": "sheets/server.jpg",
    "store": {
     "id": "pack:server",
-    "sha": "227261fa7bc4f47302f152f19e1c11894a4a68c5"
+    "sha": "068efd7dc728fa8055d7eb18e0bac4a0cde93da11fc85f06561d11b73e973824"
    }
   },
   {
@@ -364,7 +364,7 @@
    "sheet": "sheets/token.jpg",
    "store": {
     "id": "pack:token",
-    "sha": "902e1d26c16f0376bd684f7af98a98d2501969fc"
+    "sha": "cc601b4191f97d84a42196140d5541a6af008392f9ebb5f6d5c8a30df152b143"
    }
   }
  ]

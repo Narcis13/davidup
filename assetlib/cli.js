@@ -8,6 +8,7 @@
 //   asset rm teapot     asset mv teapot --to house     asset gc --dry
 //   asset thumb teapot | --all                asset sheet teapot cup fox --out candidates.png
 //   asset ls --shelf house                    asset check
+//   asset migrate --sha256 house              rehash a shelf's sha1 blobs as sha256 (H1)
 //
 // The shelves are the standard three (index.js standardShelves): `--project <dir>` opens <dir>/assets as the
 // project shelf; $DAVIDUP_ASSETS and $DAVIDUP_HOUSE move the user's pool and the house. A write goes to
@@ -21,7 +22,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { check, LEVELS } from './check.js';
 import { imageInfo } from './image.js';
-import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, openLibrary, standardShelves } from './index.js';
+import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, migrateSha256, openLibrary, readShelf, standardShelves } from './index.js';
 import { defaultProbes } from './probe.js';
 
 export const USAGE = `asset: the asset library shared by davidup and hdf (docs/asset-library-plan.md)
@@ -47,13 +48,15 @@ usage: asset <verb> [args] [--project <dir>] [--json]
   ls      [--shelf] [--kind]        every entry, shelf by shelf, with what shadows what
   check   [--shelf]                 licence unknown, missing blob, orphan, duplicate sha across shelves,
                                     missing thumb, sha1 entries, bad ids, empty desc or tags; exits 1 on an error
+  migrate --sha256 <shelf | dir> [--dry]   rename a shelf's sha1 blobs by their sha256 (bytes kept; a JSON
+                                    payload naming another blob's sha1 names its sha256) and rewrite the entries
 
 shelves: project (--project <dir>: <dir>/assets), user ($DAVIDUP_ASSETS, else ~/.davidup/assets),
          house ($DAVIDUP_HOUSE, else the repo's store). kinds: ${KINDS.join(' ')}
          licences: ${LICENCES.join(' ')}
 `;
 
-export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'thumb', 'sheet', 'ls', 'check'];
+export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'thumb', 'sheet', 'ls', 'check', 'migrate'];
 
 export class UsageError extends Error {}
 const usage = (msg) => new UsageError(msg);
@@ -61,7 +64,7 @@ const usage = (msg) => new UsageError(msg);
 // ---------- arguments ----------
 
 // Flags that never take a value, so `asset find --alpha fox` searches for fox.
-const BOOLEAN = new Set(['json', 'dry', 'all', 'force', 'alpha', 'dark', 'help']);
+const BOOLEAN = new Set(['json', 'dry', 'all', 'force', 'alpha', 'dark', 'help', 'sha256']);
 const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 // --key value, --key=value, --flag, --no-flag, -- ends flags. Values stay strings: each verb reads its own.
@@ -219,7 +222,7 @@ export const verbs = {
       row('source', record.source),
       row('facts', factsOf(record)),
       row('colours', record.colours?.slice(0, 5).map((c) => `${c.hex} ${Math.round(c.area * 100)}%`).join('  ')),
-      row('sha', `${short(entry.sha)}${isLegacySha(entry.sha) ? ' (sha1, until H1)' : ''}`),
+      row('sha', `${short(entry.sha)}${isLegacySha(entry.sha) ? ' (sha1: asset migrate --sha256)' : ''}`),
       row('blob', existsSync(blob) ? `${ctx.rel(blob)}  ${kb(entry.bytes ?? readFileSync(blob).length)}` : `MISSING: ${ctx.rel(blob)}`),
       row('thumb', thumb ? ctx.rel(thumb) : `none yet (asset thumb ${loc.id})`),
       row('added', [entry.added, entry.by && `by ${entry.by}`, entry.file && `from ${entry.file}`].filter(Boolean).join(' ')),
@@ -402,11 +405,26 @@ export const verbs = {
       : `clean: ${on}`);
     return { code: counts.error ? 1 : 0, data: { counts, findings }, text: `${lines.join('\n')}\n` };
   },
+
+  async migrate(ctx, args, flags) {
+    if (!flags.sha256) throw usage('migrate: say which migration (--sha256)');
+    if (args.length !== 1) throw usage('migrate: need one <shelf> (a shelf name or a directory)');
+    const lib = ctx.lib(), named = lib.shelves.find((s) => s.name === args[0]);
+    const dir = named ? null : resolve(ctx.cwd, args[0]);
+    if (!named && !existsSync(join(dir, 'catalogue.json'))) throw usage(`migrate: '${args[0]}' is neither a shelf (${ctx.names()}) nor a directory with a catalogue.json`);
+    const shelf = named ?? readShelf(dir), dry = !!bool(flags, 'dry');
+    const out = migrateSha256(shelf, { dry });
+    if (!out.blobs.length) return { code: 0, data: out, text: `${shelf.name}: no sha1 entry, nothing to migrate\n` };
+    const lines = out.blobs.map((b) => `${short(b.from)} -> ${short(b.to)}.${b.ext}  ${ids(b.ids, 4)}${b.rewrote.length ? `  (names ${b.rewrote.map(short).join(', ')}: rewritten)` : ''}`);
+    const n = out.blobs.reduce((k, b) => k + b.ids.length, 0);
+    lines.push(`${out.blobs.length} blob${out.blobs.length === 1 ? '' : 's'}, ${n} entr${n === 1 ? 'y' : 'ies'} on ${shelf.name}${dry ? ' (dry run: nothing written)' : ' rehashed as sha256'}`);
+    return { code: 0, data: out, text: `${lines.join('\n')}\n` };
+  },
 };
 
 // What to run about a grouped finding.
 const NEXT = {
-  sha1: 'hdf sha1; H1 rehashes them as sha256',
+  sha1: 'asset migrate --sha256 <shelf>',
   licence: 'asset add again with --licence',
   orphan: 'asset gc',
   thumb: 'asset thumb --all',

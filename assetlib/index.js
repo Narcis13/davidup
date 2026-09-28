@@ -36,6 +36,7 @@ export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
 export { LEVELS, RULES, check } from './check.js';
+export { migrateSha256 } from './migrate.js';
 export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to

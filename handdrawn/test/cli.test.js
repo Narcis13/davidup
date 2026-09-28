@@ -140,7 +140,7 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     const { code, out } = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root);
     assert.equal(code, 0, out);
     assert.match(out, /^#fff1d6\s+19439\s+light\s+map$/m);
-    assert.match(out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
+    assert.match(out, /^fox {2}puppet {2}[0-9a-f]{64}\.json {2}own {2}\(new\)$/m);
     assert.match(out, /fox\.jpg {2}11 looks x 24 states x 3 scales \+ 8 frames of walk$/m);
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
@@ -171,7 +171,7 @@ test("hand: --synth puts a hand in the store; --look 'x~hand:<id>' letters a fil
     assert.match(await hdf('help').then((r) => r.out), /^ {2}hand {4}--synth <id>/m);
     const r = await hdf('hand', '--synth', 'scribe', '--root', dir);
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{40}\.json {2}own {2}\(new\)/m);
+    assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{64}\.json {2}own {2}\(new\)/m);
     const cat = JSON.parse(readFileSync(join(dir, 'catalogue.json'), 'utf8'));
     assert.equal(cat.scribe.kind, 'hand');
     assert.deepEqual([cat.scribe.glyphs, cat.scribe.marks], [105, 14]);
@@ -205,7 +205,7 @@ test('hand: --template prints the sheet (PDF, or lettered by a stored hand), <sh
 
     const r = await hdf('hand', file, '--name', 'scribe', '--root', dir, '--out', dir);
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{40}\.json {2}own {2}\(new\)/m);
+    assert.match(r.out, /^scribe {2}hand {2}[0-9a-f]{64}\.json {2}own {2}\(new\)/m);
     assert.match(r.out, /^62 of 62 glyphs traced \(latin\)$/m);
     assert.match(r.out, /^pen: wobble [\d.]+, overshoot [\d.]+, hook [\d.]+, pressure [\d.]+\/1\/[\d.]+, tremor [\d.]+, rounding [\d.]+, width [\d.]+ em {2}\(from 3 lines and the square\)$/m);
     assert.ok(existsSync(join(dir, 'hand-scribe-trace.jpg')));
@@ -308,7 +308,7 @@ test('skeletons and retargeting: clip --store rigs a stored clip in place, retar
 
     const rig = await hdf('clip', '--store', 'horse', '--rig', 'quadruped', '--root', root, '--out', dir);
     assert.equal(rig.code, 0, rig.out);
-    assert.match(rig.out, /^horse {2}clip {2}[0-9a-f]{40}\.json {2}quadruped skeleton, 12 frames {2}\(replaces [0-9a-f]{8}\)$/m);
+    assert.match(rig.out, /^horse {2}clip {2}[0-9a-f]{64}\.json {2}quadruped skeleton, 12 frames {2}\(replaces [0-9a-f]{8}\)$/m);
     assert.ok(existsSync(join(dir, 'clip-horse-skel.jpg')));
     const cat = () => JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.equal(cat().horse.sha, house.horse.sha, 'the same skeleton as the house horse');
@@ -320,7 +320,7 @@ test('skeletons and retargeting: clip --store rigs a stored clip in place, retar
     const before = cat().fox.sha;
     const run = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root);
     assert.equal(run.code, 0, run.out);
-    assert.match(run.out, /^fox {2}puppet {2}[0-9a-f]{40}\.json {2}cycles: walk, run, gallop {2}\(replaces [0-9a-f]{8}\)$/m);
+    assert.match(run.out, /^fox {2}puppet {2}[0-9a-f]{64}\.json {2}cycles: walk, run, gallop {2}\(replaces [0-9a-f]{8}\)$/m);
     assert.equal(cat().fox.sha, house.fox.sha, 'the same fox as the house store');
     assert.ok(!existsSync(join(root, 'blobs', `${before}.json`)), 'the old blob is dropped');
     const again = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root);
@@ -352,7 +352,7 @@ test('motion from your phone: clip --kind pose explains itself without MediaPipe
     const made = await hdf('clip', '--kind', 'pose', join(dir, 'pose-me.json'), '--name', 'me', '--root', root, '--out', dir);
     assert.equal(made.code, 0, made.out);
     assert.match(made.out, /^me {2}75 frames at 30 fps -> 12 at 12 fps, biped, facing 1, h \d+, loop of 12 from \d+ \(seam 0 h\)$/m);
-    assert.match(made.out, /^me {2}clip {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
+    assert.match(made.out, /^me {2}clip {2}[0-9a-f]{64}\.json {2}own {2}\(new\)$/m);
     assert.ok(existsSync(join(dir, 'clip-me-skel.jpg')));
     assert.match(made.out, /^next: hdf retarget --clip me --to fox --map biped-fox\.json --name walk/m);
 

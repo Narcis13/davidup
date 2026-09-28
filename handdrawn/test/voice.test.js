@@ -177,7 +177,7 @@ test('the player gets the wav: bundle inlines it, dev points at its blob', async
     assert.equal(config.catalogue['mini-line'].sec, 1.029);
   } finally { rmSync(dir, { recursive: true, force: true }); }
   const { assets } = storeState((p) => p);
-  assert.match(assets['mini-line'], /^\/v0\/.*\/blobs\/[0-9a-f]{40}\.wav$/);
+  assert.match(assets['mini-line'], /^\/v0\/.*\/blobs\/[0-9a-f]{64}\.wav$/);
 });
 
 test('render: the voice is in the -final.mp4 and on the contact sheet', { skip: spawnSync('ffmpeg', ['-version']).status !== 0 && 'no ffmpeg' }, () => {

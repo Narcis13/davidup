@@ -35,7 +35,8 @@ export function mediaOf(kind) {
 // An id: flat, lower-case letters, digits and dashes; `pack:<cel>` is the mirror of an hdf pack cel.
 export const ID = /^(pack:)?[a-z0-9][a-z0-9-]*$/;
 
-// sha256 is what the library writes; hdf's 40-hex sha1 is read until H1 migrates it (and `asset check` flags it).
+// sha256 is what the library writes; a 40-hex sha1 (a shelf from before H1) is still read, `asset check` flags
+// it and `asset migrate --sha256` rehashes it.
 export const SHA256 = /^[0-9a-f]{64}$/;
 export const SHA1 = /^[0-9a-f]{40}$/;
 export const isLegacySha = (s) => typeof s === 'string' && SHA1.test(s);

@@ -494,3 +494,27 @@ export const LEVELS: readonly CheckLevel[];
 export const RULES: Readonly<Record<CheckRule, CheckLevel>>;
 /** What is wrong with a library's shelves (or the ones named), errors first; reads every blob once, writes nothing. */
 export function check(lib: Library, opts?: { shelves?: string[]; fields?: PutOptions['fields']; thumbCache?: string }): Finding[];
+
+// ---------- migrate (H1) ----------
+
+export interface MigratedBlob {
+  /** The sha1 the blob was named by. */
+  from: string;
+  /** Its sha256: of the same bytes, or of a JSON payload whose sha1 references were rewritten. */
+  to: string;
+  ext: string;
+  /** The entries that share the blob. */
+  ids: string[];
+  /** The sha1s this JSON payload named and now names by their sha256. */
+  rewrote: string[];
+}
+export interface Migration {
+  shelf: string;
+  blobs: MigratedBlob[];
+  /** sha1 -> sha256, for what outside the shelf names a sha (hdf's packs/manifest.json). */
+  map: Record<string, string>;
+  /** Old blobs and thumbs deleted. */
+  removed: string[];
+}
+/** Rehashes every sha1 entry of a shelf as sha256: blobs renamed, not re-encoded; `dry` writes nothing. */
+export function migrateSha256(shelf: Shelf, opts?: { dry?: boolean }): Migration;

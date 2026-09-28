@@ -246,7 +246,7 @@ test('hdf hand --template --rig, hdf sketch: one command from a photographed she
     const made = hdf('sketch', file, '--sheet', 'biped', '--name', 'mia', '--root', root, '--out', dir);
     assert.equal(made.code, 0, made.out);
     assert.match(made.out, /^mia\.jpg: the biped sheet, 8 of 8 pieces drawn$/m);
-    assert.match(made.out, /^mia {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
+    assert.match(made.out, /^mia {2}puppet {2}[0-9a-f]{64}\.json {2}own {2}\(new\)$/m);
     assert.match(made.out, /parts: arm-l fore-l hand-l leg-l shin-l foot-l leg-r shin-r foot-r hips body head arm-r fore-r hand-r/);
     assert.match(made.out, /\+ 8 frames of walk$/m, 'the sheet has the walk as its strip');
     assert.ok(existsSync(join(root, 'sheets', 'mia.jpg')));
@@ -274,7 +274,7 @@ test('hdf hand --template --rig, hdf sketch: one command from a photographed she
     const asked = hdf('sketch', file, '--name', 'mia', '--root', root, '--roles', 'ask');
     assert.equal(asked.code, 0, asked.out);
     assert.equal(JSON.parse(readFileSync(join(dir, 'mia.roles.json'), 'utf8'))[asked.out.match(/^(#\w{6}) +\d+ +skin/m)[1]], 'skin');
-    assert.doesNotMatch(asked.out, /puppet {2}[0-9a-f]{40}/, 'nothing stored');
+    assert.doesNotMatch(asked.out, /puppet {2}[0-9a-f]{64}/, 'nothing stored');
     assert.equal(hdf('sketch', file, '--name', 'x', '--root', root, '--face', 'drawn').code, 2);
     assert.equal(hdf('sketch', file, '--name', 'x', '--root', root, '--face-r', '40').code, 2);
     assert.match(hdf('sketch', file, '--name', 'x', '--root', root, '--roles', '#d8433b=nope').out, /roles: #d8433b -> "nope"/);

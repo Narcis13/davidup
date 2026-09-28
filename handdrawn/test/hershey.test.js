@@ -112,7 +112,7 @@ test('hdf hand --hershey: the vendored files into a temp store, --merge, the err
     for (const [f, id] of Object.entries(FILES)) {
       const r = hdf('hand', '--hershey', `${SRC}/${f}.jhf`, '--name', id);
       assert.equal(r.code, 0, r.out);
-      assert.match(r.out, new RegExp(`^${id} {2}hand {2}[0-9a-f]{40}\\.json {2}PD {2}\\(new\\)$`, 'm'));
+      assert.match(r.out, new RegExp(`^${id} {2}hand {2}[0-9a-f]{64}\\.json {2}PD {2}\\(new\\)$`, 'm'));
       assert.match(r.out, new RegExp(`^95 glyphs from ${f}\\.jhf \\(map ${mapFor(f)}\\)$`, 'm'));
     }
     const st = readCatalogue(dir), main = readCatalogue();

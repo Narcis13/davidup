@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HOUSE_ROOT, KINDS, LICENCES, MEDIA, isLegacySha, mediaOf, openLibrary, readShelf, sha, standardShelves, validate } from '../index.js';
+import { HOUSE_ROOT, KINDS, LICENCES, MEDIA, SHA256, isLegacySha, mediaOf, openLibrary, readShelf, sha, standardShelves, validate } from '../index.js';
 import * as hdf from '../../handdrawn/core/assets.js';
 
 const FIX = fileURLToPath(new URL('./fixtures/', import.meta.url));
@@ -22,7 +22,7 @@ test('the house shelf is hdf\'s store, read unchanged', () => {
   assert.deepEqual(house.entry('teapot'), raw.teapot);
   assert.equal(house.blobPath('teapot'), hdf.readCatalogue().payloadPath('teapot'));
   assert.equal(house.thumbPath('teapot'), join(HOUSE_ROOT, 'thumbs', `${raw.teapot.sha}.png`));
-  assert.ok(isLegacySha(raw.teapot.sha), 'hdf still hashes with sha1 until H1');
+  assert.ok(SHA256.test(raw.teapot.sha) && !isLegacySha(raw.teapot.sha), 'the house shelf is sha256 since H1');
   assert.deepEqual(house.orphans(), hdf.readCatalogue().orphans());
 });
 

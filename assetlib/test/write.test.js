@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
@@ -173,15 +174,15 @@ test('move refuses a target holding the id with other bytes; with the same bytes
 
 test('move rehashes a legacy sha1 entry as sha256: the blob is renamed, not re-encoded', () => {
   const dir = temp(), legacy = join(dir, 'legacy'), user = join(dir, 'user');
-  const house = readShelf(HOUSE_ROOT), e = house.entry('teapot');
+  const house = readShelf(HOUSE_ROOT), e = { ...house.entry('teapot'), sha: createHash('sha1').update(readFileSync(house.blobPath('teapot'))).digest('hex') };
   assert.ok(isLegacySha(e.sha));
   mkdirSync(join(legacy, 'blobs'), { recursive: true });
-  cpSync(house.blobPath(e), readShelf(legacy).blobPath(e));
+  cpSync(house.blobPath('teapot'), readShelf(legacy).blobPath(e));
   writeFileSync(join(legacy, 'catalogue.json'), `{\n"teapot": ${JSON.stringify(e)}\n}\n`);
 
   const lib = openLibrary({ shelves: [{ name: 'user', root: user }, { name: 'legacy', root: legacy }] });
   const moved = lib.move('teapot', 'user');
-  const bytes = readFileSync(house.blobPath(e));
+  const bytes = readFileSync(house.blobPath('teapot'));
   assert.equal(moved.entry.sha, sha(bytes));
   assert.deepEqual(readFileSync(moved.path), bytes);
   const { sha: _a, media, bytes: n, added, alpha, ...kept } = moved.entry, { sha: _b, ...was } = e;

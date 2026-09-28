@@ -5,7 +5,7 @@
 //   error  invalid    an entry validate() refuses
 //   error  blob       an entry whose blob is missing
 //   error  sha        a blob whose bytes do not hash to its entry's sha
-//   warn   sha1       hdf's 40-hex sha, until H1 rehashes the shelf as sha256
+//   warn   sha1       a 40-hex sha1 from before H1 (`asset migrate --sha256` rehashes the shelf)
 //   warn   licence    licence unknown
 //   warn   credit     CC-BY or CC-BY-SA with no credit (davidup's W_ASSET_CREDIT)
 //   warn   duplicate  the same bytes on two shelves (`move` collapses them)

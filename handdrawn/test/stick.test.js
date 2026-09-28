@@ -112,7 +112,7 @@ test('hdf stick writes the source, imports it compiled, and hdf retarget walks i
     assert.equal(hdf('clip', '--kind', 'pose', join(dir, 'pose-me.json'), '--name', 'me', '--root', root, '--out', dir).code, 0);
     const made = hdf('stick', '--name', 'sam', '--build', 'kid', '--style', 'tube', '--root', root, '--no-sheet');
     assert.equal(made.code, 0, made.out);
-    assert.match(made.out, /^sam {2}puppet {2}[0-9a-f]{40}\.json {2}own {2}\(new\)$/m);
+    assert.match(made.out, /^sam {2}puppet {2}[0-9a-f]{64}\.json {2}own {2}\(new\)$/m);
     assert.ok(existsSync(join(root, 'src', 'sam.stick.json')));
     assert.equal(hdf('stick', '--name', 'x', '--build', 'giant', '--root', root).code, 2);
     const walk = hdf('retarget', '--clip', 'me', '--to', 'sam', '--name', 'walk', '--root', root);

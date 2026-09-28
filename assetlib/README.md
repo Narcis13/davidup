@@ -81,7 +81,7 @@ cannot take it (plan A5, `use.js`). The agent copies it; it does not translate.
 
 ```js
 lib.use('teapot');
-// { davidup: { tool: 'register_asset', args: { id: 'teapot', type: 'image', src: 'asset:teapot@c33b51e19728',
+// { davidup: { tool: 'register_asset', args: { id: 'teapot', type: 'image', src: 'asset:teapot@611b2de0b430',
 //                  credit: 'Teapot, ca. 1755. The Metropolitan Museum of Art, Open Access (CC0)', licence: 'CC0' } },
 //   hdf: { assets: ['teapot'], code: "fromStore(['teapot'])",
 //          take: "photo(pin(fromStore(['teapot'])['teapot'], { x: 540, y: 540, h: 420 }))",
@@ -107,7 +107,7 @@ lib.update('teapot', { tags: ['met', 'kitchen'], desc: 'Silver teapot, three-qua
 
 `check(lib)` (`check.js`) lists what is wrong with the shelves, each finding `{ level, rule, shelf, id, detail }`:
 errors (`id` outside the rule, `invalid` entry, missing `blob`, a blob whose bytes miss its `sha`), warnings
-(`sha1` entries until H1, `licence` unknown, CC-BY with no `credit`, `duplicate` bytes across shelves, `shadow`,
+(`sha1` entries from before H1, `licence` unknown, CC-BY with no `credit`, `duplicate` bytes across shelves, `shadow`,
 `orphan` blob) and notes (no `thumb`, `desc` or `tags`).
 
 ## The `asset` CLI
@@ -122,6 +122,7 @@ asset tag teapot +kitchen -object           asset desc teapot "Silver teapot, th
 asset rm teapot    asset mv teapot --to house    asset gc --dry
 asset thumb teapot | --all                  asset sheet teapot cup fox --out candidates.png
 asset ls --shelf house                      asset check          (exits 1 on an error)
+asset migrate --sha256 house [--dry]        rehash a shelf written with sha1 (H1)
 ```
 
 `--project <dir>` opens `<dir>/assets` as the project shelf; `$DAVIDUP_ASSETS` and `$DAVIDUP_HOUSE` move the
@@ -131,6 +132,12 @@ length, a TrueType/OpenType/WOFF font's family, weight, style and glyphs, a JSON
 video or other audio through `ffprobe` (`$FFPROBE`) when it is there (`probe.js`). What only hdf can work out (a
 cutout's silhouette, a puppet's box from its parts) comes from the host or from `--with '<json>'`.
 `main(argv, host)` is the whole CLI; a host passes its `probes`, `previewers`, per-kind `derive` and `fields`.
+
+`migrateSha256(shelf, { dry })` (`migrate.js`, `asset migrate --sha256`) rehashes a shelf written with sha1:
+each blob is renamed by the sha256 of the same bytes, except a JSON payload naming another blob of the shelf by
+its sha1, which is rewritten to name its sha256 and hashed after. New blobs are written before the catalogue,
+old ones removed after it; it returns `map` (sha1 -> sha256) for whatever outside the shelf names a sha. hdf's
+house shelf was migrated in H1.
 
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
