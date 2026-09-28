@@ -1,9 +1,11 @@
 // A davidup video item played from a handdrawn film (hand-drawn film 3.0, S16).
 //
 // Renders the film the item names and points the item's video asset at the
-// mp4 (copied to `<project>/assets/hdf/`, registered through `register_asset`
-// so its duration and size are probed). The item itself is left alone: it
-// keeps its box, timing and fit, and plays the new clip.
+// mp4: put on the project's asset shelf (`<project>/assets/`, asset-library
+// plan D4) as a `video` record, probed, whose `made` says how it was rendered
+// (library id `hdf-<asset>`, or the asset id when it starts `hdf-`), and
+// registered through `register_asset` by its `asset:<id>@<sha12>` src. The item
+// itself is left alone: it keeps its box, timing and fit, and plays the new clip.
 //
 // With --alpha (hand-drawn film 4.0, D1) the film is drawn on no stock and
 // encoded with its transparency (ProRes 4444 .mov, or VP9 .webm with
@@ -38,7 +40,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
-  alphaCodec, BridgeError, chapterMarkers, describe, filmCues, filmPath, frameCount, parseArgs, registerFiles, renderFilm,
+  alphaCodec, BridgeError, chapterMarkers, clipDerived, derivedId, describe, filmCues, filmPath, frameCount, parseArgs, registerFiles, renderFilm,
   runMain, shown, writeMarkers,
 } from "./hdf-bridge.ts";
 
@@ -83,7 +85,8 @@ async function main(): Promise<number> {
   }
 
   const clip = await renderFilm(path, { look, frames, alpha, ...cues });
-  const [{ asset, warnings }] = await registerFiles(file, [{ id: item.asset, type: "video", file: clip }]);
+  const derived = clipDerived(derivedId(item.asset), clip.file, { film: path, store: clip.store, look, frames, alpha, cues: !!cues.cuesFrom });
+  const [{ asset, warnings }] = await registerFiles(file, [{ id: item.asset, derived }]);
   let marked = "";
   if (cues.cuesFrom) {
     const c = await filmCues(path, { look, ...cues });

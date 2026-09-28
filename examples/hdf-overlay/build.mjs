@@ -8,8 +8,9 @@
 //   bun run scripts/davidup-hdf-clip.ts examples/hdf-overlay/composition.json fox --alpha
 //   bun run src/cli/bin.ts render examples/hdf-overlay/composition.json -o examples/hdf-overlay/output/hdf-overlay.mp4
 //
-// The photos are copied to assets/photos/ and the clip lands in assets/hdf/;
-// neither is committed (see .gitignore), nor is the composition that names
+// The photos are copied to assets/photos/ and the clip lands on this folder's
+// asset shelf (assets/catalogue.json + assets/blobs/, a record whose `made`
+// says how it was rendered); neither is committed (see .gitignore), nor is the composition that names
 // them. `--alpha webm` makes a VP9 clip the editor's browser preview plays too.
 
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";

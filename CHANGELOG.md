@@ -9,6 +9,31 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### What hdf makes lands in the asset library (asset library D4)
+
+- `render_hdf_clip`, `scripts/hdf-to-davidup.ts` and
+  `scripts/davidup-hdf-clip.ts` no longer copy files into
+  `<project>/assets/hdf/` (or `handdrawn/out/davidup/` on a standalone
+  server). The clip (`video`), each sprite sheet (`image` with its `sheet`),
+  hand font (`font`, family `hdf-<hand>`) and model sheet (`image`) is put on
+  the project's shelf (the user's pool with no project) as a record whose
+  `made` says how it was made: `tool` (`hdf render`, `hdf sprite`,
+  `hdf hand --export-ttf`, `hdf sheet store`), `from` (the store records it
+  was drawn from: the film's puppets, hands and cutouts; the sprite's puppet;
+  the hand) and `args`. The composition registers it as
+  `asset:<id>@<sha12>`, so `get_asset` shows the `made` block and a store
+  puppet's `made.into` lists what was made from it (and davidup takes the
+  puppet through its sheet).
+- The record's id is the composition asset's, prefixed `hdf-` when it is not
+  already (`fox` → `hdf-fox`, so a clip never shadows the house fox). A
+  re-render replaces the record in place (same id, new sha), re-pins the
+  composition's src and deletes the blob it replaced.
+- `render_hdf_clip`'s `clip` and `sprites` results carry `libraryId` and
+  `shelf`; `src` is the pinned `asset:` src.
+- `hdf render` ends with a `store  <id> ...` line naming the store records the
+  film read (the clip's `made.from`).
+- assetlib exports `defaultProbes`.
+
 ### MCP: write and use the asset library (asset library D3)
 
 - Three new tools (66): `add_asset` puts a file on a shelf (`path`, `kind`,

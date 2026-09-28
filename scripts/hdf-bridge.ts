@@ -1,37 +1,36 @@
 // handdrawn ↔ davidup (hand-drawn film 3.0, S16). Shared by the two bridge
 // scripts, `hdf-to-davidup.ts` and `davidup-hdf-clip.ts`.
 //
-// The two projects meet through files, not a new item type: a handdrawn film
-// renders to an mp4 (`hdf render`), a puppet to a model sheet
-// (`hdf sheet store <id> --poses`), and both land in a davidup project as
-// ordinary assets. Registration goes through the engine's own `register_asset`
-// tool (dispatched in-process, as the MCP server would) so a video gets the
-// same ffprobe metadata and warnings an agent's call would get. Only the
-// `assets` array of composition.json is rewritten; the rest of the document is
-// left exactly as it was, so a running editor reloads it as an external edit.
+// The two projects meet through the asset library, not a new item type: a
+// handdrawn film renders to an mp4 (`hdf render`), a puppet to a model sheet
+// (`hdf sheet store <id> --poses`), and each lands on the davidup project's
+// shelf (`<project>/assets/`, asset-library plan D4) as a record whose `made`
+// says how it was made, then is registered by its `asset:<id>@<sha12>` src
+// through the engine's own `register_asset` tool (dispatched in-process, as
+// the MCP server would). Only the `assets` array of composition.json is
+// rewritten; the rest of the document is left exactly as it was, so a running
+// editor reloads it as an external edit.
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CompositionStore, dispatchTool, TOOLS } from "../src/mcp/index.js";
-import { HdfError, replaceMarkers, slug, type AlphaCodec } from "../src/mcp/hdf.js";
+import { HdfError, putDerived, registerDerived, replaceMarkers, type AlphaCodec, type Derived, type PutDerived } from "../src/mcp/hdf.js";
+import { openAssetLibrary } from "../src/assets/library.js";
 import { probeVideo } from "../src/drivers/node/ffprobe.js";
-import type { Asset, Marker, SpriteSheet } from "../src/schema/types.js";
-import type { AssetLicence } from "../src/schema/zod.js";
+import type { Asset, Marker } from "../src/schema/types.js";
 
 // The calls into hdf live with the MCP tool that makes them too (render_hdf_clip, 4.0 D5).
 export {
-  chapterMarkers, filmCues, filmPath, handFont, modelSheet, renderFilm, sheetOf, slug, spriteSheet, storeCredit,
-  type AlphaCodec, type CueFile, type CueOpts, type SpriteJson, type SpriteOpts,
+  chapterMarkers, clipDerived, derivedId, filmCues, filmPath, fontDerived, handFont, modelDerived, modelSheet, renderFilm,
+  sheetOf, slug, spriteDerived, spriteSheet, storeCredit,
+  type AlphaCodec, type CueFile, type CueOpts, type Derived, type SpriteJson, type SpriteOpts,
 } from "../src/mcp/hdf.js";
 
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const HANDDRAWN = join(REPO, "handdrawn");
-
-/** Where bridged files land inside a davidup project, relative to its root. */
-export const ASSET_DIR = "assets/hdf";
 
 /** An error the scripts print as one line: hdf's own (a film that is not there, a render that failed) too. */
 export const BridgeError = HdfError;
@@ -153,30 +152,31 @@ export function projectRoot(ref: string): string {
 }
 
 export interface Planned {
+  /** The composition asset id. */
   id: string;
-  type: "video" | "image" | "font";
-  /** The file to copy in. */
-  file: string;
-  /** A font's CSS family (4.0 D3). */
-  family?: string;
-  /** An image that is a sprite sheet (4.0 D2). */
-  sheet?: SpriteSheet;
-  /** The store entry's credit and licence (RE-14). */
-  credit?: string;
-  licence?: AssetLicence;
+  /** The record to put on the project shelf (its library id, file, kind, `made`...). */
+  derived: Derived;
 }
 
 export interface Registered {
   asset: Asset;
+  /** The library record it plays. */
+  put: PutDerived;
   warnings: string[];
 }
 
 const REGISTER = TOOLS.find((t) => t.name === "register_asset")!;
 
+/** Whether the library's shelves (for the project at `root`) hold an id: a store puppet or hand, say. */
+export function libraryHas(root: string | null): (id: string) => boolean {
+  const lib = openAssetLibrary(root ? { project: root } : {});
+  return (id) => lib.has(id);
+}
+
 /**
- * Copies each file into `<compositionDir>/assets/hdf/<id>.<ext>` and registers it
- * through `register_asset`, replacing an asset of the same id. Returns the
- * assets as they were written.
+ * Puts each file on the project's shelf (`<compositionDir>/assets/`) as a record that says how it was made,
+ * replacing a record of the same id in place, and registers it through `register_asset` by its
+ * `asset:<id>@<sha12>` src, replacing an asset of the same id. Returns the assets as they were written.
  */
 export async function registerFiles(compositionFile: string, planned: Planned[]): Promise<Registered[]> {
   const root = dirname(compositionFile);
@@ -187,24 +187,23 @@ export async function registerFiles(compositionFile: string, planned: Planned[])
   const meta = doc.composition;
   const store = new CompositionStore();
   store.createComposition({ width: meta.width, height: meta.height, fps: meta.fps, duration: meta.duration });
-  // A relative src is relative to composition.json, which is where the probe must look too.
-  const deps = { store, probeVideo: (src: string) => probeVideo(isAbsolute(src) ? src : join(root, src)) };
+  const lib = openAssetLibrary({ project: root });
+  const deps = { store, assetProject: root };
 
-  mkdirSync(join(root, ASSET_DIR), { recursive: true });
   const out: Registered[] = [];
   for (const p of planned) {
-    const src = `${ASSET_DIR}/${slug(p.id)}${extname(p.file)}`;
-    copyFileSync(p.file, join(root, src));
-    const r = await dispatchTool(REGISTER, {
-      id: p.id, type: p.type, src,
-      ...(p.sheet ? { sheet: p.sheet } : {}), ...(p.family ? { family: p.family } : {}),
-      ...(p.credit ? { credit: p.credit } : {}), ...(p.licence ? { licence: p.licence } : {}),
-    }, deps);
+    let put: PutDerived;
+    try {
+      put = await putDerived(lib, "project", p.derived, { probeVideo });
+    } catch (err) {
+      throw new BridgeError(`putting ${p.derived.id} on ${join(root, "assets")}: ${(err as Error).message}`);
+    }
+    const r = await dispatchTool(REGISTER, { ...registerDerived(p.id, p.derived, put), replace: true }, deps);
     if (!r.ok) throw new BridgeError(`register_asset ${p.id}: ${r.error.message}${r.error.hint ? ` (${r.error.hint})` : ""}`);
     const asset = store.getAsset(p.id)!;
     const at = doc.assets.findIndex((a: { id?: string }) => a?.id === p.id);
     if (at >= 0) doc.assets[at] = asset; else doc.assets.push(asset);
-    out.push({ asset, warnings: (r.result as { warnings?: string[] }).warnings ?? [] });
+    out.push({ asset, put, warnings: [...put.warnings, ...((r.result as { warnings?: string[] }).warnings ?? [])] });
   }
   writeFileSync(compositionFile, JSON.stringify(doc, null, 2) + "\n");
   return out;

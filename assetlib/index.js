@@ -38,6 +38,7 @@ export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } f
 export { LEVELS, RULES, check } from './check.js';
 export { migrateSha256 } from './migrate.js';
 export { KNOWN_HOSTS, addHost, loadHosts } from './hosts.js';
+export { defaultProbes } from './probe.js';
 export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to

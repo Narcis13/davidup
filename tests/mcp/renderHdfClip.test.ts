@@ -1,11 +1,13 @@
 // render_hdf_clip (hand-drawn film 4.0, D5): a declarative composition
 // summons an imperative clip in one call. The tool shells out to `hdf`
 // (node + skia-canvas + ffmpeg), so these tests render real, short clips.
+// What it makes lands in the asset library (asset-library plan D4): a record
+// on the project shelf, or the user's pool standalone (a temp dir here).
 
-import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { CompositionStore, dispatchTool, TOOLS, type DispatchRouter, type ToolDeps } from "../../src/mcp/index.js";
@@ -27,11 +29,23 @@ async function ok(p: ReturnType<typeof dispatchTool>) {
 }
 
 const tmps: string[] = [];
-const envWas = process.env.DAVIDUP_HDF_ROOT;
+const ENV = ["DAVIDUP_HDF_ROOT", "DAVIDUP_ASSETS", "DAVIDUP_PROJECT"] as const;
+const envWas = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
+let userShelf = "";
+beforeEach(() => {
+  // Standalone, a clip goes on the user's pool: a temp one, never ~/.davidup/assets.
+  userShelf = mkdtempSync(join(tmpdir(), "hdf-clip-user-"));
+  tmps.push(userShelf);
+  process.env.DAVIDUP_ASSETS = userShelf;
+  delete process.env.DAVIDUP_PROJECT;
+});
 afterEach(() => {
   while (tmps.length) rmSync(tmps.pop()!, { recursive: true, force: true });
-  if (envWas === undefined) delete process.env.DAVIDUP_HDF_ROOT; else process.env.DAVIDUP_HDF_ROOT = envWas;
+  for (const k of ENV) if (envWas[k] === undefined) delete process.env[k]; else process.env[k] = envWas[k];
 });
+
+const catalogue = (shelf: string) => JSON.parse(readFileSync(join(shelf, "catalogue.json"), "utf8")) as Record<string, Record<string, any>>;
+const PIN = /^asset:([a-z0-9-]+)@([0-9a-f]{12})$/;
 
 // Each test renders with hdf (node, skia-canvas, ffmpeg): seconds alone, more under a full run.
 describe("render_hdf_clip", { timeout: 60_000 }, () => {
@@ -41,9 +55,14 @@ describe("render_hdf_clip", { timeout: 60_000 }, () => {
     await ok(call("add_layer", { id: "fg", z: 1 }));
     const r = await ok(call("render_hdf_clip", { film: "mini", frames: 6, width: 240, place: { layerId: "fg", x: 20, y: 30, width: 240, height: 240, start: 0.5 } }));
 
-    expect(r.clip).toMatchObject({ assetId: "hdf-mini", width: 240, height: 240, duration: 0.5, hasAlpha: false });
-    expect(isAbsolute(r.clip.src)).toBe(true); // standalone: no project to be relative to
-    expect(existsSync(r.clip.src)).toBe(true);
+    expect(r.clip).toMatchObject({ assetId: "hdf-mini", libraryId: "hdf-mini", shelf: "user", width: 240, height: 240, duration: 0.5, hasAlpha: false });
+    // Standalone: a record on the user's pool, registered by its pinned asset: src.
+    const [, id, pin] = PIN.exec(r.clip.src)!;
+    expect(id).toBe("hdf-mini");
+    const entry = catalogue(userShelf)["hdf-mini"]!;
+    expect(entry.sha.startsWith(pin)).toBe(true);
+    expect(existsSync(join(userShelf, "blobs", `${entry.sha}.mp4`))).toBe(true);
+    expect(entry).toMatchObject({ kind: "video", licence: "own", sec: 0.5, w: 240, h: 240, made: { tool: "hdf render", args: { film: "films/mini.js", frames: 6, width: 240 } } });
     const doc = store.toJSON();
     expect(doc.assets.find((a) => a.id === "hdf-mini")).toMatchObject({ type: "video", src: r.clip.src, duration: 0.5 });
     expect(doc.items[r.itemId]).toMatchObject({
@@ -58,10 +77,19 @@ describe("render_hdf_clip", { timeout: 60_000 }, () => {
     const { store, call } = session();
     await ok(call("create_composition", { width: 640, height: 360, fps: 24, duration: 2 }));
     const r = await ok(call("render_hdf_clip", { film: "fox-wave", frames: 4, width: 160, alpha: "webm", asset: "fox" }));
-    expect(r.clip).toMatchObject({ assetId: "fox", hasAlpha: true });
-    expect(r.clip.src).toMatch(/fox\.webm$/);
+    // The record is hdf-fox, never `fox`: that would shadow the house shelf's fox puppet.
+    expect(r.clip).toMatchObject({ assetId: "fox", libraryId: "hdf-fox", hasAlpha: true });
+    expect(r.clip.src).toMatch(/^asset:hdf-fox@/);
     expect(r.itemId).toBeUndefined();
-    expect(store.toJSON().assets.find((a) => a.id === "fox")).toMatchObject({ type: "video", hasAlpha: true });
+    expect(store.toJSON().assets.find((a) => a.id === "fox")).toMatchObject({ type: "video", hasAlpha: true, licence: "own" });
+    expect(catalogue(userShelf)["hdf-fox"]).toMatchObject({ ext: "webm", alpha: true, made: { from: expect.arrayContaining(["fox"]), args: { alpha: "webm" } } });
+    expect(catalogue(userShelf).fox).toBeUndefined();
+
+    // get_asset shows how it was made, and that the fox puppet was drawn into it.
+    const got = await ok(call("get_asset", { id: "hdf-fox" }));
+    expect(got).toMatchObject({ shelf: "user", record: { made: { tool: "hdf render", args: { film: "films/fox-wave.js", frames: 4 } } } });
+    expect(got.made.from).toContainEqual({ id: "fox", kind: "puppet", shelf: "house" });
+    expect((await ok(call("get_asset", { id: "fox" }))).made.into).toContainEqual(expect.objectContaining({ id: "hdf-fox", kind: "video", tool: "hdf render" }));
   });
 
   it("an existing item plays the clip instead, keeping its box and timing", async () => {
@@ -108,7 +136,14 @@ describe("render_hdf_clip", { timeout: 60_000 }, () => {
     expect(r.sprites).toHaveLength(1);
     expect(r.sprites[0]).toMatchObject({ assetId: "hdf-sam-sprite", frameHeight: 64, cycles: { walk: { start: 0 } } });
     const asset = store.toJSON().assets.find((a) => a.id === "hdf-sam-sprite");
-    expect(asset).toMatchObject({ type: "image", sheet: { frameHeight: 64 } });
+    expect(asset).toMatchObject({ type: "image", sheet: { frameHeight: 64 }, src: expect.stringMatching(/^asset:hdf-sam-sprite@/) });
+    expect(catalogue(userShelf)["hdf-sam-sprite"]).toMatchObject({
+      kind: "image", ext: "png", sheet: { frameHeight: 64 }, tags: expect.arrayContaining(["sprite", "sam", "walk"]),
+      made: { tool: "hdf sprite", from: ["sam"], args: { name: "sam", film: "films/walk-on.js", states: "walk", h: 64 } },
+    });
+    // What search_assets offers for it is the same registration.
+    const hit = (await ok(call("search_assets", { q: "sam sprite", kind: "image" }))).hits[0];
+    expect(hit.use.davidup.args).toMatchObject({ id: "hdf-sam-sprite", type: "image", src: asset!.src, sheet: { frameHeight: 64 } });
     // RE-14: the store entry's credit and licence come with it.
     expect(asset).toMatchObject({ licence: "own", credit: expect.stringMatching(/^sam, drawn on the rig sheets/) });
     await ok(call("add_layer", { id: "fg", z: 0 }));
@@ -134,18 +169,34 @@ describe("render_hdf_clip", { timeout: 60_000 }, () => {
     expect(seen).toEqual(["render_hdf_clip", "register_asset", "add_video"]);
   });
 
-  it("in a project, copies the clip into <project>/assets/hdf and registers it relative to the project", async () => {
+  it("in a project, puts the clip on the project shelf, and a re-render replaces the record in place", async () => {
     const root = mkdtempSync(join(tmpdir(), "hdf-clip-proj-"));
     tmps.push(root);
     const project = { root, compositionPath: join(root, "composition.json"), libraryIndexPath: null, assetsDir: null, loadedAt: 0 };
     const projectControls = { current: () => project, list: () => [], open: async () => project, create: async () => project };
-    const { store, call } = session({ projectControls, probeVideo: (src: string) => import("../../src/drivers/node/ffprobe.js").then((m) => m.probeVideo(join(root, src))) });
+    const { store, call } = session({ projectControls });
     await ok(call("create_composition", { width: 640, height: 360, fps: 24, duration: 3 }));
     const r = await ok(call("render_hdf_clip", { film: "mini", frames: 2, width: 160 }));
-    expect(r.clip.src).toBe("assets/hdf/hdf-mini.mp4");
-    expect(existsSync(join(root, "assets", "hdf", "hdf-mini.mp4"))).toBe(true);
-    expect(store.toJSON().assets.find((a) => a.id === "hdf-mini")).toMatchObject({ src: "assets/hdf/hdf-mini.mp4" });
+    expect(r.clip).toMatchObject({ assetId: "hdf-mini", libraryId: "hdf-mini", shelf: "project", src: expect.stringMatching(PIN) });
+    const shelf = join(root, "assets");
+    const first = catalogue(shelf)["hdf-mini"]!;
+    expect(first).toMatchObject({ kind: "video", made: { tool: "hdf render", args: { film: "films/mini.js", frames: 2, width: 160 } } });
+    expect(first.sec).toBeCloseTo(2 / 12, 2);
+    expect(existsSync(join(root, "assets", "hdf"))).toBe(false); // no loose copies any more
+    expect(store.toJSON().assets.find((a) => a.id === "hdf-mini")).toMatchObject({ src: r.clip.src });
     expect(store.toJSON().assets.find((a) => a.id === "hdf-mini")!.duration).toBeCloseTo(2 / 12, 2);
+    expect(readdirSync(join(shelf, "blobs")).filter((f) => !f.endsWith(".tmp"))).toEqual([`${first.sha}.mp4`]);
+
+    // The same film again, one more drawing: the same record, new bytes, the old blob gone.
+    const again = await ok(call("render_hdf_clip", { film: "mini", frames: 3, width: 160 }));
+    const second = catalogue(shelf)["hdf-mini"]!;
+    expect(Object.keys(catalogue(shelf))).toEqual(["hdf-mini"]);
+    expect(second.sha).not.toBe(first.sha);
+    expect(second.made.args.frames).toBe(3);
+    expect(again.clip.src).toBe(`asset:hdf-mini@${second.sha.slice(0, 12)}`);
+    expect(store.toJSON().assets.find((a) => a.id === "hdf-mini")!.src).toBe(again.clip.src);
+    expect(readdirSync(join(shelf, "blobs"))).toEqual([`${second.sha}.mp4`]);
+    expect((await ok(call("validate", {}))).valid).toBe(true);
 
     const inProject = await call("render_hdf_clip", { film: join(root, "nothing.js") });
     expect(inProject.ok ? "ok" : inProject.error.code).toBe("E_NOT_FOUND");
@@ -157,7 +208,7 @@ describe("render_hdf_clip", { timeout: 60_000 }, () => {
     tmps.push(root);
     const project = { root, compositionPath: join(root, "composition.json"), libraryIndexPath: null, assetsDir: null, loadedAt: 0 };
     const projectControls = { current: () => project, list: () => [], open: async () => project, create: async () => project };
-    const { store, call } = session({ projectControls, probeVideo: (src: string) => import("../../src/drivers/node/ffprobe.js").then((m) => m.probeVideo(join(root, src))) });
+    const { store, call } = session({ projectControls });
     await ok(call("create_composition", { width: 640, height: 360, fps: 24, duration: 3 }));
     await ok(call("add_layer", { id: "fg", z: 0 }));
 

@@ -131,6 +131,9 @@ export interface PutResult {
 /** The facts a host's probes give for a payload, and a warning for each probe missing or failed. */
 export function probeFacts(entry: EntryInput, bytes: Uint8Array, probes?: Probes): Promise<{ facts: Record<string, unknown>; warnings: string[] }>;
 
+/** The probes assetlib has itself (probe.js): WAV headers, ffprobe for video and other audio, font tables, a PNG's pixels. */
+export function defaultProbes(opts?: { ffprobe?: string }): Required<Probes>;
+
 export interface ShelfSpec {
   name: string;
   root: string;

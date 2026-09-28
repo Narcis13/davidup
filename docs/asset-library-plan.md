@@ -502,6 +502,26 @@ find the records on the project shelf, `get_asset` shows the `made` block,
 and a second render of the same film with the same args replaces the entry
 in place (same id, new sha).
 
+*As built:* the shared parts are in `src/mcp/hdf.ts` (`putDerived`,
+`derivedId`, `clipDerived` / `spriteDerived` / `fontDerived` /
+`modelDerived`, `registerDerived`). The library id is the composition
+asset's id, prefixed `hdf-` when it is not already: one record per
+composition asset keeps the old rule that re-rendering one clip never swaps
+another's file, and a clip registered as `fox` is `hdf-fox`, not a project
+record shadowing the house fox puppet. With no project (a standalone server
+without `$DAVIDUP_PROJECT`) the record goes on the user's pool. `made.from`
+for a clip comes from a new last line of `hdf render`, `store  <id> ...`
+(the store records the film read, `core/store.js stored()`), so the film is
+never loaded inside davidup; `args.film` is the module's path under
+`handdrawn/` (`films/mini.js`) or absolute, and `args.cues: 'composition'`
+marks a render cut to the composition's marks (which args alone cannot
+remake). A replaced blob is deleted when no other entry on the shelf holds
+it. Records carry `licence: 'own'` for a render, the store entry's credit
+and licence for a sheet, sprite or font, and `desc`/`tags` written for
+search; palettes come from assetlib's PNG probe (sprites), a video's waits
+for D6. The same film with the same args renders the same bytes, so the
+"new sha" of the done-when is shown with one more frame.
+
 ### D5. The seed writes the user shelf
 
 *The pool remembers.*
@@ -771,7 +791,7 @@ then D and E in parallel, I when D4 exists, S last.
 | D1 | The `asset:` src scheme | 1 | A1 | [x] |
 | D2 | MCP: search and read | 1 | A3 A4 D1 | [x] |
 | D3 | MCP: write and use | 1 | A5 D2 | [x] |
-| D4 | Derived assets land in the library | 1 | A2 D1 H1 | [ ] |
+| D4 | Derived assets land in the library | 1 | A2 D1 H1 | [x] |
 | D5 | The seed writes the user shelf | 0.5 | A2 D1 | [ ] |
 | D6 | Palette and text-room facts | 1 | A2 | [ ] |
 | E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [ ] |

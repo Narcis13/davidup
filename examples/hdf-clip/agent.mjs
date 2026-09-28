@@ -8,9 +8,10 @@
 //
 //   node examples/hdf-clip/agent.mjs [--out examples/hdf-clip/output/fox-on-card.mp4]
 //
-// The clip lands in handdrawn/out/davidup/ (a standalone server has no
-// project); the composition, the preview and the render beside this file.
-// None of them is committed.
+// The clip lands in the asset library: a standalone server has no project, so
+// on the user's pool (~/.davidup/assets, or $DAVIDUP_ASSETS), as record
+// hdf-fox-wave whose `made` says how it was rendered; the composition, the
+// preview and the render beside this file. None of them is committed.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

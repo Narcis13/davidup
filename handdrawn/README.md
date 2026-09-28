@@ -1570,7 +1570,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 
 | command | does |
 |---|---|
-| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N] [--chapter N] [--alpha [mov\|webm]]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*`. `--chapter N` draws chapter N only, to `<film>-ch<N>.*`, with its stretch of the score (with `--frames`, that chapter's first N frames). `--alpha` draws on no stock (the `~alpha` look modifier on every look the film pins) and keeps the transparency: `<film>-alpha.mov` (ProRes 4444) or `.webm` (VP9), `-final.mov` / `.webm` with sound, the contact sheet on a checkerboard; `golden --alpha` is a golden of its own |
+| `hdf render <film> [--ar 1:1\|16:9\|9:16] [--width 1080] [--workers 4] [--out dir] [--cache-mb 512] [--disk-cache] [--no-sound] [--frames N] [--chapter N] [--alpha [mov\|webm]]` | mp4, wav, `-final.mp4` with sound, contact sheet; records frame hashes for `changed`. `--frames N` draws the first N frames only, to `<film>-<N>f.*`. `--chapter N` draws chapter N only, to `<film>-ch<N>.*`, with its stretch of the score (with `--frames`, that chapter's first N frames). `--alpha` draws on no stock (the `~alpha` look modifier on every look the film pins) and keeps the transparency: `<film>-alpha.mov` (ProRes 4444) or `.webm` (VP9), `-final.mov` / `.webm` with sound, the contact sheet on a checkerboard; `golden --alpha` is a golden of its own; a last line `store  <id> ...` names the store records the film read (davidup's `made.from`) |
 | `hdf grid <film> [--n 24] [--width 480] [--chapter N]` | n frames spread over the film (or one chapter, `<film>-ch<N>-grid.jpg`) in one JPEG |
 | `hdf only <film> 0,37,74` | single frames as full-size PNGs |
 | `hdf board <film> [--cols 4] [--chapter N] [--shots]` | the time tree as text plus one storyboard card per shot; in a film with chapters, one card per chapter (its title card written, span, shots, cuts, recipes, lint), `--chapter N` that chapter's shots, `--shots` every shot |
@@ -1604,32 +1604,36 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 
 The two projects meet through a pair of bun scripts at the repo root, not a new
 item type: a film becomes an ordinary davidup video asset. Both render with
-`hdf render`, copy the files into the project's `assets/hdf/` and register them
-through davidup's own `register_asset` (in-process, so a clip gets the same
-ffprobe metadata an agent's call would). Only the `assets` array of
-`composition.json` is rewritten, and an open editor reloads it.
+`hdf render`, put what it made on the project's asset shelf (`assets/`, see
+`assetlib/README.md`) as a record whose `made` says how it was made (the tool,
+the store records it was drawn from, its arguments; `asset show <id>`), and
+register it through davidup's own `register_asset` (in-process) by its
+`asset:<id>@<sha12>` src. The record's id is the asset's, prefixed `hdf-` when
+it is not already, so a clip registered as `fox` is `hdf-fox` and never
+shadows the store's fox. Only the `assets` array of `composition.json` is
+rewritten, and an open editor reloads it.
 
 ```bash
 # a film (and the model sheet of every store puppet it reads) into a project
 bun run scripts/hdf-to-davidup.ts fox-and-teapot --project ~/videos/promo [--look risoPop]
-#   hdf-fox-and-teapot  video  assets/hdf/hdf-fox-and-teapot.mp4  (1080x1080, 19.5s, sound)
-#   hdf-fox-model       image  assets/hdf/hdf-fox-model.jpg
+#   hdf-fox-and-teapot  video  asset:hdf-fox-and-teapot@3be0c1d2e4f5  (1080x1080, 19.5s, sound)
+#   hdf-fox-model       image  asset:hdf-fox-model@9a41f07c22d1
 
 # a video item that plays a film: render it and point the item's asset at the mp4
 bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox-clip
 
 # an overlay: the film on no stock, its transparency kept (ProRes 4444, or --alpha webm)
 bun run scripts/davidup-hdf-clip.ts ~/videos/promo/composition.json fox --alpha
-#   fox plays hdf-fox-wave  video  assets/hdf/hdf-fox-wave.mov  (1080x1080, 3s, alpha, sound)
+#   fox plays hdf-fox-wave  video  asset:hdf-fox-wave@5c2e8b01a9f3  (1080x1080, 3s, alpha, sound)
 
 # the hand the film letters in, as a font for davidup's text items (--fonts a,b for others)
 bun run scripts/hdf-to-davidup.ts walk-on --look 'paperInk~hand:test' --project ~/videos/promo --fonts --no-video --no-sheets
-#   hdf-test-font  font  assets/hdf/hdf-test-font.ttf  (family hdf-test)
+#   hdf-test-font  font  asset:hdf-test-font@e17d20b4c6a8  (family hdf-test)
 
 # the cast as sprite sheets, no video: each member an image with its `sheet`
 bun run scripts/hdf-to-davidup.ts walk-on --project ~/videos/promo --sprites --no-video --no-sheets
-#   hdf-fox-sprite  image  assets/hdf/hdf-fox-sprite.png  (33 frames of 234x300, cycles idle, walk, happy)
-#   hdf-sam-sprite  image  assets/hdf/hdf-sam-sprite.png  (33 frames of 317x300, cycles idle, walk, happy)
+#   hdf-fox-sprite  image  asset:hdf-fox-sprite@0b6fd3a8e512  (33 frames of 234x300, cycles idle, walk, happy)
+#   hdf-sam-sprite  image  asset:hdf-sam-sprite@74c9e0a1b3d6  (33 frames of 317x300, cycles idle, walk, happy)
 ```
 
 `--project` takes a project directory or a name from the editor's recents
@@ -1641,8 +1645,9 @@ name, never a path: it is looked up in `films/`, then beside
 from a store entry is registered with the entry's `credit` and `licence`, which
 davidup assets carry (its `validate` warns on a CC-BY asset with no credit). Both take `--look`,
 `--frames N` (a quick first N frames) and `--dry-run` (print what it would
-register; renders nothing). Re-running replaces the assets in place, so after
-editing a film, run the script again. Place a registered film with `add_video`
+register; renders nothing). Re-running replaces the records and the assets in
+place (same id, a new sha when the pixels moved, the old blob deleted), so
+after editing a film, run the script again. Place a registered film with `add_video`
 or from the editor like any other clip.
 
 From an agent the same thing is one MCP call (4.0 D5): davidup's

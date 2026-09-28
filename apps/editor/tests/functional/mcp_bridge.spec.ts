@@ -20,7 +20,7 @@
 
 import { test } from '@japa/runner'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -567,7 +567,7 @@ test.group('MCP bridge · render_hdf_clip (4.0 D5)', (group) => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  test('renders into <project>/assets/hdf and registers and places the clip through the bus', async ({
+  test("puts the clip on the project's shelf and registers and places it through the bus", async ({
     assert,
   }) => {
     const seen: Array<{ kind: string; source: string }> = []
@@ -584,13 +584,19 @@ test.group('MCP bridge · render_hdf_clip (4.0 D5)', (group) => {
       { kind: 'register_asset', source: 'mcp' },
       { kind: 'add_video', source: 'mcp' },
     ])
-    assert.isTrue(existsSync(join(dir, 'assets', 'hdf', 'hdf-mini.mp4')))
+    // Asset library D4: a record on the project's shelf, registered by its pinned asset: src.
+    const catalogue = () =>
+      JSON.parse(readFileSync(join(dir, 'assets', 'catalogue.json'), 'utf8')) as Record<string, { sha: string; made?: { tool: string } }>
+    const entry = catalogue()['hdf-mini']
+    assert.equal(entry.made?.tool, 'hdf render')
+    assert.isTrue(existsSync(join(dir, 'assets', 'blobs', `${entry.sha}.mp4`)))
+    assert.isFalse(existsSync(join(dir, 'assets', 'hdf')))
     const stored = projectStore.composition as {
       assets: Array<{ id: string; src: string }>
       items: Record<string, { type: string; asset?: string; name?: string }>
       layers: Array<{ id: string; items: string[] }>
     }
-    assert.deepInclude(stored.assets.find((a) => a.id === 'hdf-mini'), { src: 'assets/hdf/hdf-mini.mp4' })
+    assert.deepInclude(stored.assets.find((a) => a.id === 'hdf-mini'), { src: `asset:hdf-mini@${entry.sha.slice(0, 12)}` })
     const itemId = (res as { result: { itemId: string } }).result.itemId
     assert.deepInclude(stored.items[itemId], { type: 'video', asset: 'hdf-mini', name: 'hdf:mini' })
     assert.include(stored.layers[0].items, itemId)
@@ -603,7 +609,12 @@ test.group('MCP bridge · render_hdf_clip (4.0 D5)', (group) => {
       buildRouter(commandBus, projectStore)
     )
     assert.isTrue(again.ok, JSON.stringify(again))
-    assert.lengthOf((projectStore.composition as { assets: unknown[] }).assets, 1)
+    const assets = (projectStore.composition as { assets: Array<{ id: string; src: string }> }).assets
+    assert.lengthOf(assets, 1)
+    // The same record with the new bytes, and the composition re-pinned to them.
+    const next = catalogue()['hdf-mini']
+    assert.notEqual(next.sha, entry.sha)
+    assert.equal(assets[0].src, `asset:hdf-mini@${next.sha.slice(0, 12)}`)
   })
 })
 

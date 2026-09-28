@@ -34,6 +34,17 @@ async function project(): Promise<string> {
   return join(dir, "proj");
 }
 
+// The project's asset shelf (asset-library plan D4): where the bridge puts what hdf made.
+const shelf = (root: string) => JSON.parse(readFileSync(join(root, "assets", "catalogue.json"), "utf8")) as Record<string, Record<string, any>>;
+const PINNED = "asset:[a-z0-9-]+@[0-9a-f]{12}";
+
+// A library tool on the project's shelves, as the MCP server would run it with the project open.
+async function libraryTool(root: string, name: string, args: Record<string, unknown>) {
+  const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store: new CompositionStore(), assetProject: root });
+  if (!r.ok) throw new Error(`${name}: ${r.error.message}`);
+  return r.result as Record<string, any>;
+}
+
 // The assets the project's composition.json holds, listed by the engine's own list_assets.
 async function listAssets(root: string) {
   const store = new CompositionStore();
@@ -60,18 +71,43 @@ describe("hdf-to-davidup", () => {
     expect(err).toMatch(/no davidup project/);
   });
 
-  it("registers a 6-frame mini render into a project, and list_assets lists it", async () => {
+  it("puts a 6-frame mini render on the project shelf, registers it by its asset: src, and list_assets lists it", async () => {
     const root = await project();
     const { code, out, err } = bun("hdf-to-davidup.ts", "mini", "--project", root, "--frames", "6");
     expect(code, err).toBe(0);
-    expect(out).toMatch(/hdf-mini {2}video {2}assets\/hdf\/hdf-mini\.mp4/);
-    expect(existsSync(join(root, "assets", "hdf", "hdf-mini.mp4"))).toBe(true);
+    expect(out).toMatch(/hdf-mini {2}video {2}asset:hdf-mini@[0-9a-f]{12}/);
+    expect(existsSync(join(root, "assets", "hdf"))).toBe(false);
+    const entry = shelf(root)["hdf-mini"]!;
+    expect(entry).toMatchObject({ kind: "video", ext: "mp4", licence: "own", w: 1080, h: 1080, sec: 0.5, made: { tool: "hdf render", from: [], args: { film: "films/mini.js", frames: 6 } } });
+    expect(existsSync(join(root, "assets", "blobs", `${entry.sha}.mp4`))).toBe(true);
     const video = (await listAssets(root)).find((a) => a.id === "hdf-mini");
-    expect(video).toMatchObject({ type: "video", src: "assets/hdf/hdf-mini.mp4", width: 1080, height: 1080, duration: 0.5 });
+    expect(video).toMatchObject({ type: "video", src: `asset:hdf-mini@${entry.sha.slice(0, 12)}`, width: 1080, height: 1080, duration: 0.5 });
+    // get_asset shows how it was made.
+    expect(await libraryTool(root, "get_asset", { id: "hdf-mini" })).toMatchObject({ shelf: "project", record: { made: { tool: "hdf render" } } });
 
-    // A second run replaces the asset instead of failing on a duplicate id.
-    expect(bun("hdf-to-davidup.ts", "mini", "--project", root, "--frames", "6").code).toBe(0);
-    expect((await listAssets(root)).filter((a) => a.id === "hdf-mini")).toHaveLength(1);
+    // A second run replaces the record and the asset in place instead of failing on a duplicate id.
+    expect(bun("hdf-to-davidup.ts", "mini", "--project", root, "--frames", "7", "--no-sheets").code).toBe(0);
+    const again = shelf(root)["hdf-mini"]!;
+    expect(Object.keys(shelf(root))).toEqual(["hdf-mini"]);
+    expect(again.sha).not.toBe(entry.sha);
+    expect(again.made.args.frames).toBe(7);
+    const assets = (await listAssets(root)).filter((a) => a.id === "hdf-mini");
+    expect(assets).toHaveLength(1);
+    expect(assets[0]!.src).toBe(`asset:hdf-mini@${again.sha.slice(0, 12)}`);
+    expect(existsSync(join(root, "assets", "blobs", `${entry.sha}.mp4`))).toBe(false);
+  });
+
+  it("a film that reads the store names what it read in the clip's made.from, and each puppet's model sheet is made from it", async () => {
+    const root = await project();
+    const { code, err } = bun("hdf-to-davidup.ts", "fox-wave", "--project", root, "--frames", "2");
+    expect(code, err).toBe(0);
+    const cat = shelf(root);
+    expect(cat["hdf-fox-wave"]!.made).toMatchObject({ tool: "hdf render", from: expect.arrayContaining(["fox"]) });
+    expect(cat["hdf-fox-model"]).toMatchObject({ kind: "image", ext: "jpg", made: { tool: "hdf sheet store", from: ["fox"], args: { puppet: "fox", poses: true } } });
+    // The house fox now lists them as made from it, and davidup takes the puppet through what was made.
+    const fox = await libraryTool(root, "get_asset", { id: "fox" });
+    expect(fox.made.into.map((r: { id: string }) => r.id)).toEqual(expect.arrayContaining(["hdf-fox-model", "hdf-fox-wave"]));
+    expect(fox.use.davidup).toMatchObject({ via: "hdf-fox-model", args: { type: "image", src: expect.stringMatching(/^asset:hdf-fox-model@/) } });
   });
 });
 
@@ -92,26 +128,27 @@ describe("hdf-to-davidup --sprites", () => {
     const { code, out, err } = bun("hdf-to-davidup.ts", "walk-on", "--project", root, "--sprites", "sam",
       "--no-video", "--no-sheets", "--states", "walk,happy", "--h", "120");
     expect(code, err).toBe(0);
-    expect(out).toMatch(/hdf-sam-sprite {2}image {2}assets\/hdf\/hdf-sam-sprite\.png {2}\(9 frames of \d+x120, cycles walk, happy\)/);
+    expect(out).toMatch(/hdf-sam-sprite {2}image {2}asset:hdf-sam-sprite@[0-9a-f]{12} {2}\(9 frames of \d+x120, cycles walk, happy\)/);
+    expect(shelf(root)["hdf-sam-sprite"]).toMatchObject({ kind: "image", ext: "png", made: { tool: "hdf sprite", from: ["sam"], args: { name: "sam", states: "walk,happy", h: 120 } } });
     const asset = (await listAssets(root)).find((a) => a.id === "hdf-sam-sprite") as {
+      src: string;
       sheet: { frameWidth: number; frameHeight: number; count: number; fps: number; cycles: Record<string, { start: number; count: number; speed?: number; loop?: boolean }>; anchor: { x: number; y: number } };
     };
     expect(asset.sheet).toMatchObject({ frameHeight: 120, count: 9, fps: 12, cycles: { walk: { start: 0, count: 8 }, happy: { start: 8, count: 1, loop: false } } });
     expect(asset.sheet.cycles.walk!.speed).toBeGreaterThan(0);
 
     // What an agent does next, on a stage of its own: the sheet registered as the bridge registered it, a
-    // sprite on it walking at the sheet's own speed, feet on a line. (Rendered from this test's cwd, so the
-    // src is absolute.)
+    // sprite on it walking at the sheet's own speed, feet on a line. (The project's shelf is searched first.)
     const store = new CompositionStore();
     const call = async (name: string, args: Record<string, unknown>) => {
-      const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store, skiaCanvas: skia as never });
+      const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store, skiaCanvas: skia as never, assetProject: root });
       if (!r.ok) throw new Error(`${name}: ${r.error.message}`);
       return r.result as Record<string, unknown>;
     };
     const { frameWidth: fw, frameHeight: fh, anchor } = asset.sheet;
     const speed = asset.sheet.cycles.walk!.speed!;
     await call("create_composition", { width: 640, height: 360, fps: 12, duration: 2, background: "#ffffff" });
-    await call("register_asset", { id: "sam", type: "image", src: join(root, "assets/hdf/hdf-sam-sprite.png"), sheet: asset.sheet });
+    await call("register_asset", { id: "sam", type: "image", src: asset.src, sheet: asset.sheet });
     await call("add_layer", { id: "cast", z: 10 });
     await call("add_sprite", { layerId: "cast", id: "sam", asset: "sam", x: 200, y: 330, width: fw, height: fh, anchorX: anchor.x, anchorY: anchor.y, cycle: "walk" });
     const png = async (time: number) => Buffer.from((await call("render_preview_frame", { time, format: "png" })).image as string, "base64");
@@ -143,20 +180,21 @@ describe("hdf-to-davidup --fonts", () => {
     const root = await project();
     const { code, out, err } = bun("hdf-to-davidup.ts", "walk-on", "--project", root, "--fonts", "test", "--no-video", "--no-sheets");
     expect(code, err).toBe(0);
-    expect(out).toMatch(/hdf-test-font {2}font {2}assets\/hdf\/hdf-test-font\.ttf {2}\(family hdf-test\)/);
+    expect(out).toMatch(/hdf-test-font {2}font {2}asset:hdf-test-font@[0-9a-f]{12} {2}\(family hdf-test\)/);
+    expect(shelf(root)["hdf-test-font"]).toMatchObject({ kind: "font", ext: "ttf", family: "hdf-test", made: { tool: "hdf hand --export-ttf", from: ["test"], args: { hand: "test" } } });
     const asset = (await listAssets(root)).find((a) => a.id === "hdf-test-font");
-    expect(asset).toMatchObject({ type: "font", family: "hdf-test", src: "assets/hdf/hdf-test-font.ttf" });
+    expect(asset).toMatchObject({ type: "font", family: "hdf-test", src: expect.stringMatching(new RegExp(`^${PINNED}$`)) });
     // RE-14: the store's credit and licence for the hand come with it.
     expect(asset).toMatchObject({ licence: "own", credit: expect.stringMatching(/^synthesised from the house hand/) });
 
     const store = new CompositionStore();
     const call = async (name: string, args: Record<string, unknown>) => {
-      const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store, skiaCanvas: skia as never });
+      const r = await dispatchTool(TOOLS.find((t) => t.name === name)!, args, { store, skiaCanvas: skia as never, assetProject: root });
       if (!r.ok) throw new Error(`${name}: ${r.error.message}`);
       return r.result as Record<string, unknown>;
     };
     await call("create_composition", { width: 640, height: 200, fps: 12, duration: 1, background: "#ffffff" });
-    await call("register_asset", { id: "hand", type: "font", src: join(root, "assets/hdf/hdf-test-font.ttf"), family: "hdf-test" });
+    await call("register_asset", { id: "hand", type: "font", src: asset!.src, family: "hdf-test" });
     await call("add_layer", { id: "t", z: 0 });
     await call("add_text", { layerId: "t", id: "title", text: "Hamburgefonstiv", font: "hand", fontSize: 64, color: "#000000", x: 20, y: 60 });
     const ink = async () => {
@@ -192,8 +230,10 @@ describe("davidup-hdf-clip", () => {
     expect(bun("davidup-hdf-clip.ts", file, "badge").err).toMatch(/is a shape, not a video/);
     const { code, out, err } = bun("davidup-hdf-clip.ts", file, "clip", "--frames", "6");
     expect(code, err).toBe(0);
-    expect(out).toMatch(/clip plays ball {2}video {2}assets\/hdf\/ball\.mp4/);
+    // The record is hdf-ball (a library id of its own), the composition's asset keeps its id.
+    expect(out).toMatch(/clip plays ball {2}video {2}asset:hdf-ball@[0-9a-f]{12}/);
     expect((await listAssets(root)).find((a) => a.id === "ball")).toMatchObject({ type: "video", duration: 0.5 });
+    expect(shelf(root)["hdf-ball"]).toMatchObject({ kind: "video", made: { tool: "hdf render", args: { film: "films/mini.js", frames: 6, cues: "composition" } } });
     // The item itself is untouched.
     expect(JSON.parse(readFileSync(file, "utf8")).items.clip).toEqual(doc.items.clip);
 
@@ -225,8 +265,9 @@ describe("davidup-hdf-clip", () => {
     for (const [codec, ext] of [["mov", "prores"], ["webm", "vp9"]] as const) {
       const { code, out, err } = bun("davidup-hdf-clip.ts", file, "fox", "--frames", "6", "--alpha", codec);
       expect(code, err).toBe(0);
-      expect(out).toMatch(new RegExp(`fox plays fox {2}video {2}assets/hdf/fox\\.${codec} .*alpha`));
+      expect(out).toMatch(/fox plays fox {2}video {2}asset:hdf-fox@[0-9a-f]{12} .*alpha/);
       expect((await listAssets(root)).find((a) => a.id === "fox")).toMatchObject({ type: "video", hasAlpha: true, codec: ext });
+      expect(shelf(root)["hdf-fox"]).toMatchObject({ ext: codec, alpha: true, made: { args: { alpha: codec } } });
     }
   });
 });

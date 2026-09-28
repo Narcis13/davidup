@@ -533,7 +533,8 @@ render_hdf_clip     { film: "fox-wave", alpha: "webm", width: 540,
 {
   "clip": {
     "assetId": "hdf-fox-wave",
-    "src": "/…/davidup/handdrawn/out/davidup/hdf-fox-wave.webm",
+    "src": "asset:hdf-fox-wave@5c2e8b01a9f3",
+    "libraryId": "hdf-fox-wave", "shelf": "user",
     "duration": 3.008, "width": 540, "height": 540,
     "hasAlpha": true, "hasAudio": true
   },
@@ -571,6 +572,13 @@ The rest of the tool:
 - `sprites: true` (or names) also draws the film's cast as sprite sheets,
   registered as `hdf-<name>-sprite` images with their `sheet`, so
   `add_sprite { cycle: "walk" }` walks them. `video: false` draws only those.
+- What it makes goes in the asset library, not loose files: the clip and each
+  sheet is a record on the project's shelf (the user's pool on a standalone
+  server, as above) whose `made` names the tool, the store records drawn into
+  it (`from`: the fox puppet here) and the arguments. The composition
+  registers it pinned, `asset:<id>@<sha12>`; a re-render replaces the record
+  in place and re-pins. `get_asset { id: "hdf-fox-wave" }` shows the `made`
+  block, and `get_asset { id: "fox" }` lists the clip under `made.into`.
 - The call blocks while `hdf` renders: about a second for this clip, a
   minute or more for a long film at full size. It needs a davidup checkout
   (or `DAVIDUP_HDF_ROOT`) and node on `PATH`; otherwise it returns

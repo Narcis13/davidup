@@ -4,16 +4,19 @@
 //
 // hdf is a node program (skia-canvas, worker threads, ffmpeg), so it always
 // runs as a subprocess, never inside the server. Its files land in
-// `handdrawn/out/`; callers copy what they register. The package lives beside
+// `handdrawn/out/`; callers put what they register in the asset library
+// ({@link putDerived}: a record that says how it was made, asset-library plan
+// D4) and register it by its `asset:<id>@<sha12>` src. The package lives beside
 // src/ in the repo (`../../handdrawn` from this module, from src/ or dist/
 // alike), or wherever `DAVIDUP_HDF_ROOT` points. An install without it (the
 // npm package does not ship handdrawn/) gets `null` from `hdfRoot()`.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assetSrc, defaultProbes, type AssetRecord, type Library, type Probes } from "../../assetlib/index.js";
 import type { Marker, SpriteSheet } from "../schema/types.js";
 import { ASSET_LICENCES, type AssetLicence } from "../schema/zod.js";
 
@@ -139,18 +142,36 @@ export interface RenderOpts extends CueOpts {
   alpha?: AlphaCodec | undefined;
 }
 
+/** The store ids a render says the film read (its `store  <id> ...` line), sorted; [] when it read none. */
+export function storeRead(out: string): string[] {
+  const line = out.split("\n").map((l) => l.trim()).find((l) => /^store\s/.test(l));
+  return line ? line.split(/\s+/).slice(1).filter(Boolean).sort() : [];
+}
+
 /**
  * `hdf render`; returns the clip with sound when the film has a score, else the picture: an mp4, or with
- * `alpha` (4.0 D1) a .mov / .webm drawn on no stock, whose transparency davidup keeps.
+ * `alpha` (4.0 D1) a .mov / .webm drawn on no stock, whose transparency davidup keeps. `store`: the store
+ * records the film read (the clip's `made.from`).
  */
-export async function renderFilm(path: string, opts: RenderOpts = {}): Promise<string> {
+export async function renderFilm(path: string, opts: RenderOpts = {}): Promise<{ file: string; store: string[] }> {
   const args = ["render", path, "--out", hdfOut(), ...cueArgs(opts)];
   if (opts.look) args.push("--look", opts.look);
   if (opts.ar) args.push("--ar", opts.ar);
   if (opts.width !== undefined) args.push("--width", String(opts.width));
   if (opts.frames !== undefined) args.push("--frames", String(opts.frames));
   if (opts.alpha) args.push("--alpha", opts.alpha);
-  return printed(await hdf(args), opts.alpha ? `.${opts.alpha}` : ".mp4");
+  const out = await hdf(args);
+  return { file: printed(out, opts.alpha ? `.${opts.alpha}` : ".mp4"), store: storeRead(out) };
+}
+
+/**
+ * How a render names its film in `made.args`: its path under the handdrawn package (`films/mini.js`), else
+ * the absolute path, so `asset remake` (I1) can run it again.
+ */
+export function filmRef(path: string, root = hdfRoot()): string {
+  if (!root) return path;
+  const rel = relative(root, path);
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : path;
 }
 
 /** What `hdf cues` writes (handdrawn/cli/cues.mjs). Seconds from the film's first frame. */
@@ -249,4 +270,178 @@ export async function handFont(hand: string): Promise<string> {
 /** `hdf sheet store <id> --poses`; returns the model sheet's path. */
 export async function modelSheet(puppet: string): Promise<string> {
   return printed(await hdf(["sheet", "store", puppet, "--poses"]), ".jpg");
+}
+
+// ──────────────── into the asset library (asset-library plan D4) ────────────────
+
+/**
+ * The library id of what hdf made for a composition asset: `hdf-mini` stays, `fox` becomes `hdf-fox` (so a
+ * clip registered as `fox` never shadows the house shelf's fox puppet), lower-cased to the library's rule.
+ */
+export function derivedId(assetId: string): string {
+  const id = assetId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return id.startsWith("hdf-") ? id : `hdf-${id || "asset"}`;
+}
+
+/** Something hdf made, to be put on a shelf. */
+export interface Derived {
+  /** The library id (see {@link derivedId}). */
+  id: string;
+  kind: "video" | "image" | "font";
+  /** The file hdf wrote. */
+  file: string;
+  name: string;
+  desc: string;
+  tags: string[];
+  /** How it was made: `{ tool, from, args }`; `at` is filled in. */
+  made: { tool: string; from: string[]; args: Record<string, unknown> };
+  credit?: string | undefined;
+  licence?: AssetLicence | undefined;
+  /** A font's family. */
+  family?: string | undefined;
+  /** An image's sprite sheet (4.0 D2). */
+  sheet?: SpriteSheet | undefined;
+}
+
+export interface PutDerived {
+  id: string;
+  shelf: string;
+  /** `asset:<id>@<sha12>`, the src the composition registers. */
+  src: string;
+  /** The blob. */
+  path: string;
+  record: AssetRecord;
+  /** new, replaced (same id, other bytes) or unchanged (the same bytes again). */
+  status: "new" | "replaced" | "unchanged";
+  warnings: string[];
+}
+
+const dropUndefined = <T extends Record<string, unknown>>(o: T) =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+
+/**
+ * Puts a file hdf made on `shelf` as a record with its `made` block, probed (a video's duration, size, alpha
+ * and sound; a font's tables; a PNG's palette), replacing the id in place. `probes` go over assetlib's own.
+ * A video's palette waits for a frame grabber (plan D6), so it is not asked for. The blob it replaces is
+ * deleted when no other entry on the shelf holds it (a re-render leaves no orphan behind).
+ */
+export async function putDerived(lib: Library, shelf: string, d: Derived, probes: Probes = {}): Promise<PutDerived> {
+  const own = defaultProbes();
+  probes = { ...own, pixels: (file, info) => (info.ext === "png" ? own.pixels(file, info) : null), ...probes };
+  const bytes = readFileSync(d.file);
+  const target = lib.shelf(shelf);
+  const had = target.entries.get(d.id) ?? null;
+  const entry = {
+    id: d.id,
+    kind: d.kind,
+    name: d.name,
+    desc: d.desc,
+    tags: [...new Set(d.tags.map((t) => t.toLowerCase()).filter(Boolean))],
+    file: basename(d.file),
+    licence: d.licence ?? "own",
+    credit: d.credit ?? "",
+    source: "",
+    made: { tool: d.made.tool, from: [...d.made.from], args: dropUndefined(d.made.args), at: new Date().toISOString() },
+    ...(d.family !== undefined ? { family: d.family } : {}),
+    ...(d.sheet !== undefined ? { sheet: d.sheet } : {}),
+  };
+  const out = await lib.put(shelf, entry, bytes, { probes, by: d.made.tool });
+  if (had && had.sha !== out.entry.sha && ![...target.entries.values()].some((e) => e.sha === had.sha)) {
+    for (const p of [target.blobPath(had), target.thumbPath(had)]) rmSync(p, { force: true });
+  }
+  const record = { ...out.entry, id: d.id, shelf, shadowed: [] } as unknown as AssetRecord;
+  const before = lib.shelves.map((s) => s.name).slice(0, lib.shelves.findIndex((s) => s.name === shelf));
+  const hiding = before.filter((n) => lib.shelf(n).has(d.id));
+  return {
+    id: d.id,
+    shelf,
+    src: assetSrc({ id: d.id, sha: String(out.entry.sha) }),
+    path: out.path,
+    record,
+    status: !had ? "new" : had.sha === out.entry.sha ? "unchanged" : "replaced",
+    warnings: [
+      ...out.warnings,
+      ...(hiding.length ? [`'${d.id}' on ${shelf} is shadowed by the record of the same id on ${hiding.join(", ")}.`] : []),
+    ],
+  };
+}
+
+/** The render of a film as a library `video` (`made.tool: 'hdf render'`, `made.from`: the store records it read). */
+export function clipDerived(
+  id: string,
+  file: string,
+  o: { film: string; store: string[]; look?: string | undefined; ar?: HdfAspect | undefined; width?: number | undefined; frames?: number | undefined; alpha?: AlphaCodec | undefined; cues?: boolean | undefined },
+): Derived {
+  const name = filmName(o.film);
+  const look = o.look?.split("~")[0];
+  return {
+    id, kind: "video", file,
+    name: `${name} (hand-drawn clip)`,
+    desc: `The hand-drawn film ${name}${o.look ? ` in ${o.look}` : ""}${o.alpha ? ", drawn on no paper (alpha)" : ""}, rendered by hdf${o.frames !== undefined ? ` (first ${o.frames} drawings)` : ""}`,
+    tags: ["hdf", "hand-drawn", "clip", name, ...(look ? [look] : []), ...(o.alpha ? ["alpha", "overlay"] : [])],
+    licence: "own",
+    made: {
+      tool: "hdf render",
+      from: o.store,
+      args: { film: filmRef(o.film), look: o.look, ar: o.ar, width: o.width, frames: o.frames, alpha: o.alpha, ...(o.cues ? { cues: "composition" } : {}) },
+    },
+  };
+}
+
+/** A cast member's sprite sheet as a library `image` with its `sheet` (`made.from`: the store puppet, when it is one). */
+export function spriteDerived(
+  id: string,
+  sprite: { png: string; sheet: SpriteSheet },
+  o: { name: string; film: string; look?: string | undefined; states?: string | undefined; h?: number | undefined; has: (id: string) => boolean },
+): Derived {
+  const cycles = Object.keys(sprite.sheet.cycles ?? {});
+  return {
+    id, kind: "image", file: sprite.png,
+    name: `${o.name} sprite sheet`,
+    desc: `${o.name} as a sprite sheet drawn by hdf (${cycles.join(", ") || `${sprite.sheet.count} frames`}), from the film ${filmName(o.film)}`,
+    tags: ["hdf", "hand-drawn", "sprite", "sheet", "character", o.name, ...cycles],
+    ...storeCredit(o.name),
+    sheet: sprite.sheet,
+    made: {
+      tool: "hdf sprite",
+      from: o.has(o.name) ? [o.name] : [],
+      args: { name: o.name, film: filmRef(o.film), look: o.look, states: o.states, h: o.h },
+    },
+  };
+}
+
+/** A hand as a TrueType `font`, family `hdf-<hand>` (`made.from`: the hand, unless it is the house hand). */
+export function fontDerived(id: string, file: string, hand: string, has: (id: string) => boolean): Derived {
+  return {
+    id, kind: "font", file,
+    name: `${hand} hand (font)`,
+    desc: `The hand-drawn hand ${hand} as a TrueType font, its centre lines swept by its pen`,
+    tags: ["hdf", "hand-drawn", "font", "handwriting", hand],
+    ...storeCredit(hand),
+    family: `hdf-${slug(hand)}`,
+    made: { tool: "hdf hand --export-ttf", from: has(hand) ? [hand] : [], args: { hand } },
+  };
+}
+
+/** A store puppet's model sheet (`hdf sheet store <id> --poses`) as a library `image`. */
+export function modelDerived(id: string, file: string, puppet: string): Derived {
+  return {
+    id, kind: "image", file,
+    name: `${puppet} model sheet`,
+    desc: `The model sheet of the puppet ${puppet}: its poses and views, drawn by hdf`,
+    tags: ["hdf", "hand-drawn", "model-sheet", "character", puppet],
+    ...storeCredit(puppet),
+    made: { tool: "hdf sheet store", from: [puppet], args: { puppet, poses: true } },
+  };
+}
+
+/** register_asset's input for a composition asset `assetId` playing a record putDerived wrote. */
+export function registerDerived(assetId: string, d: Derived, put: PutDerived): Record<string, unknown> {
+  return {
+    id: assetId, type: d.kind, src: put.src,
+    ...(d.family !== undefined ? { family: d.family } : {}),
+    ...(d.sheet !== undefined ? { sheet: d.sheet } : {}),
+    ...(put.record.credit ? { credit: put.record.credit } : {}),
+    licence: put.record.licence,
+  };
 }

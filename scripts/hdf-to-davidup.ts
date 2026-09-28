@@ -1,8 +1,11 @@
 // A handdrawn film into a davidup project (hand-drawn film 3.0, S16).
 //
 // Renders the film with `hdf render`, draws the model sheet of every store
-// puppet the film reads (`hdf sheet store <id> --poses`), copies them into
-// `<project>/assets/hdf/` and registers them through `register_asset`:
+// puppet the film reads (`hdf sheet store <id> --poses`), puts them on the
+// project's asset shelf (`<project>/assets/`, asset-library plan D4) as records
+// whose `made` says how each was made (the tool, the store records it was drawn
+// from, its arguments), and registers them through `register_asset` by their
+// `asset:<id>@<sha12>` src:
 //
 //   hdf-<film>[-<look>]   video   the render (with its score when it has one)
 //   hdf-<puppet>-model    image   the puppet's model sheet
@@ -24,7 +27,9 @@
 // plays the film, its chapters become composition markers (`source: "hdf:<item>"`). --no-cues does
 // neither.
 //
-// Re-running replaces those assets in place. Place the video with `add_video`
+// Re-running replaces those records and assets in place (same id, new sha when
+// the pixels moved). `get_asset` / `asset show <id>` shows a record's `made`.
+// Place the video with `add_video`
 // (or the editor) like any other clip.
 //
 // USAGE
@@ -52,8 +57,9 @@
 //   --help      this text
 
 import {
-  BridgeError, chapterMarkers, describe, filmCast, filmCues, filmHand, filmInfo, filmPath, frameCount, handFont, modelSheet, parseArgs, projectRoot,
-  registerFiles, renderFilm, runMain, shown, slug, spriteSheet, storeCredit, writeMarkers, type CueOpts, type Planned,
+  BridgeError, chapterMarkers, clipDerived, derivedId, describe, filmCast, filmCues, filmHand, filmInfo, filmPath, fontDerived, frameCount, handFont,
+  libraryHas, modelDerived, modelSheet, parseArgs, projectRoot, registerFiles, renderFilm, runMain, shown, slug, spriteDerived, spriteSheet,
+  writeMarkers, type CueOpts, type Planned,
 } from "./hdf-bridge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -118,14 +124,25 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const planned: Planned[] = video ? [{ id: videoId, type: "video", file: await renderFilm(path, { look, frames, ...cues }) }] : [];
-  // A sheet, a sprite or a font drawn from a store entry carries its credit and licence (RE-14).
-  for (const p of puppets) planned.push({ id: `hdf-${slug(p)}-model`, type: "image", file: await modelSheet(p), ...storeCredit(p) });
-  for (const p of sprites) {
-    const s = await spriteSheet(p, { film: path, look, states, h });
-    planned.push({ id: `hdf-${slug(p)}-sprite`, type: "image", file: s.png, sheet: s.sheet, ...storeCredit(p) });
+  const planned: Planned[] = [];
+  if (video) {
+    const clip = await renderFilm(path, { look, frames, ...cues });
+    planned.push({ id: videoId, derived: clipDerived(derivedId(videoId), clip.file, { film: path, store: clip.store, look, frames, cues: !!cues.cuesFrom }) });
   }
-  for (const h of fonts) planned.push({ id: `hdf-${slug(h)}-font`, type: "font", file: await handFont(h), family: `hdf-${slug(h)}`, ...storeCredit(h) });
+  // A sheet, a sprite or a font drawn from a store entry carries its credit and licence (RE-14), and names it in `made.from`.
+  const has = libraryHas(root);
+  for (const p of puppets) {
+    const id = `hdf-${slug(p)}-model`;
+    planned.push({ id, derived: modelDerived(derivedId(id), await modelSheet(p), p) });
+  }
+  for (const p of sprites) {
+    const id = `hdf-${slug(p)}-sprite`;
+    planned.push({ id, derived: spriteDerived(derivedId(id), await spriteSheet(p, { film: path, look, states, h }), { name: p, film: path, look, states, h, has }) });
+  }
+  for (const h of fonts) {
+    const id = `hdf-${slug(h)}-font`;
+    planned.push({ id, derived: fontDerived(derivedId(id), await handFont(h), h, has) });
+  }
   if (!planned.length) throw new BridgeError("nothing to register (--no-video with no sheets, no --sprites and no --fonts)");
   const done = await registerFiles(join(root!, "composition.json"), planned);
   const lines = done.flatMap(({ asset, warnings }) => [describe(asset), ...warnings.map((w) => `  warning: ${w}`)]);

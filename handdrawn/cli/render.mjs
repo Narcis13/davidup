@@ -9,6 +9,8 @@
 // --alpha [mov|webm] (4.0 D1): no stock (paper() and night() draw nothing), encoded with its alpha as
 //   out/<film>-alpha.mov (ProRes 4444, the default) or .webm (VP9), the sound muxed into -final.mov / .webm;
 //   the contact sheet shows the frames on a checkerboard. The overlay clip for a davidup composition.
+// Its last line, when the film read any, is `store  <id> <id> ...`: the store records it read, which davidup
+// keeps as the `made.from` of the clip it puts in the asset library (asset-library plan D4).
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -19,6 +21,7 @@ import { chapterOf, contactSheet, outDir, variant } from './sheets.mjs';
 import { defaultWorkers, produceFrames } from './frames.mjs';
 import { tracker } from './changed.mjs';
 import { UsageError } from './load.mjs';
+import { stored } from '../core/store.js';
 
 function ffmpeg(args) {
   return new Promise((res, rej) => {
@@ -82,6 +85,8 @@ export async function run([path], flags, { loadFilm }) {
   }
   await sheet.write(`${base}-sheet.jpg`, { cues: localCues(film), events: audio?.events ?? [] });
   lines.push(`${base}-sheet.jpg`);
+  const read = stored();
+  if (read.length) lines.push(`store  ${read.join(' ')}`);
   process.stdout.write(lines.join('\n') + '\n');
   return 0;
 }
