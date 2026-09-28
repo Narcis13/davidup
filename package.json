@@ -51,11 +51,14 @@
   },
   "bin": {
     "davidup-mcp": "dist/mcp/bin.js",
-    "davidup": "dist/cli/bin.js"
+    "davidup": "dist/cli/bin.js",
+    "asset": "assetlib/cli.js"
   },
   "files": [
     "dist",
     "editor-dist",
+    "assetlib",
+    "!assetlib/test",
     "fonts",
     "src",
     "README.md",

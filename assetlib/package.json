@@ -7,11 +7,17 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+  "bin": {
+    "asset": "./cli.js"
+  },
       "default": "./index.js"
     },
     "./*": "./*"
   },
   "types": "./index.d.ts",
+  "bin": {
+    "asset": "./cli.js"
+  },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\""
   },

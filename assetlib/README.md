@@ -98,6 +98,40 @@ hdf takes its seven kinds: `assets` for the film, `code` to read it, `take` to p
 a hand (`~hand:`) or a cutout's colours (`~from:`); a record off the house shelf is read with `{ from }`. A
 font is handed to `hdf hand --font` as `cli`. The house-shelf calls are run in hdf by `test/use.test.js`.
 
+A record's own fields change in place, validated, without touching the blob; the fields the bytes decide
+(`kind media sha ext bytes`) are refused, and a null removes a field:
+
+```js
+lib.update('teapot', { tags: ['met', 'kitchen'], desc: 'Silver teapot, three-quarter view' });
+```
+
+`check(lib)` (`check.js`) lists what is wrong with the shelves, each finding `{ level, rule, shelf, id, detail }`:
+errors (`id` outside the rule, `invalid` entry, missing `blob`, a blob whose bytes miss its `sha`), warnings
+(`sha1` entries until H1, `licence` unknown, CC-BY with no `credit`, `duplicate` bytes across shelves, `shadow`,
+`orphan` blob) and notes (no `thumb`, `desc` or `tags`).
+
+## The `asset` CLI
+
+The library from a terminal (plan A6, `cli.js`; the root package's `asset` bin):
+
+```
+asset find warm paper --media raster        ranked hits, why each matched; with none, what the library has
+asset show teapot                           record, shelves, blob, thumb, made from / into, the use block
+asset add paper.png --kind stock --name "Warm paper" --licence own --tags paper,warm
+asset tag teapot +kitchen -object           asset desc teapot "Silver teapot, three-quarter view"
+asset rm teapot    asset mv teapot --to house    asset gc --dry
+asset thumb teapot | --all                  asset sheet teapot cup fox --out candidates.png
+asset ls --shelf house                      asset check          (exits 1 on an error)
+```
+
+`--project <dir>` opens `<dir>/assets` as the project shelf; `$DAVIDUP_ASSETS` and `$DAVIDUP_HOUSE` move the
+other two. Writes go to `--shelf`, else the project, else the user's pool. `--json` prints what a verb found.
+`asset add` reads what the payload says by itself: a raster's header and (for a PNG) its colours, a WAV's
+length, a TrueType/OpenType/WOFF font's family, weight, style and glyphs, a JSON kind's own counts and box, a
+video or other audio through `ffprobe` (`$FFPROBE`) when it is there (`probe.js`). What only hdf can work out (a
+cutout's silhouette, a puppet's box from its parts) comes from the host or from `--with '<json>'`.
+`main(argv, host)` is the whole CLI; a host passes its `probes`, `previewers`, per-kind `derive` and `fields`.
+
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
 

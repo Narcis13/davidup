@@ -295,3 +295,23 @@ test('colours: the quantiser hdf photo uses, and a silhouette counts only what i
   assert.deepEqual(colours(full, { sil: ring }), [{ hex: '#c82828', area: 1 }]);
   assert.deepEqual(colours(full), [{ hex: '#c82828', area: 0.9375 }, { hex: '#1e3cc8', area: 0.0625 }]);
 });
+
+test('update: an entry\'s own fields in place, validated whole; the bytes\' fields refused, the blob untouched', async () => {
+  const root = temp(), lib = openLibrary({ shelves: [{ name: 'user', root }] }), bytes = png(8, 4, HALVES.data);
+  await lib.put('user', IMAGE, bytes);
+  const entry = readShelf(root).entry('halves');
+  const before = lib.get('halves'), blobs = files(join(root, 'blobs'));
+  const out = lib.update('halves', { tags: ['test', 'red'], desc: null, credit: 'me' });
+  assert.equal(out.shelf, 'user');
+  const { desc, ...rest } = entry;
+  assert.equal(desc, 'red and blue');
+  assert.deepEqual(readShelf(root).entry('halves'), { ...rest, tags: ['test', 'red'], credit: 'me' }, 'null removes a field');
+  assert.equal(lib.get('halves').sha, before.sha);
+  assert.deepEqual(files(join(root, 'blobs')), blobs);
+  assert.throws(() => lib.update('halves', { sha: 'a'.repeat(64) }), /sha follow the bytes/);
+  assert.throws(() => lib.update('halves', { kind: 'stock' }), /kind follow the bytes/);
+  assert.throws(() => lib.update('halves', { licence: 'mine' }), /would not be a valid image[\s\S]*licence 'mine'/);
+  assert.deepEqual(readShelf(root).entry('halves').tags, ['test', 'red'], 'a refused update writes nothing');
+  assert.throws(() => lib.update('nope', { tags: [] }), /no asset 'nope'/);
+  rmSync(root, { recursive: true });
+});

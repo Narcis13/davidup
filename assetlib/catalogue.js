@@ -11,6 +11,7 @@
 //
 //   shelf.put({ id: 'teapot', kind: 'cutout', ... }, bytes)   hash, derive, validate, write the blob if new, save
 //   shelf.remove('teapot')                                    the entry, and its blob and thumb when nothing shares them
+//   shelf.update('teapot', { tags: [...] })                   an entry's own fields, in place; the blob untouched
 //   shelf.gc()                                                blobs and thumbs no entry points at
 //
 // These are synchronous and derive only what the bytes say by themselves (type, size, header dims); the
@@ -31,6 +32,9 @@ const EMPTY = '{\n}\n';
 // Fields a record carries that are not the entry's: the id is the catalogue's key, the rest are where the
 // library found it. A record from lib.get() puts back as the entry it came from.
 const NOT_STORED = ['id', 'shelf', 'shadowed'];
+
+// Fields the bytes decide: update() refuses them; a new payload goes through put().
+export const FROM_BYTES = Object.freeze(['kind', 'media', 'sha', 'ext', 'bytes']);
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -132,6 +136,25 @@ export function readShelf(root, { name } = {}) {
       entries.set(id, full);
       shelf.save();
       return { id, entry: full, path, created };
+    },
+    // Changes an entry's own fields in place (tags, desc, credit, licence...): the whole entry is validated
+    // before the catalogue is saved, and the blob is not touched, so a legacy sha1 entry stays as it is.
+    // The fields the bytes decide (FROM_BYTES) are refused; a null removes a field. Returns { id, entry }.
+    update(id, patch, { fields } = {}) {
+      const e = shelf.entry(id);
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error(`asset '${id}': an update is an object of fields`);
+      const locked = Object.keys(patch).filter((k) => FROM_BYTES.includes(k));
+      if (locked.length) throw new Error(`asset '${id}': ${locked.join(', ')} follow the bytes; put the payload again to change them`);
+      const next = { ...e };
+      for (const [k, v] of Object.entries(patch)) {
+        if (NOT_STORED.includes(k)) continue;
+        if (v === null || v === undefined) delete next[k]; else next[k] = v;
+      }
+      const bad = validate(id, next, { fields });
+      if (bad.length) throw new Error(`asset '${id}' would not be a valid ${e.kind} (shelf ${shelfName}):\n  ${bad.join('\n  ')}`);
+      entries.set(id, next);
+      shelf.save();
+      return { id, entry: next };
     },
     // Drops the entry, then its blob and thumb when no other entry shares the bytes; saves. Returns the paths
     // deleted.

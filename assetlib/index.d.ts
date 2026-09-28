@@ -74,6 +74,8 @@ export function isLegacySha(sha: unknown): boolean;
 export function validate(id: string, entry: unknown, opts?: { fields?: Partial<Record<Kind, Record<string, FieldCheck>>> }): string[];
 /** 64 hex sha256 over some bytes (a string is hashed as utf8). */
 export function sha(bytes: string | Uint8Array): string;
+/** The fields the bytes decide (kind, media, sha, ext, bytes): update() refuses them. */
+export const FROM_BYTES: readonly string[];
 
 /** RGBA pixels a host decoded (skia's ImageData, say). */
 export interface Pixels {
@@ -151,6 +153,8 @@ export interface Shelf {
   payload(entry: string | Entry): Uint8Array;
   /** Hash, derive, validate, then write (blob if new, catalogue atomically). Throws, having written nothing, when invalid. */
   put(entry: EntryInput, bytes: Uint8Array | string, opts?: PutOptions): PutResult;
+  /** An entry's own fields in place, validated whole; the blob untouched. FROM_BYTES are refused; null removes a field. */
+  update(id: string, patch: Partial<Record<string, unknown>>, opts?: { fields?: PutOptions['fields'] }): { id: string; entry: Entry };
   /** The entry, and its blob and thumb when nothing else shares them; returns the paths deleted. */
   remove(id: string): string[];
   /** Deletes orphan blobs and stale thumbs (`dry` lists them only). */
@@ -462,6 +466,8 @@ export interface Library {
   sheet(refs: string | string[], opts?: { cols?: number; cell?: number; previewers?: Previewers; force?: boolean; out?: string }): Promise<Sheet & { path: string | null; cells: (SheetCell & { shelf: string })[]; warnings: string[] }>;
   /** Probe, then put on `shelf` (null: the project, else the user's pool). Rejects, having written nothing, when invalid. */
   put(shelf: string | null, entry: EntryInput, bytes: Uint8Array | string, opts?: { probes?: Probes; fields?: PutOptions['fields']; by?: string }): Promise<PutResult & { shelf: string; warnings: string[] }>;
+  /** A record's own fields (tags, desc, credit...) on `shelf` (default: where it resolves), validated; the blob untouched. */
+  update(id: string, patch: Partial<Record<string, unknown>>, opts?: { shelf?: string; fields?: PutOptions['fields'] }): { id: string; shelf: string; entry: Entry };
   remove(id: string, opts?: { shelf?: string }): { id: string; shelf: string; removed: string[] };
   /** Blob, thumb and entry to `to` (rehashed sha256, validated), then removed from where it was. */
   move(id: string, to: string, opts?: { from?: string; fields?: PutOptions['fields'] }): { id: string; from: string; to: string; entry: Entry; path: string };
@@ -469,3 +475,22 @@ export interface Library {
 }
 
 export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker; previewers?: Previewers; thumbCache?: string }): Library;
+
+// ---------- check (A6) ----------
+
+export type CheckLevel = 'error' | 'warn' | 'note';
+export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'sha1' | 'licence' | 'credit' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags';
+export interface Finding {
+  level: CheckLevel;
+  rule: CheckRule;
+  shelf: string;
+  /** The entry it is about; null for an orphan blob (then `path`). */
+  id: string | null;
+  detail: string;
+  path?: string;
+}
+export const LEVELS: readonly CheckLevel[];
+/** Each rule's level. */
+export const RULES: Readonly<Record<CheckRule, CheckLevel>>;
+/** What is wrong with a library's shelves (or the ones named), errors first; reads every blob once, writes nothing. */
+export function check(lib: Library, opts?: { shelves?: string[]; fields?: PutOptions['fields']; thumbCache?: string }): Finding[];

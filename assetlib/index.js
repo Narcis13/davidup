@@ -13,6 +13,7 @@
 //   await lib.sheet(['teapot', 'fox']);   // one contact sheet PNG with id captions
 //   lib.use('teapot');                 // { davidup: { tool: 'register_asset', args }, hdf: { assets, code, ... } }
 //   await lib.put('user', { id: 'paper', kind: 'stock', ... }, bytes, { probes });   // one way in
+//   lib.update('paper', { tags: ['paper', 'warm'] });   // an entry's own fields, in place
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
 //
@@ -30,10 +31,11 @@ import { searchIndex } from './search.js';
 import { newest, useOf } from './use.js';
 
 export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
-export { readShelf, sha } from './catalogue.js';
+export { FROM_BYTES, readShelf, sha } from './catalogue.js';
 export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
+export { LEVELS, RULES, check } from './check.js';
 export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
@@ -330,6 +332,15 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
       const out = s.put(entry, buf, { facts, fields, by });
       index();
       return { ...out, shelf: s.name, warnings };
+    },
+    // Changes a record's own fields (tags, desc, credit, licence...) on `shelf` (default: the shelf it resolves
+    // to), validated before the catalogue is saved; the blob is not touched. A null removes a field; the fields
+    // the bytes decide are refused. Returns { id, shelf, entry }.
+    update(id, patch, { shelf, fields } = {}) {
+      const s = shelf ? lib.shelf(shelf) : holder(id);
+      const out = s.update(id, patch, { fields });
+      index();
+      return { ...out, shelf: s.name };
     },
     // Removes an id from `shelf` (default: the shelf it resolves to), with its blob and thumb when nothing
     // else on that shelf shares them. Returns { id, shelf, removed: [paths] }.
