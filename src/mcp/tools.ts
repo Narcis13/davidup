@@ -72,6 +72,14 @@ import {
   DEFAULT_FONT_ID,
   isBundledFontId,
 } from "../assets/bundled.js";
+import { isAssetSrc } from "../assets/assetSrc.js";
+import { assetFileProblem } from "../assets/node.js";
+import {
+  AssetRefError,
+  resolveLibraryAsset,
+  type ResolvedLibraryAsset,
+} from "../assets/library.js";
+import { DAVIDUP_TYPE } from "../../assetlib/index.js";
 import { EASING_NAMES, PARAMETRIC_EASINGS } from "../easings/index.js";
 import { EFFECT_TWEENABLE, listTweenable } from "../schema/tweenable.js";
 import {
@@ -623,12 +631,16 @@ const validateTool = defineTool({
   name: "validate",
   title: "Validate composition",
   description:
-    "Run schema + semantic validation. Returns { valid, errors, warnings }.",
+    "Run schema + semantic validation. Returns { valid, errors, warnings }. " +
+    "An `asset:` or `global:` src with no file behind it on this machine is a W_ASSET_FILE_MISSING warning.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
   },
-  handler: (args, { store }) => {
-    return store.validate(args.compositionId);
+  handler: async (args, deps) => {
+    const project = await libraryProject(deps);
+    return deps.store.validate(args.compositionId, {
+      checkAssetFile: (src) => assetFileProblem(src, { project }),
+    });
   },
 });
 
@@ -727,6 +739,65 @@ function videoMetadataWarnings(meta: VideoMetadata): string[] {
   return warnings;
 }
 
+// ── The asset library (docs/asset-library-plan.md D1) ──
+//
+// An `asset:<id>[@sha12]` src names a library record. Its shelves are the
+// open project's `assets/` (editor-hosted), else `$DAVIDUP_PROJECT`'s, then
+// the user's pool and the house shelf.
+
+/** The project whose `assets/` shelf is searched first: the editor's open project, when there is one. */
+async function libraryProject(deps: ToolDeps): Promise<string | undefined> {
+  if (!deps.projectControls) return undefined;
+  try {
+    return (await deps.projectControls.current())?.root ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** An `asset:` src's blob and record, or the MCP error saying why not (E_ASSET_MISSING, E_ASSET_STALE). */
+function libraryAsset(src: string, project: string | undefined): ResolvedLibraryAsset {
+  try {
+    return resolveLibraryAsset(src, { project });
+  } catch (err) {
+    if (!(err instanceof AssetRefError)) throw err;
+    if (err.code === "E_ASSET_STALE") {
+      throw new MCPToolError("E_ASSET_STALE", err.message, "Re-pin the src to the record's sha, or drop the `@…` pin to follow the record.");
+    }
+    if (err.code === "E_ASSET_MISSING") {
+      throw new MCPToolError("E_ASSET_MISSING", err.message, "`asset find <words>` lists what the shelves hold; `asset add <file>` puts a file on one.");
+    }
+    throw new MCPToolError("E_INVALID_VALUE", err.message, "An asset src is asset:<id> or asset:<id>@<sha12>.");
+  }
+}
+
+// What ffprobe would have said, from the record (register_asset with an
+// `asset:` src probes nothing: the library measured the blob when it came in).
+const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+const defined = <T extends Record<string, unknown>>(o: T): Partial<T> =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+
+function audioFactsOf(r: Record<string, unknown>): AudioMetadata {
+  return defined({
+    duration: num(r.sec),
+    sampleRate: num(r.rate),
+    channels: num(r.channels),
+    codec: typeof r.codec === "string" ? r.codec : undefined,
+  }) as AudioMetadata;
+}
+
+function videoFactsOf(r: Record<string, unknown>): VideoMetadata {
+  return defined({
+    duration: num(r.sec),
+    width: num(r.w),
+    height: num(r.h),
+    fps: num(r.fps),
+    hasAlpha: typeof r.alpha === "boolean" ? r.alpha : undefined,
+    codec: typeof r.codec === "string" ? r.codec : undefined,
+    hasAudio: typeof r.audio === "boolean" ? r.audio : undefined,
+  }) as VideoMetadata;
+}
+
 const registerAsset = defineTool({
   name: "register_asset",
   title: "Register asset",
@@ -744,11 +815,16 @@ const registerAsset = defineTool({
     ">60s duration, or an exotic codec (e.g. AV1). For audio and video, if ffprobe is unavailable " +
     "the asset is registered without metadata and a `warnings` entry is returned. " +
     `Any asset may carry its \`credit\` (the attribution line) and \`licence\` (${ASSET_LICENCES.join(", ")}); ` +
-    "a CC-BY or CC-BY-SA asset with no credit gets a `warnings` entry here and W_ASSET_CREDIT from validate.",
+    "a CC-BY or CC-BY-SA asset with no credit gets a `warnings` entry here and W_ASSET_CREDIT from validate. " +
+    "`src` may name an asset-library record instead of a file: `asset:<id>` (follows the record) or `asset:<id>@<sha12>` " +
+    "(only those bytes; a later render errors E_ASSET_STALE if the record moves on). It resolves on the project's " +
+    "`assets/` shelf, then the user's pool, then the house shelf; E_ASSET_MISSING names the shelves searched. " +
+    "The record's kind must be the `type` (cutout and stock are images, sample is audio), its facts stand in for " +
+    "ffprobe's, and a font takes the record's family when `family` is left out.",
   inputSchema: {
     id: z.string().min(1),
     type: z.enum(["image", "font", "audio", "video"]),
-    src: z.string().min(1),
+    src: z.string().min(1).describe("A path, `global:<path>`, or `asset:<id>[@<sha12>]` (an asset-library record)."),
     family: z.string().min(1).optional(),
     sheet: SpriteSheetSchema.optional(),
     credit: z.string().min(1).optional().describe("Who made it and where it is from, as the credits must say it."),
@@ -761,6 +837,29 @@ const registerAsset = defineTool({
   },
   handler: async (args, deps) => {
     const { store } = deps;
+    // An `asset:` src: the record decides the type and stands in for ffprobe.
+    const lib = isAssetSrc(args.src) ? libraryAsset(args.src, await libraryProject(deps)) : undefined;
+    if (lib) {
+      const takes = DAVIDUP_TYPE[lib.record.kind] ?? null;
+      if (takes !== args.type) {
+        throw new MCPToolError(
+          "E_ASSET_TYPE_MISMATCH",
+          `${args.src} is a ${lib.record.kind} record, which davidup takes as ${takes === null ? "no asset type" : `"${takes}"`}, not "${args.type}".`,
+          takes === null
+            ? "Register a record made from it (a sprite sheet, an image or a font; `asset show <id>` lists them)."
+            : `Register it with type "${takes}".`,
+        );
+      }
+      const container =
+        args.type === "audio" ? isSupportedAudioSrc(lib.path) : args.type === "video" ? isSupportedVideoSrc(lib.path) : true;
+      if (!container) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `${args.src} is a .${String(lib.record.ext)} ${args.type}, which davidup cannot play.`,
+          `${args.type === "audio" ? "Audio" : "Video"} sources must be one of: ${(args.type === "audio" ? AUDIO_ASSET_EXTENSIONS : VIDEO_ASSET_EXTENSIONS).join(", ")}.`,
+        );
+      }
+    }
     const replace = { replace: args.replace === true };
     const credit = {
       ...(args.credit !== undefined ? { credit: args.credit } : {}),
@@ -775,7 +874,9 @@ const registerAsset = defineTool({
       let metadata: AudioMetadata = {};
       // Probe only supported containers — an unsupported src is rejected by
       // store.registerAsset below, so skip the wasted subprocess.
-      if (isSupportedAudioSrc(args.src)) {
+      if (lib) {
+        metadata = audioFactsOf(lib.record);
+      } else if (isSupportedAudioSrc(args.src)) {
         const probe = deps.probeAudio ?? defaultProbeAudio;
         try {
           metadata = await probe(args.src);
@@ -809,7 +910,9 @@ const registerAsset = defineTool({
       let metadata: VideoMetadata = {};
       // Probe only supported containers — an unsupported src is rejected by
       // store.registerAsset below, so skip the wasted subprocess.
-      if (isSupportedVideoSrc(args.src)) {
+      if (lib) {
+        metadata = videoFactsOf(lib.record);
+      } else if (isSupportedVideoSrc(args.src)) {
         const probe = deps.probeVideo ?? defaultProbeVideo;
         try {
           metadata = await probe(args.src);
@@ -846,7 +949,11 @@ const registerAsset = defineTool({
         id: args.id,
         type: args.type,
         src: args.src,
-        ...(args.family !== undefined ? { family: args.family } : {}),
+        ...(args.family !== undefined
+          ? { family: args.family }
+          : args.type === "font" && typeof lib?.record.family === "string"
+            ? { family: lib.record.family }
+            : {}),
         ...(args.sheet !== undefined ? { sheet: args.sheet } : {}),
         ...credit,
       },
@@ -2575,6 +2682,20 @@ function ensureValidForRender(store: CompositionStore, compositionId?: string): 
   }
 }
 
+/**
+ * Validate, then resolve every `asset:` src against the library so a missing
+ * record or a stale pin fails before a frame is drawn (asset library D1).
+ * Returns the project the shelves were searched with, for the renderer.
+ */
+async function ensureRenderable(deps: ToolDeps, compositionId?: string): Promise<string | undefined> {
+  ensureValidForRender(deps.store, compositionId);
+  const assets = deps.store.toJSON(compositionId).assets ?? [];
+  if (!assets.some((a) => isAssetSrc(a.src))) return undefined;
+  const project = await libraryProject(deps);
+  for (const a of assets) if (isAssetSrc(a.src)) libraryAsset(a.src, project);
+  return project;
+}
+
 const renderPreviewFrameTool = defineTool({
   name: "render_preview_frame",
   title: "Render preview frame",
@@ -2590,12 +2711,14 @@ const renderPreviewFrameTool = defineTool({
     format: z.enum(["png", "jpeg"]).optional(),
     compositionId: COMPOSITION_ID,
   },
-  handler: async (args, { store, skiaCanvas }) => {
-    ensureValidForRender(store, args.compositionId);
+  handler: async (args, deps) => {
+    const { store, skiaCanvas } = deps;
+    const project = await ensureRenderable(deps, args.compositionId);
     const comp = store.toJSON(args.compositionId);
     const result = await renderPreviewFrame(comp, args.time, {
       ...(args.format !== undefined ? { format: args.format } : {}),
       ...(skiaCanvas !== undefined ? { skiaCanvas } : {}),
+      ...(project !== undefined ? { project } : {}),
     });
     return result;
   },
@@ -2623,8 +2746,9 @@ const renderThumbnailStripTool = defineTool({
     format: z.enum(["png", "jpeg"]).optional(),
     compositionId: COMPOSITION_ID,
   },
-  handler: async (args, { store, skiaCanvas }) => {
-    ensureValidForRender(store, args.compositionId);
+  handler: async (args, deps) => {
+    const { store, skiaCanvas } = deps;
+    const project = await ensureRenderable(deps, args.compositionId);
     const comp = store.toJSON(args.compositionId);
     const result = await renderThumbnailStrip(comp, {
       count: args.count,
@@ -2632,6 +2756,7 @@ const renderThumbnailStripTool = defineTool({
       ...(args.to !== undefined ? { to: args.to } : {}),
       ...(args.format !== undefined ? { format: args.format } : {}),
       ...(skiaCanvas !== undefined ? { skiaCanvas } : {}),
+      ...(project !== undefined ? { project } : {}),
     });
     return result;
   },
@@ -2738,7 +2863,7 @@ const renderToVideo = defineTool({
             ...(args.to !== undefined ? { to: args.to } : {}),
           }
         : undefined;
-    ensureValidForRender(store, args.compositionId);
+    const project = await ensureRenderable(deps, args.compositionId);
 
     // Editor-hosted: route through the render queue. Default is async — return
     // a snapshot with `result: null`. With `wait: true`, await completion and
@@ -2804,6 +2929,7 @@ const renderToVideo = defineTool({
         ...(args.pixFmt !== undefined ? { pixFmt: args.pixFmt } : {}),
         ...(args.colorProfile !== undefined ? { colorProfile: args.colorProfile } : {}),
         ...(range !== undefined ? { range } : {}),
+        ...(project !== undefined ? { project } : {}),
       });
       return {
         jobId,

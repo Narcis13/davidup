@@ -95,6 +95,12 @@ await cp(ROOT_DIST_DIR, join(vendorDir, "dist"), { recursive: true });
 // The bundled default font (R-30) resolves relative to dist/assets/, so the
 // vendored copy needs its own fonts/ sibling.
 await cp(join(REPO_ROOT, "fonts"), join(vendorDir, "fonts"), { recursive: true });
+// dist/assets/library.js resolves `asset:` srcs through ../../assetlib (the
+// asset library, plan D1), so the vendored copy carries it too, less its tests.
+await cp(join(REPO_ROOT, "assetlib"), join(vendorDir, "assetlib"), {
+  recursive: true,
+  filter: (src) => !src.startsWith(join(REPO_ROOT, "assetlib", "test")),
+});
 
 const rootPkg = JSON.parse(
   await readFile(join(REPO_ROOT, "package.json"), "utf8"),

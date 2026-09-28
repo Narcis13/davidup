@@ -5,6 +5,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { bundledFileName, bundledFontsDir } from 'davidup/assets'
 import projectStore from '#services/project_store'
 import globalLibraryRoot from '#services/global_library_root'
+import { resolveAssetFile } from '#services/asset_files'
 
 export interface CompositionSource {
   /** Authored JSON text exactly as it lives on disk. */
@@ -69,6 +70,9 @@ export function rewriteAssetsForBrowser(composition: unknown): unknown {
 }
 
 function toProjectFileUrl(src: string): string {
+  // Asset-library records stay symbolic: the browser loader maps them to
+  // `/asset-files/<id>[@sha12]`, which this server resolves (asset library D1).
+  if (src.startsWith('asset:')) return src
   // Shared-pool srcs map to the global library route, not the project root.
   if (src.startsWith('global:')) {
     const rest = src.slice('global:'.length).replace(/^\/+/, '')
@@ -222,6 +226,31 @@ export default class EditorController {
   }
 
   /**
+   * GET /asset-files/* — an asset-library blob (asset library D1):
+   * `/asset-files/<id>[@<sha12>]` resolves a record on the open project's
+   * `assets/` shelf, the user's pool, then the house shelf (what the browser
+   * loader fetches for an `asset:` src); `/asset-files/<shelf>/<sha>.<ext>`
+   * is one blob on a named shelf. 404 on a missing record, 409 on a stale pin;
+   * nothing outside the shelves' `blobs/` is reachable (asset_files.ts).
+   */
+  async assetFile({ params, response }: HttpContext) {
+    const raw = params['*']
+    const segments = Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : []
+    const answer = resolveAssetFile(segments, projectStore.project?.root)
+    if (!answer.ok) {
+      return response.status(answer.status).send({
+        error: { code: answer.code, message: answer.message },
+      })
+    }
+    const stat = await fs.stat(answer.path)
+    response.header('content-length', String(stat.size))
+    // A pinned ref or a sha names fixed bytes; an unpinned id follows its record.
+    response.header('cache-control', answer.immutable ? 'public, max-age=31536000, immutable' : 'no-cache')
+    response.type(extToContentType(answer.path))
+    return response.stream(createReadStream(answer.path))
+  }
+
+  /**
    * GET /project-files/* — stream any file under the loaded project's
    * root. Path traversal is blocked: the resolved absolute path must stay
    * inside `project.root`. Returns 404 when no project is loaded or the
@@ -292,6 +321,24 @@ function extToContentType(path: string): string {
       return 'font/woff2'
     case 'json':
       return 'application/json'
+    case 'mp4':
+      return 'video/mp4'
+    case 'mov':
+      return 'video/quicktime'
+    case 'webm':
+      return 'video/webm'
+    case 'mp3':
+      return 'audio/mpeg'
+    case 'wav':
+      return 'audio/wav'
+    case 'm4a':
+      return 'audio/mp4'
+    case 'ogg':
+      return 'audio/ogg'
+    case 'aac':
+      return 'audio/aac'
+    case 'flac':
+      return 'audio/flac'
     default:
       return 'application/octet-stream'
   }

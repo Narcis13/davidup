@@ -132,6 +132,8 @@ export interface FileStat {
 export interface CollectSpecsOptions {
   /** Override the global library root for `global:` srcs (tests). */
   globalLibraryRoot?: string;
+  /** The project whose `assets/` shelf `asset:` srcs search first (asset library D1). */
+  project?: string;
   /**
    * Stat a resolved source path. Default: `fs.statSync`. Injected by tests so
    * spec collection (and its hashing) runs without touching the disk.
@@ -194,7 +196,9 @@ export function collectVideoExtractSpecs(
       );
     }
     const videoAsset = asset as VideoAsset;
-    const srcPath = resolveGlobalSrc(videoAsset.src, opts.globalLibraryRoot);
+    const srcPath = resolveGlobalSrc(videoAsset.src, opts.globalLibraryRoot, {
+      project: opts.project,
+    });
 
     let fileStat: FileStat;
     try {
@@ -570,6 +574,8 @@ export interface PreExtractOptions {
   spawn?: FfmpegSpawn;
   /** Override the global library root for `global:` srcs (tests). */
   globalLibraryRoot?: string;
+  /** The project whose `assets/` shelf `asset:` srcs search first (asset library D1). */
+  project?: string;
   /** Inject the stat used for hashing (tests). Default: `fs.statSync`. */
   statFile?: (path: string) => FileStat;
   /** Progress callback; a throw here never aborts the extraction. */
@@ -603,6 +609,7 @@ export async function preExtractVideoFrames(
     ...(opts.globalLibraryRoot !== undefined
       ? { globalLibraryRoot: opts.globalLibraryRoot }
       : {}),
+    ...(opts.project !== undefined ? { project: opts.project } : {}),
     ...(opts.statFile !== undefined ? { statFile: opts.statFile } : {}),
   });
 

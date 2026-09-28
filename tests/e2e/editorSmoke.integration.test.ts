@@ -29,7 +29,9 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
+import { readShelf } from "../../assetlib/index.js";
 import { runEdit, type EditHandle } from "../../src/cli/edit.js";
+import { solidPng } from "../assets/libraryShelves.js";
 
 const HERE = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -313,6 +315,85 @@ describe.skipIf(!chromiumAvailable)(
         await page.screenshot({
           path: join(projectDir, "stage-video.png"),
         });
+      },
+      120_000,
+    );
+
+    // Asset library D1 — an `asset:` src on the stage: the page keeps it
+    // symbolic, the browser loader fetches /asset-files/<id>@<pin>, and the
+    // editor answers from the project's own shelf (<project>/assets).
+    it(
+      "paints a sprite whose image is an asset-library record",
+      async () => {
+        const projectDir = await mkdtemp(join(tmpdir(), "davidup-editor-smoke-asset-"));
+        cleanups.push(() => rm(projectDir, { recursive: true, force: true }));
+        await cp(DEMO_PROJECT_DIR, projectDir, { recursive: true });
+        const pools = await mkdtemp(join(tmpdir(), "davidup-smoke-pools-"));
+        const prev = { assets: process.env.DAVIDUP_ASSETS, house: process.env.DAVIDUP_HOUSE };
+        // The editor child inherits these: no user pool or house shelf of the machine's.
+        process.env.DAVIDUP_ASSETS = join(pools, "user");
+        process.env.DAVIDUP_HOUSE = join(pools, "house");
+        cleanups.push(async () => {
+          for (const [k, v] of [["DAVIDUP_ASSETS", prev.assets], ["DAVIDUP_HOUSE", prev.house]] as const) {
+            if (v === undefined) delete process.env[k];
+            else process.env[k] = v;
+          }
+          await rm(pools, { recursive: true, force: true });
+        });
+
+        const { entry } = readShelf(join(projectDir, "assets")).put(
+          { id: "red-square", kind: "image", name: "Red square", tags: [], licence: "own", credit: "", source: "" },
+          solidPng([255, 0, 0], 16, 16),
+        );
+        const compPath = join(projectDir, "composition.json");
+        const comp = JSON.parse(await readFile(compPath, "utf8")) as {
+          assets: unknown[];
+          layers: unknown[];
+          items: Record<string, unknown>;
+        };
+        comp.assets.push({ id: "red", type: "image", src: `asset:red-square@${entry.sha.slice(0, 12)}` });
+        comp.layers.push({ id: "lib", z: 100, opacity: 1, blendMode: "normal", items: ["libsquare"] });
+        comp.items.libsquare = {
+          type: "sprite",
+          asset: "red",
+          width: 200,
+          height: 200,
+          transform: { x: 1000, y: 100, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0, opacity: 1 },
+        };
+        await writeFile(compPath, JSON.stringify(comp, null, 2), "utf8");
+
+        const port = await getFreePort();
+        const handle: EditHandle = await runEdit({
+          projectDir,
+          editorAppDir: EDITOR_APP_DIR,
+          port,
+          host: "127.0.0.1",
+          noOpen: true,
+          noWatch: true,
+          readyTimeoutMs: 30_000,
+        });
+        cleanups.push(() => handle.close());
+
+        const page = await browser!.newPage({ viewport: { width: 1440, height: 900 } });
+        cleanups.push(() => page.close());
+        const fetched: string[] = [];
+        page.on("response", (r) => {
+          if (r.url().includes("/asset-files/")) fetched.push(`${r.status()} ${new URL(r.url()).pathname}`);
+        });
+        await openEditor(page, handle.url);
+
+        await page.waitForFunction(
+          () => {
+            const c = document.querySelector('[data-testid="stage-canvas"]') as HTMLCanvasElement | null;
+            if (!c) return false;
+            const d = c.getContext("2d")!.getImageData(1100, 200, 1, 1).data;
+            return d[0]! > 220 && d[1]! < 40 && d[2]! < 40;
+          },
+          undefined,
+          { timeout: 30_000, polling: 250 },
+        );
+        expect(fetched).toContain(`200 /asset-files/red-square@${entry.sha.slice(0, 12)}`);
+        await page.screenshot({ path: join(projectDir, "stage-asset.png") });
       },
       120_000,
     );

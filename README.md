@@ -598,6 +598,24 @@ available; without it the asset still registers (with a warning). The
 browser asset loader understands `global:assets/...` and `global:fonts/...`
 URLs that resolve out of `~/.davidup/library` (or the project-local pool).
 
+**Assets from the asset library.** A src can name a record of the asset
+library (`assetlib/`, the `asset` CLI) instead of a file:
+`"src": "asset:teapot"` follows the record, `"src": "asset:teapot@611b2de0b430"`
+renders only those bytes (12+ hex of its sha256). The record is looked up on
+three shelves in order: the project's `assets/` (for `davidup render`, the
+composition's directory when it holds `assets/catalogue.json`; in the editor,
+the open project; else `$DAVIDUP_PROJECT`), the user's pool
+(`$DAVIDUP_ASSETS`, default `~/.davidup/assets`) and the house shelf
+(`$DAVIDUP_HOUSE`). A record no shelf holds is `E_ASSET_MISSING` (naming the
+shelves searched) and a pin the record has moved from is `E_ASSET_STALE`; the
+render CLI and the MCP render tools check both before the first frame.
+`register_asset` with an `asset:` src checks the record's kind against `type`
+and takes its duration, size, rate and codec from the record instead of
+running ffprobe (and a font's `family`, when none is passed). The editor
+serves records at `/asset-files/<id>[@<sha12>]` and blobs at
+`/asset-files/<shelf>/<sha>.<ext>`; the browser loader fetches the first
+(`new BrowserAssetLoader({ assetBaseUrl })` points it elsewhere).
+
 **Bundled default font.** davidup ships Inter Regular (OFL, Latin subset) in
 `fonts/`. Any text item can use `"font": "font:default"` without registering
 an asset — the validator and both loaders resolve it (family `Inter`), and
@@ -980,6 +998,7 @@ handle:
 | `E_SCENE_UNKNOWN` / `E_SCENE_RECURSION` / `E_SCENE_INSTANCE_DEEP_TARGET` | Scene placement failures |
 | `E_TIME_MAPPING_INVALID` / `E_TIME_MAPPING_TWEEN_SPLIT` | Bad `time` block / a `clip` boundary cut through a tween |
 | `E_ASSET_CONFLICT` | Two assets with the same id but different content |
+| `E_ASSET_MISSING` / `E_ASSET_STALE` | An `asset:<id>` src names no record on the project, user or house shelf / an `asset:<id>@<sha12>` pin the record no longer holds |
 | `E_REF_CYCLE` / `E_REF_MISSING` / `E_REF_PARSE` / `E_REF_POINTER` / `E_REF_INVALID` | `$ref` resolution failures |
 | `E_FEATURE_UNAVAILABLE` | Standalone-mode tool that needs the editor host |
 | `E_RENDER_FAILED` | ffmpeg or the render pipeline failed — see `details.stderrTail` |
@@ -999,7 +1018,8 @@ axis above 4096), `W_TWEEN_TRUNCATED`, `W_ITEM_INVISIBLE_OPACITY`,
 in one list — it paints once per reference; this becomes an error in the next
 major), `W_GROUP_ANCHOR_NO_BOX` (a group sets `anchorX`/`anchorY` on an axis it
 declares no `width`/`height` for, so the anchor does nothing), `W_MARKER_OUTSIDE` (a marker
-past the composition end, or a track marker that never plays inside it). Warnings never fail a call. The schema is strict: an unknown key such as
+past the composition end, or a track marker that never plays inside it), `W_ASSET_FILE_MISSING` (an `asset:` or
+`global:` src with nothing behind it on this machine; MCP `validate` only). Warnings never fail a call. The schema is strict: an unknown key such as
 `opacty` is an `E_SCHEMA` error at its full path (`items.logo.transform.opacty`)
 with a "did you mean" suggestion. Keys starting with `$` (`$comment`, `$ref`,
 …) or `x-` (your own extensions) are allowed on any object and ignored by the

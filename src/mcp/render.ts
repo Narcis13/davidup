@@ -55,6 +55,12 @@ export interface RenderPreviewOptions {
    * render and vice versa). `false` skips it and video items draw nothing.
    */
   preExtract?: false | PreviewPreExtractOptions;
+  /**
+   * The project whose `assets/` shelf `asset:<id>` srcs search first (asset
+   * library D1); default `$DAVIDUP_PROJECT`. The editor-hosted server passes
+   * its open project.
+   */
+  project?: string;
 }
 
 export interface PreviewPreExtractOptions {
@@ -119,11 +125,11 @@ export async function renderPreviewFrame(
   ensureFiniteTime(time);
   const format: PreviewFormat = options.format ?? "png";
   const skia = options.skiaCanvas ?? (await loadSkia());
-  const loader = options.loader ?? getCachedLoader(skia, comp.assets);
+  const loader = options.loader ?? getCachedLoader(skia, comp.assets, options.project);
 
   await loader.preloadAll(withBundledAssets(comp));
   const warnings: string[] = [];
-  const video = await getVideoProvider(comp, skia, options.preExtract, warnings);
+  const video = await getVideoProvider(comp, skia, options.preExtract, warnings, options.project);
 
   const meta = comp.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
@@ -170,11 +176,11 @@ export async function renderThumbnailStrip(
   // with many assets where reloading per frame would be wasteful. The loader
   // is also cached across MCP calls (see getCachedLoader) so agents iterating
   // on a 20-PNG comp don't re-decode every asset on each preview.
-  const loader = options.loader ?? getCachedLoader(skia, comp.assets);
+  const loader = options.loader ?? getCachedLoader(skia, comp.assets, options.project);
   await loader.preloadAll(withBundledAssets(comp));
   // One provider for the whole strip — extraction + decode happen at most once.
   const warnings: string[] = [];
-  const video = await getVideoProvider(comp, skia, options.preExtract, warnings);
+  const video = await getVideoProvider(comp, skia, options.preExtract, warnings, options.project);
 
   const meta = comp.composition;
   const canvas = new skia.Canvas(meta.width, meta.height);
@@ -290,13 +296,14 @@ const loaderCache: WeakMap<SkiaCanvasModule, Map<string, CachedLoader>> =
 function getCachedLoader(
   skia: SkiaCanvasModule,
   assets: ReadonlyArray<Asset>,
+  project?: string,
 ): NodeAssetLoader {
   let inner = loaderCache.get(skia);
   if (!inner) {
     inner = new Map();
     loaderCache.set(skia, inner);
   }
-  const key = assetsKey(assets);
+  const key = JSON.stringify([project ?? null, assetsKey(assets)]);
   const hit = inner.get(key);
   if (hit) {
     // Touch for LRU ordering — Map preserves insertion order.
@@ -304,7 +311,10 @@ function getCachedLoader(
     inner.set(key, hit);
     return hit.loader;
   }
-  const loader = new NodeAssetLoader({ skiaCanvas: skia });
+  const loader = new NodeAssetLoader({
+    skiaCanvas: skia,
+    ...(project !== undefined ? { project } : {}),
+  });
   const entry: CachedLoader = { loader };
   inner.set(key, entry);
   while (inner.size > LOADER_CACHE_MAX) {
@@ -333,14 +343,16 @@ async function getVideoProvider(
   skia: SkiaCanvasModule,
   preExtract: RenderPreviewOptions["preExtract"],
   warnings: string[],
+  project?: string,
 ): Promise<VideoFrameProvider | undefined> {
+  const shelf = project !== undefined ? { project } : {};
   if (preExtract === false || !compositionHasVideo(comp)) return undefined;
   const pe = preExtract ?? {};
   const cacheRoot = pe.cacheRoot ?? defaultFrameCacheRoot();
 
   let key: string;
   try {
-    const specs = collectVideoExtractSpecs(comp);
+    const specs = collectVideoExtractSpecs(comp, shelf);
     key = JSON.stringify([cacheRoot, specs.map((s) => [s.hash, s.itemIds])]);
   } catch (err) {
     // Missing/unreadable source: the preview still renders the rest of the
@@ -365,6 +377,7 @@ async function getVideoProvider(
         ...(pe.maxBytes !== undefined ? { maxBytes: pe.maxBytes } : {}),
         ...(pe.ffmpegPath !== undefined ? { ffmpegPath: pe.ffmpegPath } : {}),
         ...(pe.spawn !== undefined ? { spawn: pe.spawn } : {}),
+        ...shelf,
       });
       const extracted = [...result.entries.values()].filter((e) => !e.cached);
       if (extracted.length > 0) {

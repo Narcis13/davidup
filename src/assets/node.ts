@@ -4,11 +4,14 @@
 // where the native binary is not installed (the engine itself never imports
 // from here — only the node driver does). Tests inject a fake module.
 
+import { existsSync } from "node:fs";
 import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FontAsset, ImageAsset } from "../schema/types.js";
+import { isAssetSrc } from "./assetSrc.js";
 import { bundledFileName } from "./bundled.js";
+import { AssetRefError, resolveLibraryAsset, type AssetLibraryOptions } from "./library.js";
 import { BaseAssetLoader, type LoadedImage } from "./loader.js";
 
 export interface SkiaCanvasModule {
@@ -102,11 +105,15 @@ export interface NodeAssetLoaderOptions {
   // they don't depend on $HOME / $DAVIDUP_LIBRARY at import time. When
   // omitted, resolves env → ~/.davidup/library on each call.
   globalLibraryRoot?: string;
+  // The project whose `assets/` shelf `asset:` srcs search first (asset
+  // library D1). When omitted, `$DAVIDUP_PROJECT`, else no project shelf.
+  project?: string;
 }
 
 export class NodeAssetLoader extends BaseAssetLoader {
   private readonly injected: SkiaCanvasModule | undefined;
   private readonly globalLibraryRootOverride: string | undefined;
+  private readonly project: string | undefined;
   private skiaPromise: Promise<SkiaCanvasModule> | undefined;
   private resolvedSkia: SkiaCanvasModule | undefined;
   // Families this instance has claimed — tracked so `clear()` can release its
@@ -118,6 +125,7 @@ export class NodeAssetLoader extends BaseAssetLoader {
     super();
     this.injected = options.skiaCanvas;
     this.globalLibraryRootOverride = options.globalLibraryRoot;
+    this.project = options.project;
   }
 
   protected async fetchImage(asset: ImageAsset): Promise<LoadedImage> {
@@ -150,7 +158,7 @@ export class NodeAssetLoader extends BaseAssetLoader {
   }
 
   private resolveSrc(src: string): string {
-    return resolveGlobalSrc(src, this.globalLibraryRootOverride);
+    return resolveGlobalSrc(src, this.globalLibraryRootOverride, { project: this.project });
   }
 
   private getSkia(): Promise<SkiaCanvasModule> {
@@ -207,15 +215,23 @@ export function resolveAssetSrcAgainst(src: string, baseDir: string): string {
  * Resolve an asset `src` to a filesystem path the way the Node loader does.
  *
  * `global:<rest>` → an absolute path under the global library root
- * ($DAVIDUP_LIBRARY, default ~/.davidup/library). `bundled:<file>` → the
- * package's own `fonts/` directory (the bundled default font, R-30). Any other
- * `src` is returned unchanged (skia-canvas and ffmpeg both accept plain
- * filesystem paths).
+ * ($DAVIDUP_LIBRARY, default ~/.davidup/library). `asset:<id>[@sha12]` → the
+ * record's blob on the asset library's shelves (`library.ts`; `library.project`
+ * names the project shelf), throwing `AssetRefError` (`E_ASSET_MISSING`,
+ * `E_ASSET_STALE`) when it does not resolve. `bundled:<file>` → the package's
+ * own `fonts/` directory (the bundled default font, R-30). Any other `src` is
+ * returned unchanged (skia-canvas and ffmpeg both accept plain filesystem
+ * paths).
  *
  * Shared with the audio mux pipeline (v0.2 §S4), which needs the same
  * resolution to hand audio asset paths to ffmpeg.
  */
-export function resolveGlobalSrc(src: string, globalLibraryRoot?: string): string {
+export function resolveGlobalSrc(
+  src: string,
+  globalLibraryRoot?: string,
+  library: AssetLibraryOptions = {},
+): string {
+  if (isAssetSrc(src)) return resolveLibraryAsset(src, library).path;
   if (src.startsWith("global:")) {
     const rest = src.slice("global:".length).replace(/^\/+/, "");
     return nodePath.join(globalLibraryRoot ?? defaultGlobalLibraryRoot(), rest);
@@ -223,6 +239,29 @@ export function resolveGlobalSrc(src: string, globalLibraryRoot?: string): strin
   const bundled = bundledFileName(src);
   if (bundled !== undefined) return nodePath.join(bundledFontsDir(), bundled);
   return src;
+}
+
+/**
+ * Why a symbolic src has no file behind it on this machine, or null when it
+ * has one — the validator's `checkAssetFile` (W_ASSET_FILE_MISSING). An
+ * `asset:` src that does not resolve says the resolver's reason (the shelves
+ * searched, or the stale pin); one that resolves to a blob not on disk says
+ * so. `global:` srcs are checked under the global library root. Anything
+ * else is not this check's to judge (null).
+ */
+export function assetFileProblem(
+  src: string,
+  opts: AssetLibraryOptions & { globalLibraryRoot?: string } = {},
+): string | null {
+  const { globalLibraryRoot, ...library } = opts;
+  if (!isAssetSrc(src) && !src.startsWith("global:")) return null;
+  let file: string;
+  try {
+    file = resolveGlobalSrc(src, globalLibraryRoot, library);
+  } catch (err) {
+    return err instanceof AssetRefError ? `${err.code}: ${err.message}` : (err as Error).message;
+  }
+  return existsSync(file) ? null : `no file at ${file}`;
 }
 
 /**

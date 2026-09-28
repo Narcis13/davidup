@@ -9,6 +9,29 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### `asset:` srcs: compositions name asset-library records (asset library D1)
+
+- An asset `src` may be `asset:<id>` or `asset:<id>@<sha12>`: a record on the
+  project's `assets/` shelf, the user's pool (`$DAVIDUP_ASSETS`, default
+  `~/.davidup/assets`) or the house shelf (`$DAVIDUP_HOUSE`), in that order
+  (`docs/asset-library-plan.md`). The Node loader, video extraction and the
+  audio mux resolve it where they resolve `global:`; the pin renders only
+  those bytes. No schema change; nothing renders differently.
+- `davidup render` takes the composition's directory as the project when it
+  holds `assets/catalogue.json` (else `$DAVIDUP_PROJECT`) and fails before the
+  first frame with `E_ASSET_MISSING` (naming the shelves) or `E_ASSET_STALE`.
+  `renderToFile`, `renderPreviewFrame` and `NodeAssetLoader` take `project`.
+- MCP: `register_asset` with an `asset:` src checks the record's kind against
+  `type` (`E_ASSET_TYPE_MISMATCH`) and fills the audio/video facts (and a
+  font's family) from the record instead of probing; the render tools check
+  every `asset:` src first; `validate` warns `W_ASSET_FILE_MISSING` on an
+  `asset:` or `global:` src with no file behind it. New error codes
+  `E_ASSET_MISSING`, `E_ASSET_STALE`.
+- Editor: `/asset-files/<id>[@<sha12>]` (a record, 409 on a stale pin) and
+  `/asset-files/<shelf>/<sha>.<ext>` (a blob); `BrowserAssetLoader` maps
+  `asset:` srcs to the first (`assetBaseUrl`). The editor's browser-side src
+  rewrite now leaves `asset:` and `global:` srcs to the loader.
+
 ### Markers, and hand-drawn films cut to them (hand-drawn film 4.0 D4)
 
 - `composition.markers` and `AudioTrack.markers`: named moments `{ t, name,

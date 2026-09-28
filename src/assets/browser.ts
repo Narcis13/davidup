@@ -6,6 +6,7 @@
 // the family. Crossorigin is set to "anonymous" so canvas stays untainted.
 
 import type { FontAsset, ImageAsset } from "../schema/types.js";
+import { ASSET_SRC_PREFIX, parseAssetSrc } from "./assetSrc.js";
 import { bundledFileName } from "./bundled.js";
 import { BaseAssetLoader } from "./loader.js";
 
@@ -20,6 +21,11 @@ export interface BrowserAssetLoaderOptions {
   // editor server exposes; other hosts serve davidup's `fonts/` directory
   // somewhere and point this at it.
   bundledBaseUrl?: string;
+  // Where `asset:<id>[@sha12]` srcs (asset-library records, D1) are fetched
+  // from: `<assetBaseUrl><id>[@sha12]`. Defaults to `/asset-files/`, the
+  // route the editor server exposes; it resolves the record on the project,
+  // user and house shelves and answers with the blob (409 on a stale pin).
+  assetBaseUrl?: string;
 }
 
 export class BrowserAssetLoader extends BaseAssetLoader {
@@ -84,6 +90,13 @@ export class BrowserAssetLoader extends BaseAssetLoader {
     if (src.startsWith("global:")) {
       const rest = src.slice("global:".length).replace(/^\/+/, "");
       return `/library-files/${rest}`;
+    }
+    if (src.startsWith(ASSET_SRC_PREFIX)) {
+      // Validates the ref (a typo throws here rather than 404ing later); the
+      // server owns the catalogue, so the id and pin go through as they are.
+      parseAssetSrc(src);
+      const base = this.options.assetBaseUrl ?? "/asset-files/";
+      return `${base.endsWith("/") ? base : `${base}/`}${src.slice(ASSET_SRC_PREFIX.length)}`;
     }
     const bundled = bundledFileName(src);
     if (bundled !== undefined) {

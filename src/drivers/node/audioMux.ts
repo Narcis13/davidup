@@ -90,6 +90,8 @@ export interface MuxAudioOptions {
   movflagsFaststart?: boolean;
   /** Override the global library root for `global:` audio srcs (tests). */
   globalLibraryRoot?: string;
+  /** The project whose `assets/` shelf `asset:` srcs search first (asset library D1). */
+  project?: string;
   /**
    * Composition time (seconds) of the video's first frame, for a ranged
    * render (v1.1 S12). Default 0.
@@ -129,6 +131,7 @@ export function compositionHasAudio(comp: Composition): boolean {
 export function resolveAudioInputs(
   comp: Composition,
   globalLibraryRoot?: string,
+  project?: string,
 ): ResolvedAudioTrack[] {
   const tracks = comp.audio ?? [];
   const assetById = new Map(comp.assets.map((a) => [a.id, a] as const));
@@ -154,7 +157,7 @@ export function resolveAudioInputs(
     const media = asset as AudioAsset | VideoAsset;
     const resolved: ResolvedAudioTrack = {
       track,
-      src: resolveGlobalSrc(media.src, globalLibraryRoot),
+      src: resolveGlobalSrc(media.src, globalLibraryRoot, { project }),
     };
     if (media.duration !== undefined) {
       resolved.assetDuration = media.duration;
@@ -465,7 +468,7 @@ export async function muxAudioTracks(
   videoDuration: number,
   opts: MuxAudioOptions = {},
 ): Promise<void> {
-  const resolved = resolveAudioInputs(comp, opts.globalLibraryRoot);
+  const resolved = resolveAudioInputs(comp, opts.globalLibraryRoot, opts.project);
   if (resolved.length === 0) {
     throw new Error("muxAudioTracks called with no audio tracks.");
   }

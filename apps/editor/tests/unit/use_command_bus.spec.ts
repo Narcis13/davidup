@@ -67,6 +67,19 @@ test.group('useCommandBus · rewriteAssetsForBrowser', () => {
     assert.equal(a.find((x) => x.id === 'already')!.src, '/project-files/cached.png')
   })
 
+  test('leaves asset: and global: srcs for the browser loader to resolve', ({ assert }) => {
+    const comp = {
+      ...baseComp(),
+      assets: [
+        { id: 'rec', type: 'image', src: 'asset:teapot@611b2de0b430' },
+        { id: 'pool', type: 'image', src: 'global:assets/x.png' },
+      ],
+    }
+    const out = rewriteAssetsForBrowser(comp as Parameters<typeof rewriteAssetsForBrowser>[0])
+    const a = out.assets as Array<{ id: string; src: string }>
+    assert.deepEqual(a.map((x) => x.src), ['asset:teapot@611b2de0b430', 'global:assets/x.png'])
+  })
+
   test('does not mutate the input', ({ assert }) => {
     const input = baseComp()
     const before = JSON.stringify(input)

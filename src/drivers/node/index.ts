@@ -181,6 +181,13 @@ export interface RenderToFileOptions {
    * `fs/promises#readFile` with utf-8 encoding.
    */
   readFile?: ReadFile;
+  /**
+   * The project whose `assets/` shelf `asset:<id>` srcs search first, before
+   * the user's pool and the house shelf (asset library D1). Default
+   * `$DAVIDUP_PROJECT`; `davidup render` passes the composition's directory
+   * when it holds `assets/catalogue.json`.
+   */
+  project?: string;
 
   // Injection points (primarily for tests; production callers leave unset).
   skiaCanvas?: SkiaDriverModule;
@@ -411,7 +418,8 @@ export async function renderToFile(
   // Resolve the frame window before any expensive work so a bad range fails fast.
   const { startFrame, frameCount: totalFrames } = resolveRenderRange(compiled, opts.range);
   const skia = opts.skiaCanvas ?? (await importSkiaCanvas());
-  const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia });
+  const project = opts.project !== undefined ? { project: opts.project } : {};
+  const loader = opts.loader ?? new NodeAssetLoader({ skiaCanvas: skia, ...project });
 
   await loader.preloadAll(withBundledAssets(compiled));
 
@@ -431,6 +439,7 @@ export async function renderToFile(
         : {}),
       ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
       ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+      ...project,
     });
     videoProvider = await buildVideoFrameProvider(peResult, skia, {
       ...(pe.maxDecodedFrames !== undefined
@@ -617,6 +626,7 @@ export async function renderToFile(
         movflagsFaststart: opts.movflagsFaststart ?? true,
         // A ranged render hears the timeline from its first frame (v1.1 S12).
         ...(startFrame > 0 ? { timelineOffset: frameTime(startFrame, meta.fps) } : {}),
+        ...project,
         ...(opts.ffmpegPath !== undefined ? { ffmpegPath: opts.ffmpegPath } : {}),
         ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
       });

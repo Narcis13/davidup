@@ -415,6 +415,16 @@ a pinned stale id errors, `davidup render` of a composition using
 `asset:teapot` produces a frame (integration test next to
 `renderGlobalAssets.integration.test.ts`), and the editor plays it.
 
+*As built:* the browser cannot know a record's shelf or sha, so the loader
+maps `asset:<id>[@sha12]` to `/asset-files/<id>[@sha12]` and the editor
+resolves it (404 `E_ASSET_MISSING`, 409 `E_ASSET_STALE`); the planned
+`/asset-files/<shelf>/<sha>.<ext>` is served too, for E1. `project` is an
+option on `NodeAssetLoader`, `renderToFile`, video extraction, the audio mux
+and `renderPreviewFrame`; the render CLI passes the composition's directory,
+the editor its open project, else `$DAVIDUP_PROJECT`. `W_ASSET_FILE_MISSING`
+comes from MCP `validate` (the schema validator takes the check injected, so
+it stays free of the disk).
+
 ### D2. MCP: search and read
 
 *The standalone server can search.*
@@ -729,7 +739,7 @@ then D and E in parallel, I when D4 exists, S last.
 | H1 | `core/assets.js` on `assetlib`, sha256 | 1 | A2 | [x] |
 | H2 | `hdf find/import/remove/gc` become `asset` | 0.5 | A6 H1 | [x] |
 | H3 | hdf previewers | 1 | A4 H1 | [x] |
-| D1 | The `asset:` src scheme | 1 | A1 | [ ] |
+| D1 | The `asset:` src scheme | 1 | A1 | [x] |
 | D2 | MCP: search and read | 1 | A3 A4 D1 | [ ] |
 | D3 | MCP: write and use | 1 | A5 D2 | [ ] |
 | D4 | Derived assets land in the library | 1 | A2 D1 H1 | [ ] |

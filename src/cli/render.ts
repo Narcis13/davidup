@@ -13,7 +13,13 @@
 
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
-import { resolveAssetSrcAgainst } from "../assets/index.js";
+import {
+  AssetRefError,
+  assetProjectOf,
+  isAssetSrc,
+  resolveAssetSrcAgainst,
+  resolveLibraryAsset,
+} from "../assets/index.js";
 import { precompile } from "../compose/index.js";
 import {
   checkContainerCodec,
@@ -33,6 +39,9 @@ export type RenderErrorCode =
   | "E_CONTAINER_CODEC"
   | "E_INPUT_INVALID"
   | "E_VALIDATION_FAILED"
+  | "E_ASSET_MISSING"
+  | "E_ASSET_STALE"
+  | "E_ASSET_INVALID"
   | "E_RENDER_FAILED";
 
 export class RenderError extends Error {
@@ -119,6 +128,33 @@ export function resolveAssetSources(
 }
 
 /**
+ * The project `asset:` srcs search first: the composition's directory when it
+ * holds an asset shelf (`assets/catalogue.json`), else undefined (the loader
+ * then falls back to `$DAVIDUP_PROJECT`). Every `asset:` src is resolved once
+ * here so a missing record or a stale pin fails before any frame is drawn
+ * (`E_ASSET_MISSING`, `E_ASSET_STALE`) instead of mid-render.
+ */
+export function checkLibraryAssets(
+  composition: Composition,
+  sourcePath: string,
+): { project?: string } {
+  const project = assetProjectOf(dirname(sourcePath));
+  for (const asset of composition.assets ?? []) {
+    const src = (asset as { src?: unknown }).src;
+    if (!isAssetSrc(src)) continue;
+    try {
+      resolveLibraryAsset(src, { project });
+    } catch (err) {
+      if (err instanceof AssetRefError) {
+        throw new RenderError(err.code, `${err.code}: asset "${asset.id}": ${err.message}`);
+      }
+      throw err;
+    }
+  }
+  return project !== undefined ? { project } : {};
+}
+
+/**
  * Load, precompile, validate, and render a composition to a video file.
  * Throws {@link RenderError} for input/validation failures; render-time
  * failures (missing asset, ffmpeg crash) surface as `E_RENDER_FAILED` wrapping
@@ -195,6 +231,7 @@ export async function renderComposition(
     );
   }
 
+  const library = checkLibraryAssets(compiled, sourcePath);
   const resolved = resolveAssetSources(compiled, sourcePath);
   if (opts.fps !== undefined) {
     resolved.composition = { ...resolved.composition, fps: opts.fps };
@@ -209,6 +246,7 @@ export async function renderComposition(
       sourcePath,
       readFile,
       movflagsFaststart: true,
+      ...library,
       ...(opts.codec !== undefined ? { codec: opts.codec } : {}),
       ...(opts.crf !== undefined ? { crf: opts.crf } : {}),
       ...(opts.preset !== undefined ? { preset: opts.preset } : {}),

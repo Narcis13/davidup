@@ -164,4 +164,40 @@ describe("BrowserAssetLoader", () => {
 
     expect(added[0]!.source).toBe('url("/library-files/fonts/Inter.ttf")');
   });
+
+  // Asset library D1: a record, fetched from the route the editor serves.
+  it("maps `asset:` srcs to /asset-files/<id>[@pin], ignoring baseUrl", async () => {
+    const images = installImageCtor("load");
+    const loader = new BrowserAssetLoader({ baseUrl: "https://cdn.example.com/v1" });
+
+    await loader.preloadAll([
+      { id: "a", type: "image", src: "asset:teapot" },
+      { id: "b", type: "image", src: "asset:teapot@611b2de0b430" },
+      { id: "c", type: "image", src: "asset:pack:ink-cat" },
+    ]);
+
+    expect(images.map((i) => i.src)).toEqual([
+      "/asset-files/teapot",
+      "/asset-files/teapot@611b2de0b430",
+      "/asset-files/pack:ink-cat",
+    ]);
+  });
+
+  it("maps `asset:` fonts under assetBaseUrl", async () => {
+    const { added } = installFontEnv();
+    const loader = new BrowserAssetLoader({ assetBaseUrl: "https://host/lib" });
+
+    await loader.preloadAll([{ id: "f", type: "font", src: "asset:hand-font", family: "Hand" }]);
+
+    expect(added[0]!.source).toBe('url("https://host/lib/hand-font")');
+  });
+
+  it("rejects an `asset:` src that is not an id", async () => {
+    installImageCtor("load");
+    const loader = new BrowserAssetLoader();
+
+    await expect(
+      loader.preloadAll([{ id: "x", type: "image", src: "asset:Tea Pot" }]),
+    ).rejects.toThrow(/not an asset src/);
+  });
 });

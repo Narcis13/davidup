@@ -70,6 +70,9 @@ function rewriteAssetsForBrowser(comp: Composition): Composition {
     const src = asset.src
     if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:')) continue
     if (src.startsWith(PROJECT_FILES_PREFIX)) continue
+    // Symbolic srcs the browser loader resolves itself: `asset:<id>` (asset
+    // library D1) → /asset-files/, `global:<path>` → /library-files/.
+    if (src.startsWith('asset:') || src.startsWith('global:')) continue
     const trimmed = src.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '')
     asset.src = `${PROJECT_FILES_PREFIX}/${trimmed}`
   }

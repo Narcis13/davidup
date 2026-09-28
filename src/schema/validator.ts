@@ -61,6 +61,10 @@
 //                                              → W_MARKER_OUTSIDE
 //  21. A CC-BY or CC-BY-SA asset with no `credit` (RE-14): the licence
 //      wants attribution the composition does not carry → W_ASSET_CREDIT
+//  22. An `asset:` or `global:` src with nothing behind it on this machine
+//      (asset library D1), when the caller passes `checkAssetFile` (the
+//      validator itself touches no disk)          → W_ASSET_FILE_MISSING
+//      (a warning: a remote render may hold the file.)
 
 import type { Composition, Item, Layer } from "./types.js";
 import { getItemTweenable, parseEffectPath } from "./tweenable.js";
@@ -97,7 +101,8 @@ export type ValidationWarningCode =
   | "W_ITEM_MULTI_PARENT"
   | "W_GROUP_ANCHOR_NO_BOX"
   | "W_MARKER_OUTSIDE"
-  | "W_ASSET_CREDIT";
+  | "W_ASSET_CREDIT"
+  | "W_ASSET_FILE_MISSING";
 
 // 1µs — well below sub-frame tolerance at 120fps (8.3ms/frame). Absorbs
 // floating-point drift from chained `start + duration` sums so back-to-back
@@ -125,7 +130,16 @@ export type ValidationResult = {
   warnings: ValidationWarning[];
 };
 
-export function validate(input: unknown): ValidationResult {
+export interface ValidateOptions {
+  /**
+   * Says why a symbolic (`asset:` / `global:`) src has no file behind it, or
+   * null when it has one. Node callers pass `assetFileProblem` from
+   * `davidup/assets`; without it the check is skipped.
+   */
+  checkAssetFile?: (src: string) => string | null;
+}
+
+export function validate(input: unknown, opts: ValidateOptions = {}): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
 
@@ -175,6 +189,7 @@ export function validate(input: unknown): ValidationResult {
   validateGroupAnchorBox(comp, warnings);
   validateMarkers(comp, warnings);
   validateAssetCredits(comp, warnings);
+  if (opts.checkAssetFile) validateAssetFiles(comp, opts.checkAssetFile, warnings);
 
   return { valid: errors.length === 0, errors, warnings };
 }
@@ -188,6 +203,26 @@ function validateAssetCredits(comp: Composition, warnings: ValidationWarning[]):
       code: "W_ASSET_CREDIT",
       message: `Asset "${a.id}" is ${a.licence} but has no credit; the licence asks for one (register_asset's \`credit\`).`,
       path: `assets.${i}.credit`,
+    });
+  });
+}
+
+// Existence (asset library D1, W_ASSET_FILE_MISSING): a library record or a
+// shared-pool file this machine does not have. Relative paths are the
+// project's own and are not checked here.
+function validateAssetFiles(
+  comp: Composition,
+  check: (src: string) => string | null,
+  warnings: ValidationWarning[],
+): void {
+  comp.assets.forEach((a, i) => {
+    if (!a.src.startsWith("asset:") && !a.src.startsWith("global:")) return;
+    const why = check(a.src);
+    if (why === null) return;
+    warnings.push({
+      code: "W_ASSET_FILE_MISSING",
+      message: `Asset "${a.id}" (${a.src}) has no file here: ${why}`,
+      path: `assets.${i}.src`,
     });
   });
 }

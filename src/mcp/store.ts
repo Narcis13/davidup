@@ -12,7 +12,7 @@
 // structured `{error}` payloads.
 
 import type { Easing } from "../easings/index.js";
-import { validate, OVERLAP_EPS, type ValidationResult } from "../schema/validator.js";
+import { validate, OVERLAP_EPS, type ValidateOptions, type ValidationResult } from "../schema/validator.js";
 import type {
   Asset,
   AudioMaster,
@@ -54,6 +54,7 @@ import {
 } from "../compose/behaviors.js";
 import type { SceneDefinition, TimeMapping } from "../compose/scenes.js";
 import type { TemplateDefinition } from "../compose/templates.js";
+import { isAssetSrc } from "../assets/assetSrc.js";
 import { MCPToolError } from "./errors.js";
 
 const DEFAULT_BACKGROUND = "#000000";
@@ -644,9 +645,9 @@ export class CompositionStore {
     }
   }
 
-  validate(compositionId?: string): ValidationResult {
+  validate(compositionId?: string, opts: ValidateOptions = {}): ValidationResult {
     const json = this.toJSON(compositionId);
-    return validate(json);
+    return validate(json, opts);
   }
 
   toJSON(compositionId?: string): Composition {
@@ -808,7 +809,9 @@ export class CompositionStore {
         ...creditOf(input),
       });
     } else if (input.type === "audio") {
-      if (!isSupportedAudioSrc(input.src)) {
+      // An `asset:` src's container is the library record's; register_asset
+      // checks it against the record before it gets here.
+      if (!isAssetSrc(input.src) && !isSupportedAudioSrc(input.src)) {
         throw new MCPToolError(
           "E_INVALID_VALUE",
           `Audio asset "${input.id}" has unsupported src "${input.src}".`,
@@ -829,7 +832,7 @@ export class CompositionStore {
         ...creditOf(input),
       });
     } else if (input.type === "video") {
-      if (!isSupportedVideoSrc(input.src)) {
+      if (!isAssetSrc(input.src) && !isSupportedVideoSrc(input.src)) {
         throw new MCPToolError(
           "E_INVALID_VALUE",
           `Video asset "${input.id}" has unsupported src "${input.src}".`,

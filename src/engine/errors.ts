@@ -42,6 +42,10 @@ export const MCP_ERROR_CODES = [
   "E_SCENE_RECURSION",
   "E_SCENE_INSTANCE_DEEP_TARGET",
   "E_ASSET_CONFLICT",
+  // An `asset:<id>[@sha12]` src (asset library D1) naming no record on the
+  // shelves searched, or pinned to bytes the record no longer holds.
+  "E_ASSET_MISSING",
+  "E_ASSET_STALE",
   "E_TIME_MAPPING_INVALID",
   "E_TIME_MAPPING_TWEEN_SPLIT",
   "E_FEATURE_UNAVAILABLE",

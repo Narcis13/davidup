@@ -245,6 +245,9 @@ export class RenderJob extends EventEmitter {
       const ro = this.renderOptions
       const result = await renderToFile(renderable, this.outputPath, {
         sourcePath: this.sourcePath,
+        // `asset:<id>` srcs search the project's own shelf (`<project>/assets`)
+        // before the user's pool and the house shelf (asset library D1).
+        project: dirname(this.sourcePath),
         ffmpegPath,
         movflagsFaststart: ro.movflagsFaststart ?? true,
         ...(ro.codec !== undefined ? { codec: ro.codec } : {}),

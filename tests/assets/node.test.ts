@@ -1,10 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AssetRefError,
   NodeAssetLoader,
   __resetFontClaimsForTests,
+  assetFileProblem,
+  assetProjectOf,
+  parseAssetSrc,
   resolveAssetSrcAgainst,
+  resolveGlobalSrc,
+  resolveLibraryAsset,
   type SkiaCanvasModule,
 } from "../../src/assets/index.js";
+import { BLUE_PNG, RED_PNG, makeShelves, put, type Shelves } from "./libraryShelves.js";
 
 function fakeSkia(): SkiaCanvasModule & {
   loadImage: ReturnType<typeof vi.fn>;
@@ -269,5 +278,122 @@ describe("resolveAssetSrcAgainst", () => {
     expect(resolveAssetSrcAgainst("c:/assets/logo.png", "/project")).toBe(
       "c:/assets/logo.png",
     );
+  });
+});
+
+// Asset library D1: `asset:<id>[@sha12]` srcs resolve on the project, user and
+// house shelves (docs/asset-library-plan.md).
+describe("asset: srcs", () => {
+  let sh: Shelves;
+  let dot: string;
+  const envBefore = { ...process.env };
+  beforeEach(() => {
+    sh = makeShelves();
+    dot = put(join(sh.project, "assets"), { id: "dot", kind: "image" }, RED_PNG);
+    put(sh.user, { id: "dot", kind: "image" }, BLUE_PNG);
+    put(sh.user, { id: "swatch", kind: "stock", box: [0, 0, 2, 2] }, BLUE_PNG);
+    put(sh.house, { id: "paper", kind: "stock", box: [0, 0, 2, 2] }, RED_PNG);
+  });
+  afterEach(() => {
+    sh.cleanup();
+    process.env = { ...envBefore };
+  });
+
+  const blob = (root: string, sha: string) => join(root, "blobs", `${sha}.png`);
+
+  it("parses ids and pins, and refuses what is neither", () => {
+    expect(parseAssetSrc("asset:teapot")).toEqual({ id: "teapot" });
+    expect(parseAssetSrc("asset:teapot@611b2de0b430")).toEqual({ id: "teapot", pin: "611b2de0b430" });
+    expect(parseAssetSrc("asset:pack:ink-cat")).toEqual({ id: "pack:ink-cat" });
+    expect(parseAssetSrc("global:assets/x.png")).toBeNull();
+    expect(() => parseAssetSrc("asset:Tea Pot")).toThrow(/not an asset src/);
+    expect(() => parseAssetSrc("asset:teapot@abc")).toThrow(/12 or more hex/);
+  });
+
+  it("resolves an id on the project shelf, which shadows the user's", () => {
+    const got = resolveLibraryAsset("asset:dot", { project: sh.project, env: sh.env });
+    expect(got.path).toBe(blob(join(sh.project, "assets"), dot));
+    expect(got.shelf).toBe("project");
+    expect(got.record).toMatchObject({ id: "dot", kind: "image", shadowed: ["user"] });
+  });
+
+  it("falls through to the user pool and the house shelf", () => {
+    expect(resolveLibraryAsset("asset:swatch", { project: sh.project, env: sh.env }).shelf).toBe("user");
+    expect(resolveLibraryAsset("asset:paper", { project: sh.project, env: sh.env }).shelf).toBe("house");
+    // No project: the user's dot wins.
+    expect(resolveLibraryAsset("asset:dot", { env: sh.env }).shelf).toBe("user");
+  });
+
+  it("takes the project from $DAVIDUP_PROJECT when none is named", () => {
+    expect(resolveLibraryAsset("asset:dot", { env: { ...sh.env, DAVIDUP_PROJECT: sh.project } }).shelf).toBe("project");
+  });
+
+  it("renders only the pinned bytes: a matching pin resolves, a moved record is E_ASSET_STALE", () => {
+    const opts = { project: sh.project, env: sh.env };
+    expect(resolveLibraryAsset(`asset:dot@${dot.slice(0, 12)}`, opts).path).toBe(blob(join(sh.project, "assets"), dot));
+    expect(resolveLibraryAsset(`asset:dot@${dot}`, opts).shelf).toBe("project");
+    const stale = "0123456789ab";
+    const err = (() => {
+      try {
+        resolveLibraryAsset(`asset:dot@${stale}`, opts);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(err).toBeInstanceOf(AssetRefError);
+    expect(err).toMatchObject({ code: "E_ASSET_STALE" });
+    expect((err as Error).message).toContain(`asset:dot@${dot.slice(0, 12)}`);
+  });
+
+  it("E_ASSET_MISSING names every shelf searched", () => {
+    try {
+      resolveLibraryAsset("asset:teapot", { project: sh.project, env: sh.env });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toMatchObject({ code: "E_ASSET_MISSING" });
+      const msg = (e as Error).message;
+      for (const s of [`project (${join(sh.project, "assets")})`, `user (${sh.user})`, `house (${sh.house})`]) expect(msg).toContain(s);
+    }
+  });
+
+  it("E_ASSET_INVALID for a src that is not an id", () => {
+    expect(() => resolveLibraryAsset("asset:Nope!", { env: sh.env })).toThrow(expect.objectContaining({ code: "E_ASSET_INVALID" }));
+  });
+
+  it("resolveGlobalSrc resolves asset: where it resolves global:", () => {
+    process.env.DAVIDUP_ASSETS = sh.user;
+    process.env.DAVIDUP_HOUSE = sh.house;
+    expect(resolveGlobalSrc("asset:dot", undefined, { project: sh.project })).toBe(blob(join(sh.project, "assets"), dot));
+    expect(resolveGlobalSrc("global:assets/x.png", "/lib")).toBe(join("/lib", "assets/x.png"));
+    expect(resolveGlobalSrc("./x.png")).toBe("./x.png");
+  });
+
+  it("NodeAssetLoader loads the blob of an asset: src", async () => {
+    process.env.DAVIDUP_ASSETS = sh.user;
+    process.env.DAVIDUP_HOUSE = sh.house;
+    const skia = fakeSkia();
+    const loader = new NodeAssetLoader({ skiaCanvas: skia, project: sh.project });
+    await loader.preloadAll([{ id: "d", type: "image", src: "asset:dot" }]);
+    expect(skia.loadImage).toHaveBeenCalledWith(blob(join(sh.project, "assets"), dot));
+  });
+
+  it("resolveAssetSrcAgainst leaves asset: srcs symbolic", () => {
+    expect(resolveAssetSrcAgainst("asset:dot@0123456789ab", "/project")).toBe("asset:dot@0123456789ab");
+  });
+
+  it("assetProjectOf takes a directory only when it holds a catalogue", () => {
+    expect(assetProjectOf(sh.project)).toBe(sh.project);
+    expect(assetProjectOf(sh.user)).toBeUndefined();
+  });
+
+  it("assetFileProblem: null when the file is there, the reason when not", () => {
+    const opts = { project: sh.project, env: sh.env };
+    expect(assetFileProblem("asset:dot", opts)).toBeNull();
+    expect(assetFileProblem("asset:teapot", opts)).toMatch(/^E_ASSET_MISSING: .*no asset 'teapot'/);
+    expect(assetFileProblem("asset:dot@0123456789ab", opts)).toMatch(/^E_ASSET_STALE/);
+    rmSync(blob(join(sh.project, "assets"), dot));
+    expect(assetFileProblem("asset:dot", opts)).toMatch(/^no file at .*\.png$/);
+    expect(assetFileProblem("global:assets/nothing.png", { globalLibraryRoot: sh.user })).toMatch(/^no file at /);
+    expect(assetFileProblem("./local.png", opts)).toBeNull();
   });
 });

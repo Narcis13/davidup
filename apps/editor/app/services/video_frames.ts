@@ -49,7 +49,7 @@ const CACHE_MAX = 4
 
 /**
  * Clone `composition` with every relative video asset src resolved against
- * `root`. `global:` srcs are left for the extractor to resolve; URLs and
+ * `root`. `global:` and `asset:` srcs are left for the extractor to resolve; URLs and
  * absolute paths are left alone.
  */
 export function resolveVideoSources(composition: Composition, root: string): Composition {
@@ -114,7 +114,8 @@ export class VideoFrames {
 
     let key: string
     try {
-      const specs = collectVideoExtractSpecs(resolved)
+      // `asset:<id>` srcs search the project's own shelf first (asset library D1).
+      const specs = collectVideoExtractSpecs(resolved, { project: root })
       key = JSON.stringify([cacheRoot, specs.map((s) => [s.hash, s.itemIds])])
     } catch (err) {
       warnings.push(`Video frames unavailable: ${errorMessage(err)}`)
@@ -130,6 +131,7 @@ export class VideoFrames {
       const ffmpegPath = process.env.DAVIDUP_FFMPEG_PATH
       pending = preExtractVideoFrames(resolved, {
         cacheRoot,
+        project: root,
         ...(ffmpegPath ? { ffmpegPath } : {}),
       }).then((result) => {
         const byItem: ClipSet['byItem'] = new Map()
