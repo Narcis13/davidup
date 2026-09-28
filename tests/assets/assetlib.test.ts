@@ -24,6 +24,18 @@ describe("assetlib from davidup", () => {
     expect(readShelf(lib.shelves[0]!.root).ids).toEqual(["fox", "logo"]);
   });
 
+  it("searches from TypeScript (A3)", () => {
+    const root = new URL("../../assetlib/test/fixtures/search/", import.meta.url).pathname;
+    const lib = openLibrary({ shelves: ["project", "user", "house"].map((name) => ({ name, root: root + name })) });
+    const out = lib.search({ q: "paper", media: "raster", hue: "warm", limit: 2 });
+    expect(out.hits.map((h) => [h.id, h.shelf, h.why])).toEqual([
+      ["paper-warm", "project", ["id: paper", "colours: warm #eadcc0"]],
+      ["paper-kraft", "house", ["id: paper", "colours: warm #c8a878"]],
+    ]);
+    expect(out.facets?.kind).toEqual({ stock: 2 });
+    expect(out.hits[0]!.path.endsWith(`${out.hits[0]!.record.sha}.webp`)).toBe(true);
+  });
+
   it("puts a video with davidup's own probeVideo as the probe (A2)", async () => {
     const root = mkdtempSync(join(tmpdir(), "assetlib-ts-"));
     try {

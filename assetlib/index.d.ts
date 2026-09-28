@@ -172,6 +172,127 @@ export interface Location {
   shadowed: string[];
 }
 
+// ---------- search (A3) ----------
+
+export type Hue = 'warm' | 'cool' | 'neutral' | 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue' | 'purple' | 'pink';
+type OneOrMore<T> = T | T[];
+
+/** A search (plan §4.1). Every field is optional; a string is `{ q }`. */
+export interface SearchQuery {
+  /** Free text: folded, stop words dropped, each word a prefix (a word under 3 letters must be whole). */
+  q?: string;
+  kind?: OneOrMore<Kind>;
+  media?: OneOrMore<Media>;
+  shelf?: OneOrMore<string>;
+  /** Every tag must be on the record. */
+  tags?: OneOrMore<string>;
+  licence?: OneOrMore<Licence>;
+  alpha?: boolean;
+  minW?: number;
+  minH?: number;
+  /** "16:9", "16/9", "16x9" or w / h; within 2 %. */
+  aspect?: string | number;
+  secMin?: number;
+  secMax?: number;
+  /** Mean lightness of `colours` under (true) or at least (false) L* 50. */
+  dark?: boolean;
+  /** The dominant swatch's band. */
+  hue?: OneOrMore<Hue>;
+  /** Hits returned (default 20); count and facets cover every match. */
+  limit?: number;
+  /** Default true. */
+  facets?: boolean;
+}
+
+export interface ParsedQuery {
+  q: string;
+  words: string[];
+  kind: Kind[] | null;
+  media: Media[] | null;
+  shelf: string[] | null;
+  tags: string[] | null;
+  licence: Licence[] | null;
+  alpha: boolean | null;
+  minW: number | null;
+  minH: number | null;
+  aspect: number | null;
+  secMin: number | null;
+  secMax: number | null;
+  dark: boolean | null;
+  hue: Hue[] | null;
+  limit: number;
+  facets: boolean;
+}
+
+export interface Facets {
+  kind: Record<string, number>;
+  media: Record<string, number>;
+  shelf: Record<string, number>;
+  licence: Record<string, number>;
+  /** The 30 most common. */
+  tags: Record<string, number>;
+}
+
+export interface SearchHit<R = AssetRecord> {
+  id: string;
+  shelf: string;
+  score: number;
+  /** The field hits ("name: paper", "tags: animal (dog)") and the colour or aspect filters that held. */
+  why: string[];
+  record: R;
+}
+
+export interface LibraryHit extends SearchHit {
+  /** The blob. */
+  path: string;
+  /** The preview, or null until it exists. */
+  thumb: string | null;
+}
+
+export interface SearchResult<H = SearchHit> {
+  /** Records matching; `hits` is the first `limit` of them. */
+  count: number;
+  /** Records searched. */
+  total: number;
+  /** 'hits' when the facets count the matches, 'all' when nothing matched and they count the whole library. */
+  facetsOf?: 'hits' | 'all';
+  facets?: Facets;
+  hits: H[];
+}
+
+export interface Scored {
+  score: number;
+  why?: string[];
+}
+/** A host's scorer: replaces the built-in one when the query has a `q`. `score()` is the built-in result. */
+export type Ranker = (record: AssetRecord | Searchable, query: ParsedQuery, ctx: { score: () => Scored | null }) => Scored | null | undefined;
+
+export const WEIGHTS: Readonly<{ id: 6; name: 5; tags: 4; desc: 2; credit: 1; source: 1; kind: 1; licence: 1 }>;
+export const EXACT_ID: number;
+export const SYNONYM: number;
+export const SYNONYMS: Readonly<Record<string, string[]>>;
+export const HUES: readonly Hue[];
+export const DARK: number;
+
+export function fold(s: unknown): string;
+export function tokenise(s: unknown): string[];
+/** ['neutral'] or [band, 'warm' | 'cool'] for a #rrggbb swatch; null for anything else. */
+export function hueOf(hex: string): Hue[] | null;
+/** Area-weighted mean CIE L* (0..100) of a colours table, or null. */
+export function lightness(colours: Swatch[] | undefined): number | null;
+export function parseQuery(query?: string | SearchQuery, opts?: { shelves?: string[] }): ParsedQuery;
+export function facetsOf(records: Array<Partial<AssetRecord>>): Facets;
+export type Searchable = Partial<AssetRecord> & { id: string; kind: Kind };
+export interface SearchIndex {
+  records: Searchable[];
+  words: string[];
+  search(query?: string | SearchQuery, opts?: { rank?: Ranker; shelves?: string[] }): SearchResult<SearchHit<Searchable>>;
+}
+/** A prefix index over some records (the library's winners, or any), for any number of queries. */
+export function searchIndex(records: Iterable<Searchable>): SearchIndex;
+/** One query over some records, without keeping the index. */
+export function search(records: Iterable<Searchable>, query?: string | SearchQuery, opts?: { rank?: Ranker; shelves?: string[] }): SearchResult<SearchHit<Searchable>>;
+
 export interface Library {
   shelves: Shelf[];
   ids: string[];
@@ -182,6 +303,8 @@ export interface Library {
   get(ref: string): AssetRecord;
   resolve(ref: string): string;
   holders(hex: string): { shelf: string; id: string }[];
+  /** Ranked, filtered, explained, over the winning records (plan §4). */
+  search(query?: string | SearchQuery): SearchResult<LibraryHit>;
   /** Probe, then put on `shelf` (null: the project, else the user's pool). Rejects, having written nothing, when invalid. */
   put(shelf: string | null, entry: EntryInput, bytes: Uint8Array | string, opts?: { probes?: Probes; fields?: PutOptions['fields']; by?: string }): Promise<PutResult & { shelf: string; warnings: string[] }>;
   remove(id: string, opts?: { shelf?: string }): { id: string; shelf: string; removed: string[] };
@@ -190,4 +313,4 @@ export interface Library {
   gc(opts?: { shelf?: string; dry?: boolean }): { shelf: string; path: string; bytes: number }[];
 }
 
-export function openLibrary(opts?: { shelves?: ShelfSpec[] }): Library;
+export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker }): Library;

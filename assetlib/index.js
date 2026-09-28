@@ -8,6 +8,7 @@
 //   lib.get('teapot');                 // the record: the entry plus id, media, shelf, shadowed
 //   lib.locate('teapot');              // { id, shelf, root, entry, path, thumb, shadowed }
 //   lib.resolve('sha:9f2c1a3b4c5d');   // the blob's path, by any 12+ hex prefix of its sha
+//   lib.search({ q: 'warm paper', media: 'raster' });   // ranked hits with why, facets
 //   await lib.put('user', { id: 'paper', kind: 'stock', ... }, bytes, { probes });   // one way in
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
@@ -21,10 +22,12 @@ import { fileURLToPath } from 'node:url';
 import { extFor, readShelf, sha } from './catalogue.js';
 import { colours, usesAlpha } from './image.js';
 import { SCHEMAS, mediaOf } from './record.js';
+import { searchIndex } from './search.js';
 
 export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
 export { readShelf, sha } from './catalogue.js';
 export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
+export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
 // <repo>/assets/.
@@ -100,17 +103,18 @@ export async function probeFacts(entry, bytes, probes = {}) {
 const SHA_REF = /^sha:([0-9a-f]{12,64})$/;
 
 // The shelves, read once and merged. `shelves` is [{ name, root }] in search order (default: standardShelves()).
-export function openLibrary({ shelves = standardShelves() } = {}) {
+// `rank(record, query, { score })` replaces search's built-in scorer (search.js).
+export function openLibrary({ shelves = standardShelves(), rank } = {}) {
   const read = shelves.map((s) => readShelf(s.root, { name: s.name }));
   const names = read.map((s) => s.name);
   const dup = names.find((n, i) => names.indexOf(n) !== i);
   if (dup) throw new Error(`shelf '${dup}' is named twice (shelves: ${names.join(', ')})`);
 
   // id -> the shelves holding it, in search order; sha -> [{ shelf, id }] for every entry with those bytes.
-  // Rebuilt after every write.
-  let byId, bySha;
+  // Rebuilt after every write, which also drops the search index (built on the first search after).
+  let byId, bySha, finder;
   const index = () => {
-    byId = new Map(); bySha = new Map();
+    byId = new Map(); bySha = new Map(); finder = null;
     for (const s of read) {
       for (const id of s.ids) {
         if (!byId.has(id)) byId.set(id, []);
@@ -184,6 +188,20 @@ export function openLibrary({ shelves = standardShelves() } = {}) {
     resolve: (ref) => lib.locate(ref).path,
     // Every shelf holding some bytes (a full sha or a 12+ hex prefix): [{ shelf, id }] in search order.
     holders: (hex) => bySha.get(shaOf(String(hex).replace(/^sha:/, ''))).map((h) => ({ ...h })),
+
+    // Ranked, filtered, explained (plan §4; search.js): { count, total, facetsOf, facets, hits }. Each hit is
+    // { id, shelf, score, why, record, path, thumb } over the winning records (a shadowed one is not listed
+    // twice); `thumb` is null until the preview exists. A string is `{ q }`.
+    search(query) {
+      finder ??= searchIndex(lib.ids.map((id) => lib.get(id)));
+      const out = finder.search(query, { rank, shelves: names });
+      for (const h of out.hits) {
+        const loc = lib.locate(h.id);
+        h.path = loc.path;
+        h.thumb = existsSync(loc.thumb) ? loc.thumb : null;
+      }
+      return out;
+    },
 
     // ---------- writes (A2) ----------
 

@@ -42,6 +42,23 @@ header size and alpha; the caller's fields win over anything derived except thos
 the host's `probes` (`probeVideo`, `probeAudio`, `fontMeta`, `pixels` for `colours`), each optional; davidup's
 ffprobe results are read as they are. `shelf.put` is the same without probes, and synchronous.
 
+Search is local, ranked and explained (plan §4, `search.js`):
+
+```js
+const out = lib.search({ q: 'warm paper', media: 'raster', dark: false, limit: 12 });
+out.count; out.total;             // records matching, records searched
+out.facets;                       // { kind, media, shelf, licence, tags } over every match (the whole library when none)
+out.hits[0];                      // { id, shelf, score, why: ['id: warm', 'id: paper'], record, path, thumb }
+```
+
+Words are folded (case, diacritics), stop words dropped, and each is a prefix of a record word. A record scores
+its best field per word (id 6, name 5, tags 4, desc 2, credit, source, kind, licence 1), 0.6 of that for a word
+found through `synonyms.json` (`dog` finds `animal`), and 10 more when the query is its id; ties go to the
+newest, then the id. Filters: `kind media shelf tags licence alpha minW minH aspect secMin secMax dark hue`.
+`dark` is the mean CIE lightness of `colours` under 50; `hue` is the dominant swatch's band (`warm`, `cool`,
+`neutral`, or `red` ... `pink`). A query with only filters lists by kind, then id. `openLibrary({ rank })`
+takes a host scorer (an embedding, later) with the same result shape.
+
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
 

@@ -720,7 +720,7 @@ then D and E in parallel, I when D4 exists, S last.
 |---|---|---|---|---|
 | A1 | Read a shelf | 0.5 | – | [x] |
 | A2 | Write: put, remove, gc, move | 1 | A1 | [x] |
-| A3 | Search | 1 | A1 | [ ] |
+| A3 | Search | 1 | A1 | [x] |
 | A4 | Previews | 1 | A1 | [ ] |
 | A5 | The `use` block | 0.5 | A1 | [ ] |
 | A6 | The `asset` CLI | 1 | A2 A3 A4 A5 | [ ] |

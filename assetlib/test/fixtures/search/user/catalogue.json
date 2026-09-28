@@ -1,0 +1,4 @@
+{
+"fox-wave": {"kind":"video","media":"video","name":"Fox waves","desc":"the fox waves hello","tags":["fox","hdf"],"licence":"own","credit":"","source":"","sec":4,"fps":12,"w":1080,"h":1080,"alpha":true,"codec":"prores","audio":false,"colours":[{"hex":"#d9622b","area":0.5}],"made":{"tool":"hdf render","from":["fox"],"args":{"film":"fox-wave"},"at":"2026-09-19"},"ext":"mov","added":"2026-09-19","sha":"ec8c019fe9e8603f5d46eaefaeca4d6bb46fd49d2f311966577ac6a865c623df"},
+"title-card": {"kind":"image","media":"raster","name":"Title card","desc":"white card for a title","tags":["title"],"licence":"own","credit":"","source":"","w":1920,"h":1080,"alpha":false,"colours":[{"hex":"#fafafa","area":1}],"added":"2026-09-21","ext":"png","sha":"3e603352d5cbb1a70079f75bb7dfc7ddeabb500e96ef66519f09e303199fa60b"}
+}
