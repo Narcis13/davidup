@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { main } from '../cli.js';
-import { KNOWN_HOSTS, encodePng, loadHosts, readShelf, tagOf } from '../index.js';
+import { KNOWN_HOSTS, addHost, encodePng, loadHosts, readShelf, tagOf } from '../index.js';
 
 // A host module drawing `kinds` as a solid square of `rgb`, named `name`.
 const hostModule = (name, kinds, rgb) => `
@@ -22,6 +22,18 @@ function fixture() {
   writeFileSync(join(dir, 'b.mjs'), hostModule('beta', ['stock'], '10, 10, 200'));
   writeFileSync(join(dir, 'broken.mjs'), 'export default { name: "broken", previewers: { image: 42 } };');
   writeFileSync(join(dir, 'throws.mjs'), 'throw new Error("no skia here");');
+  // A host adding stock: its derive (in place of assetlib's) stamps the payload's byte count, its check wants it.
+  writeFileSync(join(dir, 'adder.mjs'), `
+let loads = 0;
+const side = async () => { loads++; return {
+  derive: (bytes) => ({ weighed: bytes.length, box: [0, 0, 2, 2] }),
+  fields: { stock: { weighed: { why: 'a number', ok: (v) => typeof v === 'number' } } },
+  probes: { pixels: () => null },
+}; };
+export const count = () => loads;
+export default { name: 'adder', previewers: {}, adds: { stock: side } };
+`);
+  writeFileSync(join(dir, 'badadds.mjs'), 'export default { name: "badadds", adds: { stock: 42 } };');
   return dir;
 }
 
@@ -81,6 +93,33 @@ test('the bin (main with discover) draws thumbs with the hosts it finds', async 
     out = '';
     assert.equal(await main(['thumb', 'plain', '--json'], { ...io, cwd: dir, env }), 0);
     assert.equal(JSON.parse(out)[0].cached, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a host lends addAsset its side for a kind: loaded on the first add, derive, checks and probes', async () => {
+  const dir = fixture();
+  try {
+    const got = await loadHosts({ known: [], env: { ASSETLIB_HOSTS: ['adder.mjs', 'badadds.mjs'].join(delimiter) }, cwd: dir });
+    assert.deepEqual(got.hosts.map((h) => [h.name, h.adds]), [['adder', ['stock']]]);
+    assert.match(got.warnings[0], /badadds\.mjs not loaded: adds\.stock: a function/);
+    const mod = await import(join(dir, 'adder.mjs'));
+    assert.equal(mod.count(), 0, 'loading the host loads no add side');
+    assert.deepEqual(await addHost(got.adds, 'image'), {});
+    const side = await addHost(got.adds, 'stock');
+    assert.deepEqual(Object.keys(side.derive), ['stock']);
+    assert.equal(mod.count(), 1);
+
+    // The bin: `asset add --kind stock` takes the host's derive (the entry gains `weighed`).
+    const d = new Uint8ClampedArray(2 * 2 * 4).fill(200);
+    writeFileSync(join(dir, 'p.png'), encodePng({ data: d, width: 2, height: 2 }));
+    mkdirSync(join(dir, 'house'), { recursive: true });
+    let out = '', err = '';
+    const io = { out: { write: (x) => { out += x; } }, err: { write: (x) => { err += x; } } };
+    const env = { DAVIDUP_ASSETS: join(dir, 'user'), DAVIDUP_HOUSE: join(dir, 'house'), ASSETLIB_HOSTS: ['-', 'adder.mjs'].join(delimiter) };
+    assert.equal(await main(['add', 'p.png', '--kind', 'stock', '--name', 'Grey', '--licence', 'own', '--json'], { ...io, cwd: dir, env, discover: true }), 0, err);
+    assert.equal(JSON.parse(out).entry.weighed, (await import('node:fs')).readFileSync(join(dir, 'p.png')).length);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

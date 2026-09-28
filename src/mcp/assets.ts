@@ -1,29 +1,37 @@
-// The asset library from the MCP tools (docs/asset-library-plan.md D2): what
-// `search_assets`, `get_asset`, `get_asset_preview` and the library half of
-// `list_library` / `get_library_thumbnail` share.
+// The asset library from the MCP tools (docs/asset-library-plan.md D2, D3):
+// what `search_assets`, `get_asset`, `get_asset_preview`, `add_asset`,
+// `tag_asset`, `use_asset` and the library half of `list_library` /
+// `get_library_thumbnail` share.
 //
 // The library is a directory, so none of this needs the editor: the shelves
 // are the open project's `assets/` (editor-hosted, else `$DAVIDUP_PROJECT`'s),
 // the user's pool and the house shelf, read on every call (a catalogue is a
 // few KB; a record `asset add` just wrote is seen at once). Previews are drawn
 // by the hosts found next to assetlib (hdf's previewers when `handdrawn/` is
-// in the checkout, H3), else by assetlib's fallback card.
+// in the checkout, H3), else by assetlib's fallback card; the same hosts add
+// what only they can read off a payload (hdf traces a cutout's silhouette).
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 
+import { addAsset, idOf } from "../../assetlib/add.js";
 import {
   DAVIDUP_TYPE,
+  ID,
   KINDS,
   THUMB_CACHE,
   assetSrc,
   imageInfo,
   loadHosts,
+  sha,
+  type Adds,
   type AssetRecord,
   type Kind,
   type Library,
   type LibraryHit,
+  type Licence,
   type Previewers,
+  type Probes,
   type SearchQuery,
   type SearchResult,
 } from "../../assetlib/index.js";
@@ -54,21 +62,31 @@ export function requireAsset(lib: Library, ref: string): void {
   );
 }
 
-// ── Previewers ──
+// ── Hosts: previewers and add sides ──
 
-let hosts: Promise<{ previewers: Previewers; warnings: string[] }> | null = null;
+let hosts: Promise<{ previewers: Previewers; adds: Adds; warnings: string[] }> | null = null;
 
-/**
- * The previewers of the hosts beside assetlib (`loadHosts()`, H3), loaded once
- * per process. `injected` (ToolDeps.assetPreviewers) replaces them.
- */
-export async function assetPreviewers(injected?: Previewers): Promise<{ previewers: Previewers; warnings: string[] }> {
-  if (injected) return { previewers: injected, warnings: [] };
+/** The hosts beside assetlib (`loadHosts()`, H3), loaded once per process. */
+function assetHosts(): Promise<{ previewers: Previewers; adds: Adds; warnings: string[] }> {
   hosts ??= loadHosts().then(
-    ({ previewers, warnings }) => ({ previewers, warnings }),
-    (err: unknown) => ({ previewers: {}, warnings: [`preview hosts not loaded: ${(err as Error)?.message ?? err}`] }),
+    ({ previewers, adds, warnings }) => ({ previewers, adds, warnings }),
+    (err: unknown) => ({ previewers: {}, adds: {}, warnings: [`asset hosts not loaded: ${(err as Error)?.message ?? err}`] }),
   );
   return hosts;
+}
+
+/** The hosts' previewers. `injected` (ToolDeps.assetPreviewers) replaces them. */
+export async function assetPreviewers(injected?: Previewers): Promise<{ previewers: Previewers; warnings: string[] }> {
+  if (injected) return { previewers: injected, warnings: [] };
+  const { previewers, warnings } = await assetHosts();
+  return { previewers, warnings };
+}
+
+/** The hosts' add sides by kind (D3). `injected` (ToolDeps.assetAdds) replaces them. */
+export async function assetAdds(injected?: Adds): Promise<{ adds: Adds; warnings: string[] }> {
+  if (injected) return { adds: injected, warnings: [] };
+  const { adds, warnings } = await assetHosts();
+  return { adds, warnings };
 }
 
 // ── search_assets ──
@@ -267,3 +285,177 @@ export function libraryShelfItems(
   }));
   return { items, total };
 }
+
+// ── add_asset (D3) ──
+
+/** The shelf a write names, or E_INVALID_VALUE naming the shelves there are. */
+function writableShelf(lib: Library, name: string): string {
+  if (lib.shelves.some((s) => s.name === name)) return name;
+  const there = lib.shelves.map((s) => s.name).join(", ");
+  throw new MCPToolError(
+    "E_INVALID_VALUE",
+    `No shelf '${name}' here (the shelves are ${there}).`,
+    name === "project"
+      ? "The project shelf is the open project's `assets/` (editor-hosted, else `$DAVIDUP_PROJECT`'s); write to `user` without one."
+      : `Name one of ${there}.`,
+  );
+}
+
+/** A note when `id` on `shelf` is hidden by an earlier shelf's record of the same id. */
+export function shadowNote(lib: Library, id: string, shelf: string): string[] {
+  const names = lib.shelves.map((s) => s.name);
+  const before = names.slice(0, names.indexOf(shelf)).filter((n) => lib.shelf(n).has(id));
+  return before.length
+    ? [`'${id}' on ${shelf} is shadowed by the record of the same id on ${before.join(", ")}: \`asset:${id}\` resolves there, not to this one.`]
+    : [];
+}
+
+export interface AddAssetArgs {
+  path: string;
+  id?: string;
+  kind: Kind;
+  name: string;
+  licence?: Licence;
+  credit?: string;
+  source?: string;
+  tags?: string[];
+  desc?: string;
+  family?: string;
+  fields?: Record<string, unknown>;
+  shelf?: string;
+  replace?: boolean;
+}
+
+/**
+ * A file put on a shelf (assetlib's addAsset: the kind's fields read off the
+ * payload, by the host that knows the kind when there is one; probed;
+ * validated before anything is written). An id the shelf already holds with
+ * other bytes needs `replace`.
+ */
+export async function addAssetFile(
+  lib: Library,
+  args: AddAssetArgs,
+  opts: { cwd: string; adds?: Adds; probes?: Probes },
+) {
+  const file = resolve(opts.cwd, args.path);
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    throw new MCPToolError("E_NOT_FOUND", `No file at '${args.path}' (${file}).`, "`path` is absolute, or relative to the open project (else the server's working directory).");
+  }
+  const id = args.id ?? idOf(args.name);
+  if (!ID.test(id)) {
+    throw new MCPToolError("E_INVALID_VALUE", `'${id}' is not a library id.`, "An id is lower-case letters, digits and dashes (`warm-paper`); pass `id`.");
+  }
+  const shelf = writableShelf(lib, args.shelf ?? (lib.shelves.some((s) => s.name === "project") ? "project" : "user"));
+  const bytes = readFileSync(file);
+  const had = lib.shelf(shelf).entries.get(id) ?? null;
+  if (had && had.sha !== sha(bytes) && !args.replace) {
+    throw new MCPToolError(
+      "E_DUPLICATE_ID",
+      `'${id}' on ${shelf} already holds other bytes (${had.kind}, sha ${had.sha.slice(0, 12)}).`,
+      `Pass \`replace: true\` to point '${id}' at this file (a src pinned \`asset:${id}@${had.sha.slice(0, 12)}\` then errors E_ASSET_STALE), or another \`id\`.`,
+    );
+  }
+  const licence = args.licence ?? "unknown";
+  const entry = {
+    id,
+    kind: args.kind,
+    name: args.name,
+    file: basename(file),
+    licence,
+    credit: args.credit ?? "",
+    source: args.source ?? "",
+    tags: args.tags ?? [],
+    ...(args.desc !== undefined ? { desc: args.desc } : {}),
+    ...(args.family !== undefined ? { family: args.family } : {}),
+  };
+  let out;
+  try {
+    out = await addAsset(
+      lib,
+      { bytes, file, entry, extra: args.fields ?? {}, shelf },
+      { ...(opts.adds ? { adds: opts.adds } : {}), ...(opts.probes ? { probes: opts.probes } : {}), by: "add_asset" },
+    );
+  } catch (err) {
+    if (err instanceof MCPToolError) throw err;
+    throw new MCPToolError(
+      "E_INVALID_VALUE",
+      `add_asset '${id}': ${(err as Error).message}`,
+      "Nothing was written. `fields` adds entry fields the file cannot give (a font's `family`, a cutout's `sil`, a puppet's `box`).",
+    );
+  }
+  const warnings = [...out.warnings, ...shadowNote(lib, id, shelf)];
+  if (licence === "unknown") warnings.push(`'${id}' has licence unknown; \`asset check\` flags it until \`tag_asset\` sets one.`);
+  if ((licence === "CC-BY" || licence === "CC-BY-SA") && !args.credit) {
+    warnings.push(`'${id}' is ${licence} but has no credit; the licence asks for one (\`tag_asset\` \`credit\`).`);
+  }
+  return {
+    id,
+    shelf,
+    path: out.path,
+    status: !had ? ("new" as const) : had.sha === out.entry.sha ? ("unchanged bytes" as const) : ("replaced" as const),
+    ...(had && had.sha !== out.entry.sha ? { replacedSha: had.sha } : {}),
+    record: { ...out.entry, id, shelf },
+    warnings,
+  };
+}
+
+/** A record's blob, thumb and entry moved to another shelf (the editor's promote, generalised). */
+export function moveAsset(lib: Library, id: string, to: string, from?: string) {
+  requireAsset(lib, id);
+  writableShelf(lib, to);
+  try {
+    const out = lib.move(id, to, from !== undefined ? { from } : {});
+    return { id: out.id, from: out.from, to: out.to, path: out.path, record: { ...out.entry, id: out.id, shelf: out.to } };
+  } catch (err) {
+    throw new MCPToolError("E_INVALID_VALUE", `add_asset: moving '${id}' to ${to}: ${(err as Error).message}`, "`get_asset` shows which shelves hold the id.");
+  }
+}
+
+// ── tag_asset (D3) ──
+
+export interface EditAssetArgs {
+  id: string;
+  add?: string[];
+  remove?: string[];
+  name?: string;
+  desc?: string | null;
+  credit?: string;
+  source?: string;
+  licence?: Licence;
+  shelf?: string;
+}
+
+/** A record's own fields edited in place (`lib.update`: validated whole, the blob untouched). */
+export function editAsset(lib: Library, args: EditAssetArgs) {
+  requireAsset(lib, args.id);
+  const shelf = args.shelf !== undefined ? writableShelf(lib, args.shelf) : lib.locate(args.id).shelf;
+  if (!lib.shelf(shelf).has(args.id)) {
+    throw new MCPToolError("E_ASSET_MISSING", `No asset '${args.id}' on ${shelf}.`, "`get_asset` lists the shelves holding the id.");
+  }
+  const before = lib.shelf(shelf).entry(args.id).tags ?? [];
+  let tags = [...before];
+  for (const t of args.add ?? []) if (!tags.includes(t)) tags.push(t);
+  tags = tags.filter((t) => !(args.remove ?? []).includes(t));
+  const patch: Record<string, unknown> = {};
+  if (args.add !== undefined || args.remove !== undefined) patch.tags = tags;
+  for (const k of ["name", "credit", "source", "licence"] as const) if (args[k] !== undefined) patch[k] = args[k];
+  if (args.desc !== undefined) patch.desc = args.desc === "" ? null : args.desc;
+  if (Object.keys(patch).length === 0) {
+    throw new MCPToolError("E_INVALID_VALUE", "tag_asset: nothing to change.", "Pass `add` / `remove` (tags), `name`, `desc`, `credit`, `source` or `licence`.");
+  }
+  let out;
+  try {
+    out = lib.update(args.id, patch, { shelf });
+  } catch (err) {
+    throw new MCPToolError("E_INVALID_VALUE", `tag_asset '${args.id}': ${(err as Error).message}`, "Nothing was written.");
+  }
+  const after = (out.entry.tags ?? []) as string[];
+  return {
+    id: out.id,
+    shelf: out.shelf,
+    record: { ...out.entry, id: out.id, shelf: out.shelf },
+    ...(patch.tags ? { added: after.filter((t) => !before.includes(t)), removed: before.filter((t) => !after.includes(t)) } : {}),
+    warnings: shadowNote(lib, args.id, shelf),
+  };
+}
+

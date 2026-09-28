@@ -89,6 +89,7 @@ import {
   type Kind,
   type Licence,
   type Media,
+  type Adds,
   type Previewers,
   type SearchQuery,
 } from "../../assetlib/index.js";
@@ -119,14 +120,22 @@ import { strictObject } from "../schema/strict.js";
 import type { DispatchResult } from "./dispatch.js";
 import { MCPToolError } from "./errors.js";
 import {
+  addAssetFile,
+  assetAdds,
   assetDetail,
   assetPreview,
   assetPreviewers,
   assetSheet,
+  editAsset,
   libraryShelfItems,
+  moveAsset,
   openShelves,
   pngResult,
+  requireAsset,
   searchShelves,
+  shadowNote,
+  type AddAssetArgs,
+  type EditAssetArgs,
 } from "./assets.js";
 import {
   castNames,
@@ -376,6 +385,14 @@ export interface ToolDeps {
   // Default: the hosts beside assetlib (`loadHosts()`, hdf's previewers in a
   // checkout), else assetlib's fallback card. Tests inject their own.
   assetPreviewers?: Previewers;
+  // What reads a payload's per-kind fields for add_asset (asset library D3):
+  // the hosts' add sides by kind. Default: `loadHosts().adds` (hdf's tracing,
+  // lint and checks in a checkout). Tests inject their own.
+  assetAdds?: Adds;
+  // The project whose `assets/` shelf an `asset:` src or a library tool
+  // searches first when there is no `projectControls` (D3: the editor's
+  // CommandBus runs register_asset with the open project's root here).
+  assetProject?: string;
   // R-29 idle TTL the standalone server was started with (`--session-ttl`);
   // surfaced by `list_engine_capabilities.server.sessionIdleSeconds`.
   sessionIdleSeconds?: number;
@@ -781,7 +798,7 @@ function videoMetadataWarnings(meta: VideoMetadata): string[] {
 
 /** The project whose `assets/` shelf is searched first: the editor's open project, when there is one. */
 async function libraryProject(deps: ToolDeps): Promise<string | undefined> {
-  if (!deps.projectControls) return undefined;
+  if (!deps.projectControls) return deps.assetProject;
   try {
     return (await deps.projectControls.current())?.root ?? undefined;
   } catch {
@@ -3607,6 +3624,278 @@ const getAssetPreview = defineTool({
   },
 });
 
+// ── The asset library: write and use (docs/asset-library-plan.md D3) ──
+
+const addAssetTool = defineTool({
+  name: "add_asset",
+  title: "Add asset",
+  description:
+    "Put a file on an asset library shelf, or move a record between shelves. Works on the standalone server. " +
+    "With `path` (absolute, or relative to the open project, else `$DAVIDUP_PROJECT`, else the server's working directory): the file is hashed (sha256) and put as `id` (default: `name` as an id, `Warm paper` → `warm-paper`) with its `kind`, `name` and provenance — " +
+    "`licence` (CC0, CC-BY, CC-BY-SA, OFL, PD, own, unknown; default unknown, flagged until set), `credit`, `source`, `tags`, `desc`. " +
+    "What the file says is read off it: a raster's size, alpha and palette, a video's or audio's duration and stream facts (ffprobe), a font's family; " +
+    "a cutout's silhouette, a puppet's lint and box and a sample's timing are read by the handdrawn package when it sits beside davidup (`fields` gives what nothing can read: `family`, `sil`, `box`, ...). " +
+    "Everything is validated before anything is written. `shelf` is project (default when a project is open), user (the default otherwise) or house. " +
+    "An id the shelf already holds with other bytes errors E_DUPLICATE_ID unless `replace: true`; the same bytes again re-put the record (`status: \"unchanged bytes\"`). " +
+    "With `id` and `shelf` and no `path`: the record (blob, thumb, entry) moves to that shelf, from where it resolves or from `from` — the sha is kept, so `asset:` srcs pinned to it still render. " +
+    "Returns `{ id, shelf, path, status, record, use, warnings }`; `use.davidup` is the `register_asset` call, or call `use_asset { id }` to register and place it in one go.",
+  inputSchema: {
+    path: z.string().min(1).optional().describe("The file to put."),
+    id: z.string().min(1).optional().describe("The record's id (lower-case letters, digits, dashes). With no `path`: the record to move."),
+    kind: ASSET_KIND.optional().describe("image video audio font (davidup's) · cutout clip puppet hand stock motif sample (hdf's). Needed with `path`."),
+    name: z.string().min(1).optional().describe("Needed with `path`."),
+    licence: ASSET_LICENCE.optional(),
+    credit: z.string().optional().describe("The attribution line, as the credits must say it."),
+    source: z.string().optional().describe("Where it came from (a URL)."),
+    tags: z.array(z.string().min(1)).optional(),
+    desc: z.string().optional().describe("One searchable line: what it shows."),
+    family: z.string().min(1).optional().describe("A font's family, when the file's own name table should not decide it."),
+    fields: z.record(z.string(), z.unknown()).optional().describe("Other entry fields the file cannot give (a cutout's `sil`, a puppet's `box`, a sample's `align`)."),
+    shelf: z.string().min(1).optional().describe("project · user · house. With `id` and no `path`: where to move it."),
+    from: z.string().min(1).optional().describe("Moving: the shelf to take the record from (default: where it resolves)."),
+    replace: z.boolean().optional().describe("Point an id the shelf holds with other bytes at this file."),
+  },
+  handler: async (args, deps) => {
+    const project = await libraryProject(deps);
+    const lib = openShelves(project);
+    if (args.path === undefined) {
+      if (args.id === undefined || args.shelf === undefined) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          "add_asset takes `path` (a file to put) or `id` with `shelf` (a record to move).",
+          "Put: `{ path, kind, name, licence, ... }`. Move: `{ id, shelf: 'user' }`.",
+        );
+      }
+      const extra = (["kind", "name", "licence", "credit", "source", "tags", "desc", "family", "fields", "replace"] as const).filter((k) => args[k] !== undefined);
+      if (extra.length) {
+        throw new MCPToolError(
+          "E_INVALID_VALUE",
+          `Moving '${args.id}' takes only \`id\`, \`shelf\` and \`from\`, not ${extra.map((k) => `\`${k}\``).join(", ")}.`,
+          "Move first, then `tag_asset` to change the record's fields.",
+        );
+      }
+      const out = moveAsset(lib, args.id, args.shelf, args.from);
+      const after = openShelves(project);
+      return { ...out, status: "moved" as const, use: after.use(out.id), warnings: shadowNote(after, out.id, out.to) };
+    }
+    if (args.kind === undefined || args.name === undefined) {
+      throw new MCPToolError("E_INVALID_VALUE", "Putting a file takes its `kind` and `name`.", "e.g. `{ path, kind: 'image', name: 'Warm paper', licence: 'own' }`.");
+    }
+    if (args.from !== undefined) {
+      throw new MCPToolError("E_INVALID_VALUE", "`from` names the shelf a move takes a record from; a put takes `shelf`.");
+    }
+    const { adds, warnings: hostWarnings } = await assetAdds(deps.assetAdds);
+    const out = await addAssetFile(lib, { ...stripUndefined(args), kind: args.kind, name: args.name, path: args.path } as AddAssetArgs, {
+      cwd: project ?? (process.env.DAVIDUP_PROJECT || process.cwd()),
+      adds,
+      probes: {
+        probeVideo: deps.probeVideo ?? defaultProbeVideo,
+        probeAudio: deps.probeAudio ?? defaultProbeAudio,
+      },
+    });
+    const after = openShelves(project);
+    const mine = after.locate(out.id).shelf === out.shelf;
+    return { ...out, use: mine ? after.use(out.id) : null, warnings: [...hostWarnings, ...out.warnings] };
+  },
+});
+
+const tagAsset = defineTool({
+  name: "tag_asset",
+  title: "Tag asset",
+  description:
+    "Edit what search reads on an asset library record, in place: `add` / `remove` tags, `name`, `desc` (\"\" removes it), `credit`, `source`, `licence`. " +
+    "The bytes are untouched (sha, kind, size stay), so every `asset:` src keeps resolving; the record is validated whole before it is written. " +
+    "Edits the record where `id` resolves, or on `shelf`. Compositions that registered it earlier keep the credit and licence they copied; re-register (`use_asset` with `replace`) to take the new ones. " +
+    "Returns `{ id, shelf, record, added, removed, warnings }`. Errors with E_ASSET_MISSING for an id no shelf holds.",
+  inputSchema: {
+    id: z.string().min(1),
+    add: z.array(z.string().min(1)).optional().describe("Tags to add."),
+    remove: z.array(z.string().min(1)).optional().describe("Tags to remove."),
+    name: z.string().min(1).optional(),
+    desc: z.string().optional().describe('One searchable line; "" removes it.'),
+    credit: z.string().optional(),
+    source: z.string().optional(),
+    licence: ASSET_LICENCE.optional(),
+    shelf: z.string().min(1).optional().describe("The shelf whose record to edit (default: where the id resolves)."),
+  },
+  handler: async (args, deps) => {
+    const lib = openShelves(await libraryProject(deps));
+    return editAsset(lib, stripUndefined(args) as EditAssetArgs);
+  },
+});
+
+const USE_AS = ["sprite", "video", "audio", "font"] as const;
+type UseAs = (typeof USE_AS)[number];
+const AS_OF_TYPE: Record<string, UseAs> = { image: "sprite", video: "video", audio: "audio", font: "font" };
+const PLACE_TOOL: Record<Exclude<UseAs, "font">, string> = { sprite: "add_sprite", video: "add_video", audio: "add_audio_track" };
+
+/** A sprite's default box: the frame (a sheet's) or the record's size, shrunk to fit a quarter of the stage. */
+function spriteBox(
+  natural: { w: number | undefined; h: number | undefined },
+  stage: { width: number; height: number },
+  given: { width: number | undefined; height: number | undefined },
+): { width: number; height: number } {
+  const round = (v: number) => Math.round(v * 100) / 100;
+  const w = natural.w && natural.w > 0 ? natural.w : undefined;
+  const h = natural.h && natural.h > 0 ? natural.h : undefined;
+  if (given.width !== undefined && given.height !== undefined) return { width: given.width, height: given.height };
+  if (w && h && given.width !== undefined) return { width: given.width, height: round((given.width * h) / w) };
+  if (w && h && given.height !== undefined) return { width: round((given.height * w) / h), height: given.height };
+  const bw = stage.width / 2;
+  const bh = stage.height / 2;
+  if (!w || !h) {
+    const side = Math.min(bw, bh);
+    return { width: given.width ?? side, height: given.height ?? side };
+  }
+  const k = Math.min(1, bw / w, bh / h);
+  return { width: round(w * k), height: round(h * k) };
+}
+
+const useAsset = defineTool({
+  name: "use_asset",
+  title: "Use asset",
+  description:
+    "One call from a search hit to a placed item: registers an asset library record (the hit's `use.davidup` — `register_asset` with its pinned `asset:<id>@<sha12>` src and its credit and licence) and places it, through the same calls an agent would make, so an editor sees each one. " +
+    "`as` follows the record: an image, cutout or stock is a `sprite` (add_sprite), a video a `video` (add_video), audio or a sample an `audio` track (add_audio_track), a font is only registered (pass the returned `assetId` as add_text's `font`); " +
+    "a puppet, hand or motif is taken through the sprite sheet, image or font made from it (`record.via`); a record davidup cannot take errors E_ASSET_TYPE_MISMATCH. " +
+    "`place` carries that tool's own fields (not `asset`); left out, defaults are used: a sprite goes on the topmost layer, centred on the stage, anchored at its centre (a sprite sheet at its anchor), sized to its frame or image but shrunk to fit a quarter of the stage (keeping its aspect when only `width` or `height` is given) and named after the record; " +
+    "a video goes on the topmost layer at 0,0 filling the frame (add_video's defaults); an audio track starts at 0. `place: false` registers only. " +
+    "The composition asset id is the record's id (`assetId` picks another); a record already registered from the same src is reused, and an id registered from another src errors E_DUPLICATE_ID unless `replace: true` repoints it. " +
+    "If placing fails, a registration this call made is undone. " +
+    "Returns `{ as, assetId, src, registered: new | already | replaced, record: { id, kind, shelf, via? }, itemId | audioTrackId, width?, height?, family?, warnings? }`.",
+  inputSchema: {
+    id: ASSET_REF,
+    as: z.enum(USE_AS).optional().describe("sprite · video · audio · font. Default: what the record is."),
+    assetId: z.string().min(1).optional().describe("The composition asset id. Default: the record's id."),
+    place: z
+      .union([z.literal(false), z.record(z.string(), z.unknown())])
+      .optional()
+      .describe("add_sprite's / add_video's / add_audio_track's fields (layerId, x, y, width, height, start, ...), or false to register only."),
+    replace: z.boolean().optional().describe("Repoint an asset id registered from another src at this record."),
+    compositionId: COMPOSITION_ID,
+  },
+  handler: async (args, deps) => {
+    const call = deps.call;
+    if (!call) throw new MCPToolError("E_FEATURE_UNAVAILABLE", "use_asset needs the dispatcher (call it through dispatchTool or the MCP server).");
+    const lib = openShelves(await libraryProject(deps));
+    requireAsset(lib, args.id);
+    const record = lib.get(args.id);
+    const use = lib.use(args.id).davidup;
+    if (!use) {
+      const drawn = record.kind === "puppet" || record.kind === "hand" || record.kind === "motif";
+      throw new MCPToolError(
+        "E_ASSET_TYPE_MISMATCH",
+        `'${record.id}' is a ${record.kind}, which davidup does not take${drawn ? ", and nothing davidup takes has been made from it" : ""}.`,
+        drawn
+          ? `davidup takes a ${record.kind} through a sprite sheet, image or font made from it (\`hdf sprite\`, render_hdf_clip \`sprites\`); \`get_asset\` lists what was made from it.`
+          : "A clip is poses for a hand-drawn film: use it in one and render that (render_hdf_clip).",
+      );
+    }
+    const as = AS_OF_TYPE[use.args.type]!;
+    if (args.as !== undefined && args.as !== as) {
+      throw new MCPToolError(
+        "E_ASSET_TYPE_MISMATCH",
+        `'${use.via ?? record.id}' is a ${use.via ? lib.get(use.via).kind : record.kind}, which davidup takes as ${use.args.type} and places as a ${as}, not a ${args.as}.`,
+        `Leave \`as\` out, or pass "${as}".`,
+      );
+    }
+    const taken = use.via ? lib.get(use.via) : record;
+    const cid = args.compositionId !== undefined ? { compositionId: args.compositionId } : {};
+    const doc = deps.store.toJSON(args.compositionId);
+
+    // Where it goes, checked before anything is registered.
+    const place = args.place === false ? null : { ...(args.place ?? {}) };
+    if (as === "font" && args.place !== undefined && args.place !== false) {
+      throw new MCPToolError("E_INVALID_VALUE", "A font is not placed: use_asset registers it and returns its `assetId`.", "Pass that id as add_text's `font`; leave `place` out.");
+    }
+    if (place && ("asset" in place || "compositionId" in place)) {
+      throw new MCPToolError("E_INVALID_VALUE", "`place` takes the placing tool's fields but `asset` and `compositionId`.", "use_asset registers the asset and names it itself; `assetId` picks its id, `compositionId` is use_asset's own.");
+    }
+    let layerId: string | undefined;
+    if (place && (as === "sprite" || as === "video")) {
+      layerId = typeof place.layerId === "string" ? place.layerId : [...doc.layers].sort((a, b) => b.z - a.z)[0]?.id;
+      if (layerId === undefined) {
+        throw new MCPToolError("E_NOT_FOUND", `The composition has no layer to put the ${as} on.`, "Call add_layer first, or pass `place: false` to register only.");
+      }
+    }
+
+    // Registered once: the same src under any id is reused.
+    const src = use.args.src;
+    const byId = doc.assets.find((a) => a.id === (args.assetId ?? use.args.id));
+    const bySrc = args.assetId === undefined ? doc.assets.find((a) => a.src === src) : undefined;
+    let assetId = args.assetId ?? use.args.id;
+    let registered: "new" | "already" | "replaced";
+    const warnings: string[] = [];
+    if (byId?.src === src) {
+      registered = "already";
+    } else if (!byId && bySrc) {
+      assetId = bySrc.id;
+      registered = "already";
+    } else {
+      if (byId && !args.replace) {
+        throw new MCPToolError(
+          "E_DUPLICATE_ID",
+          `Asset "${assetId}" is already registered from ${byId.src}.`,
+          `Pass \`assetId\` to register ${src} under another id, or \`replace: true\` to point "${assetId}" at it (items using it keep using it).`,
+        );
+      }
+      const r = await call("register_asset", { ...use.args, id: assetId, ...(byId ? { replace: true } : {}), ...cid });
+      if (!r.ok) throw new MCPToolError(r.error.code, `register_asset ${assetId}: ${r.error.message}`, r.error.hint);
+      warnings.push(...(((r.result as { warnings?: string[] })?.warnings) ?? []));
+      registered = byId ? "replaced" : "new";
+    }
+
+    const out: Record<string, unknown> = {
+      as,
+      assetId,
+      src,
+      registered,
+      record: { id: record.id, kind: record.kind, shelf: record.shelf, ...(use.via ? { via: use.via } : {}) },
+    };
+    if (as === "font") {
+      if (use.args.family) out.family = use.args.family;
+    } else if (place) {
+      let placeArgs: Record<string, unknown>;
+      if (as === "sprite") {
+        const sheet = use.args.sheet as { frameWidth?: number; frameHeight?: number; anchor?: { x?: number; y?: number } } | undefined;
+        const box = spriteBox(
+          sheet?.frameWidth ? { w: sheet.frameWidth, h: sheet.frameHeight } : { w: num(taken.w), h: num(taken.h) },
+          doc.composition,
+          { width: num(place.width), height: num(place.height) },
+        );
+        placeArgs = {
+          x: doc.composition.width / 2,
+          y: doc.composition.height / 2,
+          anchorX: sheet?.anchor?.x ?? 0.5,
+          anchorY: sheet?.anchor?.y ?? 0.5,
+          ...(taken.name ? { name: String(taken.name).slice(0, 80) } : {}),
+          ...place,
+          ...box,
+          layerId,
+        };
+      } else if (as === "video") {
+        placeArgs = { x: 0, y: 0, ...(taken.name ? { name: String(taken.name).slice(0, 80) } : {}), ...place, layerId };
+      } else {
+        placeArgs = { start: 0, ...place };
+      }
+      const tool = PLACE_TOOL[as];
+      const r = await call(tool, { ...placeArgs, asset: assetId, ...cid });
+      if (!r.ok) {
+        // Undo what this call registered, so a failed placement leaves the composition as it was.
+        if (registered === "new") await call("remove_asset", { id: assetId, ...cid });
+        throw new MCPToolError(r.error.code, `${tool}: ${r.error.message}`, r.error.hint);
+      }
+      const res = r.result as { itemId?: string; audioTrackId?: string; warnings?: string[] };
+      if (res.itemId) out.itemId = res.itemId;
+      if (res.audioTrackId) out.audioTrackId = res.audioTrackId;
+      if (as === "sprite") Object.assign(out, { width: placeArgs.width, height: placeArgs.height });
+      warnings.push(...(res.warnings ?? []));
+    }
+    if (registered === "replaced") warnings.push(`Asset "${assetId}" was ${byId?.src}; it is now ${src}.`);
+    return warnings.length ? { ...out, warnings } : out;
+  },
+});
+
 const createProject = defineTool({
   name: "create_project",
   title: "Create project",
@@ -3947,6 +4236,10 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   searchAssets,
   getAsset,
   getAssetPreview,
+  // 4.8b — the asset library: write and use (asset-library plan D3)
+  addAssetTool,
+  tagAsset,
+  useAsset,
   // 4.9 — engine discovery (M5)
   listEasingsTool,
   listFontsTool,

@@ -86,6 +86,11 @@ const { previewers, hosts, warnings } = await loadHosts();
 const lib = openLibrary({ previewers });   // what the `asset` bin does for `thumb` and `sheet`
 ```
 
+A host may also lend `addAsset` its side of a kind (plan D3): `adds: { kind: () => Promise<{ derive, fields,
+probes }> }`, loaded on the first add of that kind. `addHost(adds, kind)` turns it into addAsset's `host`, and
+addAsset loads it itself when given `host.adds`. hdf lends `hdf import`'s side, so the `asset` bin and
+davidup's `add_asset` trace a cutout's silhouette and lint a puppet as `hdf import` does.
+
 Every search hit carries `use`: the exact call that brings the record into each app, or null where the app
 cannot take it (plan A5, `use.js`). The agent copies it; it does not translate.
 
@@ -140,8 +145,9 @@ other two. Writes go to `--shelf`, else the project, else the user's pool. `--js
 `asset add` reads what the payload says by itself: a raster's header and (for a PNG) its colours, a WAV's
 length, a TrueType/OpenType/WOFF font's family, weight, style and glyphs, a JSON kind's own counts and box, a
 video or other audio through `ffprobe` (`$FFPROBE`) when it is there (`probe.js`). What only hdf can work out (a
-cutout's silhouette, a puppet's box from its parts) comes from the host or from `--with '<json>'`.
-`main(argv, host)` is the whole CLI; a host passes its `probes`, `previewers`, per-kind `derive` and `fields`.
+cutout's silhouette, a puppet's box from its parts) comes from the host (the bin finds hdf's `adds`) or from
+`--with '<json>'`. `main(argv, host)` is the whole CLI; a host passes its `probes`, `previewers`, per-kind
+`derive` and `fields`, or `adds`.
 `run(verb, argv, host)` is one verb without the printing (`{ code, data, text, warnings }`, `data` being what
 `--json` prints), on `host.library` when the host opened its own; `addAsset(lib, { bytes, file, entry, shelf },
 host)` is `add` for a host that already holds the bytes. hdf's `find`, `import`, `remove` and `gc` are these

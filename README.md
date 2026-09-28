@@ -4,7 +4,7 @@
 > One canonical JSON composition runs in the **browser** (live preview via
 > Canvas2D + `requestAnimationFrame`), on the **server** (frame-by-frame render
 > with [`skia-canvas`](https://github.com/samizdatco/skia-canvas) piped to
-> `ffmpeg` → MP4), inside an **AI agent** loop (63 atomic MCP tools), from the
+> `ffmpeg` → MP4), inside an **AI agent** loop (66 atomic MCP tools), from the
 > **CLI** (`davidup render`), or in a **human editor** (`davidup edit`).
 > Same input → same pixels, every host.
 
@@ -18,7 +18,7 @@
             │                        │                        │
     ┌───────▼───────┐       ┌────────▼────────┐      ┌────────▼────────┐
     │ browser/      │       │ drivers/node    │      │ mcp server      │
-    │ attach()      │       │ renderToFile()  │      │ 63 tools, stdio │
+    │ attach()      │       │ renderToFile()  │      │ 66 tools, stdio │
     │ live preview  │       │ → mp4 (+audio)  │      │ for AI agents   │
     └───────────────┘       └────────┬────────┘      └────────┬────────┘
                                      │                        │
@@ -626,6 +626,18 @@ sheet (`ids`) as MCP images, drawn by hdf when `handdrawn/` sits beside
 davidup, else as a card. All three work on the standalone `davidup mcp`
 server; `list_library` lists the same records as its `asset` and `font` items.
 
+**Adding and placing from an agent.** `add_asset { path, kind, name, licence,
+credit, source, tags, desc }` hashes a file and puts it on the project shelf
+(the user's pool with no project; `shelf` picks), reading what the file says
+(size, palette, ffprobe facts, a font's family; a cutout's silhouette when
+`handdrawn/` sits beside davidup) and validating before it writes; `add_asset
+{ id, shelf }` moves a record. `tag_asset` edits what search reads.
+`use_asset { id }` is one call from a hit to a placed item: it registers the
+record (pinned src, credit and licence) and adds a sprite sized to fit a
+quarter of the stage, a video item or an audio track (`place` takes that
+tool's fields; `place: false` registers only; a font is registered for
+`add_text`), through the same calls an editor sees.
+
 **Bundled default font.** davidup ships Inter Regular (OFL, Latin subset) in
 `fonts/`. Any text item can use `"font": "font:default"` without registering
 an asset — the validator and both loaders resolve it (family `Inter`), and
@@ -970,6 +982,7 @@ the TTL.
 | 4.7 | Project lifecycle *(editor-hosted)* | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 | Library | `list_library`, `get_library_thumbnail` — the editor's templates, behaviors and scenes *(editor-hosted)*, plus the asset library's `asset` / `font` items on any server |
 | 4.8a | Asset library | `search_assets` (ranked, faceted; each hit carries the `register_asset` call), `get_asset` (the full record, made from / into), `get_asset_preview` (`id` → thumb, `ids` → contact sheet, as MCP images) |
+| 4.8b | Asset library: write and use | `add_asset` (a file hashed and put on a shelf with its provenance, or a record moved between shelves), `tag_asset` (tags, desc, name, credit, source, licence in place), `use_asset` (register a record and place it — sprite, video, audio track — or register a font, in one call) |
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
 | 4.10 | Hand-drawn clips | `render_hdf_clip` — renders a film of the `handdrawn/` package (`film`, `look`, `ar`, `width`, `frames`, `alpha` mov\|webm) and registers it as a video asset in one call; `place` adds the video item, `item` repoints one, the film is cut to the composition's markers and its chapters come back as markers (`cues`); `sprites` registers cast members as sprite sheets. Needs a checkout (or `DAVIDUP_HDF_ROOT`) and node |
 
@@ -1429,7 +1442,7 @@ src/
     node/         renderToFile via skia-canvas + ffmpeg,          (§5.6, §6)
                   video pre-extraction cache, audio mux, ffprobe
     browser/      attach() — RAF preview + pick + bounds + source (§5.6)
-  mcp/            server + 63 tools + in-memory store + bin       (§4)
+  mcp/            server + 66 tools + in-memory store + bin       (§4)
   cli/            bin + commands (new / edit / render / list) + scaffold templates
 
 apps/

@@ -211,7 +211,8 @@ export class CommandBus {
     let next: Composition
     let toolResult: unknown
     try {
-      const applied = await applyCommandWithResult(current, command)
+      const root = this.#projectStore.project?.root
+      const applied = await applyCommandWithResult(current, command, root ? { project: root } : {})
       next = applied.next
       toolResult = applied.toolResult
     } catch (err) {

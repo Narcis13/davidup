@@ -521,15 +521,35 @@ export function migrateSha256(shelf: Shelf, opts?: { dry?: boolean }): Migration
 
 // ---------- hosts (H3) ----------
 
+/** A payload's per-kind fields, read off it by a host (hdf traces a cutout's silhouette, lints a puppet). */
+export type Derive = (bytes: Uint8Array, ctx: { file?: string; entry: EntryInput }) => Record<string, unknown> | Promise<Record<string, unknown>>;
+/** What a host hands addAsset for a payload of a kind it knows: its derive, its checks, its probes. */
+export interface AddSide {
+  derive?: Derive | Partial<Record<Kind, Derive>>;
+  fields?: PutOptions['fields'];
+  probes?: Probes;
+}
+/** addAsset's `host` for one kind (addHost): what the hosts' `adds` loaded, keyed as addAsset reads it. */
+export interface AddHost {
+  derive?: Partial<Record<Kind, Derive>>;
+  fields?: PutOptions['fields'];
+  probes?: Probes;
+}
+/** Per kind, the host's add side, loaded on the first add (D3). */
+export type Adds = Partial<Record<Kind, () => Promise<AddSide>>>;
+
 /** An app that draws some kinds: a module whose default export (or the module) is this. */
 export interface Host {
   name?: string;
   previewers?: Previewers;
+  adds?: Adds;
 }
 export interface LoadedHosts {
-  hosts: { name: string; file: string; kinds: string[] }[];
+  hosts: { name: string; file: string; kinds: string[]; adds: string[] }[];
   /** Every host's previewers merged, later hosts taking a kind from earlier ones: pass to openLibrary. */
   previewers: Previewers;
+  /** Every host's add sides merged the same way: addHost(adds, kind) for addAsset. */
+  adds: Adds;
   /** A host on disk that did not load, or registered something that is not a previewer. */
   warnings: string[];
 }
@@ -537,3 +557,5 @@ export interface LoadedHosts {
 export const KNOWN_HOSTS: string[];
 /** Loads KNOWN_HOSTS (`known` replaces them) and the modules $ASSETLIB_HOSTS names ('-' first: those alone). */
 export function loadHosts(opts?: { env?: Record<string, string | undefined>; known?: string[]; cwd?: string }): Promise<LoadedHosts>;
+/** addAsset's host for a payload of `kind` (its derive, checks and probes), or {} when no host adds the kind. */
+export function addHost(adds: Adds | undefined, kind: Kind | string): Promise<AddHost>;

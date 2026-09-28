@@ -469,6 +469,24 @@ cutout, a video and a sample from three `use_asset` calls and `validate`
 passes; `add_asset` refuses a licence outside the enum; the editor's
 `apply_command` allow-list carries the new commands.
 
+*As built:* the tools are in `tools.ts` (§4.8b), the helpers in
+`src/mcp/assets.ts`. `add_asset` is assetlib's `addAsset` with davidup's
+ffprobe probes and the hosts' new `adds` (hdf lends `hdf import`'s derive,
+checks and pixels, so a cutout's silhouette is traced as hdf traces it;
+without hdf a cutout needs `fields: { sil }`); `licence` defaults to
+`unknown` with a warning, and other bytes under an existing id need
+`replace: true`. `use_asset` takes `id`, `as`, `assetId`, `place` (the placing
+tool's own fields, or `false`) and `replace`; a sprite's default box is its
+frame (a sheet's) or image, shrunk to fit a quarter of the stage and never
+enlarged, centred and anchored at its centre (a sheet at its anchor); a
+failed placement removes a registration the call made. There are no new
+commands: `add_asset` and `tag_asset` write shelves, not the composition, and
+`use_asset` is made of `register_asset` / `add_sprite` / `add_video` /
+`add_audio_track`, which the editor's router already sends through the bus
+(`mcp_bridge.spec.ts`). What did need the editor: its commands ran with no
+project, so a project-shelf `asset:` src failed through the bus; the bus now
+passes the open project (`ToolDeps.assetProject`).
+
 ### D4. Derived assets land in the library
 
 *The bridge writes records, not files.*
@@ -752,7 +770,7 @@ then D and E in parallel, I when D4 exists, S last.
 | H3 | hdf previewers | 1 | A4 H1 | [x] |
 | D1 | The `asset:` src scheme | 1 | A1 | [x] |
 | D2 | MCP: search and read | 1 | A3 A4 D1 | [x] |
-| D3 | MCP: write and use | 1 | A5 D2 | [ ] |
+| D3 | MCP: write and use | 1 | A5 D2 | [x] |
 | D4 | Derived assets land in the library | 1 | A2 D1 H1 | [ ] |
 | D5 | The seed writes the user shelf | 0.5 | A2 D1 | [ ] |
 | D6 | Palette and text-room facts | 1 | A2 | [ ] |

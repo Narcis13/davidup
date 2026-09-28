@@ -9,6 +9,32 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### MCP: write and use the asset library (asset library D3)
+
+- Three new tools (66): `add_asset` puts a file on a shelf (`path`, `kind`,
+  `name`, `licence`, `credit`, `source`, `tags`, `desc`; the project shelf
+  when one is open, else the user's pool; `shelf` picks), reading what the
+  file says (size, palette, ffprobe facts, a font's family) and validating
+  before anything is written; other bytes under an id the shelf holds need
+  `replace: true`. `add_asset { id, shelf }` moves a record between shelves,
+  sha kept. `tag_asset` edits tags, desc, name, credit, source and licence in
+  place. `use_asset { id }` registers a record with its hit's `use.davidup`
+  call and places it (a sprite sized to fit a quarter of the stage and
+  centred, a video item, an audio track; `place` takes the placing tool's
+  fields, `place: false` registers only; a font is registered for
+  `add_text`), reusing a registration of the same src and undoing its own if
+  placing fails. It works through `deps.call`, so in the editor each step is
+  a CommandBus command.
+- assetlib: a host may lend `addAsset` its side of a kind (`adds`, loaded on
+  the first add; `addHost(adds, kind)`). hdf lends `hdf import`'s, so
+  `asset add x.png --kind cutout` and `add_asset` trace a cutout's
+  silhouette as `hdf import` does. `addAsset` moved to `assetlib/add.js`
+  (typed, no shebang, so a server imports it without the bin; `cli.js`
+  re-exports it).
+- Editor: commands run with the open project, so a `register_asset` of a
+  project-shelf `asset:` src through the CommandBus resolves (it searched
+  only the user and house shelves before). `ToolDeps.assetProject` carries it.
+
 ### MCP: search and read the asset library (asset library D2)
 
 - Three new tools, on the standalone `davidup mcp` server as well as in the

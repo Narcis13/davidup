@@ -76,7 +76,8 @@ export async function applyCommand(
  */
 export async function applyCommandWithResult(
   composition: Composition,
-  command: Command
+  command: Command,
+  opts: { project?: string } = {}
 ): Promise<{ next: Composition; toolResult: unknown }> {
   const store = new CompositionStore()
   hydrateStore(store, composition, HYDRATION_ID)
@@ -94,7 +95,12 @@ export async function applyCommandWithResult(
   // targets the fresh store instance — never relies on a global default.
   const args = { ...(command.payload as Record<string, unknown>), compositionId: HYDRATION_ID }
 
-  const result = await dispatchTool(tool, args, { store })
+  // `project`: the open project, whose `assets/` shelf an `asset:` src
+  // (register_asset) resolves on first (asset library D3).
+  const result = await dispatchTool(tool, args, {
+    store,
+    ...(opts.project !== undefined ? { assetProject: opts.project } : {}),
+  })
   if (!result.ok) {
     throw new ApplyCommandError(
       result.error.code,

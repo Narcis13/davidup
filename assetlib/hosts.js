@@ -4,8 +4,10 @@
 //   const { previewers, hosts, warnings } = await loadHosts();
 //   openLibrary({ previewers });                       // lib.preview draws with them, else the card
 //
-// A host is an ES module whose default export (or the module itself) is { name, previewers }, previewers as
-// openLibrary takes them ({ kind: fn | { name, version, render } }). The known hosts are the ones that sit
+// A host is an ES module whose default export (or the module itself) is { name, previewers, adds }, previewers
+// as openLibrary takes them ({ kind: fn | { name, version, render } }); `adds` ({ kind: () -> Promise<{ derive,
+// fields, probes }> }, D3) is what the host hands addAsset for a payload of that kind (hdf: a cutout's
+// silhouette traced, a puppet linted, its checks), loaded on the first add so loading the host stays cheap. The known hosts are the ones that sit
 // next to this package in the repo: hdf's (handdrawn/cli/host.mjs). $ASSETLIB_HOSTS adds modules (paths,
 // separated by the platform's path delimiter), later ones taking a kind from earlier ones; '-' as its first
 // entry leaves the known ones out. A known host that is not on disk is skipped quietly; a host that is there
@@ -19,12 +21,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 export const KNOWN_HOSTS = [join(HERE, '..', 'handdrawn', 'cli', 'host.mjs')];
 
-// Resolves to { hosts: [{ name, file, kinds }], previewers, warnings }. `known` replaces KNOWN_HOSTS (tests);
+// Resolves to { hosts: [{ name, file, kinds, adds }], previewers, adds, warnings }. `known` replaces KNOWN_HOSTS (tests);
 // `cwd` is what a relative $ASSETLIB_HOSTS entry is read against.
 export async function loadHosts({ env = process.env, known = KNOWN_HOSTS, cwd = process.cwd() } = {}) {
   const extra = String(env.ASSETLIB_HOSTS ?? '').split(delimiter).filter(Boolean);
   const files = [...(extra[0] === '-' ? [] : known.filter((f) => existsSync(f))), ...extra.filter((f) => f !== '-').map((f) => resolve(cwd, f))];
-  const hosts = [], previewers = {}, warnings = [];
+  const hosts = [], previewers = {}, adds = {}, warnings = [];
   for (const file of [...new Set(files)]) {
     try {
       const mod = await import(pathToFileURL(file).href), h = mod.default ?? mod;
@@ -33,11 +35,29 @@ export async function loadHosts({ env = process.env, known = KNOWN_HOSTS, cwd = 
       for (const [kind, p] of Object.entries(own)) {
         try { previewer(p); } catch (e) { throw new Error(`previewers.${kind}: ${e.message}`); }
       }
+      const add = h?.adds ?? {};
+      if (typeof add !== 'object' || Array.isArray(add)) throw new Error('adds: { kind: () => Promise<{ derive, fields, probes }> }');
+      for (const [kind, a] of Object.entries(add)) if (typeof a !== 'function') throw new Error(`adds.${kind}: a function resolving to { derive, fields, probes }`);
       Object.assign(previewers, own);
-      hosts.push({ name: h?.name ?? basename(file), file, kinds: Object.keys(own) });
+      Object.assign(adds, add);
+      hosts.push({ name: h?.name ?? basename(file), file, kinds: Object.keys(own), adds: Object.keys(add) });
     } catch (e) {
       warnings.push(`host ${file} not loaded: ${e?.message ?? e}`);
     }
   }
-  return { hosts, previewers, warnings };
+  return { hosts, previewers, adds, warnings };
+}
+
+// What addAsset's `host` takes for a payload of `kind` from the hosts' `adds` (loadHosts), or {} when no host
+// adds that kind: { derive: { [kind]: fn }, fields, probes }. A host that fails to load its side throws.
+export async function addHost(adds, kind) {
+  const load = adds?.[kind];
+  if (!load) return {};
+  const got = (await load()) ?? {};
+  const derive = typeof got.derive === 'function' ? got.derive : got.derive?.[kind];
+  return {
+    ...(derive ? { derive: { [kind]: derive } } : {}),
+    ...(got.fields ? { fields: got.fields } : {}),
+    ...(got.probes ? { probes: got.probes } : {}),
+  };
 }

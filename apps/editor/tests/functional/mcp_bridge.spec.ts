@@ -19,8 +19,9 @@
 */
 
 import { test } from '@japa/runner'
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -603,5 +604,76 @@ test.group('MCP bridge · render_hdf_clip (4.0 D5)', (group) => {
     )
     assert.isTrue(again.ok, JSON.stringify(again))
     assert.lengthOf((projectStore.composition as { assets: unknown[] }).assets, 1)
+  })
+})
+
+// Asset library D3: use_asset is not a command either; it registers and places
+// through register_asset and add_sprite, which the router sends through the
+// CommandBus. The record is on the open project's shelf, which the bus's
+// register_asset resolves on because it runs with the project's root.
+test.group('MCP bridge · use_asset (asset library D3)', (group) => {
+  let dir: string
+  let shelves: string
+  const envBefore = { assets: process.env.DAVIDUP_ASSETS, house: process.env.DAVIDUP_HOUSE, project: process.env.DAVIDUP_PROJECT }
+  // A 1x1 red PNG.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+    'base64'
+  )
+  const sha = createHash('sha256').update(PNG).digest('hex')
+
+  group.each.setup(async () => {
+    await projectStore.unload()
+    dir = await makeProject()
+    await mkdir(join(dir, 'assets', 'blobs'), { recursive: true })
+    await writeFile(join(dir, 'assets', 'blobs', `${sha}.png`), PNG)
+    await writeFile(
+      join(dir, 'assets', 'catalogue.json'),
+      JSON.stringify({
+        dot: { kind: 'image', name: 'Red dot', tags: [], licence: 'own', credit: '', source: '', sha, ext: 'png', bytes: PNG.length, w: 1, h: 1 },
+      })
+    )
+    // Empty user and house shelves: the record is on the project's alone.
+    shelves = await mkdtemp(join(tmpdir(), 'davidup-mcpbridge-shelves-'))
+    process.env.DAVIDUP_ASSETS = join(shelves, 'user')
+    process.env.DAVIDUP_HOUSE = join(shelves, 'house')
+    delete process.env.DAVIDUP_PROJECT
+    await projectStore.load(dir)
+    commandBus.reset()
+  })
+
+  group.each.teardown(async () => {
+    await projectStore.unload()
+    await rm(dir, { recursive: true, force: true })
+    await rm(shelves, { recursive: true, force: true })
+    for (const [key, v] of [['DAVIDUP_ASSETS', envBefore.assets], ['DAVIDUP_HOUSE', envBefore.house], ['DAVIDUP_PROJECT', envBefore.project]] as const) {
+      if (v === undefined) delete process.env[key]
+      else process.env[key] = v
+    }
+  })
+
+  test('registers a project-shelf record and places it, each through the bus', async ({ assert }) => {
+    const seen: Array<{ kind: string; source: string }> = []
+    const off = commandBus.on((e) => seen.push({ kind: e.command.kind, source: e.source }))
+    const res = await dispatchTool(findTool('use_asset'), { id: 'dot' }, buildDeps(projectStore), buildRouter(commandBus, projectStore))
+    off()
+    assert.isTrue(res.ok, JSON.stringify(res))
+    assert.deepEqual(seen, [
+      { kind: 'register_asset', source: 'mcp' },
+      { kind: 'add_sprite', source: 'mcp' },
+    ])
+    const stored = projectStore.composition as {
+      assets: Array<{ id: string; src: string }>
+      items: Record<string, { type: string; asset?: string; width?: number }>
+      layers: Array<{ id: string; items: string[] }>
+    }
+    assert.deepInclude(stored.assets.find((a) => a.id === 'dot'), { src: `asset:dot@${sha.slice(0, 12)}` })
+    const itemId = (res as { result: { itemId: string } }).result.itemId
+    assert.deepInclude(stored.items[itemId], { type: 'sprite', asset: 'dot', width: 1 })
+    assert.include(stored.layers[0].items, itemId)
+
+    // One undo takes the sprite back; the registration is its own step.
+    await commandBus.undo()
+    assert.notProperty((projectStore.composition as { items: object }).items, itemId)
   })
 })

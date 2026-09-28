@@ -2,11 +2,11 @@
 // through cli/host.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { decodePng, encodePng, loadHosts, openLibrary, tagOf } from '../../assetlib/index.js';
-import { ASSET_ROOT, KINDS, readCatalogue } from '../core/assets.js';
+import { addHost, decodePng, encodePng, loadHosts, openLibrary, tagOf } from '../../assetlib/index.js';
+import { ASSET_ROOT, FIELDS, KINDS, readCatalogue } from '../core/assets.js';
 import { circle, rect, stroke } from '../core/list.js';
 import { KINDS as HOST_KINDS, PREVIEW_VERSION, previewers } from '../cli/host.mjs';
 import { RENDERERS } from '../cli/previews.mjs';
@@ -60,7 +60,14 @@ test('assetlib finds hdf as a known host, and $ASSETLIB_HOSTS=- leaves it out', 
   assert.ok(hdf, 'hdf is next to assetlib in the repo');
   assert.equal(hdf.file, resolve('cli/host.mjs'));
   assert.deepEqual(hdf.kinds, KINDS);
+  assert.deepEqual(hdf.adds, KINDS);
   assert.deepEqual(Object.keys(found.previewers), KINDS);
+  // Its add side is `hdf import`'s (D3): a cutout's silhouette traced as hdf import traces it.
+  const side = await addHost(found.adds, 'cutout');
+  assert.equal(side.fields, FIELDS);
+  const e = readCatalogue(ASSET_ROOT).entry('teapot');
+  const got = await side.derive.cutout(readFileSync(readCatalogue(ASSET_ROOT).payloadPath(e)), { entry: { id: 'teapot' } });
+  assert.deepEqual(got.sil, e.sil);
   const off = await loadHosts({ env: { ASSETLIB_HOSTS: '-' } });
   assert.deepEqual(off.hosts, []);
 });
