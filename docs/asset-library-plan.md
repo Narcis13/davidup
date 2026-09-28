@@ -442,6 +442,17 @@ searches a fixture shelf through `dispatchTool`, the preview returns a PNG
 for a cutout and a contact sheet for three ids, and the manifest test is
 green with the new count.
 
+*As built:* the helpers live in `src/mcp/assets.ts`, the tools in `tools.ts`
+(§4.8a). Search hits leave out a cutout's `sil` and a sample's `align` /
+`mouth` (`omitted` names them; `get_asset` returns them). `get_asset_preview`
+takes `id` or `ids` (up to 24), `cols`, `force`, and `sheet: false` for one
+image per id; `ToolDeps.assetPreviewers` replaces `loadHosts()` (loaded once
+per process). `list_library` keeps the editor's own asset and font items
+(uploads still land there until E2) and appends the library's after them;
+on the standalone server it lists only those, and a template / behavior /
+scene kind is still `E_FEATURE_UNAVAILABLE`. `get_library_thumbnail` falls
+back to the library for an `asset` / `font` id the editor does not hold.
+
 ### D3. MCP: write and use
 
 *One call from search hit to placed item.*
@@ -740,7 +751,7 @@ then D and E in parallel, I when D4 exists, S last.
 | H2 | `hdf find/import/remove/gc` become `asset` | 0.5 | A6 H1 | [x] |
 | H3 | hdf previewers | 1 | A4 H1 | [x] |
 | D1 | The `asset:` src scheme | 1 | A1 | [x] |
-| D2 | MCP: search and read | 1 | A3 A4 D1 | [ ] |
+| D2 | MCP: search and read | 1 | A3 A4 D1 | [x] |
 | D3 | MCP: write and use | 1 | A5 D2 | [ ] |
 | D4 | Derived assets land in the library | 1 | A2 D1 H1 | [ ] |
 | D5 | The seed writes the user shelf | 0.5 | A2 D1 | [ ] |

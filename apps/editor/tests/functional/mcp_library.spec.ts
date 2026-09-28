@@ -9,9 +9,14 @@
 | separate `get_library_thumbnail` tool as base64 PNGs. These tests drive the
 | dispatcher directly (no stdio transport) so the assertions can compare the
 | MCP payload against the live libraryIndex state.
+|
+| From asset library D2 on, the `asset` / `font` items also come from the
+| asset library's shelves (the open project's `assets/`, $DAVIDUP_ASSETS,
+| $DAVIDUP_HOUSE), which each test points at temp shelves.
 */
 
 import { test } from '@japa/runner'
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -102,16 +107,45 @@ async function makeProjectWithLibrary(): Promise<string> {
   return dir
 }
 
+const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex')
+
+/** One asset-library shelf: `catalogue.json` + `blobs/<sha>.png`, as assetlib writes it. */
+async function shelf(root: string, entries: Record<string, Buffer>): Promise<void> {
+  await mkdir(join(root, 'blobs'), { recursive: true })
+  const catalogue: Record<string, unknown> = {}
+  for (const [id, bytes] of Object.entries(entries)) {
+    await writeFile(join(root, 'blobs', `${sha(bytes)}.png`), bytes)
+    catalogue[id] = {
+      kind: 'image', name: id, tags: [], licence: 'own', credit: '', source: '',
+      sha: sha(bytes), ext: 'png', bytes: bytes.length,
+    }
+  }
+  await writeFile(join(root, 'catalogue.json'), JSON.stringify(catalogue))
+}
+
+const envBefore = { assets: process.env.DAVIDUP_ASSETS, house: process.env.DAVIDUP_HOUSE, project: process.env.DAVIDUP_PROJECT }
+let shelves = ''
+
 test.group('MCP list_library', (group) => {
   group.each.setup(async () => {
     await libraryIndex.detach()
     await libraryIndex.detachGlobal()
     await projectStore.unload()
+    // Empty user and house shelves, so only what a test puts is listed.
+    shelves = await mkdtemp(join(tmpdir(), 'davidup-mcplib-shelves-'))
+    process.env.DAVIDUP_ASSETS = join(shelves, 'user')
+    process.env.DAVIDUP_HOUSE = join(shelves, 'house')
+    delete process.env.DAVIDUP_PROJECT
   })
   group.each.teardown(async () => {
     await libraryIndex.detach()
     await libraryIndex.detachGlobal()
     await projectStore.unload()
+    await rm(shelves, { recursive: true, force: true })
+    for (const [key, v] of [['DAVIDUP_ASSETS', envBefore.assets], ['DAVIDUP_HOUSE', envBefore.house], ['DAVIDUP_PROJECT', envBefore.project]] as const) {
+      if (v === undefined) delete process.env[key]
+      else process.env[key] = v
+    }
   })
 
   test('returns the empty merged catalog when no library is attached', async ({ assert }) => {
@@ -227,12 +261,39 @@ test.group('MCP list_library', (group) => {
     }
   })
 
-  test('surfaces E_FEATURE_UNAVAILABLE when libraryControls are not injected (standalone engine)', async ({
+  test('lists the asset library next to the editor library, the project shelf scoped project', async ({
+    assert,
+  }) => {
+    const dir = await makeProjectWithLibrary()
+    try {
+      const dot = Buffer.from('dot-bytes-standing-in-for-a-png')
+      await shelf(join(dir, 'assets'), { dot })
+      await shelf(join(shelves, 'house'), { paper: Buffer.from('paper-bytes') })
+      await projectStore.load(dir)
+      await libraryIndex.flush()
+
+      const res = await dispatchTool(findTool('list_library'), { kind: 'asset' }, buildDeps(projectStore))
+      assert.isTrue(res.ok)
+      if (!res.ok) return
+      const payload = res.result as MCPLibraryCatalog
+      const ids = payload.items.map((i) => [i.id, i.scope, i.url])
+      assert.deepEqual(ids, [
+        ['logo-png', 'project', 'assets/logo.png'],
+        ['dot', 'project', `asset:dot@${sha(dot).slice(0, 12)}`],
+        ['paper', 'global', `asset:paper@${sha(Buffer.from('paper-bytes')).slice(0, 12)}`],
+      ])
+      assert.deepEqual(payload.shelves?.map((s) => s.name), ['project', 'user', 'house'])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('surfaces E_FEATURE_UNAVAILABLE for templates when libraryControls are not injected (standalone engine)', async ({
     assert,
   }) => {
     const res = await dispatchTool(
       findTool('list_library'),
-      {},
+      { kind: 'template' },
       { store: new CompositionStore() }
     )
     assert.isFalse(res.ok)

@@ -79,7 +79,19 @@ import {
   resolveLibraryAsset,
   type ResolvedLibraryAsset,
 } from "../assets/library.js";
-import { DAVIDUP_TYPE } from "../../assetlib/index.js";
+import {
+  DAVIDUP_TYPE,
+  HUES,
+  KINDS,
+  LICENCES,
+  MEDIA,
+  type Hue,
+  type Kind,
+  type Licence,
+  type Media,
+  type Previewers,
+  type SearchQuery,
+} from "../../assetlib/index.js";
 import { EASING_NAMES, PARAMETRIC_EASINGS } from "../easings/index.js";
 import { EFFECT_TWEENABLE, listTweenable } from "../schema/tweenable.js";
 import {
@@ -106,6 +118,16 @@ import {
 import { strictObject } from "../schema/strict.js";
 import type { DispatchResult } from "./dispatch.js";
 import { MCPToolError } from "./errors.js";
+import {
+  assetDetail,
+  assetPreview,
+  assetPreviewers,
+  assetSheet,
+  libraryShelfItems,
+  openShelves,
+  pngResult,
+  searchShelves,
+} from "./assets.js";
 import {
   castNames,
   chapterMarkers,
@@ -199,6 +221,10 @@ export interface MCPLibraryItem {
   duration?: number;
   url?: string;
   thumbnail?: string;
+  /** Asset library records (D2): the shelf it is on, its own kind, its licence. */
+  shelf?: string;
+  assetKind?: string;
+  licence?: string;
 }
 
 export interface MCPLibraryRootInfo {
@@ -222,6 +248,10 @@ export interface MCPLibraryCatalog {
   };
   items: MCPLibraryItem[];
   errors: { file: string; message: string; scope: MCPLibraryScope }[];
+  /** The asset library's shelves the `asset` / `font` items were read from (D2). */
+  shelves?: { name: string; root: string }[];
+  /** Set on a standalone server: what it cannot list. */
+  hint?: string;
 }
 
 export interface LibraryListArgs {
@@ -342,6 +372,10 @@ export interface ToolDeps {
   // (render_hdf_clip) changes the composition exactly as those calls would:
   // through the editor's CommandBus when an editor hosts the server.
   call?: (toolName: string, args: Record<string, unknown>) => Promise<DispatchResult>;
+  // What draws a library record's preview, per kind (asset library D2).
+  // Default: the hosts beside assetlib (`loadHosts()`, hdf's previewers in a
+  // checkout), else assetlib's fallback card. Tests inject their own.
+  assetPreviewers?: Previewers;
   // R-29 idle TTL the standalone server was started with (`--session-ttl`);
   // surfaced by `list_engine_capabilities.server.sessionIdleSeconds`.
   sessionIdleSeconds?: number;
@@ -3366,19 +3400,64 @@ const listLibrary = defineTool({
   name: "list_library",
   title: "List library",
   description:
-    "Return the merged Library catalog the editor's `GET /api/library` exposes: every template / behavior / scene / asset / font from the global pool (`~/.davidup/library` by default) AND the active project's `library/` directory. Each item carries `scope` (`project` | `global`) and an `overridden: true` flag on the *loser* of a (kind, id) collision (project beats global). Optional filters: `q` (substring over id/name/description), `kind`, `scope`. Call `get_library_thumbnail` with the item's `kind` + `id` to fetch a base64 PNG preview. Errors with E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+    "Return the merged Library catalog: every template / behavior / scene / asset / font from the editor's library (the global pool `~/.davidup/library` and the active project's `library/`), plus the asset library's records davidup can take as `asset` and `font` items (the project's `assets/`, the user's `~/.davidup/assets`, the house shelf; their `url` is the `asset:<id>@<sha12>` src to pass to `register_asset`, `shelf` / `assetKind` / `licence` say where it lives and what it is). Each item carries `scope` (`project` | `global`) and an `overridden: true` flag on the *loser* of a (kind, id) collision in the editor's library (project beats global). Optional filters: `q` (substring over id/name/description; ranked word-prefix search for library records), `kind`, `scope`. Call `get_library_thumbnail` with the item's `kind` + `id` for a base64 PNG preview. `search_assets` is the better way to find assets (filters, facets, the `use` call). On a standalone server (no editor) only the asset library's `asset` and `font` items are listed; `kind: template | behavior | scene` errors with E_FEATURE_UNAVAILABLE.",
   inputSchema: {
     q: z.string().min(1).optional(),
     kind: LIBRARY_ITEM_KIND.optional(),
     scope: LIBRARY_SCOPE.optional(),
   },
   handler: async (args, deps) => {
-    const ctrl = requireLibraryControls(deps);
-    const listArgs: LibraryListArgs = {};
-    if (args.q !== undefined) listArgs.q = args.q;
-    if (args.kind !== undefined) listArgs.kind = args.kind;
-    if (args.scope !== undefined) listArgs.scope = args.scope;
-    return ctrl.list(listArgs);
+    const fromShelves = args.kind === undefined || args.kind === "asset" || args.kind === "font";
+    if (!deps.libraryControls && !fromShelves) requireLibraryControls(deps);
+    const project = await libraryProject(deps);
+
+    let catalog: MCPLibraryCatalog;
+    if (deps.libraryControls) {
+      const listArgs: LibraryListArgs = {};
+      if (args.q !== undefined) listArgs.q = args.q;
+      if (args.kind !== undefined) listArgs.kind = args.kind;
+      if (args.scope !== undefined) listArgs.scope = args.scope;
+      catalog = await deps.libraryControls.list(listArgs);
+    } else {
+      catalog = {
+        root: null,
+        roots: [],
+        loadedAt: Date.now(),
+        attached: false,
+        globalAttached: false,
+        projectRoot: project ?? process.env.DAVIDUP_PROJECT ?? null,
+        count: 0,
+        total: 0,
+        query: { q: args.q ?? null, kind: args.kind ?? null, scope: args.scope ?? null },
+        items: [],
+        errors: [],
+        hint: "This server has no editor: templates, behaviors and scenes are listed by `list_templates` / `list_behaviors` / `list_scenes`; the items here are the asset library's.",
+      };
+    }
+    if (!fromShelves) return catalog;
+
+    let lib;
+    try {
+      lib = openShelves(project);
+    } catch (err) {
+      // A bad catalogue must not hide the templates the editor listed.
+      return {
+        ...catalog,
+        errors: [...catalog.errors, { file: "assets/catalogue.json", message: (err as Error).message, scope: "global" as const }],
+      };
+    }
+    const shelf = libraryShelfItems(lib, {
+      ...(args.q !== undefined ? { q: args.q } : {}),
+      ...(args.kind === "asset" || args.kind === "font" ? { kind: args.kind } : {}),
+      ...(args.scope !== undefined ? { scope: args.scope } : {}),
+    });
+    return {
+      ...catalog,
+      items: [...catalog.items, ...shelf.items],
+      count: catalog.count + shelf.items.length,
+      total: catalog.total + shelf.total,
+      shelves: lib.shelves.map((s) => ({ name: s.name, root: s.root })),
+    };
   },
 });
 
@@ -3386,14 +3465,145 @@ const getLibraryThumbnail = defineTool({
   name: "get_library_thumbnail",
   title: "Get library thumbnail",
   description:
-    "Return a base64-encoded PNG preview for a single Library item identified by `kind` + `id` (as returned by `list_library`). The first call synthesizes a tiny composition exercising the item and renders frame 0.5 via the same path the Library panel uses; subsequent calls hit an in-memory cache. When synthesis isn't viable the renderer falls back to a deterministic placeholder PNG and sets `placeholder: true`. Errors with E_NOT_FOUND if no item with that (kind, id) is in the current catalog, or E_FEATURE_UNAVAILABLE if the MCP server is not hosted inside an editor.",
+    "Return a base64-encoded PNG preview for a single Library item identified by `kind` + `id` (as returned by `list_library`). For an editor library item the first call synthesizes a tiny composition exercising the item and renders frame 0.5 via the same path the Library panel uses; subsequent calls hit an in-memory cache. When synthesis isn't viable the renderer falls back to a deterministic placeholder PNG and sets `placeholder: true`. An `asset` or `font` id the editor's library does not hold is drawn from the asset library (as `get_asset_preview` draws it; `placeholder: true` when that is the record's fallback card), with or without an editor. Errors with E_NOT_FOUND if no item with that (kind, id) exists, or E_FEATURE_UNAVAILABLE for a template / behavior / scene when the MCP server is not hosted inside an editor.",
   inputSchema: {
     kind: LIBRARY_ITEM_KIND,
     id: z.string().min(1),
   },
   handler: async (args, deps) => {
-    const ctrl = requireLibraryControls(deps);
-    return ctrl.thumbnail({ kind: args.kind, id: args.id });
+    const fromShelves = args.kind === "asset" || args.kind === "font";
+    if (!fromShelves) return requireLibraryControls(deps).thumbnail({ kind: args.kind, id: args.id });
+    if (deps.libraryControls) {
+      try {
+        return await deps.libraryControls.thumbnail({ kind: args.kind, id: args.id });
+      } catch (err) {
+        // By code, not class: the editor throws with its own copy of davidup.
+        if ((err as { code?: unknown })?.code !== "E_NOT_FOUND") throw err;
+      }
+    }
+    const { previewers } = await assetPreviewers(deps.assetPreviewers);
+    const lib = openShelves(await libraryProject(deps), previewers);
+    const want = args.kind === "font" ? (k: string) => k === "font" : (k: string) => DAVIDUP_TYPE[k as Kind] != null && k !== "font";
+    if (!lib.has(args.id) || !want(lib.get(args.id).kind)) {
+      throw new MCPToolError(
+        "E_NOT_FOUND",
+        `No ${args.kind} item with id "${args.id}" in the library.`,
+        "Call `list_library` (or `search_assets`) to see the items there are.",
+      );
+    }
+    const p = await lib.preview(args.id);
+    const png = pngResult(p.png);
+    return { image: png.image, mimeType: png.mimeType, width: png.width, height: png.height, placeholder: p.by.startsWith("card:") };
+  },
+});
+
+// ── The asset library: search and read (docs/asset-library-plan.md D2) ──
+
+const ASSET_KIND = z.enum(KINDS as unknown as [Kind, ...Kind[]]);
+const ASSET_MEDIA = z.enum(MEDIA as unknown as [Media, ...Media[]]);
+const ASSET_LICENCE = z.enum(LICENCES as unknown as [Licence, ...Licence[]]);
+const ASSET_HUE = z.enum(HUES as unknown as [Hue, ...Hue[]]);
+const oneOrMore = <T extends z.ZodTypeAny>(t: T) => z.union([t, z.array(t).min(1)]);
+const ASSET_REF = z
+  .string()
+  .min(1)
+  .describe("A library id (`teapot`), or `sha:<12+ hex>` for the bytes on whichever shelf holds them.");
+
+const searchAssets = defineTool({
+  name: "search_assets",
+  title: "Search assets",
+  description:
+    "Search the asset library before placing anything: the open project's `assets/` (editor-hosted, else `$DAVIDUP_PROJECT`'s), the user's pool (`~/.davidup/assets`) and the house shelf, in that order (an id on an earlier shelf shadows a later one). Works on the standalone server. `q` is free text, ranked (id, name, tags, desc, credit; each word a prefix, a synonym table maps `dog` to `animal`, `paper` to `stock texture`, ...); every filter is optional and filters alone list their hits. " +
+    "Each hit carries `record` (kind, name, desc, tags, licence, credit, w/h, sec, colours, ...; a cutout's `sil` and a sample's `align`/`mouth` are left out, `get_asset` has them), `shelf`, `path` (the blob), `thumb` (or null until previewed), `why` (the field hits: tell a real match from a lucky prefix), and `use`: `use.davidup` is the exact `register_asset` call (an `asset:<id>@<sha12>` src with the record's credit and licence copied in) or null when davidup cannot take the kind (a puppet with a made sprite sheet offers the sheet via `use.davidup.via`); `use.hdf` is the hand-drawn film's `fromStore` line. " +
+    "`count` is every match, `hits` the first `limit` (default 20); `facets` count kind / media / shelf / licence / tags over the matches, or over the whole library (`facetsOf: 'all'`) when nothing matched, so the next call can narrow. `get_asset_preview { ids }` shows candidates on one contact sheet.",
+  inputSchema: {
+    q: z.string().optional().describe("Free text: `warm paper`, `fox walk`, `pop`."),
+    kind: oneOrMore(ASSET_KIND).optional().describe("image video audio font (davidup's) · cutout clip puppet hand stock motif sample (hdf's)."),
+    media: oneOrMore(ASSET_MEDIA).optional().describe("raster (image, cutout, stock) · video · audio (audio, sample) · font · vector (motif) · data (clip, puppet, hand)."),
+    shelf: oneOrMore(z.string().min(1)).optional().describe("project · user · house."),
+    tags: oneOrMore(z.string().min(1)).optional().describe("Every tag must be on the record."),
+    licence: oneOrMore(ASSET_LICENCE).optional(),
+    alpha: z.boolean().optional().describe("Has transparency."),
+    minW: z.number().nonnegative().optional(),
+    minH: z.number().nonnegative().optional(),
+    aspect: z.union([z.string(), z.number().positive()]).optional().describe('"16:9", "9:16", or w / h; within 2 %.'),
+    secMin: z.number().nonnegative().optional(),
+    secMax: z.number().nonnegative().optional(),
+    dark: z.boolean().optional().describe("Mean lightness of the palette under L* 50 (true) or at least (false)."),
+    hue: oneOrMore(ASSET_HUE).optional().describe("The dominant swatch's band: warm, cool, neutral, red, orange, yellow, green, cyan, blue, purple, pink."),
+    limit: z.number().int().min(0).max(200).optional(),
+    facets: z.boolean().optional().describe("Default true."),
+  },
+  handler: async (args, deps) => {
+    const lib = openShelves(await libraryProject(deps));
+    return searchShelves(lib, stripUndefined(args) as SearchQuery);
+  },
+});
+
+const getAsset = defineTool({
+  name: "get_asset",
+  title: "Get asset",
+  description:
+    "One asset library record in full (every field, a cutout's silhouette and a sample's word timing included), with where it lives and how it came to be: `shelf` (where it resolves), `shelves` (every shelf holding the id, the winner first), `path` (the blob, null if missing), `thumb`, `same` (other entries with the same bytes), `made.from` (what it was made from, when our tools made it) and `made.into` (records made from it: a puppet's sprite sheet, a hand's font), and `use` (the exact `register_asset` call for davidup, the `fromStore` line for hdf). Errors with E_ASSET_MISSING naming the shelves searched.",
+  inputSchema: {
+    id: ASSET_REF,
+  },
+  handler: async (args, deps) => {
+    const lib = openShelves(await libraryProject(deps));
+    return assetDetail(lib, args.id);
+  },
+});
+
+const getAssetPreview = defineTool({
+  name: "get_asset_preview",
+  title: "Get asset preview",
+  description:
+    "Look at asset library records, returned as real MCP image content. `id` gives that record's preview (480 px wide); `ids` gives one contact sheet of their previews, each captioned with its id (`cols` across, default the square root rounded up; `sheet: false` returns each preview as its own image instead). Previews are drawn once and cached by sha on the shelf (`thumb`): a kind a host knows is drawn by it (a puppet's rest pose, a hand's pangram, a cutout with its outline, a sample's waveform, when the `handdrawn/` package sits beside davidup), anything else is a card with its kind, id, size and licence (`by: card:…`). `force` redraws. Errors with E_ASSET_MISSING for an id no shelf holds.",
+  inputSchema: {
+    id: ASSET_REF.optional(),
+    ids: z.array(ASSET_REF).min(1).max(24).optional().describe("Up to 24 records for one contact sheet."),
+    sheet: z.boolean().optional().describe("With `ids`: one contact sheet (default true) or one image each (false)."),
+    cols: z.number().int().min(1).max(12).optional().describe("Contact sheet columns."),
+    force: z.boolean().optional().describe("Redraw instead of using the cached thumb."),
+  },
+  handler: async (args, deps) => {
+    if ((args.id === undefined) === (args.ids === undefined)) {
+      throw new MCPToolError(
+        "E_INVALID_VALUE",
+        "get_asset_preview takes `id` or `ids`, not both and not neither.",
+        "Pass `id` for one record's preview, `ids` for a contact sheet.",
+      );
+    }
+    const { previewers, warnings } = await assetPreviewers(deps.assetPreviewers);
+    const lib = openShelves(await libraryProject(deps), previewers);
+    const force = args.force ?? false;
+    if (args.id !== undefined) {
+      const p = await assetPreview(lib, args.id, force);
+      return { ...p, warnings: [...warnings, ...p.warnings] };
+    }
+    const ids = args.ids ?? [];
+    if (args.sheet === false) {
+      const previews = [];
+      for (const id of ids) previews.push(await assetPreview(lib, id, force));
+      return {
+        previews,
+        mimeType: "image/png" as const,
+        warnings: [...warnings, ...previews.flatMap((p) => p.warnings)],
+      };
+    }
+    const s = await assetSheet(lib, ids, { ...(args.cols !== undefined ? { cols: args.cols } : {}), force });
+    return { ...s, warnings: [...warnings, ...s.warnings] };
+  },
+  toImages: (result) => {
+    const r = result as { image?: string; previews?: { image: string }[]; mimeType: string };
+    if (r.previews) {
+      return {
+        images: r.previews.map((p) => ({ data: p.image, mimeType: r.mimeType })),
+        metadata: { ...r, previews: r.previews.map(({ image: _image, ...rest }) => rest) },
+      };
+    }
+    const { image, ...metadata } = r as { image: string; mimeType: string };
+    return { images: [{ data: image, mimeType: metadata.mimeType }], metadata };
   },
 });
 
@@ -3733,6 +3943,10 @@ export const TOOLS: ReadonlyArray<ToolDef<z.ZodRawShape>> = [
   // 4.8 — library (polish §20.30)
   listLibrary,
   getLibraryThumbnail,
+  // 4.8a — the asset library (asset-library plan D2)
+  searchAssets,
+  getAsset,
+  getAssetPreview,
   // 4.9 — engine discovery (M5)
   listEasingsTool,
   listFontsTool,

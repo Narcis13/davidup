@@ -4,7 +4,7 @@
 > One canonical JSON composition runs in the **browser** (live preview via
 > Canvas2D + `requestAnimationFrame`), on the **server** (frame-by-frame render
 > with [`skia-canvas`](https://github.com/samizdatco/skia-canvas) piped to
-> `ffmpeg` → MP4), inside an **AI agent** loop (60 atomic MCP tools), from the
+> `ffmpeg` → MP4), inside an **AI agent** loop (63 atomic MCP tools), from the
 > **CLI** (`davidup render`), or in a **human editor** (`davidup edit`).
 > Same input → same pixels, every host.
 
@@ -18,7 +18,7 @@
             │                        │                        │
     ┌───────▼───────┐       ┌────────▼────────┐      ┌────────▼────────┐
     │ browser/      │       │ drivers/node    │      │ mcp server      │
-    │ attach()      │       │ renderToFile()  │      │ 60 tools, stdio │
+    │ attach()      │       │ renderToFile()  │      │ 63 tools, stdio │
     │ live preview  │       │ → mp4 (+audio)  │      │ for AI agents   │
     └───────────────┘       └────────┬────────┘      └────────┬────────┘
                                      │                        │
@@ -616,6 +616,16 @@ serves records at `/asset-files/<id>[@<sha12>]` and blobs at
 `/asset-files/<shelf>/<sha>.<ext>`; the browser loader fetches the first
 (`new BrowserAssetLoader({ assetBaseUrl })` points it elsewhere).
 
+**Finding a record from an agent.** `search_assets` searches the three shelves
+(ranked free text, with filters for kind, media, shelf, tags, licence, alpha,
+size, aspect, duration, dark and hue) and every hit carries `use.davidup`: the
+exact `register_asset` call, pinned `asset:` src and the record's credit and
+licence included. `get_asset` returns the whole record with what it was made
+from and into; `get_asset_preview` returns its thumb (`id`) or one contact
+sheet (`ids`) as MCP images, drawn by hdf when `handdrawn/` sits beside
+davidup, else as a card. All three work on the standalone `davidup mcp`
+server; `list_library` lists the same records as its `asset` and `font` items.
+
 **Bundled default font.** davidup ships Inter Regular (OFL, Latin subset) in
 `fonts/`. Any text item can use `"font": "font:default"` without registering
 an asset — the validator and both loaders resolve it (family `Inter`), and
@@ -958,7 +968,8 @@ the TTL.
 | 4.5d | Scenes | `define_scene`, `import_scene`, `list_scenes`, `remove_scene`, `add_scene_instance`, `update_scene_instance`, `remove_scene_instance` |
 | 4.6 | Render | `render_preview_frame` (`time`, `format: png\|jpeg`), `render_thumbnail_strip` (`count` ≤ 30, `from`/`to`), `render_to_video` (`outputPath`, `codec` libx264\|libx265\|prores_ks\|libvpx-vp9, `crf` 0–51, `preset`, `pixFmt`, `colorProfile` bt709\|untagged, `movflagsFaststart`, `from`/`to`, `wait`), `get_render`, `list_renders`, `cancel_render` |
 | 4.7 | Project lifecycle *(editor-hosted)* | `current_project`, `list_projects`, `open_project`, `create_project` |
-| 4.8 | Library *(editor-hosted)* | `list_library`, `get_library_thumbnail` |
+| 4.8 | Library | `list_library`, `get_library_thumbnail` — the editor's templates, behaviors and scenes *(editor-hosted)*, plus the asset library's `asset` / `font` items on any server |
+| 4.8a | Asset library | `search_assets` (ranked, faceted; each hit carries the `register_asset` call), `get_asset` (the full record, made from / into), `get_asset_preview` (`id` → thumb, `ids` → contact sheet, as MCP images) |
 | 4.9 | Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
 | 4.10 | Hand-drawn clips | `render_hdf_clip` — renders a film of the `handdrawn/` package (`film`, `look`, `ar`, `width`, `frames`, `alpha` mov\|webm) and registers it as a video asset in one call; `place` adds the video item, `item` repoints one, the film is cut to the composition's markers and its chapters come back as markers (`cues`); `sprites` registers cast members as sprite sheets. Needs a checkout (or `DAVIDUP_HDF_ROOT`) and node |
 
@@ -1392,7 +1403,7 @@ Things v1.0 does not do. Each is either an open ledger item in
 | `davidup` / `davidup-mcp` command not found or stale | `dist/` missing or out of date | `bun run build` (and `bun link --force` if bin paths moved) |
 | Editor's Library panel is empty | Global library not seeded | `bun run seed:library` |
 | Seed-library labels sit high inside their pill / card | Library seeded before pack v2 (check `seedVersion` in `~/.davidup/library/.davidup-seed.json`) | `bun run seed:library` — re-running upgrades the templates in place |
-| Agent gets `E_FEATURE_UNAVAILABLE` from `list_library` / `current_project` / `get_render` | Tool requires the editor host | Use the tool from inside `davidup edit`, or inject `LibraryControls` / `ProjectControls` / `RenderControls` when calling `createServer()` |
+| Agent gets `E_FEATURE_UNAVAILABLE` from `list_library` (templates, behaviors, scenes) / `current_project` / `get_render` | Tool requires the editor host | Use the tool from inside `davidup edit`, or inject `LibraryControls` / `ProjectControls` / `RenderControls` when calling `createServer()` |
 | Agent's new composition already has items from a previous chat | Standalone server state persisted (R-29) | Call `reset` first, or start the server with `--session-ttl <s>` |
 | Tests time out on `registerAsset*` under full load | First ffprobe spawn on a saturated CPU exceeds the 5 s test timeout | Re-run; they pass in isolation in < 300 ms |
 
@@ -1418,7 +1429,7 @@ src/
     node/         renderToFile via skia-canvas + ffmpeg,          (§5.6, §6)
                   video pre-extraction cache, audio mux, ffprobe
     browser/      attach() — RAF preview + pick + bounds + source (§5.6)
-  mcp/            server + 60 tools + in-memory store + bin       (§4)
+  mcp/            server + 63 tools + in-memory store + bin       (§4)
   cli/            bin + commands (new / edit / render / list) + scaffold templates
 
 apps/

@@ -480,11 +480,11 @@ describe("list_library / get_library_thumbnail", () => {
   it("list_library forwards only the filters that were given", async () => {
     const listed: LibraryListArgs[] = [];
     const deps = depsWithLibrary(listed);
-    await expectOk("list_library", {}, deps);
+    await expectOk("list_library", { kind: "template" }, deps);
     const out = (await expectOk("list_library", { q: "lower", kind: "template", scope: "global" }, deps)) as {
       items: { id: string }[];
     };
-    expect(listed).toEqual([{}, { q: "lower", kind: "template", scope: "global" }]);
+    expect(listed).toEqual([{ kind: "template" }, { q: "lower", kind: "template", scope: "global" }]);
     expect(out.items.map((i) => i.id)).toEqual(["lowerThird"]);
   });
 
@@ -503,7 +503,7 @@ describe("list_library / get_library_thumbnail", () => {
   });
 
   it.each(["list_library", "get_library_thumbnail"])(
-    "%s is E_FEATURE_UNAVAILABLE on the standalone engine",
+    "%s is E_FEATURE_UNAVAILABLE for a template on the standalone engine",
     async (name) => {
       const deps: ToolDeps = { store: new CompositionStore() };
       await expectError(name, { kind: "template", id: "x" }, deps, "E_FEATURE_UNAVAILABLE");

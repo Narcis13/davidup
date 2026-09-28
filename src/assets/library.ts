@@ -19,6 +19,7 @@ import {
   standardShelves,
   type AssetRecord,
   type Library,
+  type Previewers,
 } from "../../assetlib/index.js";
 import { parseAssetSrc } from "./assetSrc.js";
 
@@ -41,6 +42,8 @@ export interface AssetLibraryOptions {
   env?: Record<string, string | undefined>;
   /** The home directory the user's pool defaults under (tests). */
   home?: string;
+  /** What draws each kind's preview (assetlib's `loadHosts().previewers`); default none, the card. */
+  previewers?: Previewers;
 }
 
 export interface ResolvedLibraryAsset {
@@ -73,6 +76,7 @@ export function openAssetLibrary(opts: AssetLibraryOptions = {}): Library {
       env,
       ...(opts.home !== undefined ? { home: opts.home } : {}),
     }),
+    ...(opts.previewers !== undefined ? { previewers: opts.previewers } : {}),
   });
 }
 

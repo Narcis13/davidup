@@ -9,6 +9,26 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### MCP: search and read the asset library (asset library D2)
+
+- Three new tools, on the standalone `davidup mcp` server as well as in the
+  editor (63 tools): `search_assets` (the plan's §4 query: ranked free text
+  plus kind, media, shelf, tags, licence, alpha, size, aspect, duration, dark
+  and hue filters, facets; every hit carries `why` and `use`, the exact
+  `register_asset` call with a pinned `asset:` src and the record's credit and
+  licence), `get_asset` (the whole record, its shelves, same-bytes holders,
+  what it was made from and into, `use`) and `get_asset_preview` (`id` → the
+  record's thumb, `ids` → one captioned contact sheet, `sheet: false` → one
+  image each; real MCP image blocks). Previews come from the hosts beside
+  assetlib (hdf's previewers in a checkout), else the fallback card, cached
+  on the shelf by sha.
+- `list_library` lists the asset library's records davidup can take as its
+  `asset` and `font` items (`url` is the `asset:<id>@<sha12>` src; `shelf`,
+  `assetKind`, `licence` added), after the editor's own items, and works on
+  the standalone server for those kinds (templates, behaviors and scenes
+  still need the editor). `get_library_thumbnail` draws a library record the
+  editor's catalog does not hold.
+
 ### `asset:` srcs: compositions name asset-library records (asset library D1)
 
 - An asset `src` may be `asset:<id>` or `asset:<id>@<sha12>`: a record on the
