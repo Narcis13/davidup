@@ -26,6 +26,22 @@ lib.locate('teapot');             // { id, shelf, root, entry, path, thumb, shad
 lib.resolve('sha:9f2c1a3b4c5d');  // a blob's path, by any 12+ hex prefix of its sha
 ```
 
+Writes go through one door and are validated before anything touches the disk:
+
+```js
+const out = await lib.put('user', { id: 'paper-warm', kind: 'stock', name: 'Warm paper', tags: ['paper'],
+  licence: 'own', credit: '', source: '', box: [0, 0, 2048, 2048] }, bytes, { probes });
+out.warnings;                     // a probe the host did not give, or one that failed
+lib.move('paper-warm', 'house');  // blob, thumb and entry; refuses a target holding the id with other bytes
+lib.remove('paper-warm');         // and its blob and thumb, when nothing else on the shelf shares them
+lib.gc({ dry: true });            // orphan blobs and stale thumbs
+```
+
+`put` hashes with sha256 and derives `media`, `ext` (by the bytes' magic), `bytes`, `added` and a raster's
+header size and alpha; the caller's fields win over anything derived except those four. Heavier facts come from
+the host's `probes` (`probeVideo`, `probeAudio`, `fontMeta`, `pixels` for `colours`), each optional; davidup's
+ffprobe results are read as they are. `shelf.put` is the same without probes, and synchronous.
+
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
 

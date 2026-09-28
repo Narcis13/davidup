@@ -8,17 +8,23 @@
 //   lib.get('teapot');                 // the record: the entry plus id, media, shelf, shadowed
 //   lib.locate('teapot');              // { id, shelf, root, entry, path, thumb, shadowed }
 //   lib.resolve('sha:9f2c1a3b4c5d');   // the blob's path, by any 12+ hex prefix of its sha
+//   await lib.put('user', { id: 'paper', kind: 'stock', ... }, bytes, { probes });   // one way in
+//   lib.move('paper', 'house');        // the editor's promote, generalised
+//   lib.remove('paper'); lib.gc();     // and out
 //
 // Plain ESM, zero dependencies: hdf imports it as it is, davidup through index.d.ts. Anything heavier (a
 // probe, a previewer, a ranker) is injected by the host.
-import { homedir } from 'node:os';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readShelf } from './catalogue.js';
-import { mediaOf } from './record.js';
+import { extFor, readShelf, sha } from './catalogue.js';
+import { colours, usesAlpha } from './image.js';
+import { SCHEMAS, mediaOf } from './record.js';
 
 export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
 export { readShelf, sha } from './catalogue.js';
+export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
 // <repo>/assets/.
@@ -34,6 +40,62 @@ export function standardShelves({ project, env = process.env, home = homedir() }
   ];
 }
 
+// ---------- probes ----------
+
+// A host's probes (davidup's ffprobe, skia in either app), each optional and each given the payload as a file:
+//   probeVideo(file) -> { sec | duration, fps, w | width, h | height, alpha | hasAlpha, codec, audio | hasAudio }
+//   probeAudio(file) -> { sec | duration, rate | sampleRate, channels, codec }      (audio and sample kinds)
+//   fontMeta(file)   -> { family, weight, style, glyphs }
+//   pixels(file, { kind, ext }) -> { data: RGBA, width, height }   (a raster's pixels, a video's representative frame)
+// davidup's probe results read as they are; only the fields the kind's schema has are kept.
+const PROBE_OF = { video: 'probeVideo', audio: 'probeAudio', sample: 'probeAudio', font: 'fontMeta' };
+const RENAME = { duration: 'sec', width: 'w', height: 'h', sampleRate: 'rate', hasAlpha: 'alpha', hasAudio: 'audio' };
+
+// The facts a host's probes give for a payload, and a warning for every probe that is missing or failed while
+// the entry still lacks what it would have said. Throws only when the bytes are not the kind's (extFor).
+export async function probeFacts(entry, bytes, probes = {}) {
+  const s = SCHEMAS[entry?.kind], facts = {}, warnings = [];
+  if (!s) return { facts, warnings };
+  const ext = extFor(entry, bytes), media = mediaOf(entry.kind);
+  const lacks = (keys) => keys.filter((k) => entry[k] === undefined);
+  let dir = null;
+  const file = () => {
+    if (!dir) { dir = mkdtempSync(join(tmpdir(), 'assetlib-')); writeFileSync(join(dir, `payload.${ext}`), bytes); }
+    return join(dir, `payload.${ext}`);
+  };
+  const run = async (name, fn, why) => {
+    try { return await fn(); } catch (err) { warnings.push(`${name} could not read the ${entry.kind}: ${err?.message ?? err}; ${why} left empty`); return null; }
+  };
+  try {
+    const name = PROBE_OF[entry.kind];
+    if (name) {
+      const keys = Object.keys(s.fields ?? {}).filter((k) => !['colours', 'align', 'mouth'].includes(k));
+      const want = lacks(keys);
+      if (want.length && !probes[name]) warnings.push(`no ${name} probe: ${want.join(', ')} left empty`);
+      else if (want.length) {
+        const got = await run(name, () => probes[name](file()), want.join(', '));
+        for (const [k, v] of Object.entries(got ?? {})) {
+          const key = RENAME[k] ?? k;
+          if (v !== undefined && v !== null && s.fields?.[key]) facts[key] = v;
+        }
+      }
+    }
+    if ((media === 'raster' || media === 'video') && entry.colours === undefined) {
+      if (!probes.pixels) warnings.push('no pixels probe: colours left empty');
+      else {
+        const px = await run('pixels', () => probes.pixels(file(), { kind: entry.kind, ext }), 'colours');
+        if (px?.data) {
+          facts.colours = colours(px, { sil: entry.sil });
+          if (media === 'raster') Object.assign(facts, { w: px.width, h: px.height, alpha: usesAlpha(px) });
+        }
+      }
+    }
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+  return { facts, warnings };
+}
+
 // `sha:<hex>` names the bytes, not the record: any unambiguous prefix of 12 or more hex.
 const SHA_REF = /^sha:([0-9a-f]{12,64})$/;
 
@@ -45,18 +107,22 @@ export function openLibrary({ shelves = standardShelves() } = {}) {
   if (dup) throw new Error(`shelf '${dup}' is named twice (shelves: ${names.join(', ')})`);
 
   // id -> the shelves holding it, in search order; sha -> [{ shelf, id }] for every entry with those bytes.
-  const byId = new Map(), bySha = new Map();
-  for (const s of read) {
-    for (const id of s.ids) {
-      if (!byId.has(id)) byId.set(id, []);
-      byId.get(id).push(s);
-      const e = s.entries.get(id);
-      if (typeof e?.sha !== 'string') continue;
-      if (!bySha.has(e.sha)) bySha.set(e.sha, []);
-      bySha.get(e.sha).push({ shelf: s.name, id });
+  // Rebuilt after every write.
+  let byId, bySha;
+  const index = () => {
+    byId = new Map(); bySha = new Map();
+    for (const s of read) {
+      for (const id of s.ids) {
+        if (!byId.has(id)) byId.set(id, []);
+        byId.get(id).push(s);
+        const e = s.entries.get(id);
+        if (typeof e?.sha !== 'string') continue;
+        if (!bySha.has(e.sha)) bySha.set(e.sha, []);
+        bySha.get(e.sha).push({ shelf: s.name, id });
+      }
     }
-  }
-  const ids = [...byId.keys()].sort();
+  };
+  index();
   const searched = () => read.map((s) => `${s.name} (${s.root})`).join(', ') || 'none';
 
   const shaOf = (prefix) => {
@@ -70,9 +136,21 @@ export function openLibrary({ shelves = standardShelves() } = {}) {
     return { id, shelf: s.name, root: s.root, entry, path: s.blobPath(entry), thumb: s.thumbPath(entry), shadowed };
   };
 
+  // Where a write lands when none is named: the project when one is open, else the user's pool.
+  const writable = () => {
+    const s = read.find((x) => x.name === 'project') ?? read.find((x) => x.name === 'user');
+    if (!s) throw new Error(`name a shelf to write to (shelves: ${names.join(', ') || 'none'})`);
+    return s;
+  };
+  const holder = (id) => {
+    const h = byId.get(id);
+    if (!h) throw new Error(`no asset '${id}' on shelves ${searched()}`);
+    return h[0];
+  };
+
   const lib = {
     shelves: read,
-    ids,
+    get ids() { return [...byId.keys()].sort(); },
     shelf(name) {
       const s = read.find((x) => x.name === name);
       if (!s) throw new Error(`no shelf '${name}' (shelves: ${names.join(', ') || 'none'})`);
@@ -106,6 +184,53 @@ export function openLibrary({ shelves = standardShelves() } = {}) {
     resolve: (ref) => lib.locate(ref).path,
     // Every shelf holding some bytes (a full sha or a 12+ hex prefix): [{ shelf, id }] in search order.
     holders: (hex) => bySha.get(shaOf(String(hex).replace(/^sha:/, ''))).map((h) => ({ ...h })),
+
+    // ---------- writes (A2) ----------
+
+    // Probes the payload with the host's probes, then puts it on `shelf` (a name; null for the project, else
+    // the user's pool): hashed, derived, validated, and only then written. Resolves to { id, shelf, entry,
+    // path, created, warnings }; rejects, having written nothing, when the entry is not valid.
+    async put(shelf, entry, bytes, { probes, fields, by } = {}) {
+      const s = shelf ? lib.shelf(shelf) : writable();
+      const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+      const { facts, warnings } = await probeFacts(entry, buf, probes);
+      const out = s.put(entry, buf, { facts, fields, by });
+      index();
+      return { ...out, shelf: s.name, warnings };
+    },
+    // Removes an id from `shelf` (default: the shelf it resolves to), with its blob and thumb when nothing
+    // else on that shelf shares them. Returns { id, shelf, removed: [paths] }.
+    remove(id, { shelf } = {}) {
+      const s = shelf ? lib.shelf(shelf) : holder(id);
+      const removed = s.remove(id);
+      index();
+      return { id, shelf: s.name, removed };
+    },
+    // Moves an id to another shelf: blob, thumb and entry are written there (rehashed as sha256, validated),
+    // then removed from where it was (`from`, default the shelf it resolves to). Refuses when the target
+    // holds the id with other bytes. Returns { id, from, to, entry, path }.
+    move(id, to, { from, fields } = {}) {
+      const src = from ? lib.shelf(from) : holder(id), dst = lib.shelf(to);
+      if (src === dst) throw new Error(`'${id}' is already on shelf ${dst.name}`);
+      const e = src.entry(id), bytes = src.payload(e), there = dst.entries.get(id);
+      if (there && there.sha !== sha(bytes) && there.sha !== e.sha) {
+        throw new Error(`shelf ${dst.name} already has '${id}' with other bytes (${there.sha.slice(0, 12)}, not ${sha(bytes).slice(0, 12)}); remove it there or move under another id`);
+      }
+      const out = dst.put({ ...e, id }, bytes, { fields });
+      const thumb = src.thumbPath(e);
+      if (existsSync(thumb) && !existsSync(dst.thumbPath(out.entry))) {
+        mkdirSync(dirname(dst.thumbPath(out.entry)), { recursive: true });
+        copyFileSync(thumb, dst.thumbPath(out.entry));
+      }
+      src.remove(id);
+      index();
+      return { id, from: src.name, to: dst.name, entry: out.entry, path: out.path };
+    },
+    // Deletes the orphan blobs and stale thumbs on every shelf (or `shelf`); `dry` lists them only.
+    // Returns [{ shelf, path, bytes }].
+    gc({ shelf, dry = false } = {}) {
+      return (shelf ? [lib.shelf(shelf)] : read).flatMap((s) => s.gc({ dry }).map((g) => ({ shelf: s.name, ...g })));
+    },
   };
   return lib;
 }

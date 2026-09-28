@@ -719,7 +719,7 @@ then D and E in parallel, I when D4 exists, S last.
 | session | title | days | needs | done |
 |---|---|---|---|---|
 | A1 | Read a shelf | 0.5 | – | [x] |
-| A2 | Write: put, remove, gc, move | 1 | A1 | [ ] |
+| A2 | Write: put, remove, gc, move | 1 | A1 | [x] |
 | A3 | Search | 1 | A1 | [ ] |
 | A4 | Previews | 1 | A1 | [ ] |
 | A5 | The `use` block | 0.5 | A1 | [ ] |

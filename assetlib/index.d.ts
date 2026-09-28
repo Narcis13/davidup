@@ -75,6 +75,60 @@ export function validate(id: string, entry: unknown, opts?: { fields?: Partial<R
 /** 64 hex sha256 over some bytes (a string is hashed as utf8). */
 export function sha(bytes: string | Uint8Array): string;
 
+/** RGBA pixels a host decoded (skia's ImageData, say). */
+export interface Pixels {
+  data: Uint8Array | Uint8ClampedArray;
+  width: number;
+  height: number;
+}
+export type Swatch = { hex: string; area: number };
+
+/** The image type of some bytes by their magic, or null. */
+export function imageType(bytes: Uint8Array | string): 'webp' | 'png' | 'jpg' | 'gif' | 'svg' | null;
+/** The payload's extension by its magic, or null; `kind` settles a container's names (m4a for audio kinds). */
+export function sniff(bytes: Uint8Array | string, kind?: Kind | string): string | null;
+/** Type, size and whether the format carries alpha, from a PNG, JPEG, WebP or GIF header alone. */
+export function imageInfo(bytes: Uint8Array | string): { type: string; w: number; h: number; alpha: boolean } | null;
+/** The top 8 swatches of some RGBA pixels (hdf photo's quantiser): opaque pixels only, biggest area first. */
+export function quantise(data: Uint8Array | Uint8ClampedArray): Swatch[];
+/** The palette of a decoded image; with `sil`, only the pixels whose centres it encloses (even-odd). */
+export function colours(pixels: Pixels, opts?: { sil?: { sub: { pts: number[] }[] } }): Swatch[];
+
+/**
+ * A host's probes, each optional, each given the payload as a file. davidup's ffprobe results read as they
+ * are (duration, width, height, sampleRate, hasAlpha, hasAudio are renamed); only the kind's fields are kept.
+ */
+export interface Probes {
+  probeVideo?: (file: string) => Promise<object> | object;
+  probeAudio?: (file: string) => Promise<object> | object;
+  fontMeta?: (file: string) => Promise<object> | object;
+  /** A raster's pixels, or a video's representative frame: gives `colours` (and a raster's real `alpha`). */
+  pixels?: (file: string, info: { kind: Kind; ext: string }) => Promise<Pixels | null> | Pixels | null;
+}
+
+/** What a put is given: an entry to be, named by `id`; sha, ext, media and bytes are derived. */
+export type EntryInput = Omit<Entry, 'sha' | 'ext' | 'media'> & { id: string; sha?: string; ext?: string; media?: Media; shelf?: string; shadowed?: string[] };
+
+export interface PutOptions {
+  /** Probe results to fill in under the entry's own fields (the library's put passes them). */
+  facts?: Record<string, unknown>;
+  /** Extra per-kind checks for validate(). */
+  fields?: Partial<Record<Kind, Record<string, FieldCheck>>>;
+  /** The door it came in by, when the entry does not say. */
+  by?: string;
+}
+
+export interface PutResult {
+  id: string;
+  entry: Entry;
+  path: string;
+  /** The blob was new to the shelf. */
+  created: boolean;
+}
+
+/** The facts a host's probes give for a payload, and a warning for each probe missing or failed. */
+export function probeFacts(entry: EntryInput, bytes: Uint8Array, probes?: Probes): Promise<{ facts: Record<string, unknown>; warnings: string[] }>;
+
 export interface ShelfSpec {
   name: string;
   root: string;
@@ -90,7 +144,18 @@ export interface Shelf {
   entry(id: string): Entry;
   blobPath(entry: string | Entry): string;
   thumbPath(entry: string | Entry): string;
+  /** Blobs no entry points at. */
   orphans(): string[];
+  /** Thumbs whose sha no entry has. */
+  staleThumbs(): string[];
+  payload(entry: string | Entry): Uint8Array;
+  /** Hash, derive, validate, then write (blob if new, catalogue atomically). Throws, having written nothing, when invalid. */
+  put(entry: EntryInput, bytes: Uint8Array | string, opts?: PutOptions): PutResult;
+  /** The entry, and its blob and thumb when nothing else shares them; returns the paths deleted. */
+  remove(id: string): string[];
+  /** Deletes orphan blobs and stale thumbs (`dry` lists them only). */
+  gc(opts?: { dry?: boolean }): { path: string; bytes: number }[];
+  save(): void;
 }
 
 export function readShelf(root: string, opts?: { name?: string }): Shelf;
@@ -117,6 +182,12 @@ export interface Library {
   get(ref: string): AssetRecord;
   resolve(ref: string): string;
   holders(hex: string): { shelf: string; id: string }[];
+  /** Probe, then put on `shelf` (null: the project, else the user's pool). Rejects, having written nothing, when invalid. */
+  put(shelf: string | null, entry: EntryInput, bytes: Uint8Array | string, opts?: { probes?: Probes; fields?: PutOptions['fields']; by?: string }): Promise<PutResult & { shelf: string; warnings: string[] }>;
+  remove(id: string, opts?: { shelf?: string }): { id: string; shelf: string; removed: string[] };
+  /** Blob, thumb and entry to `to` (rehashed sha256, validated), then removed from where it was. */
+  move(id: string, to: string, opts?: { from?: string; fields?: PutOptions['fields'] }): { id: string; from: string; to: string; entry: Entry; path: string };
+  gc(opts?: { shelf?: string; dry?: boolean }): { shelf: string; path: string; bytes: number }[];
 }
 
 export function openLibrary(opts?: { shelves?: ShelfSpec[] }): Library;

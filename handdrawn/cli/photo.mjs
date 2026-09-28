@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
-import { css } from '../core/looks.js';
+import { quantise } from '../../assetlib/image.js';
 import { skiaCanvas } from './skia.mjs';
 import { traceAlpha } from '../core/trace.js';
 import { UsageError } from './load.mjs';
@@ -176,10 +176,8 @@ export function silhouette(canvas) {
   return traceAlpha(canvas.getContext('2d').getImageData(0, 0, w, h).data, w, h, { threshold: 96, size: 256, eps: 0.6 });
 }
 
-// The cutout's own palette (plan S1): opaque pixels posterised to 5 bits per channel, bins within MERGE of a
-// kept colour folded into it, the biggest 8 by area. `area` is the share of the cutout's opaque pixels, so a
-// few large flat colours come first -- which is the order derive({ from }) hands to `fills`.
-const MERGE = 40, KEEP = 8, MAX_BINS = 64;
+// The cutout's own palette (plan S1): what the traced silhouette encloses, holes included, quantised by
+// assetlib's quantise() (the bins, the merge and the top 8 moved there for the asset library's put).
 export function colours(canvas, sil) {
   const { width: w, height: h } = canvas, cv = skiaCanvas(w, h), g = cv.getContext('2d');
   if (sil?.sub?.length) {     // only what the traced silhouette encloses counts, holes included
@@ -193,29 +191,7 @@ export function colours(canvas, sil) {
     g.clip('evenodd');
   }
   g.drawImage(canvas, 0, 0);
-  const d = g.getImageData(0, 0, w, h).data, bins = new Map();
-  let tot = 0;
-  for (let p = 0; p < w * h; p++) {
-    if (d[p * 4 + 3] < 200) continue;
-    const r = d[p * 4], gg = d[p * 4 + 1], b = d[p * 4 + 2], k = ((r >> 3) << 10) | ((gg >> 3) << 5) | (b >> 3);
-    let e = bins.get(k);
-    if (!e) bins.set(k, e = [0, 0, 0, 0]);
-    e[0] += r; e[1] += gg; e[2] += b; e[3]++; tot++;
-  }
-  if (!tot) return [];
-  const kept = [];
-  for (const [, e] of [...bins].sort((a, b) => b[1][3] - a[1][3] || a[0] - b[0])) {
-    const r = e[0] / e[3], gg = e[1] / e[3], b = e[2] / e[3];
-    let near = null, best = MERGE;
-    for (const c of kept) {
-      const dd = Math.hypot(c[0] / c[3] - r, c[1] / c[3] - gg, c[2] / c[3] - b);
-      if (dd < best) { best = dd; near = c; }
-    }
-    if (near) for (let i = 0; i < 4; i++) near[i] += e[i];
-    else if (kept.length < MAX_BINS) kept.push([...e]);
-  }
-  return kept.sort((a, b) => b[3] - a[3]).slice(0, KEEP)
-    .map((c) => ({ hex: css([c[0] / c[3], c[1] / c[3], c[2] / c[3]]), area: +(c[3] / tot).toFixed(4) }));
+  return quantise(g.getImageData(0, 0, w, h).data);
 }
 
 const swatches = (cols) => cols.map((c) => `${c.hex} ${(c.area * 100).toFixed(0)}%`).join('  ');

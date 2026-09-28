@@ -1,5 +1,9 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { KINDS, LICENCES, openLibrary, readShelf } from "../../assetlib/index.js";
+import { probeVideo } from "../../src/drivers/node/ffprobe.js";
 import { ASSET_LICENCES, AssetSchema } from "../../src/schema/zod.js";
 
 // The asset library (docs/asset-library-plan.md) and the composition schema share one licence list, so a
@@ -19,4 +23,19 @@ describe("assetlib from davidup", () => {
     expect(lib.get("fox")).toMatchObject({ id: "fox", kind: "image", media: "raster", shelf: "project", shadowed: [] });
     expect(readShelf(lib.shelves[0]!.root).ids).toEqual(["fox", "logo"]);
   });
+
+  it("puts a video with davidup's own probeVideo as the probe (A2)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "assetlib-ts-"));
+    try {
+      const lib = openLibrary({ shelves: [{ name: "user", root }] });
+      const bytes = readFileSync(new URL("../drivers/fixtures/video/small.mp4", import.meta.url));
+      const out = await lib.put("user", { id: "small", kind: "video", name: "Small", tags: [], licence: "own", credit: "", source: "" }, bytes, { probes: { probeVideo } });
+      expect(out.warnings).toEqual(["no pixels probe: colours left empty"]);
+      expect(out.entry).toMatchObject({ kind: "video", media: "video", ext: "mp4", w: 320, h: 240, codec: "h264", alpha: false, bytes: bytes.length });
+      expect(out.entry.fps).toBeCloseTo(30, 5);
+      expect(lib.get("small").shelf).toBe("user");
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  }, 20_000);   // the first ffprobe spawn on a cold machine can take seconds
 });
