@@ -9,24 +9,28 @@
 //   lib.locate('teapot');              // { id, shelf, root, entry, path, thumb, shadowed }
 //   lib.resolve('sha:9f2c1a3b4c5d');   // the blob's path, by any 12+ hex prefix of its sha
 //   lib.search({ q: 'warm paper', media: 'raster' });   // ranked hits with why, facets
+//   await lib.preview('teapot');       // { path, png, by, cached }: the host's previewer, else a card
+//   await lib.sheet(['teapot', 'fox']);   // one contact sheet PNG with id captions
 //   await lib.put('user', { id: 'paper', kind: 'stock', ... }, bytes, { probes });   // one way in
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
 //
 // Plain ESM, zero dependencies: hdf imports it as it is, davidup through index.d.ts. Anything heavier (a
 // probe, a previewer, a ranker) is injected by the host.
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extFor, readShelf, sha } from './catalogue.js';
-import { colours, usesAlpha } from './image.js';
+import { colours, imageType, usesAlpha } from './image.js';
+import { PREVIEW_WIDTH, card, contactSheet, decodePng, fresh, previewer, tagOf, tagged } from './preview.js';
 import { SCHEMAS, mediaOf } from './record.js';
 import { searchIndex } from './search.js';
 
 export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
 export { readShelf, sha } from './catalogue.js';
 export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
+export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
@@ -99,12 +103,36 @@ export async function probeFacts(entry, bytes, probes = {}) {
   return { facts, warnings };
 }
 
+// ---------- previews ----------
+
+// Where a thumb goes when its shelf cannot be written (a packaged house shelf, a read-only mount): one cache
+// per machine, keyed by sha like a shelf's, so the tag still decides whether it answers. openLibrary's
+// `thumbCache` names another.
+export const THUMB_CACHE = join(tmpdir(), 'assetlib-thumbs');
+
+// Writes a thumb whole or not at all; false when the directory cannot be written.
+function writeThumb(file, png) {
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(tmp, png);
+    renameSync(tmp, file);
+    return true;
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    if (['EACCES', 'EPERM', 'EROFS'].includes(err?.code)) return false;
+    throw err;
+  }
+}
+
 // `sha:<hex>` names the bytes, not the record: any unambiguous prefix of 12 or more hex.
 const SHA_REF = /^sha:([0-9a-f]{12,64})$/;
 
 // The shelves, read once and merged. `shelves` is [{ name, root }] in search order (default: standardShelves()).
-// `rank(record, query, { score })` replaces search's built-in scorer (search.js).
-export function openLibrary({ shelves = standardShelves(), rank } = {}) {
+// `rank(record, query, { score })` replaces search's built-in scorer (search.js). `previewers` is { kind:
+// previewer } for lib.preview (preview.js), each a function (file, record, { width }) -> PNG bytes or
+// { name, version, render }; `thumbCache` is where thumbs go for a shelf that cannot be written.
+export function openLibrary({ shelves = standardShelves(), rank, previewers = {}, thumbCache = THUMB_CACHE } = {}) {
   const read = shelves.map((s) => readShelf(s.root, { name: s.name }));
   const names = read.map((s) => s.name);
   const dup = names.find((n, i) => names.indexOf(n) !== i);
@@ -191,16 +219,77 @@ export function openLibrary({ shelves = standardShelves(), rank } = {}) {
 
     // Ranked, filtered, explained (plan §4; search.js): { count, total, facetsOf, facets, hits }. Each hit is
     // { id, shelf, score, why, record, path, thumb } over the winning records (a shadowed one is not listed
-    // twice); `thumb` is null until the preview exists. A string is `{ q }`.
+    // twice); `thumb` is null until lib.preview has drawn it. A string is `{ q }`.
     search(query) {
       finder ??= searchIndex(lib.ids.map((id) => lib.get(id)));
       const out = finder.search(query, { rank, shelves: names });
       for (const h of out.hits) {
         const loc = lib.locate(h.id);
         h.path = loc.path;
-        h.thumb = existsSync(loc.thumb) ? loc.thumb : null;
+        h.thumb = [loc.thumb, join(thumbCache, `${loc.entry.sha}.png`)].find((t) => existsSync(t)) ?? null;
       }
       return out;
+    },
+
+    // ---------- previews (A4) ----------
+
+    // The preview of a ref: the cached thumb when its tag still answers for the record (preview.js fresh()),
+    // else the host's previewer for the kind (given the blob's path, the record and { width: 480 }), else the
+    // fallback card; the new thumb is written to the shelf's thumbs/<sha>.png (the thumbCache when the shelf
+    // is read-only). `previewers` add to or replace the library's; `force` redraws. A previewer that throws,
+    // or returns something other than a PNG, gives the card and a warning (and is asked again next time).
+    // Resolves to { id, shelf, path, png, by, cached, warnings }.
+    async preview(ref, { previewers: more, force = false } = {}) {
+      const loc = lib.locate(ref), record = lib.get(ref), warnings = [];
+      const p = previewer({ ...previewers, ...more }[record.kind]);
+      const cachedAt = [loc.thumb, join(thumbCache, `${loc.entry.sha}.png`)];
+      if (!force) {
+        for (const path of cachedAt) {
+          if (!existsSync(path)) continue;
+          const png = readFileSync(path);
+          if (fresh(tagOf(png), record, p)) return { id: loc.id, shelf: loc.shelf, path, png, by: tagOf(png).by, cached: true, warnings };
+        }
+      }
+      let png = null, by = null;
+      if (p && !existsSync(loc.path)) warnings.push(`previewer ${p.by} not asked: blob ${loc.entry.sha}.${loc.entry.ext} is missing from ${dirname(loc.path)}`);
+      else if (p) {
+        try {
+          const out = await p.render(loc.path, record, { width: PREVIEW_WIDTH });
+          if (!out || imageType(out) !== 'png') throw new Error(`returned ${out ? imageType(out) ?? 'bytes that are not an image' : 'nothing'}, not a PNG`);
+          png = tagged(out, p);
+          by = p.by;
+        } catch (err) {
+          warnings.push(`previewer ${p.by} could not draw '${loc.id}' (${record.kind}): ${err?.message ?? err}; drew its card`);
+        }
+      }
+      if (!png) { png = card(record); by = tagOf(png).by; }
+      const path = writeThumb(cachedAt[0], png) ? cachedAt[0] : (writeThumb(cachedAt[1], png) ? cachedAt[1] : null);
+      if (!path) warnings.push(`thumb not written: neither ${dirname(cachedAt[0])} nor ${thumbCache} can be written`);
+      return { id: loc.id, shelf: loc.shelf, path, png, by, cached: false, warnings };
+    },
+    // One contact sheet PNG of some refs' previews, `cols` across (default: the square root, rounded up) with
+    // the id under each; what an agent asks for to compare candidates in one look. Previews are made (and
+    // cached) as lib.preview makes them. `out` also writes the sheet there. Resolves to { png, path, width,
+    // height, cols, rows, cells: [{ id, shelf, x, y, w, h }], warnings }.
+    async sheet(refs, { cols, cell, previewers: more, force, out } = {}) {
+      const list = Array.isArray(refs) ? refs : [refs];
+      if (!list.length) throw new Error('a contact sheet needs at least one asset');
+      const missing = list.filter((r) => !lib.has(r));
+      if (missing.length) throw new Error(`no asset ${missing.map((r) => `'${r}'`).join(', ')} on shelves ${searched()}`);
+      const items = [], warnings = [];
+      for (const ref of list) {
+        const pv = await lib.preview(ref, { previewers: more, force });
+        warnings.push(...pv.warnings);
+        let pixels;
+        try { pixels = decodePng(pv.png); } catch (err) {
+          warnings.push(`preview of '${pv.id}' could not be read (${err.message}); its card is on the sheet`);
+          pixels = decodePng(card(lib.get(ref)));
+        }
+        items.push({ id: pv.id, shelf: pv.shelf, pixels });
+      }
+      const sheet = contactSheet(items, { cols, cell });
+      if (out) { mkdirSync(dirname(resolve(out)), { recursive: true }); writeFileSync(out, sheet.png); }
+      return { ...sheet, cells: sheet.cells.map((c, i) => ({ id: c.id, shelf: items[i].shelf, x: c.x, y: c.y, w: c.w, h: c.h })), path: out ? resolve(out) : null, warnings };
     },
 
     // ---------- writes (A2) ----------

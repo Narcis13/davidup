@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { KINDS, LICENCES, openLibrary, readShelf } from "../../assetlib/index.js";
+import { KINDS, LICENCES, PREVIEW_WIDTH, decodePng, encodePng, openLibrary, readShelf } from "../../assetlib/index.js";
 import { probeVideo } from "../../src/drivers/node/ffprobe.js";
 import { ASSET_LICENCES, AssetSchema } from "../../src/schema/zod.js";
 
@@ -34,6 +34,33 @@ describe("assetlib from davidup", () => {
     ]);
     expect(out.facets?.kind).toEqual({ stock: 2 });
     expect(out.hits[0]!.path.endsWith(`${out.hits[0]!.record.sha}.webp`)).toBe(true);
+  });
+
+  it("previews and sheets from TypeScript, with a host previewer (A4)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "assetlib-ts-"));
+    try {
+      const png = (w: number, h: number, rgb: number[]) => {
+        const data = new Uint8ClampedArray(w * h * 4);
+        for (let i = 0; i < w * h; i++) data.set([...rgb, 255], i * 4);
+        return encodePng({ data, width: w, height: h });
+      };
+      const drawn: string[] = [];
+      const lib = openLibrary({ shelves: [{ name: "user", root }], previewers: {
+        image: { name: "ts", version: 1, render: (_file, record, { width }) => { drawn.push(record.id); return png(width, 270, [200, 40, 40]); } },
+      } });
+      const own = { kind: "image" as const, tags: [], licence: "own" as const, credit: "", source: "" };
+      await lib.put("user", { ...own, id: "red", name: "Red" }, png(4, 3, [200, 40, 40]));
+      await lib.put("user", { ...own, id: "voice", kind: "audio", name: "Voice" }, Buffer.from("ID3\x03\x00\x00\x00\x00\x00\x00"));
+      const pv = await lib.preview("red");
+      expect([pv.by, pv.cached, pv.path]).toEqual(["ts@1", false, join(root, "thumbs", `${lib.get("red").sha}.png`)]);
+      expect(decodePng(pv.png).width).toBe(PREVIEW_WIDTH);
+      const sheet = await lib.sheet(["red", "voice"]);
+      expect([sheet.cols, sheet.rows, sheet.cells.map((c) => c.id)]).toEqual([2, 1, ["red", "voice"]]);
+      expect(drawn).toEqual(["red"]);
+      expect((await lib.preview("voice")).by).toMatch(/^card:/);
+    } finally {
+      rmSync(root, { recursive: true });
+    }
   });
 
   it("puts a video with davidup's own probeVideo as the probe (A2)", async () => {

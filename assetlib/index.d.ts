@@ -245,7 +245,7 @@ export interface SearchHit<R = AssetRecord> {
 export interface LibraryHit extends SearchHit {
   /** The blob. */
   path: string;
-  /** The preview, or null until it exists. */
+  /** The preview, or null until lib.preview has drawn it. */
   thumb: string | null;
 }
 
@@ -293,6 +293,79 @@ export function searchIndex(records: Iterable<Searchable>): SearchIndex;
 /** One query over some records, without keeping the index. */
 export function search(records: Iterable<Searchable>, query?: string | SearchQuery, opts?: { rank?: Ranker; shelves?: string[] }): SearchResult<SearchHit<Searchable>>;
 
+// ---------- previews (A4) ----------
+
+export const PREVIEW_VERSION: number;
+/** The width a previewer is asked for. */
+export const PREVIEW_WIDTH: 480;
+export const CARD_W: 480;
+export const CARD_H: 320;
+/** The PNG tEXt keyword a thumb's tag lives under: "preview <version> <by>". */
+export const TAG_KEY: 'assetlib';
+/** Where thumbs go for a shelf that cannot be written (openLibrary's `thumbCache` names another). */
+export const THUMB_CACHE: string;
+
+export type PngBytes = Uint8Array;
+/** Turns a blob into PNG bytes PREVIEW_WIDTH wide. Given the blob's path and the record. */
+export type PreviewFn = (file: string, record: AssetRecord, opts: { width: number }) => PngBytes | Promise<PngBytes>;
+/** A host's previewer: a function (tagged `host`), or named and versioned (tagged `name@version`). */
+export type Previewer = PreviewFn | { name?: string; version?: string | number; render: PreviewFn };
+export type Previewers = Partial<Record<Kind, Previewer>>;
+
+export interface Preview {
+  id: string;
+  shelf: string;
+  /** The thumb: the shelf's thumbs/<sha>.png, the thumb cache, or null when neither could be written. */
+  path: string | null;
+  png: Buffer;
+  /** Who drew it: `card:<hash>`, `host`, or `name@version`. */
+  by: string;
+  /** The thumb already answered; nothing was drawn. */
+  cached: boolean;
+  warnings: string[];
+}
+
+export interface SheetCell {
+  id: string;
+  shelf?: string;
+  /** The picture's box in the sheet (its caption runs under it). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Sheet {
+  png: Buffer;
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+  cells: SheetCell[];
+}
+
+/** RGBA pixels as a PNG, with `text` as tEXt chunks. */
+export function encodePng(pixels: Pixels, opts?: { text?: Record<string, string> }): Buffer;
+/** Any non-interlaced PNG as 8-bit RGBA. */
+export function decodePng(bytes: Uint8Array): { data: Uint8ClampedArray; width: number; height: number };
+export function pngText(bytes: Uint8Array): Record<string, string>;
+/** The same PNG with `text` as tEXt chunks after IHDR (same keyword replaced), pixels untouched. */
+export function withText(bytes: Uint8Array, text: Record<string, string>): Buffer;
+/** A thumb's tag, or null. */
+export function tagOf(bytes: Uint8Array): { v: number; by: string } | null;
+/** Whether a cached thumb's tag still answers for a record given the kind's previewer (normalised, or null). */
+export function fresh(tag: { v: number; by: string } | null, record: Partial<AssetRecord>, previewer: { name: string; by: string } | null): boolean;
+/** The fallback card: CARD_W x CARD_H PNG bytes, tagged with cardKey(record). */
+export function card(record: Partial<AssetRecord> & { id: string; kind: Kind | string }): Buffer;
+/** `card:<10 hex>` over what the card letters and paints. */
+export function cardKey(record: Partial<AssetRecord>): string;
+/** The line of facts a card letters: "815×739 · alpha", "12.5 s · 1280×720 · 30 fps". */
+export function factsOf(record: Partial<AssetRecord>): string;
+/** Text as the built-in bitmap font letters it: folded, upper case, '?' for what it has no glyph for. */
+export function lettering(s: string): string;
+/** Pixels tiled `cols` across (default √n rounded up), each over its id. */
+export function contactSheet(items: { id: string; pixels: Pixels }[], opts?: { cols?: number; cell?: number; gap?: number }): Sheet;
+
 export interface Library {
   shelves: Shelf[];
   ids: string[];
@@ -305,6 +378,10 @@ export interface Library {
   holders(hex: string): { shelf: string; id: string }[];
   /** Ranked, filtered, explained, over the winning records (plan §4). */
   search(query?: string | SearchQuery): SearchResult<LibraryHit>;
+  /** The cached thumb while it answers, else the kind's previewer, else the card; written to thumbs/<sha>.png. */
+  preview(ref: string, opts?: { previewers?: Previewers; force?: boolean }): Promise<Preview>;
+  /** One contact sheet of some refs' previews with id captions; `out` also writes it. Unknown refs reject. */
+  sheet(refs: string | string[], opts?: { cols?: number; cell?: number; previewers?: Previewers; force?: boolean; out?: string }): Promise<Sheet & { path: string | null; cells: (SheetCell & { shelf: string })[]; warnings: string[] }>;
   /** Probe, then put on `shelf` (null: the project, else the user's pool). Rejects, having written nothing, when invalid. */
   put(shelf: string | null, entry: EntryInput, bytes: Uint8Array | string, opts?: { probes?: Probes; fields?: PutOptions['fields']; by?: string }): Promise<PutResult & { shelf: string; warnings: string[] }>;
   remove(id: string, opts?: { shelf?: string }): { id: string; shelf: string; removed: string[] };
@@ -313,4 +390,4 @@ export interface Library {
   gc(opts?: { shelf?: string; dry?: boolean }): { shelf: string; path: string; bytes: number }[];
 }
 
-export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker }): Library;
+export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker; previewers?: Previewers; thumbCache?: string }): Library;

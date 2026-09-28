@@ -59,6 +59,23 @@ newest, then the id. Filters: `kind media shelf tags licence alpha minW minH asp
 `neutral`, or `red` ... `pink`). A query with only filters lists by kind, then id. `openLibrary({ rank })`
 takes a host scorer (an embedding, later) with the same result shape.
 
+Every record can be looked at (plan A4, `preview.js`). A host registers a previewer per kind; anything
+without one gets a card drawn here with no dependency (its first colour as the field, kind and id lettered in
+a built-in bitmap font, size or length, licence, palette strip):
+
+```js
+const lib = openLibrary({ shelves, previewers: { cutout: { name: 'hdf', version: 1, render: (file, record, { width }) => pngBytes } } });
+const pv = await lib.preview('teapot');   // { path: thumbs/<sha>.png, png, by: 'hdf@1', cached, warnings }
+const sheet = await lib.sheet(['teapot', 'cup', 'fox'], { cols: 3, out: 'candidates.png' });   // one PNG, id captions
+```
+
+Thumbs live at `<shelf>/thumbs/<sha>.png` (a machine-wide cache in the temp dir when the shelf is read-only)
+and carry their tag in a PNG text chunk, `assetlib: preview 1 <by>`. A cached thumb answers while it was drawn
+under this `PREVIEW_VERSION` and: it is a card, no previewer is registered for the kind and the record would
+letter the same card; or it is a host's picture, unless it is the registered previewer's own at another version.
+So a card gives way to a previewer registered later, and two apps sharing a shelf keep each other's pictures.
+A previewer that throws or returns no PNG gives the card and a warning, and is asked again next time.
+
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
 
