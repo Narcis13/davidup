@@ -340,6 +340,7 @@ async function runAuto(args, flags, name) {
   const code = await putPayload({
     kind: 'puppet', name, bytes: Buffer.from(JSON.stringify(payload)), abs: resolve(file),
     flags: { licence: 'own', credit: `one drawing, rigged by hdf sketch --auto from ${basename(file)}`, source: basename(file), tags: 'puppet,sketch,autorig,biped', ...flags },
+    by: 'hdf sketch',
   });
   const drawn = Object.entries(payload.poses.drawn).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(', ');
   process.stdout.write(`  parts: ${Object.keys(payload.parts).join(' ')}\n  pose drawn: ${drawn || 'all at rest'}${blank.length ? `\n  cut out empty (they draw nothing): ${blank.join(', ')}` : ''}\n`);
@@ -389,6 +390,7 @@ export async function run(args, flags) {
   const code = await putPayload({
     kind: 'puppet', name, bytes: Buffer.from(JSON.stringify(payload)), abs: resolve(photos[0].file),
     flags: { licence: 'own', credit: `drawn on a rig sheet, read by hdf sketch from ${names}`, source: names, tags: 'puppet,sketch,biped', ...flags },
+    by: 'hdf sketch',
   });
   process.stdout.write(`  parts: ${Object.keys(payload.parts).join(' ')}${payload.parts.mouth ? ' (the face grafted: it talks)' : ''}\n  views: ${payload.views.join(', ')}${blank.length ? `\n  drawn blank (they draw nothing): ${blank.join(', ')}` : ''}\n`);
   for (const q of photos) {

@@ -153,8 +153,9 @@ colours), `clip` (traced poses, with a skeleton when rigged), `puppet`,
 (`CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`) and a credit.
 
 ```bash
-hdf find teapot                    # id, kind, licence, what it takes, its check sheet, its credit
-hdf find --kind puppet             # the whole kind; pack cels are listed next to their mirrors (pack:<cel>)
+hdf find teapot                    # ranked (asset find): id, kind, licence, what it takes, why it matched, its sheet, its credit
+hdf find --kind puppet             # the whole kind; a pack cel is found as its mirror (pack:<cel>)
+hdf find --look paperInk           # what a look can use: stocks and hands (doodlePastel: cutouts too)
 hdf sheet store fox                # a puppet: every look x pose x variant x 3 scales, cycles as strips
 hdf sheet store fox --poses        # the model sheet: turnaround, expressions, hands and feet, poses, cycles, credits
 hdf import <file> --kind <kind> --name <id> --licence CC0 --credit "..." --source <url>

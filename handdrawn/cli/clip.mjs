@@ -177,7 +177,7 @@ async function posed(input, flags) {
     + `${loop?.cut ? `, loop of ${loop.n} from ${loop.start} (seam ${loop.err} h)` : loop ? `, kept whole (the best loop, ${loop.n} from ${loop.start}, has a seam of ${loop.err} h)` : flags.loop === false ? ', not looped' : ''}\n`
     + `  stride ${p.stride} h from the planted foot${Math.abs(p.travel - p.stride) > 0.25 * Math.max(p.stride, 0.05) ? `; the hips cross the picture ${p.travel} h (the camera moved, or the feet slide: the planted foot is what counts)` : ` (the hips cross the picture ${p.travel} h)`}\n`);
   const code = await putPayload({ kind: 'clip', name, bytes: Buffer.from(JSON.stringify(clip)), abs: resolve(input),
-    flags: { ...flags, licence: flags.licence ?? 'own' } });
+    flags: { ...flags, licence: flags.licence ?? 'own' }, by: 'hdf clip' });
   process.stdout.write(`${await skelSheet(name, clip, outDir)}\n`);
   process.stdout.write(`next: hdf retarget --clip ${name} --to fox --map biped-fox.json --name walk${flags.root ? ` --root ${flags.root}` : ''}\n`);
   return code;
@@ -213,7 +213,7 @@ async function tracked(kind, input, flags) {
   const o = { credit: typeof flags.credit === 'string' ? flags.credit : '', source: typeof flags.source === 'string' ? flags.source : '' };
   const track = kind === 'face' ? faceClip(raw, o) : handsClip(raw, o);
   process.stdout.write(`${name}  ${summary(track)}\n`);
-  return putPayload({ kind: 'clip', name, bytes: Buffer.from(JSON.stringify(track)), abs: resolve(input), flags: { ...flags, licence: flags.licence ?? 'own' } });
+  return putPayload({ kind: 'clip', name, bytes: Buffer.from(JSON.stringify(track)), abs: resolve(input), flags: { ...flags, licence: flags.licence ?? 'own' }, by: 'hdf clip' });
 }
 
 // What a track holds, in a line: the frames, and how busy each channel (or hand pose) is.

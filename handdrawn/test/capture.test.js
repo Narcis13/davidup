@@ -170,7 +170,8 @@ test('hdf clip --kind face | hands: explains itself without MediaPipe, makes tra
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.equal(cat['me-face'].track, 'face');
     assert.equal(cat['me-hands'].track, 'hands');
-    assert.match(hdf('find', 'me', '--root', root).out, /a face track, 60 frames @ 12 fps/);
+    // `me` is a stop word to the library's search (H2), so the track is found by its other word.
+    assert.match(hdf('find', 'face', '--root', root).out, /^me-face +clip +own +a face track, 60 frames @ 12 fps$/m);
 
     // The walker's landmarks: the stride on the way in, and on sam by leg length on the way out.
     writeFileSync(join(dir, 'pose.json'), JSON.stringify({ fps: 30, w: 800, h: 600, frames: Array.from({ length: 75 }, (_, i) => landmarks(i / 30).lm) }));

@@ -109,7 +109,7 @@ test('sheet store: a puppet in the store gets the check sheet hdf find points at
 test('import and find are commands: usage lists them, a bad kind is a usage error', async () => {
   const usage = (await hdf('help')).out;
   assert.match(usage, /^ {2}import {2}<file> --kind cutout\|clip/m);
-  assert.match(usage, /^ {2}find {4}<words\.\.\.> \[--kind\]/m);
+  assert.match(usage, /^ {2}find {4}<words\.\.\.> \[--kind k,k\] \[--look <look>\]/m);
   assert.match(usage, /^ {2}sheet {3}store <id>/m);
   const dir = mkdtempSync(join(tmpdir(), 'hdf-store-'));
   try {
@@ -255,14 +255,14 @@ test('hand: --template prints the sheet (PDF, or lettered by a stored hand), <sh
 });
 
 
-test("living packs: find lists a pack cel and its mirror, lint reads a pack, a film draws puppet('pack:teapot')", async () => {
+test("living packs: find lists a pack cel as its mirror, lint reads a pack, a film draws puppet('pack:teapot')", async () => {
   const found = await hdf('find', 'boat');
   assert.equal(found.code, 0, found.out);
-  assert.match(found.out, /^boat {13}cel {5}own {7}note 0\.\.1, in packs\/objects\.js$/m);
-  assert.match(found.out, /import \{ boat \} from 'packs\/objects\.js' or puppet\('pack:boat'\)/);
   assert.match(found.out, /^pack:boat {8}puppet {2}own {7}mirror of boat in packs\/objects\.js: note 0\.\.1 \(2 states\)$/m);
+  assert.match(found.out, /^ +import \{ boat \} from 'packs\/objects\.js' or puppet\('pack:boat'\)$/m);
+  assert.match(found.out, /^ +packs\/sheets\/boat\.jpg$/m, 'a mirror with no store sheet points at the pack\'s own');
   const puppets = (await hdf('find', '--kind', 'puppet')).out;
-  assert.ok(+puppets.match(/^(\d+) of \d+ in assets$/m)?.[1] >= 13, 'the fox and twelve mirrors (a user-imported puppet may add to them)');
+  assert.ok(+puppets.match(/^(\d+) of \d+ in .*assets \(house\)$/m)?.[1] >= 13, 'the fox and twelve mirrors (a user-imported puppet may add to them)');
   assert.equal((puppets.match(/^pack:\S+ +puppet/gm) ?? []).length, 13, 'thirteen mirrors');
   assert.match(await hdf('help').then((r) => r.out), /donate {2}--export \[<cel\.\.\.>\]/);
   const lint = await hdf('lint', 'packs/objects.js');
@@ -366,5 +366,35 @@ test('motion from your phone: clip --kind pose explains itself without MediaPipe
     const fox = JSON.parse(readFileSync(join(root, 'blobs', `${cat.fox.sha}.json`), 'utf8'));
     assert.deepEqual(fox.cycles.walk.from, { clip: 'me', sha: cat.me.sha, map: 'biped-fox.json' });
     assert.equal(fox.cycles.walk.n, 12);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('find is asset find: the same JSON, and --look lists what a look can use', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hdf-find-')), env = { ...process.env, DAVIDUP_ASSETS: join(dir, 'user') };
+  delete env.DAVIDUP_HOUSE;
+  const run = (bin, ...argv) => { const r = spawnSync(process.execPath, [bin, ...argv], { encoding: 'utf8', env }); return { code: r.status, out: r.stdout, err: r.stderr }; };
+  try {
+    // The user's pool holds a paper stock and a cutout, so a look has something of each to take or leave.
+    const png = join(dir, 'dot.png');
+    writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4nGP4/58BiBgYGBgY/v9nAAAb/gP9D7ZL0wAAAABJRU5ErkJggg==', 'base64'));
+    for (const [kind, name, sil] of [['stock', 'Warm paper', null], ['cutout', 'Dot', { sub: [{ pts: [0, 0, 2, 0, 2, 2, 0, 2], closed: true }], box: [0, 0, 2, 2] }]]) {
+      const add = run('../assetlib/cli.js', 'add', png, '--kind', kind, '--name', name, '--licence', 'own', '--tags', 'test', ...(sil ? ['--with', JSON.stringify({ sil })] : []));
+      assert.equal(add.code, 0, add.err);
+    }
+
+    const h = run('cli/hdf.mjs', 'find', 'fox', '--json'), a = run('../assetlib/cli.js', 'find', 'fox', '--json');
+    assert.equal(h.code, 0, h.err);
+    assert.equal(h.out, a.out, 'hdf find fox --json prints what asset find fox --json prints');
+    assert.ok(JSON.parse(h.out).hits.some((x) => x.id === 'fox' && x.shelf === 'house'));
+
+    const kinds = (look) => { const r = run('cli/hdf.mjs', 'find', '--look', look, '--json'); assert.equal(r.code, 0, r.err); return new Set(JSON.parse(r.out).hits.map((x) => x.record.kind)); };
+    assert.deepEqual([...kinds('paperInk')].sort(), ['hand', 'stock'], 'paperInk: a stock to draw on, a hand to letter in');
+    assert.deepEqual([...kinds('doodlePastel~from:teapot')].sort(), ['cutout', 'hand', 'stock'], 'doodles on photos also take a cutout');
+    const text = run('cli/hdf.mjs', 'find', '--look', 'paperInk');
+    assert.match(text.out, /^warm-paper +stock +own +2x2 px$/m);
+    assert.match(text.out, /^ +fromStore\(\['warm-paper'\], \{ from: '.*user' \}\)$/m, 'a record off the house shelf says how a film reads it');
+    assert.doesNotMatch(text.out, /^(dot|fox) /m);
+    assert.equal(run('cli/hdf.mjs', 'find', '--look', 'paperInk', '--kind', 'puppet').code, 2, 'a kind the look does not use');
+    assert.match(run('cli/hdf.mjs', 'find', '--look', 'oilPaint').err, /--look oilPaint \(expected paperInk \| /);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

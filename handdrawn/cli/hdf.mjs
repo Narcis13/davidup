@@ -136,7 +136,9 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     glyphs as composites) and out/<id>-ttf.png, the font over the hand lettered
                                     (scripts/hdf-to-davidup.ts --fonts registers it as a davidup font)
   sheet   --hand <id>               a hand's page beside the house's: every glyph (house fallbacks marked), pangrams, its pen
-  find    <words...> [--kind]       search the store: id, kind, licence, what it takes, its sheet and credit
+  find    <words...> [--kind k,k] [--look <look>] [--root dir] [--json]   search the library (asset find: ranked,
+                                    why each matched, and every asset find filter): id, kind, licence, what it
+                                    takes, its sheet and credit; --look lists what a look can use
   remove  <id...> [--root dir]      drop entries from the store, with their sheets and any blob no other entry shares
   gc      [--dry] [--root dir]      delete the blobs no catalogue entry points at
   donate  <module.js> <cel...> [--pack name] [--no-sheets]   copy cels (with their helpers) into packs/<name>.js,
@@ -224,7 +226,7 @@ export async function main(argv = process.argv.slice(2)) {
   const { run } = await import(pathToFileURL(file).href);
   const marks = marksFrom(flags.cuesFrom, flags.at);
   const load = (path) => loadFilm(path, { look: flags.look, alpha: !!flags.alpha, marks });
-  return (await run(args, flags, { loadFilm: load })) ?? 0;
+  return (await run(args, flags, { loadFilm: load, argv: rest })) ?? 0;
 }
 
 // Run only when executed directly (also through the npm bin symlink), not when imported by tests.

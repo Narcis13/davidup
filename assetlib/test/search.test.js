@@ -266,17 +266,16 @@ test('the pure search over any records, and the index follows writes', async () 
   }
 });
 
-test('on the house shelf: finds everything hdf find does for one word, the exact id first', () => {
+test('on the house shelf: hdf\'s search is the library\'s (H2), the exact id first', () => {
   const house = openLibrary({ shelves: [{ name: 'house', root: HOUSE_ROOT }] });
   const st = hdf.readCatalogue();
-  for (const word of ['teapot', 'fox', 'moon', 'muybridge', 'voice', 'hershey', 'pack', 'cat']) {
-    const theirs = hdf.search(st, word).map((h) => h.id);
-    const ours = ids(house.search({ q: word, limit: 1000 }));
-    assert.deepEqual(theirs.filter((id) => !ours.includes(id)), [], word);
+  for (const word of ['teapot', 'fox', 'moon', 'muybridge', 'voice', 'hershey', 'pack', 'cat', 'met']) {
+    assert.deepEqual(hdf.search(st, word).map((h) => h.id), ids(house.search({ q: word, limit: 1000 })), word);
   }
-  // hdf find is a substring: "met" is in "sometimes". A word's prefix is not.
-  assert.ok(hdf.search(st, 'met').some((h) => h.id === 'ai-friend'));
+  // hdf find was a substring search until H2: "met" was in "sometimes". A word's prefix is not.
+  assert.ok(!hdf.search(st, 'met').some((h) => h.id === 'ai-friend'));
   assert.deepEqual(ids(house.search('met')), ['cup', 'helmet', 'hourglass', 'lantern', 'teapot', 'violin', 'watch']);
+  assert.deepEqual(hdf.search(st, ['met'], { kind: 'cutout' }).map((h) => h.id), ids(house.search({ q: 'met', kind: 'cutout' })));
   assert.equal(house.search('teapot').hits[0].id, 'teapot');
   assert.equal(house.search('fox').hits[0].id, 'fox');
   assert.deepEqual(ids(house.search({ kind: 'cutout', dark: true })), ['helmet', 'hourglass', 'violin']);

@@ -1,4 +1,5 @@
-// hdf import: any payload into the asset store (plan 1.1). The file's bytes are the payload -- a raster keeps
+// hdf import: any payload into the asset store (plan 1.1): `asset add` with hdf's tracing, lint and checks
+// (asset-library plan H2), onto the house shelf or --root. The file's bytes are the payload -- a raster keeps
 // the bytes it came in as, so a cutout imported here and the same cutout inlined in a 2.0 module decode to the
 // same pixels and no golden moves.
 //
@@ -18,7 +19,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadImage } from 'skia-canvas';
-import { ASSET_ROOT, KINDS, LICENCES, SCHEMAS, imageType, readCatalogue, validatePayload } from '../core/assets.js';
+import { addAsset } from '../../assetlib/cli.js';
+import { ASSET_ROOT, FIELDS, KINDS, LICENCES, SCHEMAS, imageType, library, readCatalogue, validatePayload } from '../core/assets.js';
 import { bounds, parse } from '../core/list.js';
 import { lintPuppet } from '../core/lint.js';
 import { checkStick, compileStick, isStick } from '../core/stick.js';
@@ -40,28 +42,44 @@ export async function run(args, flags) {
 }
 
 // Validates a payload, puts it in the store (--root, or handdrawn/assets) under `name` and says what changed.
-// `hdf svg` hands its puppet or motif here, so an SVG import passes every check a JSON import does.
-export async function putPayload({ kind, name, bytes, abs, flags }) {
+// It is `asset add` (assetlib's addAsset, asset-library plan H2) with hdf's side of it: the fields below as the
+// kind's `derive` (a cutout's silhouette traced, a puppet linted and boxed), hdf's checks, skia's pixels.
+// `hdf svg`, `hdf clip` and `hdf sketch` hand their payloads here, so each passes every check an import does;
+// `by` is the door it came in by, kept on the entry.
+export async function putPayload({ kind, name, bytes, abs, flags, by = 'hdf import' }) {
   bytes = stickBytes(kind, name, bytes, abs);
   const licence = str(flags.licence) || 'unknown';
   if (!LICENCES.includes(licence)) throw usage(`import: --licence ${licence} (expected ${LICENCES.join(' | ')})`);
-  const meta = {
-    kind, name, file: basename(abs), licence,
+  const entry = {
+    id: name, kind, name, file: basename(abs), licence,
     credit: str(flags.credit), source: str(flags.source),
     tags: str(flags.tags).split(',').map((t) => t.trim()).filter(Boolean),
     ...(str(flags.desc) ? { desc: str(flags.desc) } : {}),
   };
-  const entry = { ...meta, ...await fields(kind, bytes, abs, name) };
-
-  const st = readCatalogue(flags.root ? resolve(String(flags.root)) : ASSET_ROOT);
-  const had = st.has(name) ? st.entry(name) : null;
-  const put = st.put(entry, bytes);
-  const where = had && had.sha === put.sha ? 'unchanged' : had ? `replaces ${had.sha.slice(0, 8)}` : 'new';
-  process.stdout.write(`${name}  ${kind}  ${put.sha}.${put.ext}  ${licence}  (${where})\n`
-    + `${st.payloadPath(put)}  ${(bytes.length / 1024).toFixed(0)} KB\n`);
+  const lib = library({ root: flags.root ? resolve(String(flags.root)) : ASSET_ROOT });
+  const put = await addAsset(lib, { bytes, file: abs, entry }, { ...HOST, by });
+  const e = put.entry, had = put.replaced;
+  const where = had && had.sha === e.sha ? 'unchanged' : had ? `replaces ${had.sha.slice(0, 8)}` : 'new';
+  process.stdout.write(`${name}  ${kind}  ${e.sha}.${e.ext}  ${licence}  (${where})\n`
+    + `${put.path}  ${(bytes.length / 1024).toFixed(0)} KB\n`);
+  for (const w of put.warnings) process.stderr.write(`warning: ${w}\n`);
   if (licence === 'unknown') process.stderr.write(`warning: '${name}' has licence unknown; lint rule 'credit' fails any film that renders it\n`);
   return 0;
 }
+
+// What hdf hands assetlib's addAsset: its derive for each of its kinds, its checks, and a raster's pixels read by
+// skia (webp and jpeg too, where assetlib's own probe reads a PNG only), for a stock's colours.
+export const HOST = {
+  derive: Object.fromEntries(KINDS.map((k) => [k, (bytes, { file, entry }) => fields(k, bytes, file, entry.id)])),
+  fields: FIELDS,
+  probes: {
+    async pixels(file) {
+      const img = await loadImage(readFileSync(file)), cv = skiaCanvas(img.width, img.height), g = cv.getContext('2d');
+      g.drawImage(img, 0, 0);
+      return { data: g.getImageData(0, 0, img.width, img.height).data, width: img.width, height: img.height };
+    },
+  },
+};
 
 const str = (v) => (v === undefined || v === true ? '' : String(v));
 
@@ -83,7 +101,7 @@ async function fields(kind, bytes, abs, name) {
   const how = SCHEMAS[kind].payload;
   if (how === 'raster') {
     if (!imageType(bytes)) throw usage(`import: a ${kind} must be a webp, png or jpeg image`);
-    const img = await loadImage(abs), w = img.width, h = img.height;
+    const img = await loadImage(bytes), w = img.width, h = img.height;
     if (kind === 'stock') return { w, h, box: [0, 0, w, h] };
     const cv = skiaCanvas(w, h);
     cv.getContext('2d').drawImage(img, 0, 0, w, h);

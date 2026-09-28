@@ -6,8 +6,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { main, parseArgs, idOf } from '../cli.js';
-import { HOUSE_ROOT, decodePng, encodePng, imageType, isLegacySha, readShelf, sha } from '../index.js';
+import { UsageError, addAsset, idOf, main, parseArgs, run as runVerb } from '../cli.js';
+import { HOUSE_ROOT, decodePng, encodePng, imageType, isLegacySha, openLibrary, readShelf, sha } from '../index.js';
 import { fontInfo, wavInfo } from '../probe.js';
 
 const CLI = fileURLToPath(new URL('../cli.js', import.meta.url));
@@ -318,4 +318,33 @@ test('probes: a WAV header and a font\'s tables, read here', () => {
   assert.throws(() => wavInfo(Buffer.from('not a wav')), /not a RIFF WAVE/);
   assert.deepEqual(fontInfo(readFileSync(INTER)), { family: 'Inter', weight: 400, style: 'normal', glyphs: 549 });
   assert.throws(() => fontInfo(Buffer.from('wOF2....')), /WOFF2/);
+});
+
+test('a host runs a verb on its own library and adds through addAsset with its own derive (hdf, H2)', async () => {
+  const t = setup();
+  try {
+    // One directory as the only shelf, as hdf's --root opens it: add writes there without --shelf.
+    const lib = openLibrary({ shelves: [{ root: join(t.dir, 'store') }] });
+    const bytes = png(3, 2, [200, 60, 50]), sil = { sub: [{ pts: [0, 0, 3, 0, 3, 2, 0, 2], closed: true }], box: [0, 0, 3, 2] };
+    const seen = [];
+    const host = { derive: { cutout: (b, { file, entry }) => { seen.push([b.length, file, entry.id]); return { sil, box: [0, 0, 3, 2] }; } }, by: 'hdf import' };
+    const entry = (id) => ({ id, kind: 'cutout', name: id, licence: 'own', credit: '', source: '', tags: [] });
+    const out = await addAsset(lib, { bytes, file: '/x/dot.png', entry: entry('dot') }, host);
+    assert.deepEqual(seen, [[bytes.length, '/x/dot.png', 'dot']], 'the host derives from the bytes it was handed');
+    assert.deepEqual([out.shelf, out.replaced, out.entry.by, out.entry.sil], ['store', null, 'hdf import', sil]);
+    const again = await addAsset(lib, { bytes, file: '/x/dot.png', entry: entry('dot') }, host);
+    assert.equal(again.replaced.sha, out.entry.sha);
+
+    // A refusal from a kind the host derives carries no hint about another tool.
+    const refuse = { derive: { cutout: () => ({}) } };
+    await assert.rejects(addAsset(lib, { bytes, entry: entry('bare') }, refuse), (e) => /sil/.test(e.message) && !/hdf import/.test(e.message));
+    await assert.rejects(addAsset(lib, { bytes, entry: entry('bare') }), /hdf import --kind cutout/);
+
+    // run() answers without printing: the data --json would print, on the library handed in.
+    const found = await runVerb('find', ['dot'], { library: lib });
+    assert.equal(found.code, 0);
+    assert.deepEqual(found.data.hits.map((h) => [h.id, h.shelf]), [['dot', 'store']]);
+    await assert.rejects(runVerb('find', [], { library: lib }), UsageError);
+    await assert.rejects(runVerb('nope', []), /unknown verb 'nope'/);
+  } finally { t.done(); }
 });

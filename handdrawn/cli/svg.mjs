@@ -47,7 +47,7 @@ export async function run([file], flags) {
     const { payload, table } = (kind === 'puppet' ? svgPuppet : svgMotif)(src, opts);
     process.stdout.write(tableText(table));
     if (kind === 'puppet') { keepRetargeted(payload, name, flags); widen(payload, name); }
-    await putPayload({ kind, name, bytes: Buffer.from(JSON.stringify(payload)), abs, flags });
+    await putPayload({ kind, name, bytes: Buffer.from(JSON.stringify(payload)), abs, flags, by: 'hdf svg' });
     if (flags.sheet !== false) {
       await storeSheet(name, { root: flags.root, ...(kind === 'puppet' ? { cycle: Object.keys(payload.cycles ?? {})[0] } : {}) });
     }

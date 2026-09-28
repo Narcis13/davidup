@@ -725,7 +725,7 @@ then D and E in parallel, I when D4 exists, S last.
 | A5 | The `use` block | 0.5 | A1 | [x] |
 | A6 | The `asset` CLI | 1 | A2 A3 A4 A5 | [x] |
 | H1 | `core/assets.js` on `assetlib`, sha256 | 1 | A2 | [x] |
-| H2 | `hdf find/import/remove/gc` become `asset` | 0.5 | A6 H1 | [ ] |
+| H2 | `hdf find/import/remove/gc` become `asset` | 0.5 | A6 H1 | [x] |
 | H3 | hdf previewers | 1 | A4 H1 | [ ] |
 | D1 | The `asset:` src scheme | 1 | A1 | [ ] |
 | D2 | MCP: search and read | 1 | A3 A4 D1 | [ ] |

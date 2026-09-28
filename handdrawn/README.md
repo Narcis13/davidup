@@ -690,8 +690,9 @@ by the sha of its own bytes:
 
 ```bash
 hdf import work/teapot.png --kind cutout --name teapot --licence CC0 --credit "The Met" --source <url>
-hdf find teapot                     # id, kind, licence, what it takes, its check sheet and credit
+hdf find teapot                     # ranked: id, kind, licence, what it takes, why it matched, its sheet and credit
 hdf find --kind puppet              # the whole kind
+hdf find --look paperInk            # what a look can use (stocks and hands)
 ```
 
 `assets/catalogue.json` holds one entry per id (`kind`, `sha`, `licence`,
@@ -1587,7 +1588,7 @@ are named `<film>[-<look>][-<ar>]`, so variants never overwrite each other.
 | `hdf import <file> --kind <kind> --name <id> [--credit] [--source] [--licence] [--tags]` | any payload into the asset store, validated and hashed |
 | `hdf import --v2 <photos.js\|clips.js> [--licence] [--tags]` | a 2.0 data module into the store: one entry per record |
 | `hdf svg <file.svg> --name <id> [--kind puppet\|motif] [--roles map.json\|ask] [--flatten 0.6] [--units]` | an SVG into the store as a puppet (rigged from its ids) or a motif, with its colour table and check sheet |
-| `hdf find <words...> [--kind]` | search the store: id, kind, licence, what it takes, its check sheet and credit |
+| `hdf find <words...> [--kind] [--look] [--json]` | search the library (`asset find`: ranked, why each matched): id, kind, licence, what it takes, its check sheet and credit; `--json` is `asset find --json` |
 | `hdf donate <module> <cel...> [--pack name]`, `hdf donate --manifest` | move cels into packs; rebuild the manifest and sheets |
 
 ### handdrawn ↔ davidup

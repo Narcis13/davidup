@@ -14,9 +14,11 @@
 // project shelf; $DAVIDUP_ASSETS and $DAVIDUP_HOUSE move the user's pool and the house. A write goes to
 // --shelf, else the project when one is open, else the user's pool. `--json` prints what a verb found as JSON.
 //
-// main(argv, host) is the whole CLI. A host (hdf from H2, davidup) passes what it knows better: `probes` (over
-// probe.js's), `previewers`, `derive` ({ kind: (bytes, { file, entry }) -> fields }, over DERIVE) and `fields`
-// (validate()'s per-kind checks); tests pass `out`, `err`, `env`, `cwd` and `home`.
+// main(argv, host) is the whole CLI; run(verb, argv, host) is one verb without the printing, and addAsset the
+// one way in. A host (hdf's find/import/remove/gc since H2, davidup) passes what it knows better: `probes`
+// (over probe.js's), `previewers`, `derive` ({ kind: (bytes, { file, entry }) -> fields }, over DERIVE),
+// `fields` (validate()'s per-kind checks), `by` (the door an add came in by) and `library` (a library it
+// opened itself); tests pass `out`, `err`, `env`, `cwd` and `home`.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -150,6 +152,27 @@ const HINT = {
   font: 'give the family the font is asked for by with --family',
 };
 
+// The one way in, for this CLI's `add` and for a host command that already holds the bytes (hdf import, which
+// compiles a stick first): the fields the kind's payload says (the host's `derive`, else DERIVE; the entry's
+// own fields win), then `extra`, then probed (probe.js's probes under the host's), validated and written on
+// `shelf` (default: the only shelf, else the project, else the user's pool). Resolves to { id, shelf, entry,
+// path, created, replaced, warnings }; `replaced` is the entry the id had on that shelf, or null.
+export async function addAsset(lib, { bytes, file, entry, extra = {}, shelf }, host = {}) {
+  const { id, kind } = entry;
+  const own = host.derive?.[kind], derive = own ?? DERIVE[kind];
+  const derived = derive ? (await derive(bytes, { file, entry })) ?? {} : {};
+  const full = { ...entry, ...Object.fromEntries(Object.entries(derived).filter(([k]) => entry[k] === undefined)), ...extra };
+  const target = shelf ?? (lib.shelves.length === 1 ? lib.shelves[0].name : lib.shelves.some((s) => s.name === 'project') ? 'project' : 'user');
+  const replaced = lib.shelf(target).entries.get(id) ?? null;
+  let out;
+  try {
+    out = await lib.put(target, full, bytes, { probes: { ...defaultProbes(), ...host.probes }, fields: host.fields, by: host.by ?? 'asset add' });
+  } catch (err) {
+    throw new Error(`${err.message}${HINT[kind] && !own ? `\n(${HINT[kind]})` : ''}`);
+  }
+  return { ...out, replaced };
+}
+
 // ---------- printing ----------
 
 const kb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
@@ -257,23 +280,13 @@ export const verbs = {
       id, kind, name, file: basename(abs), licence, credit: str(flags, 'credit') ?? '', source: str(flags, 'source') ?? '',
       tags: list(flags, 'tags') ?? [], desc: str(flags, 'desc'), family: str(flags, 'family'),
     });
-    const derive = ctx.host.derive?.[kind] ?? DERIVE[kind];
-    const derived = derive ? (await derive(bytes, { file: abs, entry })) ?? {} : {};
-    const full = { ...entry, ...Object.fromEntries(Object.entries(derived).filter(([k]) => entry[k] === undefined)), ...extra };
-    const target = str(flags, 'shelf') ?? (lib.shelves.some((s) => s.name === 'project') ? 'project' : 'user');
-    const had = lib.shelf(target).entries.get(id) ?? null;
-    let out;
-    try {
-      out = await lib.put(target, full, bytes, { probes: { ...defaultProbes(), ...ctx.host.probes }, fields: ctx.host.fields, by: ctx.host.by ?? 'asset add' });
-    } catch (err) {
-      throw new Error(`${err.message}${HINT[kind] ? `\n(${HINT[kind]})` : ''}`);
-    }
+    const out = await addAsset(lib, { bytes, file: abs, entry, extra, shelf: str(flags, 'shelf') }, ctx.host);
     const e = out.entry, warnings = [...out.warnings];
     if (licence === 'unknown') warnings.push(`'${id}' has licence unknown; asset check flags it until it is added again with --licence`);
-    const was = !had ? 'new' : had.sha === e.sha ? 'unchanged bytes' : `replaces ${short(had.sha)}`;
+    const was = !out.replaced ? 'new' : out.replaced.sha === e.sha ? 'unchanged bytes' : `replaces ${short(out.replaced.sha)}`;
     return {
       code: 0, warnings,
-      data: { id, shelf: out.shelf, entry: e, path: out.path, created: out.created, replaced: had, warnings },
+      data: { id, shelf: out.shelf, entry: e, path: out.path, created: out.created, replaced: out.replaced, warnings },
       text: `${id}  ${kind}  ${short(e.sha)}.${e.ext}  ${e.licence}  on ${out.shelf} (${was})\n${ctx.rel(out.path)}  ${kb(e.bytes)}${factsOf(e) ? `  ${factsOf(e)}` : ''}\n`,
     };
   },
@@ -436,11 +449,31 @@ const NEXT = {
 
 // ---------- main ----------
 
+// One verb, run: resolves to { code, data, text, warnings } and prints nothing; throws a UsageError for a bad
+// command line and an Error for a refused read or write. `argv` is the verb's arguments, or { args, flags }
+// already parsed (parseArgs). A host that has opened its own library (hdf's store with --root) passes it as
+// `host.library`; otherwise the standard shelves are opened, with --project.
+export async function run(verb, argv = [], host = {}) {
+  if (!VERBS.includes(verb)) throw usage(`unknown verb '${verb}'`);
+  const { args, flags } = Array.isArray(argv) ? parseArgs(argv) : argv;
+  const cwd = host.cwd ?? process.cwd(), project = str(flags, 'project');
+  let lib = host.library ?? null;
+  const rel = (p) => { const r = relative(cwd, p); return r && !r.startsWith('..') ? r : p; };
+  const ctx = {
+    host, cwd, rel, thumbCache: host.thumbCache ?? THUMB_CACHE,
+    lib: () => (lib ??= openLibrary(defined({
+      shelves: standardShelves(defined({ project: project && resolve(cwd, project), env: host.env ?? process.env, home: host.home })),
+      previewers: host.previewers, thumbCache: host.thumbCache,
+    }))),
+    names: () => ctx.lib().shelves.map((s) => s.name).join(', '),
+  };
+  return verbs[verb](ctx, args, flags);
+}
+
 // Runs one command line; resolves to the exit code (0 fine, 1 nothing found or a check error or a refused
 // write, 2 a usage error). Never throws.
 export async function main(argv = process.argv.slice(2), host = {}) {
   const out = host.out ?? process.stdout, err = host.err ?? process.stderr;
-  const cwd = host.cwd ?? process.cwd();
   const [verb, ...rest] = argv;
   if (!verb || verb === 'help' || verb === '--help' || verb === '-h') {
     const only = verb === 'help' && rest[0];
@@ -450,22 +483,11 @@ export async function main(argv = process.argv.slice(2), host = {}) {
   }
   if (!VERBS.includes(verb)) { err.write(`asset: unknown verb '${verb}'\n\n${USAGE}`); return 2; }
   try {
-    const { args, flags } = parseArgs(rest);
-    if (flags.help) { out.write(usageOf(verb)); return 0; }
-    const project = str(flags, 'project');
-    let lib = null;
-    const rel = (p) => { const r = relative(cwd, p); return r && !r.startsWith('..') ? r : p; };
-    const ctx = {
-      host, cwd, rel, thumbCache: host.thumbCache ?? THUMB_CACHE,
-      lib: () => (lib ??= openLibrary(defined({
-        shelves: standardShelves(defined({ project: project && resolve(cwd, project), env: host.env ?? process.env, home: host.home })),
-        previewers: host.previewers, thumbCache: host.thumbCache,
-      }))),
-      names: () => ctx.lib().shelves.map((s) => s.name).join(', '),
-    };
-    const res = await verbs[verb](ctx, args, flags);
+    const parsed = parseArgs(rest);
+    if (parsed.flags.help) { out.write(usageOf(verb)); return 0; }
+    const res = await run(verb, parsed, host);
     for (const w of res.warnings ?? []) err.write(`warning: ${w}\n`);
-    out.write(flags.json ? `${JSON.stringify(res.data, null, 2)}\n` : res.text);
+    out.write(parsed.flags.json ? `${JSON.stringify(res.data, null, 2)}\n` : res.text);
     return res.code ?? 0;
   } catch (e) {
     if (e instanceof UsageError) { err.write(`asset: ${e.message}\n(asset help ${verb} for its usage)\n`); return 2; }

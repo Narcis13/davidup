@@ -132,6 +132,10 @@ length, a TrueType/OpenType/WOFF font's family, weight, style and glyphs, a JSON
 video or other audio through `ffprobe` (`$FFPROBE`) when it is there (`probe.js`). What only hdf can work out (a
 cutout's silhouette, a puppet's box from its parts) comes from the host or from `--with '<json>'`.
 `main(argv, host)` is the whole CLI; a host passes its `probes`, `previewers`, per-kind `derive` and `fields`.
+`run(verb, argv, host)` is one verb without the printing (`{ code, data, text, warnings }`, `data` being what
+`--json` prints), on `host.library` when the host opened its own; `addAsset(lib, { bytes, file, entry, shelf },
+host)` is `add` for a host that already holds the bytes. hdf's `find`, `import`, `remove` and `gc` are these
+since H2: `hdf find fox --json` prints what `asset find fox --json` prints.
 
 `migrateSha256(shelf, { dry })` (`migrate.js`, `asset migrate --sha256`) rehashes a shelf written with sha1:
 each blob is renamed by the sha256 of the same bytes, except a JSON payload naming another blob of the shelf by

@@ -28,7 +28,7 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { KINDS as LIBRARY_KINDS, LICENCES, SHA256, imageType, isLegacySha, readShelf, sha, validate as validateRecord } from '../../assetlib/index.js';
+import { KINDS as LIBRARY_KINDS, LICENCES, SHA256, imageType, isLegacySha, openLibrary, readShelf, search as searchRecords, sha, validate as validateRecord } from '../../assetlib/index.js';
 import { mkPath } from './list.js';
 import { peek, register, setReader } from './store.js';
 import { setPcmReader } from './synth.js';
@@ -67,7 +67,7 @@ export const KINDS = LIBRARY_KINDS.filter((k) => SCHEMAS[k]);
 
 // What hdf hands assetlib's validate() and put: its own fields, and `file` (the name the payload came in as),
 // which the library leaves optional and every hdf entry has.
-const FIELDS = Object.fromEntries(KINDS.map((k) => [k, { file: { why: 'a string', ok: (v) => typeof v === 'string' }, ...SCHEMAS[k].fields }]));
+export const FIELDS = Object.fromEntries(KINDS.map((k) => [k, { file: { why: 'a string', ok: (v) => typeof v === 'string' }, ...SCHEMAS[k].fields }]));
 
 // ---------- validators ----------
 
@@ -214,13 +214,21 @@ export function readCatalogue(root = ASSET_ROOT) {
   return st;
 }
 
-// Catalogue entries whose id, name, tags, description or credit hold every word (case-insensitive), by id.
+// The library hdf's store commands open (asset-library plan H2): with `root`, that one directory as the only
+// shelf (the house when it is ASSET_ROOT), as `--root` has always meant; without, the standard shelves in
+// `asset`'s order (the user's pool, then the house), so `hdf find` answers what `asset find` answers.
+export function library({ root } = {}) {
+  if (!root) return openLibrary();
+  const dir = resolve(root);
+  return openLibrary({ shelves: [{ name: dir === ASSET_ROOT ? 'house' : undefined, root: dir }] });
+}
+
+// The entries a query finds in this store, best first: assetlib's ranked search (each word a prefix of a word in
+// the id, name, tags, description, credit or source, or of a synonym's; plan §4), `kind` a filter. [{ id, entry }].
 export function search(st, words, { kind } = {}) {
-  const terms = (Array.isArray(words) ? words : String(words ?? '').split(/\s+/)).filter(Boolean).map((w) => w.toLowerCase());
-  return st.ids.map((id) => [id, st.entries.get(id)])
-    .filter(([id, e]) => (!kind || e.kind === kind)
-      && terms.every((w) => `${id} ${e.name} ${(e.tags ?? []).join(' ')} ${e.desc ?? ''} ${e.credit ?? ''} ${e.source ?? ''}`.toLowerCase().includes(w)))
-    .map(([id, e]) => ({ id, entry: e }));
+  const q = (Array.isArray(words) ? words : [words]).filter((w) => w !== undefined && w !== null).join(' ');
+  const records = st.ids.map((id) => ({ ...st.entries.get(id), id, shelf: st.shelf.name }));
+  return searchRecords(records, { q, ...(kind ? { kind } : {}), limit: records.length, facets: false }).hits.map((h) => ({ id: h.id, entry: st.entries.get(h.id) }));
 }
 
 // ---------- records ----------

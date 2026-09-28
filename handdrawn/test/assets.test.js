@@ -88,6 +88,7 @@ test('import: the payload lands in the store, the entry is the truth, and it is 
     assert.equal(e.sha, sha(PNG));
     assert.deepEqual([e.kind, e.ext, e.w, e.h, e.licence, e.file], ['cutout', 'png', 2, 2, 'CC0', 'some.png']);
     assert.deepEqual(e.tags, ['test', 'tiny']);
+    assert.deepEqual([e.media, e.by, e.bytes], ['raster', 'hdf import', PNG.length], 'asset add\'s envelope, and the door it came in by');
     assert.deepEqual(validate('x', e), []);
     assert.ok(existsSync(st.payloadPath(e)));
     assert.deepEqual(readFileSync(st.payloadPath(e)), PNG, 'the blob is the bytes that came in');
@@ -161,7 +162,7 @@ test('import --v2: a 2.0 data module becomes entries, and the records come back 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('find: every word must match; --kind narrows; an empty store says so', async () => {
+test('find: ranked, why each matched; --kind narrows; an empty store says so', async () => {
   const dir = tmp();
   try {
     const root = join(dir, 'store'), png = join(dir, 'some.png'), puppet = join(dir, 'fox.puppet.json');
@@ -180,6 +181,8 @@ test('find: every word must match; --kind narrows; an empty store says so', asyn
     assert.match(all.out, /^1 of 2 in /m);
     assert.match(hdf('find', 'met', 'kitchen', '--root', root).out, /^teapot +cutout +CC0 +2x2 px/m);
     assert.match(hdf('find', 'met', 'kitchen', '--root', root).out, /^ +The Met$/m);
+    assert.match(hdf('find', 'met', 'kitchen', '--root', root).out, /^ +why: credit: met, tags: kitchen$/m);
+    assert.match(hdf('find', 'pupp', '--root', root).out, /^fox +puppet/m, 'a word is a prefix, and kind is a field');
     assert.equal(hdf('find', 'teapot', '--kind', 'puppet', '--root', root).code, 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
