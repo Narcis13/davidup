@@ -15,6 +15,7 @@
 "font": ["typeface", "type", "lettering"],
 "footage": ["video", "film"],
 "handwriting": ["hand", "script", "lettering"],
+"handwritten": ["handwriting", "script", "cursive", "hand"],
 "horse": ["animal", "creature", "muybridge"],
 "icon": ["motif", "logo", "symbol"],
 "lettering": ["hand", "font", "script"],

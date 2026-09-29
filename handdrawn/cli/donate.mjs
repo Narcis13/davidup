@@ -344,7 +344,7 @@ export function exportMirror(c, st) {
   const was = st.has(id) ? st.entry(id) : null;
   const entry = {
     kind: 'puppet', name: id, file: `packs/${c.pack}.js`, licence: 'own', credit: '', source: '',
-    tags: ['pack', c.pack], desc: data.desc, units: data.units, box: data.box,
+    tags: ['pack', c.pack, c.name], desc: data.desc, units: data.units, box: data.box,
   };
   const put = st.put(entry, bytes);
   if (was && was.sha !== put.sha) dropBlob(st, was);

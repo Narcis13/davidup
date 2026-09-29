@@ -107,7 +107,8 @@ describe("hdf-to-davidup", () => {
     // The house fox now lists them as made from it, and davidup takes the puppet through what was made.
     const fox = await libraryTool(root, "get_asset", { id: "fox" });
     expect(fox.made.into.map((r: { id: string }) => r.id)).toEqual(expect.arrayContaining(["hdf-fox-model", "hdf-fox-wave"]));
-    expect(fox.use.davidup).toMatchObject({ via: "hdf-fox-model", args: { type: "image", src: expect.stringMatching(/^asset:hdf-fox-model@/) } });
+    // A sprite sheet beats a model sheet: the house pack's (I2) fox-sprite, the project's model sheet after it.
+    expect(fox.use.davidup).toMatchObject({ via: "fox-sprite", also: expect.arrayContaining(["hdf-fox-model"]), args: { type: "image", src: expect.stringMatching(/^asset:fox-sprite@/) } });
   });
 });
 

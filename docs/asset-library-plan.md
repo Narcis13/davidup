@@ -890,6 +890,43 @@ Produced by our tools and committed with recipes:
 and at least three tags, `asset check --house` is clean, and the house shelf
 stays under 15 MB in git (bigger `made` blobs gitignored with recipes kept).
 
+*As built:* 28 records, made by `scripts/house-pack.mjs` (`node
+scripts/house-pack.mjs [--only ids] [--force] [--dry]`), whose `RECIPES` are
+the recipes: assetlib's new `make(lib, recipe, { makers, shelf })` runs the
+maker a recipe's `made.tool` names and puts a record that is not on the shelf
+yet (`remake` is now `make` with `replace`). The six papers (`paper-warm`
+`-white` `-kraft` `-ruled` `-blueprint` `-chalkboard`) are hdf's new `paper`
+maker: the `paper()` op drawn alone in a look, 2048² webp at 0.9 (`paperInk`,
+`pencilMinimal~sheet:#eef1f3`, `cutout~sheet:sand`, `notebook`,
+`blueprintNight`, `chalkboard`), 13 to 53 KB each. The twelve effects
+(`sfx-pop boing ding whoosh whoosh-out tada tick pencil page-turn chalk
+eraser marker`) are hdf's new `synth sample` maker over `recipes/sfx.js`,
+mono 16-bit wavs peaking at -6 dB with the silence cut; the two beds
+(`bed-calm`, 4 bars, 13.3 s; `bed-bright`, 8 bars, 17.3 s) are `audio` m4a
+(AAC 96k, ffmpeg with `+bitexact`), two passes rendered and the second kept so
+they loop without a seam. A wav bed would have been 2.7 MB. Fonts are
+`<hand>-font`, family `hdf-<hand>`, licence and credit the hand's; sprites
+`fox-sprite`, `octopus-sprite` (`idle,walk,wave`: the puppets have no `rest`
+state, `idle` is it) and `fox-model-sheet`, `octopus-model-sheet`. The model
+sheets are JPEGs of 1 to 1.7 MB, so `assets/.gitignore` keeps `blobs/*.jpg` out
+of git and the package; `asset check` gained `unmade` (a note: a made record
+whose blob git ignores and is not on disk, so a fresh checkout is still clean)
+and still errors a missing blob that is not both. Every record, old ones too,
+has a desc and three tags or more: the Met cutouts their objects (kitchen,
+armour, time, light, music), the puppets, clips and hands descs, voice samples
+their speaker; the pack mirrors' third tag is the cel's name, written by `hdf
+donate` so a re-donate keeps it. `synonyms.json` gained `handwritten`. The
+house ships 97 blobs, 14.5 MB of the 15 MB budget; with the two model sheets it
+holds 99 records. The house was hdf's kinds only until now: hdf's store
+reads davidup's by their media (`core/assets.js payloadOf`: an image is a
+raster, an audio an audio file, a video or font a file), which `hdf dev` and
+the player needed. Every paper and effect remakes to the same sha
+(`handdrawn/test/packMakers.test.js`), as do the fonts, sprites, model sheets
+and beds on this machine; `tests/assets/housePack.test.ts` holds the rest of
+the done-when and the acceptance piece's four searches. Not built: a `~stock:`
+look modifier, so an hdf film cannot yet lay a stock record down as its paper
+(`use.hdf` offers the record, not a look).
+
 ### I3. Packs as tarballs
 
 *Sharing is a file.*
@@ -982,7 +1019,7 @@ then D and E in parallel, I when D4 exists, S last.
 | E4 | The record drawer | 1 | E1 D3 | [x] |
 | H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [x] |
 | I1 | `made` and `asset remake` | 1 | D4 | [x] |
-| I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [ ] |
+| I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [x] |
 | I3 | Packs as tarballs | 0.5 | A2 | [ ] |
 | H5 | The skill and the README | 0.5 | H2 H4 I2 | [ ] |
 | S1 | The davidup agent story | 0.5 | D3 I2 | [ ] |

@@ -109,11 +109,17 @@ shelf: the facts the old bytes gave are dropped and read off the new ones, the r
 gets the new `from`, `at` and the maker's `version`, and the old blob goes unless the shelf holds it for another
 entry. It says whether the sha changed. hdf registers `hdf render`, `hdf sprite`, `hdf hand --export-ttf` and
 `hdf sheet store` (`handdrawn/cli/makers.mjs`), the tools davidup names when it puts what hdf made in the library
-(D4); a render cut to a composition's marks is not remade from its args.
+(D4); a render cut to a composition's marks is not remade from its args. It also registers `paper` (a look's
+paper stock as a webp) and `synth sample` (a sound effect of `recipes/sfx.js` as a wav, a looping music bed as an
+m4a), which made the first house pack (I2). `make(lib, recipe, { makers, shelf })` makes a record that is not on
+the shelf yet from its recipe (an entry with a `made` block and no bytes); `scripts/house-pack.mjs` is the house
+pack's recipes, run through it.
 
 ```js
 const { makers } = await loadHosts();
 await remake(lib, 'hdf-mini', { makers });   // { id, shelf, tool, was, sha, changed, entry, path, removed, warnings }
+await make(lib, { id: 'paper-warm', kind: 'stock', name: 'Warm paper', tags: ['paper'], licence: 'own', credit: '',
+  source: '', made: { tool: 'paper', args: { look: 'paperInk', size: 2048 } } }, { makers, shelf: 'house' });
 ```
 
 Every search hit carries `use`: the exact call that brings the record into each app, or null where the app
@@ -149,7 +155,8 @@ lib.update('teapot', { tags: ['met', 'kitchen'], desc: 'Silver teapot, three-qua
 errors (`id` outside the rule, `invalid` entry, missing `blob`, a blob whose bytes miss its `sha`), warnings
 (`sha1` entries from before H1, `licence` unknown, CC-BY with no `credit`, a `made` record whose `made.from` names
 an id on no shelf, `duplicate` bytes across shelves, `shadow`,
-`orphan` blob) and notes (no `thumb`, `desc` or `tags`). With `legacy: <root>` (`asset check --legacy`: davidup's
+`orphan` blob) and notes (`unmade`: a made record whose blob git ignores and a checkout lacks, `asset remake` makes
+it; no `thumb`, `desc` or `tags`). With `legacy: <root>` (`asset check --legacy`: davidup's
 old library, `$DAVIDUP_LIBRARY` else `~/.davidup/library`) it also notes each file in `<root>/assets` and
 `<root>/fonts` whose bytes are on no shelf, with the `asset add` line that puts it on the user's pool (D5).
 

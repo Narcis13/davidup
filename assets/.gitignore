@@ -1,2 +1,6 @@
 sheets/
 thumbs/
+# Model sheets (JPEG, over a megabyte each) are made (`hdf sheet store`) and kept out of git and the npm
+# package; `asset remake <id>` makes one in a checkout. A JPEG that is not made shows as `ignored` in
+# `asset check --house`.
+blobs/*.jpg

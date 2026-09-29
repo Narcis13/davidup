@@ -40,7 +40,7 @@ export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } f
 export { HOUSE_BLOB_MAX, HOUSE_BUDGET, LEGACY_DIRS, LEVELS, RULES, check, gitIgnored, houseFindings, legacyFindings } from './check.js';
 export { migrateSha256 } from './migrate.js';
 export { KNOWN_HOSTS, addHost, loadHosts, maker } from './hosts.js';
-export { KEPT, recipeOf, remake } from './remake.js';
+export { KEPT, make, recipeOf, remake } from './remake.js';
 export { defaultProbes } from './probe.js';
 export { DARK, EXACT_ID, HUES, ROOM_REGIONS, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 

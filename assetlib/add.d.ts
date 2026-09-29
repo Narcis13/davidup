@@ -4,6 +4,8 @@ import type { Adds, Derive, Entry, EntryInput, Kind, Library, Probes, PutOptions
 
 /** A name as an id: "Warm paper" -> "warm-paper". */
 export function idOf(name: string): string;
+/** The shelf a write lands on when none is named: the only shelf, else the project, else the user's pool. */
+export function targetShelf(lib: Library, shelf?: string): string;
 /** The per-kind fields `asset add` reads off a payload itself. */
 export const DERIVE: Readonly<Partial<Record<Kind, Derive>>>;
 

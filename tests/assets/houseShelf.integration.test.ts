@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { HOUSE_ROOT, readShelf } from "../../assetlib/index.js";
+import { HOUSE_ROOT, gitIgnored, readShelf } from "../../assetlib/index.js";
 
 const REPO = new URL("../..", import.meta.url).pathname;
 const temp = realpathSync(mkdtempSync(join(tmpdir(), "davidup-house-")));
@@ -34,9 +34,13 @@ describe("the house shelf at <repo>/assets (asset library H4, integration)", () 
   it("ships in the npm package and resolves from an install with no ~/.davidup", async () => {
     const files = packed();
     const house = readShelf(HOUSE_ROOT);
-    const blobs = new Set(house.ids.map((id) => `assets/blobs/${house.entry(id).sha}.${house.entry(id).ext}`));
+    // A made blob git ignores (the model sheets, I2) stays out: `asset remake` makes it where it is wanted.
+    const off = gitIgnored(HOUSE_ROOT, house.ids.map((id) => house.blobPath(house.entry(id))));
+    const made = house.ids.filter((id) => house.entry(id).made && off.has(house.blobPath(house.entry(id))));
+    const blobs = new Set(house.ids.filter((id) => !made.includes(id)).map((id) => `assets/blobs/${house.entry(id).sha}.${house.entry(id).ext}`));
     expect(files).toContain("assets/catalogue.json");
     expect([...blobs].filter((b) => !files.includes(b))).toEqual([]);
+    expect(made.map((id) => `assets/blobs/${house.entry(id).sha}.${house.entry(id).ext}`).filter((b) => files.includes(b))).toEqual([]);
     // Only the catalogue and the blobs: sources, sheets and thumbs stay in the repo.
     expect(files.filter((f) => f.startsWith("assets/") && f !== "assets/catalogue.json" && !f.startsWith("assets/blobs/"))).toEqual([]);
 

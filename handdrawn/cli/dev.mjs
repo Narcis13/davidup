@@ -18,7 +18,7 @@
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
-import { ASSET_ROOT, SCHEMAS, readCatalogue, recordOf } from '../core/assets.js';
+import { ASSET_ROOT, payloadOf, readCatalogue, recordOf } from '../core/assets.js';
 import { putPayload } from './import.mjs';
 import { marksFrom, UsageError } from './load.mjs';
 import { ROOT, commonDir, posix, resolveSpec, rewrite, webSource, within } from './modules.mjs';
@@ -54,7 +54,7 @@ export function storeState(rel, root = ASSET_ROOT) {
   for (const id of st.ids) {
     const { src, ...rest } = recordOf(st, id);
     catalogue[id] = rest;
-    if (['raster', 'audio'].includes(SCHEMAS[st.entry(id).kind].payload) && src) assets[id] = `/v0/${rel(src)}`;
+    if (['raster', 'audio'].includes(payloadOf(st.entry(id).kind)) && src) assets[id] = `/v0/${rel(src)}`;
   }
   return { catalogue, assets };
 }

@@ -72,10 +72,12 @@ test('assetlib finds hdf as a known host, and $ASSETLIB_HOSTS=- leaves it out', 
   assert.deepEqual(off.hosts, []);
 });
 
-test('every entry on the house shelf previews at 480 x 320, drawn and not blank', async () => {
+test('every entry of hdf\'s kinds on the house shelf previews at 480 x 320, drawn and not blank', async () => {
   const st = readCatalogue(ASSET_ROOT);
-  assert.ok(st.ids.length > 30);
-  for (const id of st.ids) {
+  // davidup's kinds there (the house pack's images, beds and fonts, I2) are drawn by the card or davidup, not hdf.
+  const ids = st.ids.filter((id) => previewers[st.entries.get(id).kind]);
+  assert.ok(ids.length > 30);
+  for (const id of ids) {
     const e = st.entries.get(id);
     const png = await previewers[e.kind].render(st.payloadPath(e), { ...e, id }, { width: 480 });
     const { width, height } = decodePng(png);

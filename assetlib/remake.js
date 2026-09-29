@@ -3,6 +3,7 @@
 //
 //   const { makers } = await loadHosts();              // hdf's: hdf render, hdf sprite, hdf hand --export-ttf, hdf sheet store
 //   await remake(lib, 'hdf-mini', { makers });         // { id, shelf, tool, was, sha, changed, entry, path, removed, warnings }
+//   await make(lib, { id, kind, name, ..., made: { tool: 'paper', args } }, { makers, shelf: 'house' });   // a new one (I2)
 //
 // A maker is { version, make(record, ctx) } (or the bare function), registered by a host under the `tool` it
 // answers for. make resolves to { bytes | file, ext?, from?, fields?, warnings? }: the payload, the ids it was
@@ -13,7 +14,7 @@
 // go unless another entry on the shelf holds them.
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
-import { addAsset } from './add.js';
+import { addAsset, targetShelf } from './add.js';
 import { maker } from './hosts.js';
 import { SCHEMAS } from './record.js';
 
@@ -36,36 +37,51 @@ export async function remake(lib, ref, { makers = {}, shelf, host = {} } = {}) {
   const loc = lib.locate(ref), s = shelf ? lib.shelf(shelf) : lib.shelf(loc.shelf);
   const id = loc.id, e = s.entry(id);
   if (!e.made || typeof e.made !== 'object') throw new Error(`'${id}' on ${s.name} was not made by a tool (it has no made block), so there is nothing to remake`);
-  const tool = e.made.tool, known = Object.keys(makers).sort();
-  if (!makers[tool]) throw new Error(`no maker for '${tool}' (which made '${id}'); makers: ${known.join(', ') || 'none (is hdf next to assetlib?)'}`);
+  // The door it came in by stays its door (recipeOf keeps `by`); one it never had is this one.
+  return make(lib, { ...e, id }, { makers, shelf: s.name, host, replace: true, by: e.by ?? 'asset remake' });
+}
+
+// Makes a record from its recipe (asset-library plan I2): an entry with no bytes yet (id, kind, name, licence,
+// credit, source, tags, desc...) and the `made` block that says how ({ tool, from, args }). The maker for
+// made.tool is run and its bytes put on `shelf` (default as addAsset's: the only shelf, else the project, else
+// the user's pool), with the facts they give. The id already on that shelf is refused unless `replace`, when
+// the old blob and thumb go if nothing else there holds them. `by` is the door (default 'asset make').
+// Resolves to remake's { id, shelf, tool, was (null for a new record), sha, changed, entry, path, removed,
+// warnings }; rejects, the shelf untouched, as remake does.
+export async function make(lib, recipe, { makers = {}, shelf, host = {}, replace = false, by = 'asset make' } = {}) {
+  const id = recipe?.id;
+  if (!recipe?.made || typeof recipe.made !== 'object') throw new Error(`'${id}' has no made block, so there is no tool to make it with`);
+  const s = lib.shelf(targetShelf(lib, shelf)), e = s.entries.get(id) ?? null;
+  if (e && !replace) throw new Error(`'${id}' is on ${s.name} already (asset remake ${id} makes it again)`);
+  const tool = recipe.made.tool, known = Object.keys(makers).sort();
+  if (!makers[tool]) throw new Error(`no maker for '${tool}' (which ${e ? 'made' : 'makes'} '${id}'); makers: ${known.join(', ') || 'none (is hdf next to assetlib?)'}`);
   const m = maker(makers[tool], tool);
-  const record = { ...e, id, shelf: s.name };
+  const record = { ...recipe, id, shelf: s.name };
 
   let out;
   try { out = (await m.make(record, { lib, shelf: s.name, root: s.root })) ?? {}; } catch (err) {
-    throw new Error(`${tool} could not remake '${id}': ${err?.message ?? err}`);
+    throw new Error(`${tool} could not ${e ? 'remake' : 'make'} '${id}': ${err?.message ?? err}`);
   }
   if (out.file === undefined && out.bytes === undefined) throw new Error(`${tool} made nothing for '${id}' (a maker resolves to { bytes } or { file })`);
   const bytes = out.bytes !== undefined ? Buffer.from(out.bytes) : readFileSync(out.file);
   // The version is this maker's: one an older maker stamped does not outlive it.
-  const { version: _old, ...recipe } = e.made, from = out.from ?? e.made.from;
+  const { version: _old, ...how } = recipe.made, from = out.from ?? recipe.made.from;
   const madeNow = {
-    ...recipe,
+    ...how,
     ...(from !== undefined ? { from: [...from] } : {}),
     at: new Date().toISOString(),
     ...(m.version !== undefined ? { version: m.version } : {}),
   };
-  const entry = { ...recipeOf(e), id, ...(out.fields ?? {}), ...(out.ext ? { ext: out.ext } : {}), ...(out.file ? { file: basename(out.file) } : {}), made: madeNow };
-  // The door it came in by stays its door (recipeOf keeps `by`); one it never had is this one.
-  const put = await addAsset(lib, { bytes, file: out.file ?? e.file, entry, shelf: s.name }, { ...host, by: e.by ?? 'asset remake' });
+  const entry = { ...recipeOf(recipe), id, ...(out.fields ?? {}), ...(out.ext ? { ext: out.ext } : {}), ...(out.file ? { file: basename(out.file) } : {}), made: madeNow };
+  const put = await addAsset(lib, { bytes, file: out.file ?? recipe.file, entry, shelf: s.name }, { ...host, by: recipe.by ?? by });
 
   // The old bytes go with the old record, unless the shelf holds them for another entry.
   const removed = [];
-  if (put.entry.sha !== e.sha && ![...s.entries.values()].some((o) => o.sha === e.sha)) {
+  if (e && put.entry.sha !== e.sha && ![...s.entries.values()].some((o) => o.sha === e.sha)) {
     for (const p of [s.blobPath(e), s.thumbPath(e)]) if (existsSync(p)) { rmSync(p); removed.push(p); }
   }
   return {
-    id, shelf: s.name, tool, was: e.sha, sha: put.entry.sha, changed: put.entry.sha !== e.sha,
+    id, shelf: s.name, tool, was: e?.sha ?? null, sha: put.entry.sha, changed: put.entry.sha !== e?.sha,
     entry: put.entry, path: put.path, removed, warnings: [...(out.warnings ?? []), ...put.warnings],
   };
 }

@@ -65,6 +65,12 @@ export const SCHEMAS = {
 // The kinds hdf draws, in the library's order: cutout clip puppet hand stock motif sample.
 export const KINDS = LIBRARY_KINDS.filter((k) => SCHEMAS[k]);
 
+// How a payload of any kind on a shelf is read: hdf's seven by SCHEMAS, davidup's four by their media (an image is
+// a raster, an audio an audio file, a video or a font a file), so a shelf both apps write reads whole (the house
+// pack, I2, puts images, beds and fonts there).
+const OTHER = { image: 'raster', audio: 'audio', video: 'file', font: 'file' };
+export const payloadOf = (kind) => SCHEMAS[kind]?.payload ?? OTHER[kind] ?? 'file';
+
 // What hdf hands assetlib's validate() and put: its own fields, and `file` (the name the payload came in as),
 // which the library leaves optional and every hdf entry has.
 export const FIELDS = Object.fromEntries(KINDS.map((k) => [k, { file: { why: 'a string', ok: (v) => typeof v === 'string' }, ...SCHEMAS[k].fields }]));
@@ -238,12 +244,13 @@ export function search(st, words, { kind } = {}) {
 // silhouette() and derive({ from }) read exactly what they read today.
 export function recordOf(st, id) {
   const e = st.entry(id), prov = { name: id, credit: e.credit ?? '', source: e.source ?? '', licence: e.licence };
-  const s = SCHEMAS[e.kind];
-  if (s.payload === 'raster') {
+  const how = payloadOf(e.kind);
+  if (how === 'raster') {
     return { ...prov, w: e.w, h: e.h, src: st.payloadPath(e), ...(e.sil ? { sil: mkPath(e.sil.sub) } : {}), ...(e.colours ? { colours: e.colours } : {}) };
   }
   // The copy (desc), the word timing (4.0 V2) and the mouth track (V3) ride along, so alignOf reads them in Node and the player.
-  if (s.payload === 'audio') return { ...prov, src: st.payloadPath(e), ...(e.sec ? { sec: e.sec } : {}), ...(e.desc ? { desc: e.desc } : {}), ...(e.align ? { align: e.align } : {}), ...(e.mouth ? { mouth: e.mouth } : {}) };
+  if (how === 'audio') return { ...prov, src: st.payloadPath(e), ...(e.sec ? { sec: e.sec } : {}), ...(e.desc ? { desc: e.desc } : {}), ...(e.align ? { align: e.align } : {}), ...(e.mouth ? { mouth: e.mouth } : {}) };
+  if (how === 'file') return { ...prov, src: st.payloadPath(e) };
   return { ...prov, ...st.json(e) };
 }
 

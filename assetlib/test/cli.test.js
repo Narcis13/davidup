@@ -329,7 +329,7 @@ test('asset check on the house shelf prints its real findings', async () => {
   const of = (rule) => findings.filter((f) => f.rule === rule).map((f) => f.id).sort();
   assert.deepEqual(of('sha1'), [], 'no sha1 entry: H1 rehashed the house shelf');
   assert.ok(house.ids.every((id) => !isLegacySha(house.entry(id).sha)));
-  assert.deepEqual(of('tags'), ['fox', 'octopus'], 'the two puppets with empty tags');
+  assert.deepEqual(of('tags'), [], 'every house record is tagged (I2)');
   assert.deepEqual(of('licence'), house.ids.filter((id) => house.entry(id).licence === 'unknown'));
   assert.deepEqual(of('desc'), house.ids.filter((id) => !house.entry(id).desc).sort());
   rmSync(user, { recursive: true });

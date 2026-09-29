@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../cli.js';
-import { check, encodePng, loadHosts, maker, openLibrary, recipeOf, remake, sha, validate } from '../index.js';
+import { spawnSync } from 'node:child_process';
+import { check, encodePng, loadHosts, make, maker, openLibrary, recipeOf, remake, sha, validate } from '../index.js';
 
 // A w x h PNG of one colour.
 const png = (w, h, rgb) => {
@@ -131,6 +132,49 @@ test('remake refuses, the shelf untouched: nothing made it, no maker for its too
     await assert.rejects(remake(l, 'sprite', { makers: { paint: async () => ({ bytes: Buffer.from('not a png') }) } }), /not a valid image|cannot tell/);
     await assert.rejects(remake(l, 'nobody', { makers: {} }), /no asset 'nobody'/);
     assert.equal(catalogue(), before);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('make: a new record from its recipe, put with the facts its bytes give and made stamped', async () => {
+  const { root, l } = await shelf();
+  try {
+    const { state, m } = painter(2);
+    const recipe = { id: 'poster', kind: 'image', name: 'Poster', desc: 'a red poster', tags: ['red', 'poster', 'test'], licence: 'own', credit: '', source: '', made: { tool: 'paint', args: { colour: 'red' } } };
+    const out = await make(l, recipe, { makers: { paint: m } });
+    assert.equal(state.record.id, 'poster');
+    assert.deepEqual(state.record.made, recipe.made, 'the maker reads the recipe');
+    assert.deepEqual({ ...out, entry: undefined, path: undefined }, { id: 'poster', shelf: 'user', tool: 'paint', was: null, sha: sha(RED), changed: true, entry: undefined, path: undefined, removed: [], warnings: [] });
+    const e = l.shelf('user').entry('poster');
+    assert.deepEqual([e.desc, e.tags, e.by, e.w, e.h, e.file], ['a red poster', ['red', 'poster', 'test'], 'asset make', 8, 4, 'sprite.png']);
+    assert.deepEqual({ ...e.made, at: undefined }, { tool: 'paint', args: { colour: 'red' }, from: ['swatch'], at: undefined, version: 2 }, "the maker's from, its version, a time");
+    assert.ok(Date.parse(e.made.at) > 0);
+    assert.deepEqual(e.sheet, { count: 1 }, "the maker's fields");
+
+    // The id taken: refused, unless replace, which is a remake (the old blob goes with it).
+    await assert.rejects(make(l, recipe, { makers: { paint: m } }), /'poster' is on user already \(asset remake poster makes it again\)/);
+    state.bytes = BLUE;
+    const again = await make(l, { ...recipe, by: 'house pack' }, { makers: { paint: m }, replace: true });
+    assert.deepEqual([again.was, again.sha, again.changed], [sha(RED), sha(BLUE), true]);
+    assert.equal(again.removed.length, 0, 'the red blob stays: sprite holds it');
+    assert.equal(l.shelf('user').entry('poster').by, 'house pack');
+    await assert.rejects(make(l, { ...recipe, id: 'bare', made: undefined }, { makers: { paint: m } }), /'bare' has no made block/);
+    await assert.rejects(make(l, { ...recipe, id: 'lost' }, { makers: {} }), /no maker for 'paint' \(which makes 'lost'\)/);
+    await assert.rejects(make(l, { ...recipe, id: 'broken' }, { makers: { paint: async () => { throw new Error('no ink'); } } }), /paint could not make 'broken': no ink/);
+    assert.equal(l.has('broken'), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('check: a made blob git ignores and a checkout lacks is unmade (a note); any other missing blob is an error', async () => {
+  const { root, l } = await shelf();
+  try {
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    writeFileSync(join(root, '.gitignore'), 'blobs/*.png\n');
+    const missing = () => check(l).filter((f) => f.rule === 'blob' || f.rule === 'unmade').map((f) => [f.level, f.rule, f.id]);
+    assert.deepEqual(missing(), []);
+    for (const id of ['sprite', 'swatch']) rmSync(l.shelf('user').blobPath(l.shelf('user').entry(id)));
+    assert.deepEqual(missing(), [['error', 'blob', 'swatch'], ['note', 'unmade', 'sprite']]);
+    writeFileSync(join(root, '.gitignore'), '');
+    assert.deepEqual(missing(), [['error', 'blob', 'sprite'], ['error', 'blob', 'swatch']], 'not ignored: a made blob missing is lost, not unmade');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

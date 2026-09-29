@@ -454,6 +454,7 @@ const NEXT = {
   sha1: 'asset migrate --sha256 <shelf>',
   licence: 'asset add again with --licence',
   orphan: 'asset gc',
+  unmade: 'asset remake <id>',
   thumb: 'asset thumb --all',
   desc: 'asset desc <id> "<line>"',
   tags: 'asset tag <id> +tag',

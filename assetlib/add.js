@@ -10,6 +10,9 @@ const defined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v 
 // A name as an id: "Warm paper" -> "warm-paper".
 export const idOf = (name) => String(name).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9:]+/g, '-').replace(/^-+|-+$/g, '');
 
+// The shelf a write lands on when `shelf` names none: the only shelf, else the project, else the user's pool.
+export const targetShelf = (lib, shelf) => shelf ?? (lib.shelves.length === 1 ? lib.shelves[0].name : lib.shelves.some((s) => s.name === 'project') ? 'project' : 'user');
+
 // ---------- what `add` derives ----------
 
 const jsonOf = (bytes) => { try { return JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return null; } };
@@ -60,7 +63,7 @@ export async function addAsset(lib, { bytes, file, entry, extra = {}, shelf }, h
   const own = host.derive?.[kind], derive = own ?? DERIVE[kind];
   const derived = derive ? (await derive(bytes, { file, entry })) ?? {} : {};
   const full = { ...entry, ...Object.fromEntries(Object.entries(derived).filter(([k]) => entry[k] === undefined)), ...extra };
-  const target = shelf ?? (lib.shelves.length === 1 ? lib.shelves[0].name : lib.shelves.some((s) => s.name === 'project') ? 'project' : 'user');
+  const target = targetShelf(lib, shelf);
   const replaced = lib.shelf(target).entries.get(id) ?? null;
   let out;
   try {

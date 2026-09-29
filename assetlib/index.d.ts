@@ -525,7 +525,7 @@ export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker; previ
 // ---------- check (A6) ----------
 
 export type CheckLevel = 'error' | 'warn' | 'note';
-export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'size' | 'ignored' | 'budget' | 'sha1' | 'licence' | 'credit' | 'made' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags' | 'legacy';
+export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'size' | 'ignored' | 'budget' | 'sha1' | 'licence' | 'credit' | 'made' | 'duplicate' | 'shadow' | 'orphan' | 'unmade' | 'thumb' | 'desc' | 'tags' | 'legacy';
 export interface Finding {
   level: CheckLevel;
   rule: CheckRule;
@@ -660,8 +660,8 @@ export interface RemakeResult {
   id: string;
   shelf: string;
   tool: string;
-  /** The sha before. */
-  was: string;
+  /** The sha before (null when make() put a new record). */
+  was: string | null;
   /** The sha now. */
   sha: string;
   changed: boolean;
@@ -677,3 +677,13 @@ export interface RemakeResult {
  * it, no maker answers for its tool, or the maker fails.
  */
 export function remake(lib: Library, ref: string, opts?: { makers?: Makers; shelf?: string; host?: import('./add.js').AddAssetHost }): Promise<RemakeResult>;
+/**
+ * Makes a new record from its recipe (an entry with no bytes and a `made` block) with the maker for its
+ * `made.tool`, and puts it on `shelf` (default as addAsset's). An id already on that shelf is refused unless
+ * `replace` (the old blob then goes when nothing else there holds it). `by` is the door (default 'asset make').
+ */
+export function make(
+  lib: Library,
+  recipe: EntryInput & { made: Made },
+  opts?: { makers?: Makers; shelf?: string; host?: import('./add.js').AddAssetHost; replace?: boolean; by?: string },
+): Promise<RemakeResult>;

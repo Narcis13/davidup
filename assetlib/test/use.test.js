@@ -131,10 +131,14 @@ test('the hdf calls for the house shelf run in hdf', async () => {
     assert.ok(run(hdf.code)[id], `${hdf.code} reads ${id}`);
     if (hdf.take) assert.ok(run(hdf.take), `${hdf.take} runs`);
     if (hdf.look) assert.equal(core.resolveLook(hdf.look).name, hdf.look);
-    if (davidup) assert.equal(davidup.args.src, `asset:${id}@${lib.get(id).sha.slice(0, 12)}`);
+    // A puppet or a hand reaches davidup through a record made from it (its sprite sheet, its font).
+    const via = davidup?.args.id;
+    if (davidup) assert.ok(via === id || lib.made(id).some((r) => r.id === via), `${via} is ${id} or made from it`);
+    if (davidup) assert.equal(davidup.args.src, `asset:${via}@${lib.get(via).sha.slice(0, 12)}`);
   }
   assert.equal(lib.use('teapot').davidup.args.licence, 'CC0');
-  assert.equal(lib.use('fox').davidup, null, 'the house fox has no made sheet yet (I2)');
+  assert.equal(lib.use('fox').davidup.args.id, 'fox-sprite', 'the house fox reaches davidup as its made sprite sheet (I2)');
+  assert.deepEqual(lib.use('fox').davidup.args.sheet, lib.get('fox-sprite').sheet);
 
   // Off hdf's store, the { from } form reads it.
   const user = mkdtempSync(join(tmpdir(), 'assetlib-use-'));

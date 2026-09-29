@@ -15,6 +15,7 @@
 //   warn   duplicate  the same bytes on two shelves (`move` collapses them)
 //   warn   shadow     an id an earlier shelf holds too, so this one is never read
 //   warn   orphan     a blob no entry points at (`gc` deletes it)
+//   note   unmade     a made record whose blob git ignores and is not on disk (a checkout: `asset remake` makes it)
 //   note   thumb      no preview drawn yet (`asset thumb`)
 //   note   desc       no one-line description, so search has less to go on
 //   note   tags       no tags
@@ -33,7 +34,7 @@ export const LEVELS = Object.freeze(['error', 'warn', 'note']);
 export const RULES = Object.freeze({
   id: 'error', invalid: 'error', blob: 'error', sha: 'error', size: 'error', ignored: 'error', budget: 'error',
   sha1: 'warn', licence: 'warn', credit: 'warn', made: 'warn', duplicate: 'warn', shadow: 'warn', orphan: 'warn',
-  thumb: 'note', desc: 'note', tags: 'note', legacy: 'note',
+  unmade: 'note', thumb: 'note', desc: 'note', tags: 'note', legacy: 'note',
 });
 const ORDER = Object.keys(RULES);
 
@@ -54,6 +55,7 @@ export function check(lib, { shelves, fields, thumbCache, legacy, house } = {}) 
   };
 
   for (const s of on) {
+    const missing = [];
     for (const id of s.ids) {
       const e = s.entries.get(id), bad = validate(id, e, { fields });
       const idBad = bad.filter((m) => m.startsWith('id '));
@@ -65,7 +67,7 @@ export function check(lib, { shelves, fields, thumbCache, legacy, house } = {}) 
       if (legacy) add('sha1', s.name, id, `sha ${e.sha.slice(0, 12)} is sha1`);
       if (typeof e.sha === 'string' && typeof e.ext === 'string') {
         const blob = s.blobPath(e);
-        if (!existsSync(blob)) add('blob', s.name, id, `blob ${e.sha.slice(0, 12)}….${e.ext} is missing from ${join(s.root, 'blobs')}`);
+        if (!existsSync(blob)) missing.push({ id, e, blob });
         else if (hashOf(blob, legacy) !== e.sha) add('sha', s.name, id, `blob ${e.sha.slice(0, 12)}….${e.ext} hashes to ${hashOf(blob, legacy).slice(0, 12)}…`);
       }
       if (e.licence === 'unknown') add('licence', s.name, id, 'licence unknown');
@@ -76,6 +78,12 @@ export function check(lib, { shelves, fields, thumbCache, legacy, house } = {}) 
       if (typeof e.sha === 'string' && !existsSync(s.thumbPath(e)) && !(thumbCache && existsSync(join(thumbCache, `${e.sha}.png`)))) add('thumb', s.name, id, 'no thumb');
       if (!String(e.desc ?? '').trim()) add('desc', s.name, id, 'no desc');
       if (!Array.isArray(e.tags) || !e.tags.length) add('tags', s.name, id, 'no tags');
+    }
+    // A missing blob is an error, unless a tool made it and git ignores it: a checkout never had it (plan I2).
+    const off = gitIgnored(s.root, missing.filter((m) => m.e.made && typeof m.e.made === 'object').map((m) => m.blob));
+    for (const { id, e, blob } of missing) {
+      if (off.has(blob)) add('unmade', s.name, id, `blob ${e.sha.slice(0, 12)}….${e.ext} is git-ignored and not made here (asset remake ${id})`);
+      else add('blob', s.name, id, `blob ${e.sha.slice(0, 12)}….${e.ext} is missing from ${join(s.root, 'blobs')}`);
     }
     for (const path of s.orphans()) add('orphan', s.name, null, `blob ${path.slice(path.lastIndexOf('/') + 1)} has no entry`, { path });
   }
