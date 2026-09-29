@@ -18,6 +18,8 @@
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
 //   await remake(lib, 'hdf-mini', { makers });   // the tool in its made block, run again; the blob replaced in place
+//   exportPack(lib, ['teapot', 'fox']);   // { tgz, ids, ... }: catalogue slice + blobs + thumbs in one file (I3)
+//   importPack(lib, tgz, { shelf: 'user' });   // merged by sha; an id held with other bytes is reported, not overwritten
 //
 // Plain ESM, zero dependencies: hdf imports it as it is, davidup through index.d.ts. Anything heavier (a
 // probe, a previewer, a ranker) is injected by the host.
@@ -42,6 +44,7 @@ export { migrateSha256 } from './migrate.js';
 export { KNOWN_HOSTS, addHost, loadHosts, maker } from './hosts.js';
 export { KEPT, make, recipeOf, remake } from './remake.js';
 export { defaultProbes } from './probe.js';
+export { PACK_VERSION, exportPack, importPack, readPack, readTar, writeTar } from './pack.js';
 export { DARK, EXACT_ID, HUES, ROOM_REGIONS, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: <repo>/assets, in git, where in-house production lands (hdf's store; H4 moved it from
@@ -210,6 +213,7 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
 
   const lib = {
     shelves: read,
+    thumbCache,
     get ids() { return [...byId.keys()].sort(); },
     shelf(name) {
       const s = read.find((x) => x.name === name);
@@ -355,6 +359,14 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
       const out = s.put(entry, buf, { facts, fields, by });
       index();
       return { ...out, shelf: s.name, warnings };
+    },
+    // Puts an entry verbatim on `shelf` (a name): what importPack writes (pack.js, I3). Its bytes must hash to
+    // its sha; an id the shelf holds with other bytes is refused. Returns { id, shelf, entry, path, created, thumb }.
+    place(shelf, id, entry, bytes, { thumb, fields } = {}) {
+      const s = lib.shelf(shelf);
+      const out = s.place(id, entry, bytes, { thumb, fields });
+      index();
+      return { ...out, shelf: s.name };
     },
     // Changes a record's own fields (tags, desc, credit, licence...) on `shelf` (default: the shelf it resolves
     // to), validated before the catalogue is saved; the blob is not touched. A null removes a field; the fields

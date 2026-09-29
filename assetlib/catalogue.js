@@ -12,6 +12,7 @@
 //   shelf.put({ id: 'teapot', kind: 'cutout', ... }, bytes)   hash, derive, validate, write the blob if new, save
 //   shelf.remove('teapot')                                    the entry, and its blob and thumb when nothing shares them
 //   shelf.update('teapot', { tags: [...] })                   an entry's own fields, in place; the blob untouched
+//   shelf.place('teapot', entry, bytes, { thumb })            an entry as another shelf stored it (a pack's), verbatim
 //   shelf.gc()                                                blobs and thumbs no entry points at
 //
 // These are synchronous and derive only what the bytes say by themselves (type, size, header dims); the
@@ -82,6 +83,14 @@ export function stored(entry, bytes, { facts = {}, prev, by } = {}) {
   return out;
 }
 
+// A catalogue's text: one entry per line, ids sorted, so a change to one asset is a one-line diff (hdf's
+// format). `entries` is a Map or an object of id -> entry.
+export function catalogueText(entries) {
+  const m = entries instanceof Map ? entries : new Map(Object.entries(entries));
+  const ids = [...m.keys()].sort();
+  return ids.length ? `{\n${ids.map((k) => `${JSON.stringify(k)}: ${JSON.stringify(m.get(k))}`).join(',\n')}\n}\n` : EMPTY;
+}
+
 // The shelf rooted at `root`, named `name` (default: the directory's name). The catalogue is read once.
 export function readShelf(root, { name } = {}) {
   const dir = resolve(root), file = join(dir, 'catalogue.json');
@@ -137,6 +146,34 @@ export function readShelf(root, { name } = {}) {
       shelf.save();
       return { id, entry: full, path, created };
     },
+    // Puts an entry exactly as another shelf stored it (a pack's, I3): nothing is derived, so its catalogue line
+    // comes out byte for byte. The bytes must hash to its sha (sha256) and the entry must validate; an id this
+    // shelf holds with other bytes is refused. The blob is written if new, and `thumb` (PNG bytes) when the
+    // shelf has none for the sha. Returns { id, entry, path, created, thumb } -- thumb the path when written.
+    place(id, entry, bytes, { thumb, fields } = {}) {
+      const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+      const full = Object.fromEntries(Object.entries(entry ?? {}).filter(([k, v]) => !NOT_STORED.includes(k) && v !== undefined));
+      if (full.sha !== sha(buf)) throw new Error(`asset '${id}': its bytes hash to ${sha(buf).slice(0, 12)}…, not its sha ${String(full.sha).slice(0, 12)}…`);
+      const bad = validate(id, full, { fields });
+      if (bad.length) throw new Error(`asset '${id}' is not a valid ${full.kind ?? 'asset'} (shelf ${shelfName}):\n  ${bad.join('\n  ')}`);
+      const there = entries.get(id);
+      if (there && there.sha !== full.sha) throw new Error(`shelf ${shelfName} already has '${id}' with other bytes (${String(there.sha).slice(0, 12)}…, not ${full.sha.slice(0, 12)}…)`);
+      mkdirSync(join(dir, 'blobs'), { recursive: true });
+      const path = shelf.blobPath(full), created = !existsSync(path);
+      if (created) writeAtomic(path, buf);
+      entries.set(id, full);
+      shelf.save();
+      return { id, entry: full, path, created, thumb: thumb ? shelf.putThumb(full, thumb) : null };
+    },
+    // Writes a thumb (PNG bytes) for an entry's sha when the shelf has none; returns its path, or null when
+    // one was there already.
+    putThumb(e, png) {
+      const p = shelf.thumbPath(e);
+      if (existsSync(p)) return null;
+      mkdirSync(join(dir, 'thumbs'), { recursive: true });
+      writeAtomic(p, png);
+      return p;
+    },
     // Changes an entry's own fields in place (tags, desc, credit, licence...): the whole entry is validated
     // before the catalogue is saved, and the blob is not touched, so a legacy sha1 entry stays as it is.
     // The fields the bytes decide (FROM_BYTES) are refused; a null removes a field. Returns { id, entry }.
@@ -185,8 +222,7 @@ export function readShelf(root, { name } = {}) {
     // One entry per line, ids sorted: a change to one asset is a one-line diff (hdf's format). Atomic.
     save() {
       mkdirSync(dir, { recursive: true });
-      const ids = shelf.ids;
-      writeAtomic(file, ids.length ? `{\n${ids.map((k) => `${JSON.stringify(k)}: ${JSON.stringify(entries.get(k))}`).join(',\n')}\n}\n` : EMPTY);
+      writeAtomic(file, catalogueText(entries));
     },
   };
   return shelf;

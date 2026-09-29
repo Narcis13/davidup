@@ -938,6 +938,35 @@ plan's §4 reduced to what git and a file can do. **Done when** a round trip
 between two temp shelves is byte-identical and a conflicting id with a
 different sha is reported, not overwritten.
 
+*As built:* `assetlib/pack.js`, zero-dep: a ustar writer and reader over
+`node:zlib` gzip. A pack is laid out as a shelf (`pack.json` `{ pack:
+'assetlib', version: 1, ids }`, `catalogue.json` in the shelf's line format,
+`blobs/<sha>.<ext>`, `thumbs/<sha>.png`, each blob and thumb once), so `tar
+xzf` gives a shelf that opens and a shelf tarred by hand (`tar czf x.tgz -C
+shelf .`) imports; `pack.json` is optional. Export is deterministic (files
+sorted, mtime 0, owner 0, no shelf names or times), so the same records give
+the same pack wherever they sit. `exportPack(lib, refs, { shelf })` takes ids
+or `sha:` refs as the library resolves them, or as `--shelf` holds them
+(`--shelf` alone packs the shelf); it refuses sha1 entries and missing or
+damaged blobs, naming each, takes thumbs from the shelf or the library's
+thumb cache (a read-only house's), and warns when a record's `made.from` is
+not in the pack. `importPack(lib, bytes, { shelf, dry })` hashes every blob
+and validates every entry first, so a damaged pack writes nothing, then
+gives each id a status: `added` (placed verbatim by the new
+`shelf.place`/`lib.place`: nothing re-derived, so licence, credit, `made`,
+`added` and `by` survive and the catalogue line is byte for byte), `same`,
+`kept` (same bytes, another record: the shelf's stays, `differs` names the
+fields) or `conflict` (other bytes: reported with both shas, never
+written). A thumb the shelf lacks is filled in for all but a conflict; each
+result says what shadows it and what it shadows. `asset export <ids…>
+[--shelf] [--out]` (default `asset-pack.tgz`, or `<shelf>.tgz`) and `asset
+import <pack> [--shelf] [--dry]` (default target the project, else the
+user's pool; exits 1 on a conflict). There is no `--replace`: take the
+pack's copy by `asset rm <id> --shelf` and importing again. The done-when
+is `assetlib/test/pack.test.js`: a full shelf round-trips onto an empty one
+with every file byte-identical and the copy exports the same `.tgz`; a
+conflicting id keeps the shelf's bytes while the rest of the pack comes in.
+
 ---
 
 ## 10. Skills and docs (S)
@@ -1020,7 +1049,7 @@ then D and E in parallel, I when D4 exists, S last.
 | H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [x] |
 | I1 | `made` and `asset remake` | 1 | D4 | [x] |
 | I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [x] |
-| I3 | Packs as tarballs | 0.5 | A2 | [ ] |
+| I3 | Packs as tarballs | 0.5 | A2 | [x] |
 | H5 | The skill and the README | 0.5 | H2 H4 I2 | [ ] |
 | S1 | The davidup agent story | 0.5 | D3 I2 | [ ] |
 | S2 | Architecture and design docs | 0.5 | all | [ ] |

@@ -176,6 +176,8 @@ asset thumb teapot | --all                  asset sheet teapot cup fox --out can
 asset ls --shelf house                      asset check [--legacy]    (exits 1 on an error)
 asset migrate --sha256 house [--dry]        rehash a shelf written with sha1 (H1)
 asset remake hdf-mini                       run the tool in its made block again, the blob replaced in place (I1)
+asset export paper-warm sfx-pop --out kit.tgz    asset export --shelf user    (one file to share, I3)
+asset import kit.tgz --shelf user [--dry]   merged by sha; an id held with other bytes is reported, not overwritten
 ```
 
 `--project <dir>` opens `<dir>/assets` as the project shelf; `$DAVIDUP_ASSETS` and `$DAVIDUP_HOUSE` move the
@@ -190,6 +192,16 @@ cutout's silhouette, a puppet's box from its parts) comes from the host (the bin
 `--json` prints), on `host.library` when the host opened its own; `addAsset(lib, { bytes, file, entry, shelf },
 host)` is `add` for a host that already holds the bytes. hdf's `find`, `import`, `remove` and `gc` are these
 since H2: `hdf find fox --json` prints what `asset find fox --json` prints.
+
+Packs (`pack.js`, plan I3) are how assets travel: `exportPack(lib, refs, { shelf })` makes a gzipped tar laid
+out as a shelf (`pack.json`, `catalogue.json` with the entries exactly as their shelves stored them, each blob
+and thumb once), so `tar xzf` gives a shelf that opens; the same records always give the same bytes (sorted,
+mtime 0, no shelf names). `importPack(lib, bytes, { shelf, dry })` hashes every blob and validates every entry
+before writing anything, then places each new id verbatim (licence, credit, `made`, `added` kept: a round trip
+between two shelves is byte-identical), leaves an id held with the same bytes as the shelf has it (`same`, or
+`kept` when the records differ) and reports an id held with other bytes as a `conflict`, never overwriting it
+(`asset import` exits 1). A shelf tarred by hand imports too. A sha1 entry or a missing blob cannot be packed;
+a record made from something the pack does not carry is packed with a warning.
 
 `migrateSha256(shelf, { dry })` (`migrate.js`, `asset migrate --sha256`) rehashes a shelf written with sha1:
 each blob is renamed by the sha256 of the same bytes, except a JSON payload naming another blob of the shelf by

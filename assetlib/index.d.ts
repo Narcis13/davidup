@@ -194,6 +194,10 @@ export interface Shelf {
   payload(entry: string | Entry): Uint8Array;
   /** Hash, derive, validate, then write (blob if new, catalogue atomically). Throws, having written nothing, when invalid. */
   put(entry: EntryInput, bytes: Uint8Array | string, opts?: PutOptions): PutResult;
+  /** An entry as another shelf stored it (a pack's, I3), verbatim: its bytes must hash to its sha; an id held with other bytes is refused. */
+  place(id: string, entry: Entry, bytes: Uint8Array, opts?: { thumb?: Uint8Array; fields?: PutOptions['fields'] }): PutResult & { thumb: string | null };
+  /** Writes a thumb for the entry's sha when the shelf has none; its path, or null when one was there. */
+  putThumb(entry: string | Entry, png: Uint8Array): string | null;
   /** An entry's own fields in place, validated whole; the blob untouched. FROM_BYTES are refused; null removes a field. */
   update(id: string, patch: Partial<Record<string, unknown>>, opts?: { fields?: PutOptions['fields'] }): { id: string; entry: Entry };
   /** The entry, and its blob and thumb when nothing else shares them; returns the paths deleted. */
@@ -490,6 +494,8 @@ export function hdfUse(record: UsableRecord, opts?: UseOptions): HdfUse | null;
 
 export interface Library {
   shelves: Shelf[];
+  /** Where thumbs go for a shelf that cannot be written. */
+  thumbCache: string;
   ids: string[];
   shelf(name: string): Shelf;
   /** An id, or `sha:<hex>` with 12+ hex. */
@@ -510,6 +516,8 @@ export interface Library {
   sheet(refs: string | string[], opts?: { cols?: number; cell?: number; previewers?: Previewers; force?: boolean; out?: string }): Promise<Sheet & { path: string | null; cells: (SheetCell & { shelf: string })[]; warnings: string[] }>;
   /** Probe, then put on `shelf` (null: the project, else the user's pool). Rejects, having written nothing, when invalid. */
   put(shelf: string | null, entry: EntryInput, bytes: Uint8Array | string, opts?: { probes?: Probes; fields?: PutOptions['fields']; by?: string }): Promise<PutResult & { shelf: string; warnings: string[] }>;
+  /** An entry verbatim on `shelf` (what importPack writes); its bytes must hash to its sha, an id held with other bytes is refused. */
+  place(shelf: string, id: string, entry: Entry, bytes: Uint8Array, opts?: { thumb?: Uint8Array; fields?: PutOptions['fields'] }): PutResult & { shelf: string; thumb: string | null };
   /** A record's own fields (tags, desc, credit...) on `shelf` (default: where it resolves), validated; the blob untouched. */
   update(id: string, patch: Partial<Record<string, unknown>>, opts?: { shelf?: string; fields?: PutOptions['fields'] }): { id: string; shelf: string; entry: Entry };
   /** colours, dark and room read off the blob of a raster or video that lacks them (all three with `force`), written in place. */
@@ -687,3 +695,73 @@ export function make(
   recipe: EntryInput & { made: Made },
   opts?: { makers?: Makers; shelf?: string; host?: import('./add.js').AddAssetHost; replace?: boolean; by?: string },
 ): Promise<RemakeResult>;
+
+// ---------- packs (I3) ----------
+
+/** The pack format this assetlib writes and the newest it reads. */
+export const PACK_VERSION: number;
+/** A ustar archive of the files in the order given: mode 644, owner 0, mtime 0 (the same files, the same bytes). */
+export function writeTar(files: { name: string; bytes: Uint8Array }[]): Uint8Array;
+/** The regular files of a tar archive, gzipped or not, by name (no leading './'); throws on a bad header. */
+export function readTar(bytes: Uint8Array): Map<string, Uint8Array>;
+export interface Pack {
+  /** pack.json: { pack: 'assetlib', version, ids }, or null for a shelf tarred by hand. */
+  meta: { pack: 'assetlib'; version: number; ids?: string[] } | null;
+  entries: Map<string, Entry>;
+  /** '<sha>.<ext>' -> bytes. */
+  blobs: Map<string, Uint8Array>;
+  /** sha -> PNG bytes. */
+  thumbs: Map<string, Uint8Array>;
+  warnings: string[];
+}
+/** A pack's contents; throws when it is not one (not a tar, no catalogue.json, a newer version). */
+export function readPack(bytes: Uint8Array): Pack;
+export interface ExportResult {
+  /** The gzipped tarball: pack.json, catalogue.json, blobs/<sha>.<ext>, thumbs/<sha>.png. */
+  tgz: Uint8Array;
+  ids: string[];
+  blobs: number;
+  thumbs: number;
+  bytes: number;
+  entries: { id: string; shelf: string; kind: Kind; sha: string; ext: string; bytes: number }[];
+  /** What a record was made from that the pack does not carry. */
+  warnings: string[];
+}
+/**
+ * A pack of `refs` (ids or sha:<hex>) as the library resolves them, or as `shelf` holds them; `shelf` alone packs
+ * the whole shelf. Throws, naming each, for a sha1 entry, a missing blob or one whose bytes miss its sha.
+ */
+export function exportPack(lib: Library, refs?: string[], opts?: { shelf?: string }): ExportResult;
+export type ImportStatus = 'added' | 'same' | 'kept' | 'conflict';
+export interface ImportResult {
+  shelf: string;
+  dry: boolean;
+  results: {
+    id: string;
+    kind: Kind;
+    status: ImportStatus;
+    /** The pack's sha. */
+    sha: string;
+    /** Whether the shelf had the bytes already (null for a conflict). */
+    blob: 'new' | 'had' | null;
+    /** A thumb the shelf lacked came from the pack. */
+    thumb: boolean;
+    /** kept: the fields the pack's record differs in. */
+    differs?: string[];
+    /** conflict: the sha the shelf holds the id with. */
+    ours?: string;
+    shadowedBy?: string | null;
+    shadows?: string[];
+  }[];
+  added: number;
+  same: number;
+  kept: number;
+  conflicts: number;
+  warnings: string[];
+}
+/**
+ * Merges a pack onto `shelf` (default: the project, else the user's pool) by sha: a new id placed verbatim, the
+ * same bytes left as the shelf has them, an id held with other bytes reported as a conflict and not overwritten.
+ * Throws, having written nothing, when the pack is damaged. `dry` writes nothing.
+ */
+export function importPack(lib: Library, bytes: Uint8Array, opts?: { shelf?: string; fields?: PutOptions['fields']; dry?: boolean }): ImportResult;

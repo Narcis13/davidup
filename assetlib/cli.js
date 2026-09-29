@@ -12,6 +12,7 @@
 //   asset ls --shelf house                    asset check
 //   asset migrate --sha256 house              rehash a shelf's sha1 blobs as sha256 (H1)
 //   asset remake hdf-mini                     run the tool that made it again, the blob replaced in place (I1)
+//   asset export paper-warm sfx-pop --out kit.tgz    asset import kit.tgz --shelf user    (packs, I3)
 //
 // The shelves are the standard three (index.js standardShelves): `--project <dir>` opens <dir>/assets as the
 // project shelf; $DAVIDUP_ASSETS and $DAVIDUP_HOUSE move the user's pool and the house. A write goes to
@@ -24,13 +25,14 @@
 // `asset add x.png --kind cutout` traces the silhouette), `makers` (the tools `remake` runs, by made.tool; the bin
 // finds hdf's), `by` (the door an add came in by) and `library` (a library it opened itself); tests pass `out`,
 // `err`, `env`, `cwd` and `home`.
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DERIVE, addAsset, idOf } from './add.js';
 import { check, houseFindings, LEVELS } from './check.js';
 import { addHost, loadHosts } from './hosts.js';
+import { exportPack, importPack } from './pack.js';
 import { defaultProbes } from './probe.js';
 import { remake } from './remake.js';
 import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, migrateSha256, openLibrary, readShelf, standardShelves } from './index.js';
@@ -74,6 +76,11 @@ usage: asset <verb> [args] [--project <dir>] [--json]
   remake  <id...> [--shelf]         make a record again with the tool its made.tool names (hdf render, hdf
                                     sprite, hdf hand --export-ttf, hdf sheet store: hdf's makers), the blob
                                     replaced in place; says whether the sha changed
+  export  <id...> | --shelf <s> [--out pack.tgz]   one file to share: the records as their shelves hold them,
+                                    their blobs and thumbs (ids with --shelf: from that shelf)
+  import  <pack.tgz> [--shelf] [--dry]   merge a pack by sha: new ids placed as they were (licence, credit,
+                                    made kept), the same bytes left alone, an id the shelf holds with other
+                                    bytes reported and not overwritten (exits 1)
 
 shelves: project (--project <dir>: <dir>/assets), user ($DAVIDUP_ASSETS, else ~/.davidup/assets),
          house ($DAVIDUP_HOUSE, else the repo's store). kinds: ${KINDS.join(' ')}
@@ -82,7 +89,7 @@ hosts:   previews are drawn, and made assets made again, by hdf (handdrawn/cli/h
          this package, and by the modules $ASSETLIB_HOSTS names ('-' first: those alone)
 `;
 
-export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'facts', 'thumb', 'sheet', 'ls', 'check', 'migrate', 'remake'];
+export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'facts', 'thumb', 'sheet', 'ls', 'check', 'migrate', 'remake', 'export', 'import'];
 
 export class UsageError extends Error {}
 const usage = (msg) => new UsageError(msg);
@@ -443,6 +450,41 @@ export const verbs = {
       lines.push(`${pad(ref, w)}  ${pad(out.shelf, 8)} ${pad(out.tool, 12)} ${out.changed ? `${short(out.was)} -> ${short(out.sha)}  changed` : `${short(out.sha)}  same bytes`}`);
     }
     return { code: 0, data: done, warnings, text: `${lines.join('\n')}\n` };
+  },
+
+  async export(ctx, args, flags) {
+    const shelf = str(flags, 'shelf');
+    if (!args.length && !shelf) throw usage('export: need <id...> or --shelf <shelf>');
+    const out = resolve(ctx.cwd, str(flags, 'out') ?? `${args.length ? 'asset-pack' : shelf}.tgz`);
+    const pack = exportPack(ctx.lib(), args, defined({ shelf }));
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, pack.tgz);
+    const { tgz, ...data } = pack;
+    const w = Math.max(12, ...pack.entries.map((e) => e.id.length));
+    const lines = [`${ctx.rel(out)}  ${pack.ids.length} asset${pack.ids.length === 1 ? '' : 's'}, ${pack.blobs} blob${pack.blobs === 1 ? '' : 's'}, ${pack.thumbs} thumb${pack.thumbs === 1 ? '' : 's'}, ${kb(pack.bytes)}`];
+    for (const e of pack.entries) lines.push(`  ${pad(e.id, w)} ${pad(e.kind, 7)} ${pad(e.shelf, 8)} ${short(e.sha)}.${e.ext}  ${kb(e.bytes)}`);
+    return { code: 0, warnings: pack.warnings, data: { path: out, ...data }, text: `${lines.join('\n')}\n` };
+  },
+
+  async import(ctx, args, flags) {
+    if (args.length !== 1) throw usage('import: need one <pack.tgz>');
+    const file = resolve(ctx.cwd, args[0]);
+    if (!existsSync(file)) throw usage(`import: no such file '${args[0]}'`);
+    const dry = !!bool(flags, 'dry');
+    const out = importPack(ctx.lib(), readFileSync(file), defined({ shelf: str(flags, 'shelf'), fields: ctx.host.fields, dry }));
+    const w = Math.max(12, ...out.results.map((r) => r.id.length));
+    const lines = out.results.map((r) => {
+      const note = r.status === 'conflict'
+        ? `${out.shelf} has ${short(r.ours)}, the pack ${short(r.sha)}: not overwritten`
+        : [r.status === 'kept' && `the shelf's record kept (the pack's differs in ${r.differs.join(', ')})`,
+          r.status === 'added' && r.blob === 'had' && 'bytes already on the shelf',
+          r.shadowedBy && `shadowed by ${r.shadowedBy}`, r.shadows?.length && `shadows ${r.shadows.join(', ')}`].filter(Boolean).join('; ');
+      return `${pad(r.id, w)} ${pad(r.kind, 7)} ${pad(r.status === 'conflict' ? 'CONFLICT' : r.status, 8)} ${note}`.trimEnd();
+    });
+    const would = dry ? ' (dry run: nothing written)' : '';
+    lines.push(`${out.results.length} in ${ctx.rel(file)} onto ${out.shelf}: ${out.added} added, ${out.same} same, ${out.kept} kept, ${out.conflicts} conflict${out.conflicts === 1 ? '' : 's'}${would}`);
+    if (out.conflicts) lines.push(`a conflict is an id ${out.shelf} holds with other bytes: asset rm <id> --shelf ${out.shelf} and import again to take the pack's, or import onto another shelf`);
+    return { code: out.conflicts ? 1 : 0, warnings: out.warnings, data: out, text: `${lines.join('\n')}\n` };
   },
 };
 
