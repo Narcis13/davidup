@@ -26,6 +26,41 @@ lib.locate('teapot');             // { id, shelf, root, entry, path, thumb, shad
 lib.resolve('sha:9f2c1a3b4c5d');  // a blob's path, by any 12+ hex prefix of its sha
 ```
 
+## The record
+
+A catalogue entry is a common envelope plus its kind's own fields (`record.js`, `SCHEMAS`; types in
+`index.d.ts`, `Entry`). The envelope:
+
+```
+kind      one of KINDS                          name, desc, tags    what search reads
+licence   CC0 | CC-BY | CC-BY-SA | OFL | PD |   credit, source      strings; empty allowed for `own`
+          own | unknown (LICENCES)              made                { tool, from: [ids], args, at, version }
+sha, ext  sha256 of the bytes, their type       bytes, added, file  size, YYYY-MM-DD, the name it came in as
+```
+
+`media` is derived from the kind and is the axis an app filters on:
+
+| kind     | media  | stored as           | own fields                                              | davidup takes it as |
+|----------|--------|---------------------|---------------------------------------------------------|---------------------|
+| `image`  | raster | png jpg webp gif svg | `w h alpha colours dark room`                          | `image`             |
+| `cutout` | raster | webp png jpg        | `w h sil` (the silhouette) `alpha colours dark room`, `box` | `image`         |
+| `stock`  | raster | webp png jpg        | `w h alpha colours dark room`, `box`                    | `image`             |
+| `video`  | video  | mp4 mov webm mkv    | `sec fps w h alpha codec audio colours dark room`       | `video`             |
+| `audio`  | audio  | mp3 wav m4a ogg aac flac | `sec rate channels codec`                          | `audio`             |
+| `sample` | audio  | wav                 | `sec align` (word timing) `mouth` (mouth shapes)        | `audio`             |
+| `font`   | font   | ttf otf woff woff2  | `family` (required) `weight style glyphs`               | `font`              |
+| `motif`  | vector | json                | `box`                                                   | through an image made from it |
+| `clip`   | data   | json                | `n fps h track`, `box`                                  | no                  |
+| `puppet` | data   | json                | `units`, `box`                                          | through its sprite sheet |
+| `hand`   | data   | json                | `glyphs marks`                                          | through the font exported from it |
+
+Ids are flat and lower case, `ID` = `/^(pack:)?[a-z0-9][a-z0-9-]*$/` (`pack:<cel>` is the mirror of an hdf pack
+cel). The library's lookups (`get`, `locate`, `resolve`) also take `sha:<hex>`, 12 or more hex of a sha. The library's id and a composition's
+asset id are different namespaces: a composition names a record by its src, `asset:<id>@<sha12>`. `LICENCES` is
+the same list as davidup's `ASSET_LICENCES`. `validate(id, entry, { fields })` returns what is wrong as
+sentences (empty is valid); a host that knows a kind better passes its own field checks (hdf passes its sample
+and clip checks).
+
 Writes go through one door and are validated before anything touches the disk:
 
 ```js
@@ -211,6 +246,26 @@ house shelf was migrated in H1.
 
 `KINDS`, `MEDIA`, `LICENCES`, `mediaOf(kind)` and `validate(id, entry, { fields })` describe the record;
 `readShelf(root)` reads one shelf. Plain ESM, zero dependencies, types in `index.d.ts`.
+
+## Who reads it
+
+- **davidup** imports it as `davidup/assetlib` (the package ships `assetlib/` and the house shelf's
+  `assets/catalogue.json` and `assets/blobs`). An `asset:<id>[@<sha12>]` src is resolved on the standard shelves
+  by `src/assets/library.ts` (`resolveLibraryAsset`: `E_ASSET_MISSING`, `E_ASSET_STALE`, `E_ASSET_INVALID`) for
+  images, fonts, video frames and the audio mux alike; the browser fetches `/asset-files/<id>[@<sha12>]` from the
+  editor. The MCP tools `search_assets`, `get_asset`, `get_asset_preview`, `add_asset`, `tag_asset` and
+  `use_asset` (`src/mcp/assets.ts`) work on the standalone server; `render_hdf_clip` puts what hdf made on a shelf
+  with its `made` block (`src/mcp/hdf.ts`). davidup draws the previews of `image` and `font`
+  (`src/mcp/assetPreviews.ts`). `ARCHITECTURE.md` §6 is the davidup side in full.
+- **The editor**: the Library panel's Assets and Fonts tabs list the records davidup can take
+  (`apps/editor/app/services/library_shelves.ts`); an upload is a `put` on the project's shelf, a promote is a
+  `move` to the user's; the record drawer edits a record through `tag_asset` (`update`).
+- **hdf** (`handdrawn/core/assets.js`): a film reads records with `fromStore(ids)`; `hdf find`, `remove` and `gc` run
+  this package's verbs (`run`), `hdf import` is `addAsset` with hdf's derive and checks; `handdrawn/cli/host.mjs` is the host that draws, adds and makes its seven
+  kinds.
+- **The house shelf** (`<repo>/assets`) is in git and in the npm package, so it is small: a blob over 5 MB
+  (`HOUSE_BLOB_MAX`) must be `made` and git-ignored, and `asset check` holds the shelf under `HOUSE_BUDGET`. Its
+  first pack's recipes are `scripts/house-pack.mjs`.
 
 Tests: `npm test` here (`node --test`). `tests/assets/assetlib.test.ts` in the root holds `LICENCES`
 equal to davidup's `ASSET_LICENCES`.

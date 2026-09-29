@@ -266,7 +266,7 @@ Measured throughput: 255 fps at 720p60 on an M-series laptop → a 20s clip ≈ 
 - **Local/OSS**: engine + CLI + editor free forever (it's the top of the funnel and the trust story).
 - **Cloud Dev** — $0: 30 render-minutes/mo, 1GB storage, hosted MCP endpoint, watermark-free (watermarks poison the agent use case).
 - **Pro** — $29/mo: 300 render-min included, then $0.03/min; 20GB; priority queue.
-- **Team** — $99/mo: shared brand-kit library (fonts/colors/logos as first-class library objects — a small engine feature with outsized retention effect), 3 seats, API keys per environment.
+- **Team** — $99/mo: shared brand-kit library (fonts/colors/logos as first-class library objects — a small engine feature with outsized retention effect), 3 seats, API keys per environment. *The substrate is built: the asset library ([`docs/asset-library-plan.md`](docs/asset-library-plan.md), [`assetlib/README.md`](assetlib/README.md)) holds fonts and logos as records with licence, credit, tags and palette on a shelf, referenced from compositions by pinned `asset:<id>@<sha12>` srcs, and a kit travels as one pack (`asset export` / `asset import`). A team's shared shelf (hosted, per tenant) is the remaining SaaS work; plan §13 keeps a hosted service out of that version.*
 - **Enterprise** — custom: C2PA signing, SSO, VPC/on-prem worker images, SLA. The determinism contract ("same JSON, same pixels, auditable") is the enterprise pitch.
 
 ---

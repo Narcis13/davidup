@@ -1038,6 +1038,31 @@ into the composition's `assets` array; collisions on `id` with
 **different** `src` (after normalization) → `E_ASSET_CONFLICT`. Same id
 + same content (path or hash) is fine and dedupes.
 
+**As built: library assets are `asset:` srcs.** The path rewriting above
+is not built (`imports: [{ library }]` is not either). What a library, a
+scene file or a template set should do instead is name its assets as
+records of the asset library (`assetlib/README.md`,
+`docs/asset-library-plan.md`):
+
+```json
+{ "id": "brand-display", "type": "font", "src": "asset:brand-display@3f9a1c2b7d10", "family": "Inter" }
+```
+
+An `asset:<id>[@<sha12>]` src resolves on the asset library's shelves, in
+order: the project's `assets/`, the user's `~/.davidup/assets`, the house
+shelf that ships with davidup (`src/assets/library.ts`,
+`resolveLibraryAsset`). It is not a path, so nothing needs rewriting when
+the file that declares it moves, and `resolveAssetSrcAgainst` leaves it
+alone. The pin makes it content-addressed: two definitions that pin the
+same record carry the same `src` and dedupe under the rule above (scene
+assets are merged that way today, `E_ASSET_CONFLICT` in
+`src/compose/scenes.ts`), and a record changed under the pin fails with
+`E_ASSET_STALE` instead of rendering other bytes: what §12.6's lock file
+promises for asset files, carried by the src itself. A shared brand kit is a handful of records on the
+user's shelf, passed between machines as a pack (`asset export`,
+`asset import`). `global:<path>` srcs (the older `~/.davidup/library`
+pool) still resolve.
+
 ### 12.5 Library composition (transitive imports)
 
 A library may itself import other libraries. The compiler resolves

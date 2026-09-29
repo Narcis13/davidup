@@ -97,14 +97,23 @@ src/
   engine/      computeStateAt, renderFrame, drawItem (Canvas2D pipeline)
   easings/     19 named easings, easings.net formulas
   color/       hex / rgba parser + linear-RGB lerp (no OKLab yet)
-  assets/      BaseAssetLoader + BrowserAssetLoader + NodeAssetLoader
+  assets/      BaseAssetLoader + BrowserAssetLoader + NodeAssetLoader,
+               src schemes (asset: / global: / bundled:), library.ts
   drivers/
     browser/   attach(comp, canvas) → { stop, seek } — RAF loop
-    node/      renderToFile(comp, outPath, opts) — skia-canvas + ffmpeg
+    node/      renderToFile(comp, outPath, opts) — skia-canvas + ffmpeg,
+               videoExtract (decoded frames), audioMux (the sound track)
   compose/     templates, scenes, behaviors, imports, params, precompile
-  mcp/         MCP server + tools catalog + in-memory store + dispatch
+  mcp/         MCP server + tools catalog + in-memory store + dispatch,
+               assets.ts (the asset library tools), hdf.ts (render_hdf_clip)
+  cli/         `davidup` bin: render, edit, scaffold
 
-tests/         vitest, ~200 tests including a real MP4 integration test
+assetlib/      the asset library: shelves, records, search, previews, the
+               `asset` bin (plain ESM, zero deps; shared with handdrawn/)
+assets/        the house shelf (catalogue.json + blobs/), shipped in the package
+handdrawn/     the hand-drawn film package (hdf), a sibling program
+apps/editor/   the visual editor (AdonisJS + Vue), `davidup edit`
+tests/         vitest, including real MP4 integration tests
 examples/      hello-world, render.ts, mcp-demo, browser-demo, four-scenes-60s
 ```
 
@@ -119,6 +128,8 @@ Subpath exports declared in `package.json`:
 | `davidup/browser`    | live preview: `attach(comp, canvas) → { stop, seek }`    |
 | `davidup/node`       | render MP4: `renderToFile(comp, outPath, opts)`          |
 | `davidup/mcp`        | embed the MCP server; call handlers in-process from tests|
+| `davidup/compose`    | `precompile` and the authoring passes                    |
+| `davidup/assetlib`   | the asset library package (`assetlib/index.js`)          |
 
 ---
 
@@ -130,16 +141,51 @@ not authored independently (`src/schema/types.ts`).
 ### 3.1 Composition shape (`src/schema/zod.ts`)
 
 ```ts
-Composition = {
+Composition = {                             // CompositionSchema
   version: string
-  composition: { width:int>0, height:int>0, fps>0, duration≥0, background:color }
-  assets:  Asset[]                          // image | font (discriminated union)
+  composition: {                            // CompositionMetaSchema
+    width: int>0, height: int>0,
+    fps: number>0 | "N/D",                  // FpsSchema: "30000/1001" is exact NTSC
+    duration: ≥0,
+    background: color | "transparent",      // transparent ⇒ alpha codecs keep alpha 0
+    audioMaster?: { limiter?, targetLufs? },
+    markers?: Marker[]                      // { t, name, source? } — cues, never drawn
+  }
+  assets:  Asset[]                          // image | font | audio | video (discriminated on `type`)
   layers:  Layer[]                          // { id, z, opacity, blendMode, items[] }
-  items:   Record<string, Item>             // keyed by id; sprite|text|shape|group
+  items:   Record<string, Item>             // keyed by id; sprite|text|shape|group|video
   tweens:  Tween[]                          // { id, target, property, from, to,
                                             //   start, duration, easing? }
+  audio?:  AudioTrack[]                     // { asset, start, end?, trimIn?, volume?,
+                                            //   fadeIn?, fadeOut?, loop?, markers? }
 }
 ```
+
+**Assets are four types** (`AssetSchema`, a `z.discriminatedUnion("type")`).
+Every one is `{ id, type, src }` plus its own fields, and any of them may
+carry `credit` (the attribution line) and `licence` (`ASSET_LICENCES`:
+`CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`, the same list as the
+asset library's `LICENCES`; a CC-BY or CC-BY-SA asset with no credit is
+`W_ASSET_CREDIT`).
+
+| Type    | Schema             | Own fields                                                           | Used by |
+|---------|--------------------|----------------------------------------------------------------------|---------|
+| `image` | `ImageAssetSchema` | `sheet?` (`SpriteSheetSchema`: frameWidth, frameHeight, columns, count, fps, cycles, anchor) | sprite items |
+| `font`  | `FontAssetSchema`  | `family` (required: the name `ctx.font` asks for)                    | text items |
+| `audio` | `AudioAssetSchema` | `duration? sampleRate? channels? codec?` (ffprobe, at `register_asset`) | `audio[]` tracks |
+| `video` | `VideoAssetSchema` | `duration? width? height? fps? fpsRational? hasAlpha? codec? pixelFormat? hasAudio?` | video items |
+
+`src` is a string the *host* resolves; the engine never reads it (§6). It
+is one of: a path (absolute, or relative: the render CLI and the editor
+resolve it against the composition's directory), a URL or `data:` URI,
+`asset:<id>[@<sha12>]` (a record of the asset library),
+`global:<path>` (a file under the legacy global pool `~/.davidup/library`),
+or `bundled:<file>` (a font the package ships). `register_asset` and the
+store admit an audio or video path only with one of
+`AUDIO_ASSET_EXTENSIONS` / `VIDEO_ASSET_EXTENSIONS`; an `asset:` src is
+checked against the record's kind and extension instead. There is no library field on an asset: a
+library reference *is* the src, so the render contract is the same for a
+file on disk and a record on a shelf.
 
 Each `Item` carries a `Transform`:
 
@@ -155,14 +201,18 @@ Transform = {
 }
 ```
 
+and the shared flags (`ItemFlagsSchema`): `visible? locked? name? enter?
+exit? effects?` (blur / shadow / glow).
+
 Item variants and their unique properties:
 
 | Type    | Extra fields                                                  |
 |---------|---------------------------------------------------------------|
-| sprite  | `asset` (image-asset id), `width`, `height`, `tint?`          |
-| text    | `text`, `font` (font-asset id), `fontSize`, `color`, `align?` |
+| sprite  | `asset` (image-asset id), `width`, `height`, `tint?`; on a sheet `cycle?` / `frame?` |
+| text    | `text`, `font` (font-asset id, or `font:default`), `fontSize`, `color`, `align?`, text v2 (`maxWidth lineHeight letterSpacing fontWeight fontStyle strokeColor strokeWidth shadow`) |
 | shape   | `kind: "rect"|"circle"|"polygon"`, width, height, points, fill/stroke, cornerRadius |
-| group   | `items: string[]` — child ids; rendered with transform composition; optional `width`/`height` = the anchor box (a pivot only — never clips) |
+| group   | `items: string[]` — child ids; rendered with transform composition; optional `width`/`height` = the anchor box (a pivot only — never clips); `isolate?`, `blendMode?` |
+| video   | `asset` (video-asset id), `width`, `height`, `start`, `end?`, `trimIn?`, `trimOut?`, `fit` (`cover|contain|fill|none`), `loop`, `keepAudio?` |
 
 ### 3.2 Tweenable properties (`src/schema/tweenable.ts`)
 
@@ -384,10 +434,35 @@ call.
 
 ## 6. Asset loading (`src/assets`)
 
-Two-level abstraction:
+The engine reads two things about assets, an image by id and a font family
+by id (`AssetRegistry`). Where the bytes live is the host's business, and
+it is decided by the asset's `src`.
+
+### 6.0 Srcs and where they resolve
+
+| `src`                  | Node (`resolveGlobalSrc`, `src/assets/node.ts`)                          | Browser (`BrowserAssetLoader`)                  |
+|------------------------|---------------------------------------------------------------------------|-------------------------------------------------|
+| `asset:<id>[@<sha12>]` | the record's blob on the first shelf holding `id` (`resolveLibraryAsset`, §6.3) | `/asset-files/<id>[@<sha12>]` (`assetBaseUrl`) |
+| `global:<path>`        | `<root>/<path>`, root `$DAVIDUP_LIBRARY` else `~/.davidup/library`         | `/library-files/<path>`                         |
+| `bundled:<file>`       | the package's `fonts/<file>` (`bundledFontsDir`; `font:default` is Inter) | `/bundled-fonts/<file>` (`bundledBaseUrl`)      |
+| anything else          | unchanged: a path skia-canvas and ffmpeg open, or a URL                  | unchanged, or prefixed with `baseUrl` when relative |
+
+`resolveAssetSrcAgainst(src, baseDir)` rewrites a *relative path* against
+the composition's directory and leaves every `scheme:` src alone (B-5):
+the render CLI (`src/cli/render.ts`) and the editor's render worker
+(`apps/editor/app/workers/render_worker.ts`) call it before handing a
+composition to the Node driver. The `/asset-files/`, `/library-files/`
+and `/bundled-fonts/` routes are the editor's
+(`apps/editor/start/routes.ts`); the editor also rewrites a project-relative
+path to `/project-files/<path>` before the page sees it
+(`rewriteAssetsForBrowser` in `apps/editor/app/controllers/editor_controller.ts`)
+and leaves `asset:` srcs symbolic, because only the server knows the
+shelves.
+
+### 6.1 Loaders
 
 ```
-AssetRegistry              ← engine reads from this (just getImage, getFontFamily)
+AssetRegistry              ← engine reads from this (getImage, getFontFamily)
    ▲
 AssetLoader extends AssetRegistry
    ▲                       ← adds load / preloadAll / has / clear
@@ -396,13 +471,22 @@ BaseAssetLoader            ← abstract; handles dedup, caching, inflight tracki
 BrowserAssetLoader  NodeAssetLoader
 ```
 
-`BaseAssetLoader` (`src/assets/loader.ts:16-74`) owns:
+`BaseAssetLoader` (`src/assets/loader.ts`) owns:
 
 - `images: Map<string, LoadedImage>` — `LoadedImage = unknown`. Engine
   passes whatever object is here straight to `ctx.drawImage(...)`.
 - `fonts: Map<string, string>` — by id → family name.
 - `inflight: Map<string, Promise<void>>` — concurrent loads of the same id
   share the same promise.
+
+It loads `image` and `font` assets only. `audio` and `video` are not canvas
+resources and are skipped: the Node driver decodes a video item's frames
+through `src/drivers/node/videoExtract.ts` and mixes `audio[]` (and
+`keepAudio` clips) through `src/drivers/node/audioMux.ts`, both resolving
+the src with the same `resolveGlobalSrc`; the browser driver takes decoded
+frames from an injected `VideoFrameProvider`. `withBundledAssets(comp)`
+(`src/assets/bundled.ts`) adds the virtual `font:default` asset when a
+text item uses it and the composition does not define that id.
 
 Subclasses implement two methods:
 
@@ -411,26 +495,119 @@ protected abstract fetchImage(asset: ImageAsset): Promise<LoadedImage>;
 protected abstract fetchFont(asset: FontAsset): Promise<string>;
 ```
 
-### 6.1 BrowserAssetLoader
+`BrowserAssetLoader` (`src/assets/browser.ts`):
 
 ```ts
-fetchImage → new Image(); img.crossOrigin = "anonymous"; img.onload/onerror; img.src = url
-fetchFont  → new FontFace(family, `url("${url}")`); await face.load(); document.fonts.add(face)
+fetchImage → new Image(); img.crossOrigin = "anonymous"; img.onload/onerror; img.src = resolveUrl(src)
+fetchFont  → new FontFace(family, `url("${resolveUrl(src)}")`); await face.load(); document.fonts.add(face)
 ```
 
-Supports an optional `baseUrl` for CDN/origin prefixing.
+Options: `baseUrl` (prefix for relative srcs), `bundledBaseUrl` (default
+`/bundled-fonts/`), `assetBaseUrl` (default `/asset-files/`). An `asset:`
+src is parsed (`parseAssetSrc`) before it is fetched, so a malformed ref
+throws instead of 404ing. `clear()` also removes its faces from
+`document.fonts`.
 
-### 6.2 NodeAssetLoader
+`NodeAssetLoader` (`src/assets/node.ts`):
 
 ```ts
-fetchImage → skia.loadImage(src)            // path or URL
-fetchFont  → skia.FontLibrary.use(family, [src])
+fetchImage → skia.loadImage(resolveGlobalSrc(src, globalLibraryRoot, { project }))
+fetchFont  → skia.FontLibrary.use(family, [resolved src])   // claim-counted per family
 ```
 
-**skia-canvas is dynamic-imported lazily** (Node driver `~line 255`) so
-this module doesn't break browser builds that happen to depth-import it.
+Options: `skiaCanvas` (inject a module, tests), `globalLibraryRoot`
+(overrides `$DAVIDUP_LIBRARY` for `global:`), `project` (the directory
+whose `assets/` shelf `asset:` srcs search first). skia-canvas is imported
+lazily (`importSkiaCanvas`) so the module does not break browser builds
+that happen to depth-import it. `renderToFile`'s `project` option is
+threaded to the loader, `videoExtract` and `audioMux`.
 
----
+### 6.2 `asset:` srcs (`src/assets/assetSrc.ts`)
+
+```
+asset:teapot                  the record `teapot`, wherever it now points
+asset:teapot@611b2de0b430     only those bytes (12+ hex of its sha256)
+```
+
+`parseAssetSrc` is pure and browser-safe (`ASSET_SRC_PREFIX`,
+`isAssetSrc`); the id follows the library's rule
+(`/^(pack:)?[a-z0-9][a-z0-9-]*$/`). A pin is how a composition says "these
+bytes": the render reproduces on any machine that holds the record, and a
+record replaced under the same id fails loudly (`E_ASSET_STALE`) instead of
+rendering something else. `use_asset` and a search hit's `use.davidup`
+always pin.
+
+### 6.3 The asset library (`assetlib/`, `src/assets/library.ts`)
+
+The asset library is shared with the hand-drawn film package, so it lives
+in its own zero-dependency, plain-ESM package at the repo root,
+`assetlib/` (exported as `davidup/assetlib`; `assetlib/README.md` is its
+reference, `docs/asset-library-plan.md` the design). In short:
+
+- **A shelf is a directory**: `catalogue.json` (id → entry), `blobs/<sha256>.<ext>`,
+  `thumbs/<sha256>.png`. No database, no daemon.
+- **Three shelves, searched in order**: `project` (`<project>/assets`),
+  `user` (`$DAVIDUP_ASSETS`, else `~/.davidup/assets`), `house`
+  (`$DAVIDUP_HOUSE`, else the package's own `assets/`, which ships in the
+  npm package). The same id on two shelves: the earlier wins, the record
+  lists the others in `shadowed`.
+- **A record** says what an asset is (`kind`, and the `media` derived from
+  it), where it came from (`licence`, `credit`, `source`, and `made` when
+  our own tools made it), what it is for (`name`, `desc`, `tags`) and what
+  its bytes say (size, length, family, palette, `dark`, `room`). Kinds are
+  davidup's four (`image video audio font`) and hdf's seven (`cutout clip
+  puppet hand stock motif sample`).
+- **Every search hit carries `use`**: `use.davidup` is the exact
+  `register_asset` call (a pinned `asset:` src with the record's credit
+  and licence), or null for a kind davidup cannot take.
+
+davidup's side of it:
+
+| Symbol (`src/assets/library.ts`) | Does |
+|---|---|
+| `openAssetLibrary({ project, env, home, previewers })` | the standard shelves (`standardShelves`), `project` first when there is one; `project` defaults to `$DAVIDUP_PROJECT` |
+| `resolveLibraryAsset(src, opts)` | an `asset:` src → `{ path, record, shelf, root }`, or throws `AssetRefError` |
+| `AssetRefError` | `code`: `E_ASSET_INVALID` (bad ref, unreadable shelf), `E_ASSET_MISSING` (no such id; names the shelves searched), `E_ASSET_STALE` (the pin is not the record's sha) |
+| `assetProjectOf(dir)` | `dir` when it holds `assets/catalogue.json`: the render CLI takes the composition's directory as the project this way |
+
+The shelves are read on every call: a catalogue is a few KB, and a
+long-lived process (the editor, the MCP server) sees a record the moment
+`asset add` writes it. Who names the project: the render CLI
+(`assetProjectOf`, and `checkLibraryAssets` fails the render before the
+first frame on a missing or stale record), the editor (its open project),
+the MCP tools (the editor's project, else `$DAVIDUP_PROJECT`).
+
+Validation stays pure: `validate(comp, { checkAssetFile })` takes the disk
+check as a callback, and the MCP `validate` tool passes `assetFileProblem`
+(`src/assets/node.ts`), so an `asset:` or `global:` src with nothing behind
+it on this machine is a `W_ASSET_FILE_MISSING` warning there.
+
+The other readers of the same shelves:
+
+- **MCP** (`src/mcp/assets.ts`): `search_assets`, `get_asset`,
+  `get_asset_preview`, `add_asset`, `tag_asset`, `use_asset`, and the
+  library half of `list_library` / `get_library_thumbnail` (§9.4). They work
+  on the standalone server. Previews come from the hosts `loadHosts()`
+  finds (hdf's `handdrawn/cli/host.mjs` draws its seven kinds) plus
+  davidup's own for `image` and `font` (`src/mcp/assetPreviews.ts`), else
+  assetlib's card. `render_hdf_clip` puts what hdf made on a shelf with a
+  `made` block (`putDerived`, `src/mcp/hdf.ts`).
+- **The editor**: the Library panel's Assets and Fonts tabs list the
+  records davidup can take (`apps/editor/app/services/library_shelves.ts`),
+  uploads and promotes are `put` / `move` on a shelf
+  (`apps/editor/app/services/asset_pipeline.ts`,
+  `apps/editor/app/services/promote_library_item.ts`), and
+  `/asset-files/*` serves blobs (`apps/editor/app/services/asset_files.ts`)
+  from the three shelves' `blobs/` only.
+- **The `asset` bin** (`assetlib/cli.js`, `VERBS`): `find show add tag
+  desc rm mv gc facts thumb sheet ls check migrate remake export import`
+  from a terminal.
+- **hdf** (`handdrawn/core/assets.js`): `fromStore(ids)` reads the same
+  records; `hdf find/import/remove/gc` are the `asset` verbs.
+
+`global:` keeps working for files in the old `~/.davidup/library` pool;
+nothing new writes it (`asset check --legacy` lists the files there that
+are on no shelf, with the `asset add` line that moves each one over).
 
 ## 7. The dual-driver system
 
@@ -923,25 +1100,34 @@ The same handlers also work in-process for tests and tools.
 ### 9.1 Wire-up (`src/mcp/server.ts`)
 
 ```ts
-createServer({ store?, name?, version? })
+createServer({ store?, name?, version?, depsFactory?, router?, sessionTtlSeconds?, log? })
   → registers every TOOL with @modelcontextprotocol/sdk
   → wires up the stdio transport
   → returns { mcp, store, start(), close() }
 ```
 
-The CLI entry (`src/mcp/bin.ts`) is a one-liner:
+The CLI entry (`src/mcp/bin.ts`, the `davidup-mcp` bin) stays thin:
 
 ```ts
-#!/usr/bin/env bun
-import { createServer } from "./server.js";
-await createServer().start();
+#!/usr/bin/env node
+import { createServer, resolveSessionTtl } from "./server.js";
+const sessionTtlSeconds = resolveSessionTtl(process.argv.slice(2), process.env);
+await createServer({ sessionTtlSeconds }).start();
 ```
 
-`server.json` is the MCP manifest:
+`--session-ttl <seconds>` (or `$DAVIDUP_SESSION_TTL`) resets all state
+after that much idle time. The editor embeds the same server with a
+`depsFactory` (a fresh store per call from the canonical document, plus
+its `projectControls` / `libraryControls` / `renderControls`) and a
+`router` that sends mutating tools through its CommandBus.
+
+`server.json` is the MCP manifest; its `tools` array lists `TOOL_NAMES`
+in order (`tests/mcp/manifest.test.ts` holds it, the README's tool count
+and `examples/mcp-demo.md` to the catalog):
 
 ```json
 { "transport": { "type": "stdio" },
-  "command": "bun", "args": ["run", "src/mcp/bin.ts"] }
+  "command": "bun", "args": ["run", "src/mcp/bin.ts"], "tools": [ ... ] }
 ```
 
 Tool registration loops over `TOOLS` from `src/mcp/tools.ts`. Each
@@ -996,7 +1182,11 @@ substring-matching `message`.
 
 ### 9.4 The full tool catalog
 
-(All public tools — see code in `src/mcp/tools.ts` for input schemas.)
+66 tools, in `TOOLS` order by group (see `src/mcp/tools.ts` for input
+schemas and the full descriptions agents read). "Mutates" is the
+composition store; *shelf* means the tool writes an asset library shelf on
+disk; *editor* marks a tool that needs the editor to host the server and
+answers `E_FEATURE_UNAVAILABLE` on the standalone `davidup mcp` server.
 
 #### Composition lifecycle
 
@@ -1004,16 +1194,17 @@ substring-matching `message`.
 |----------------------------|----------|--------------------------------------------------|
 | `create_composition`       | yes      | New composition; first becomes default           |
 | `get_composition`          | no       | Full JSON snapshot                               |
-| `set_composition_property` | yes      | Patch width/height/fps/duration/background       |
-| `validate`                 | no       | Run validator; returns errors + warnings         |
-| `reset`                    | yes      | Drop one composition or all                      |
+| `set_composition_property` | yes      | Patch width/height/fps/duration/background/audioMaster/markers |
+| `validate`                 | no       | Run validator; errors + warnings (`W_ASSET_FILE_MISSING` for an `asset:`/`global:` src with no file here) |
+| `reset`                    | yes      | Drop one composition, or all plus the session's templates/scenes/behaviors |
+| `replace_composition`      | yes      | Swap the whole composition for a JSON document (authoring constructs expanded) |
 
 #### Assets
 
 | Tool             | Mutates? | Purpose                                            |
 |------------------|----------|----------------------------------------------------|
-| `register_asset` | yes      | Add image or font asset                            |
-| `list_assets`    | no       | Enumerate, in declaration order                    |
+| `register_asset` | yes      | Add an image, font, audio or video asset (ffprobe facts; an `asset:` src takes the record's facts; `replace: true` swaps in place) |
+| `list_assets`    | no       | Enumerate, in declaration order, with credit and licence |
 | `remove_asset`   | yes      | Unregister; `E_ASSET_IN_USE` if referenced         |
 
 #### Layers
@@ -1028,13 +1219,15 @@ substring-matching `message`.
 
 | Tool                  | Mutates? | Purpose                                       |
 |-----------------------|----------|-----------------------------------------------|
-| `add_sprite`          | yes      | Image item                                    |
-| `add_text`            | yes      | Text item                                     |
+| `add_sprite`          | yes      | Image item (a sprite sheet plays a `cycle`)   |
+| `add_text`            | yes      | Text item (`font` omitted ⇒ bundled `font:default`) |
 | `add_shape`           | yes      | Vector shape (rect / circle / polygon)        |
 | `add_group`           | yes      | Container for other items                     |
 | `update_item`         | yes      | Patch type-aware fields                       |
 | `move_item_to_layer`  | yes      | Move between layers                           |
 | `remove_item`         | yes      | Delete + cascade tweens; detach from groups   |
+| `add_video`           | yes      | Video clip item (trim, fit, loop, keepAudio)  |
+| `update_video`        | yes      | Patch any field of a video item               |
 
 #### Tweens
 
@@ -1045,26 +1238,37 @@ substring-matching `message`.
 | `remove_tween` | yes      | Delete                                                 |
 | `list_tweens`  | no       | Filter by target/property                              |
 
+#### Audio
+
+| Tool                 | Mutates? | Purpose                                            |
+|----------------------|----------|----------------------------------------------------|
+| `add_audio_track`    | yes      | Place a registered audio asset on the timeline     |
+| `update_audio_track` | yes      | Patch a track (volume, fades, trim, loop, markers) |
+| `remove_audio_track` | yes      | Delete a track                                     |
+| `list_audio_tracks`  | no       | Enumerate, optionally by asset                     |
+
 #### Behaviors (composability)
 
-| Tool              | Mutates? | Purpose                                                       |
-|-------------------|----------|---------------------------------------------------------------|
-| `apply_behavior`  | yes      | Expand a named behavior to tweens; atomic, rolls back on err  |
-| `list_behaviors`  | no       | Enumerate registered behaviors                                |
+| Tool                   | Mutates? | Purpose                                                       |
+|------------------------|----------|---------------------------------------------------------------|
+| `apply_behavior`       | yes      | Expand a named behavior to tweens; atomic, rolls back on err  |
+| `list_behaviors`       | no       | Built-ins, library behaviors and this session's               |
+| `define_user_behavior` | yes      | Register a session-scoped behavior                            |
 
 #### Templates (composability)
 
 | Tool                    | Mutates? | Purpose                                                    |
 |-------------------------|----------|------------------------------------------------------------|
 | `apply_template`        | yes      | Instance a template — adds items+tweens atomically         |
-| `list_templates`        | no       | Enumerate built-in + user-defined                          |
-| `define_user_template`  | yes      | Register custom template (global registry, last-write-wins)|
+| `list_templates`        | no       | Enumerate built-in + library + session templates           |
+| `define_user_template`  | yes      | Register a session-scoped template (shadows a global id)   |
+| `remove_user_template`  | yes      | Drop a session template                                    |
 
 #### Scenes (composability)
 
 | Tool                     | Mutates? | Purpose                                                                |
 |--------------------------|----------|------------------------------------------------------------------------|
-| `define_scene`           | yes      | Register scene in global registry                                      |
+| `define_scene`           | yes      | Register a session-scoped scene                                        |
 | `import_scene`           | yes      | Read scene JSON from file + register                                   |
 | `list_scenes`            | no       | Enumerate                                                              |
 | `remove_scene`           | yes      | Unregister (existing instances already lowered are not affected)       |
@@ -1076,11 +1280,51 @@ substring-matching `message`.
 
 | Tool                     | Mutates? | Purpose                                                    |
 |--------------------------|----------|------------------------------------------------------------|
-| `render_preview_frame`   | no       | Single frame → base64 PNG/JPEG                             |
+| `render_preview_frame`   | no       | Single frame → MCP image content (PNG/JPEG)                |
 | `render_thumbnail_strip` | no       | N uniformly-sampled frames (linspace; midpoint if N=1)     |
-| `render_to_video`        | no¹      | Full clip → MP4 via Node driver                            |
+| `render_to_video`        | no¹      | Full clip or a `from`/`to` window → MP4 / MOV / WebM; queued in the editor, blocking standalone |
+| `get_render`             | no       | *editor* — one render job's status, progress, result      |
+| `list_renders`           | no       | *editor* — the render queue, newest first                  |
+| `cancel_render`          | no       | *editor* — cancel a non-terminal job                       |
+| `render_hdf_clip`        | yes, shelf | Render a hand-drawn film (hdf) and register it as a video (and sprite sheets); the clip goes on a shelf with a `made` block (needs `handdrawn/` beside davidup) |
 
 ¹ writes a file to disk; no store mutation.
+
+#### Projects
+
+| Tool              | Mutates? | Purpose                                              |
+|-------------------|----------|------------------------------------------------------|
+| `current_project` | no       | *editor* — the loaded project (root, paths)          |
+| `list_projects`   | no       | *editor* — recently opened projects                  |
+| `open_project`    | yes      | *editor* — load a project directory                  |
+| `create_project`  | yes      | *editor* — scaffold a project from a template and load it |
+
+#### Library
+
+| Tool                    | Mutates? | Purpose                                                    |
+|-------------------------|----------|------------------------------------------------------------|
+| `list_library`          | no       | The editor's templates/behaviors/scenes/assets/fonts (*editor*) plus the asset library's records davidup can take as `asset`/`font` (standalone too) |
+| `get_library_thumbnail` | no       | A PNG preview of one `list_library` item (asset/font records standalone too) |
+
+#### Asset library (§6.3; all work standalone)
+
+| Tool                | Mutates? | Purpose                                                    |
+|---------------------|----------|------------------------------------------------------------|
+| `search_assets`     | no       | Ranked, faceted search over the project, user and house shelves; every hit carries `use` |
+| `get_asset`         | no       | One record in full: shelves, blob, thumb, `made.from` / `made.into`, `use` |
+| `get_asset_preview` | no       | A record's preview, or a captioned contact sheet of several, as MCP image content |
+| `add_asset`         | shelf    | Put a file on a shelf (hashed, probed, validated), or move a record between shelves |
+| `tag_asset`         | shelf    | Edit tags, name, desc, credit, source, licence in place; bytes untouched |
+| `use_asset`         | yes      | Register a record by its pinned `asset:` src and place it (sprite, video, audio track; a font is registered only) |
+
+#### Discovery
+
+| Tool                       | Mutates? | Purpose                                              |
+|----------------------------|----------|------------------------------------------------------|
+| `list_easings`             | no       | Named easings and the `{ bezier }` / `{ steps }` forms |
+| `list_fonts`               | no       | The bundled `font:default`, the composition's fonts, the asset library's font records |
+| `list_engine_capabilities` | no       | Schema version, easings, blend modes, item types, containers, tweenable paths, `server.flavor`, hdf films, in one call |
+| `get_source_map`           | no       | The precompiled composition plus each id's authorship trail (`file`, `jsonPointer`, `originKind`) |
 
 ### 9.5 Visual-feedback rendering (`src/mcp/render.ts`)
 
@@ -1221,6 +1465,12 @@ is bit-deterministic.
 |-----------------------------------|---------------------|------------------------------------------------------------|
 | `E_SCHEMA`                        | validator           | Zod parse failed                                           |
 | `E_ASSET_MISSING`                 | validator           | sprite.asset / text.font references unknown id or wrong type|
+| `E_ASSET_MISSING`                 | library / MCP       | an `asset:` src or a library tool names an id no shelf holds (the shelves searched are named) |
+| `E_ASSET_STALE`                   | library / render    | an `asset:<id>@<sha12>` pin is not the record's sha any more |
+| `E_ASSET_INVALID`                 | library             | not `asset:<id>[@<hex>]`, or a shelf that cannot be read   |
+| `E_ASSET_TYPE_MISMATCH`           | store / MCP         | an asset of the wrong type for the item or track, or a record davidup cannot take |
+| `W_ASSET_CREDIT`                  | validator (warning) | a CC-BY or CC-BY-SA asset carries no `credit`              |
+| `W_ASSET_FILE_MISSING`            | validator (warning) | an `asset:` / `global:` src with no file behind it on this machine (MCP `validate`) |
 | `E_ITEM_MISSING`                  | validator           | layer/group/tween references unknown item id               |
 | `E_PROPERTY_INVALID`              | validator           | property not tweenable on item type                        |
 | `E_VALUE_KIND`                    | validator           | from/to type mismatch (number vs color)                    |
@@ -1311,6 +1561,22 @@ is bit-deterministic.
 4. Throw `MCPToolError(code, message, hint?)` for stable errors.
 5. Tests in `tests/mcp/` — every new tool gets success path + every
    error code path + idempotency check.
+6. Add the name to `server.json`'s `tools` (in `TOOLS` order) and bump the
+   tool count in `README.md` and `examples/mcp-demo.md` (and its catalog
+   table); `tests/mcp/manifest.test.ts` fails until all three agree. Add
+   its row to §9.4 here.
+
+### Adding an asset kind or a library field
+
+1. The record lives in `assetlib/record.js` (`KINDS`, `SCHEMAS`, the
+   kind's `media`) and `assetlib/index.d.ts`; `assetlib/README.md` says
+   what it means.
+2. What davidup takes it as is `assetlib/use.js` (`DAVIDUP_TYPE`), which
+   `use_asset`, `register_asset`'s `asset:` path and the editor's Library
+   panel all read.
+3. A preview is a host's previewer (`src/mcp/assetPreviews.ts` for
+   davidup, `handdrawn/cli/previews.mjs` for hdf); anything without one
+   gets assetlib's card.
 
 ### Adding a new compile pass (e.g., new authoring primitive)
 

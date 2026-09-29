@@ -1029,6 +1029,28 @@ CLI, the API, the `use` contract); `DAVIDUP_V1_REVIEW.md` roadmap row for
 the shared brand kit points here. **Done when** every path and symbol named
 in those sections exists.
 
+*As built:* `ARCHITECTURE.md` §3.1 is the composition as it is now (four
+asset types with their schemas, the five item types, `audio[]`, the src
+forms); §6 is rewritten around a src table (`asset:` / `global:` /
+`bundled:` / path, Node and browser), the loaders (image and font only;
+video and audio go through `videoExtract` / `audioMux`), `asset:` pins and
+the library (`library.ts` symbols, who names the project, the other
+readers); §9.1's wire-up is the current `bin.ts`; §9.4 lists all 66 tools
+in 16 groups, marking the editor-only ones and those that write a shelf;
+§12 gains the library's error codes; §13 gains the manifest step for a new
+tool and "Adding an asset kind". §2 lists `assetlib/`, `assets/`,
+`handdrawn/`, `apps/editor/`. `COMPOSITION_PRIMITIVES.md` §12.4 says the
+path rewriting there was never built and that library assets are pinned
+`asset:` srcs. `assetlib/README.md` already covered shelves, API, CLI and
+`use`; it gains the record (envelope, the kind/media/fields/davidup-type
+table, ids) and "Who reads it". The review's Team row points at the plan
+and the README. Every path and backticked symbol in those sections was
+checked against the tree by a script. Also fixed: a stray `bin` key inside
+`assetlib/package.json`'s `exports["."]` (from A6; harmless, Node ignored
+it as an unknown condition). Left alone: §13's older "Adding a new item
+type/behavior" steps name `getItemSize` and `BUILT_IN_BEHAVIORS`, which no
+longer exist; they predate this plan.
+
 ---
 
 ## 11. The acceptance piece
@@ -1088,7 +1110,7 @@ then D and E in parallel, I when D4 exists, S last.
 | I3 | Packs as tarballs | 0.5 | A2 | [x] |
 | H5 | The skill and the README | 0.5 | H2 H4 I2 | [x] |
 | S1 | The davidup agent story | 0.5 | D3 I2 | [x] |
-| S2 | Architecture and design docs | 0.5 | all | [ ] |
+| S2 | Architecture and design docs | 0.5 | all | [x] |
 
 Twenty-six sessions, about 21 days. The spine (what the acceptance piece
 needs) is A1 A2 A3 A5 D1 D2 D3 H1 D4 I2: ten sessions, about nine days;

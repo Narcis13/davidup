@@ -7,9 +7,6 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
-  "bin": {
-    "asset": "./cli.js"
-  },
       "default": "./index.js"
     },
     "./*": "./*"
