@@ -669,6 +669,21 @@ data). `references/assets.md` updated. `handdrawn/README.md` §"The asset
 store" points at `assetlib/README.md`. **Done when** the skill names no
 command that does not exist and the README section is under a page.
 
+*As built:* the skill's store section describes the shelves (a davidup
+project, the user's pool, the house; `hdf find` searches the last two,
+`fromStore` reads the house unless given `{ from }`), lists `hdf find`
+with its filters, `asset ls`, `asset show`, `asset sheet`, and tells the
+agent to copy the `use` block. Setup says `asset` is `node
+../assetlib/cli.js` from `handdrawn/` when the bin is not linked. Command
+lines that named `assets/src/...` from `handdrawn/` now name
+`../assets/src/...`. `references/assets.md` gained the house's davidup kinds,
+`made`/`remake` and the 15 MB budget; its pack-cel line was wrong (a pack
+cel is found as its `pack:` mirror). The README section is 46 lines and its
+tree no longer lists `handdrawn/assets/`. `handdrawn/test/skilldoc.test.js`
+holds the done-when: every `hdf <cmd>` / `asset <verb>` in code in the skill
+and the README is in `COMMANDS` (now exported from `cli/hdf.mjs`) or
+`VERBS`, and the skill has no inventory paragraph.
+
 ---
 
 ## 8. The editor (E)
@@ -1050,7 +1065,7 @@ then D and E in parallel, I when D4 exists, S last.
 | I1 | `made` and `asset remake` | 1 | D4 | [x] |
 | I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [x] |
 | I3 | Packs as tarballs | 0.5 | A2 | [x] |
-| H5 | The skill and the README | 0.5 | H2 H4 I2 | [ ] |
+| H5 | The skill and the README | 0.5 | H2 H4 I2 | [x] |
 | S1 | The davidup agent story | 0.5 | D3 I2 | [ ] |
 | S2 | Architecture and design docs | 0.5 | all | [ ] |
 

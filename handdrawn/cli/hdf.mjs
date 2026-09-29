@@ -149,7 +149,7 @@ const USAGE = `usage: hdf <command> [args] [flags]
   lint    packs/<pack>.js           a pack: pack-mirror findings, one per cel whose mirror is missing or stale
 `;
 
-const COMMANDS = ['render', 'cues', 'grid', 'only', 'board', 'sheet', 'sprite', 'script', 'lint', 'changed', 'golden',
+export const COMMANDS = ['render', 'cues', 'grid', 'only', 'board', 'sheet', 'sprite', 'script', 'lint', 'changed', 'golden',
   'dev', 'bundle', 'photo', 'clip', 'retarget', 'stick', 'sketch', 'align', 'import', 'svg', 'hand', 'find', 'remove', 'gc', 'donate'];
 
 export { loadFilm, UsageError };

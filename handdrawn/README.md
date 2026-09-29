@@ -685,33 +685,30 @@ surface, `photoFront` lays part of it back over a drawing, and
 ### The asset store
 
 Anything a film did not draw in code -- a cutout, a traced clip, a puppet, a
-hand, a paper stock, a motif, a sample -- lives in `assets/`, once, addressed
-by the sha of its own bytes:
+hand, a paper stock, a motif, a sample -- lives once, by id, in the asset
+library davidup shares: `assetlib/` at the repo root, whose
+[README](../assetlib/README.md) is the model, the shelves, search, previews,
+the `use` block and the `asset` CLI. hdf's store is its **house shelf**,
+`<repo>/assets/` (`catalogue.json`, `blobs/<sha256>.<ext>`, `thumbs/`,
+`sheets/`, `src/`), in git and in the npm package; `hdf find` also searches
+the user's `~/.davidup/assets`.
 
 ```bash
 hdf import work/teapot.png --kind cutout --name teapot --licence CC0 --credit "The Met" --source <url>
 hdf find teapot                     # ranked: id, kind, licence, what it takes, why it matched, its sheet and credit
-hdf find --kind puppet              # the whole kind
 hdf find --look paperInk            # what a look can use (stocks and hands)
-asset thumb --all                   # a picture per entry, drawn by hdf (cli/previews.mjs), in assets/thumbs/
-asset sheet fox teapot hershey-script --out out/candidates.png   # several in one look
+asset ls --shelf house              # what the house holds
+asset show teapot                   # one record and the code that brings it into a film (or a composition)
+asset sheet fox teapot hershey-script --out out/candidates.png   # several thumbs in one look
 ```
 
-`assets/catalogue.json` holds one entry per id (`kind`, `sha`, `licence`,
-`box`, and for a cutout its `w`, `h`, `sil`, `colours`, and `dark` and `room`,
-how dark it is and how busy each third of it is, which `asset find --room`
-filters on);
-`assets/blobs/<sha>.{webp,png,json}` holds the payload, so two imports of the
-same file are one blob. `hdf import` validates the payload against its kind's
-schema (`core/assets.js`) before anything is written, and `--licence` is
-closed: `CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`.
-
-The thumbs are hdf's previewers (`cli/previews.mjs`, registered with the asset
-library by `cli/host.mjs`, which `asset` and davidup find next to `assetlib/`):
-a puppet at rest or its turnaround, a hand's pangram, a motif, a cutout with
-its silhouette traced round it, four frames of a clip as sticks, a sample's
-waveform under its words, a stock at 1:1 under a pen stroke. They are 480 x 320
-in paperInk and gitignored; `hdf sheet store <id>` stays the full check sheet.
+`hdf find`, `import`, `remove` and `gc` are `asset find`, `add`, `rm` and
+`gc` with hdf's side kept: `hdf import` validates the payload against its
+kind's schema (`core/assets.js`) and traces a cutout's silhouette before
+anything is written, and `--licence` is closed (`CC0 | CC-BY | CC-BY-SA |
+OFL | PD | own | unknown`). The thumbs are hdf's previewers
+(`cli/previews.mjs`, registered by `cli/host.mjs`), so `asset` and davidup
+draw hdf's pictures; `hdf sheet store <id>` stays the full check sheet.
 
 A film names store assets instead of inlining them. `fromStore` reads the
 records at the top of the module, `assets` declares the ids for the loader:
@@ -725,16 +722,11 @@ const PHOTOS = fromStore(IDS);                       // { teapot: record, watch:
 export default film({ name, look, timeline, score, assets: IDS });
 ```
 
-`cli/load.mjs` resolves those ids through the store next to the package (or
-`{ id, from: '../other-store' }`), rebuilds the record `pin()` and
-`derive({ from })` expect, and decodes each blob once per process. The 2.0
-shape -- `assets` as an object of records -- still loads unchanged, and
-`hdf lint` warns about any of them carried as a data URL.
-
-`hdf import --v2 <photos.js|clips.js>` migrates a 2.0 data module: one entry
-per record, the pixels (or the poses) as the blob, the silhouette, the colours
-table and the provenance in the entry. The bytes are kept exactly as they came,
-so nothing on screen moves.
+`cli/load.mjs` resolves the ids on the house shelf (or `{ id, from:
+'../other-store' }`) and decodes each blob once per process. The 2.0 shape
+-- `assets` as an object of records -- still loads, `hdf lint` warns about
+any carried as a data URL, and `hdf import --v2 <photos.js|clips.js>` moves
+them into the store with their bytes untouched.
 
 ### Puppets
 
@@ -2019,7 +2011,7 @@ handdrawn/
     assets.web.js  its browser twin: the records hdf dev / hdf bundle put on the page
     store.js       the registry fromStore fills, read back by id (browser-safe)
     index.js       the author-facing surface
-  assets/        catalogue.json, blobs/<sha>.{webp,json}, src/ (authored payloads), sheets/ (gitignored)
+  (../assets/)   the store: the library's house shelf at the repo root (catalogue.json, blobs/, src/, sheets/ and thumbs/ gitignored)
   engines/       traced.js  sim.js  stage3d.js
   recipes/       shots.js (A–Z)  doodle.js (AA–AM)  score.js (motifs)  sfx.js (effects, bed)  book.js (book3)
   packs/         creatures.js  objects.js  tech.js  manifest.json  sheets/

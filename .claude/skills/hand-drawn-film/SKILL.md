@@ -12,8 +12,9 @@ the module into storyboards, cel sheets, lint findings, grids, an mp4 with its
 score, and a single-file HTML player.
 
 3.0 adds an **asset store**: anything a film does not draw in code (a cutout
-photo, a traced clip, a puppet, a handwriting, a motif) lives in
-`handdrawn/assets/` once, by id, and a film names the ids. A **puppet** is a
+photo, a traced clip, a puppet, a handwriting, a motif) lives once, by id, in
+the asset library davidup shares (the house shelf is `<repo>/assets/`), and a
+film names the ids. A **puppet** is a
 cel whose drawing is data, an **actor** is a puppet (or a code cel) that any
 recipe can direct, and a **hand** is a set of glyphs and a pen profile a look
 letters and draws in. The rule that follows from it: **`hdf find` before
@@ -60,9 +61,11 @@ node cli/hdf.mjs find --kind puppet     # what the store holds before you draw a
 ```
 
 Every command below runs from `handdrawn/`, as `node cli/hdf.mjs <cmd>`
-(written `hdf <cmd>` for short). Outputs land in `handdrawn/out/`
-(`out/<film>.thumbs/` and `.hashes.json` are `hdf changed`'s state); check
-sheets of store assets land in `handdrawn/assets/sheets/` (gitignored).
+(written `hdf <cmd>` for short). `asset <verb>` is the library's own CLI, the
+repo's `asset` bin: `node ../assetlib/cli.js <verb>` from `handdrawn/` when it
+is not on PATH. Outputs land in `handdrawn/out/` (`out/<film>.thumbs/` and
+`.hashes.json` are `hdf changed`'s state); check sheets of store assets land
+in the house shelf's `sheets/` (`../assets/sheets/`, gitignored).
 
 A film in `work/<film>/<film>.js` imports the package by name (package.json
 self-reference exports; any file inside `handdrawn/` can do this):
@@ -146,28 +149,49 @@ cards and badges.
 
 ## The store
 
-`handdrawn/assets/catalogue.json` is one entry per id; `assets/blobs/<sha>`
-is the payload. Kinds: `cutout` (a photo cut out, with its silhouette and
-colours), `clip` (traced poses, with a skeleton when rigged), `puppet`,
-`hand`, `stock`, `motif`, `sample`. Every entry has a closed `licence`
-(`CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`) and a credit.
+The store is the asset library davidup shares (`assetlib/`, its README): a
+**shelf** is a folder of `catalogue.json` (one entry per id), `blobs/<sha256>`
+and `thumbs/`. Shelves are searched in order, the first holding an id
+winning: a davidup project's `assets/` (`asset --project <dir>`), the user's
+`~/.davidup/assets` (`$DAVIDUP_ASSETS`) and the **house** shelf
+`<repo>/assets/` (`$DAVIDUP_HOUSE`), in git; `hdf find` searches the last
+two, and `fromStore` reads the house unless told `{ from }`. hdf's kinds are
+`cutout` (a photo cut out, with its silhouette and colours), `clip` (traced
+poses), `puppet`, `hand`, `stock`, `motif`, `sample`; davidup's `image`,
+`video`, `audio` and `font` share the shelves (a puppet's sprite sheet, a
+hand as a TTF, the music beds) and are for compositions. Every entry has a
+closed `licence` (`CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown`) and a
+credit.
 
 ```bash
-hdf find teapot                    # ranked (asset find): id, kind, licence, what it takes, why it matched, its sheet, its credit
+hdf find warm paper                # ranked: id, kind, licence, what it takes, why it matched, its sheet, its credit
+hdf find fox --kind puppet,clip    # every asset find filter works too: --media --tags --licence --dark --room top
 hdf find --kind puppet             # the whole kind; a pack cel is found as its mirror (pack:<cel>)
 hdf find --look paperInk           # what a look can use: stocks and hands (doodlePastel: cutouts too)
-asset sheet fox teapot cup         # one contact sheet of thumbs (hdf's pictures: pose, pangram, waveform...) to compare candidates
-hdf sheet store fox                # a puppet: every look x pose x variant x 3 scales, cycles as strips
-hdf sheet store fox --poses        # the model sheet: turnaround, expressions, hands and feet, poses, cycles, credits
+asset ls --shelf house             # what the house holds, one line each (--kind hand for one kind)
+asset show fox                     # one record: its facts, shelf, what made it and what was made from it, its use
+asset sheet fox teapot cup --out out/candidates.png   # one contact sheet of thumbs (pose, pangram, waveform...)
+hdf sheet store fox [--poses]      # a puppet's full check sheet, or its model sheet
 hdf import <file> --kind <kind> --name <id> --licence CC0 --credit "..." --source <url>
 ```
 
-What it holds today: the **fox** (nine parts, three views, poses `rest wave
-asleep`, cycles `walk run gallop`); cutouts from The Met (`teapot cup helmet
-hourglass lantern violin watch`, CC0); Muybridge clips (`horse elephant
-kangaroo pigeons`, PD; the horse rigged); the `test` hand; and a mirror of
-every pack cel (`pack:boat`, `pack:teapot`, ...) so `puppet('pack:teapot')`
-draws without importing the pack.
+**What the store holds is data**: run `asset ls --shelf house` (or `hdf find
+--kind <kind>`) rather than trusting a list written down. Every pack cel has
+a mirror there, so `puppet('pack:teapot')` draws without importing the pack.
+`hdf find`, `hdf
+import`, `hdf remove` and `hdf gc` are `asset find/add/rm/gc` with hdf's side
+kept (a cutout's silhouette traced, a puppet linted at import, the house as
+the shelf they write, `--root <dir>` for a store elsewhere); `asset help`
+lists the other verbs (`tag`, `desc`, `check`, `remake`, `export`, ...).
+
+**Copy the `use` block.** Every hit (`hdf find --json`) and `asset show <id>`
+ends with the exact call for each app: for hdf, `fromStore(['<id>'])` to read
+it, `take` to put it to work (`actorOf(puppet('fox'))`,
+`clipFromStore('horse')`, a cutout pinned, `voice(id, 0)`) and `look` for a
+hand or a cutout's colours (`paperInk~hand:test`, `doodlePastel~from:teapot`);
+a record off the house shelf comes with its `{ from }`, in the code and in
+`assets` (`{ id, from }`). Name the id in `assets:`. The davidup line is the `register_asset` call a composition takes
+it by (a puppet through its sprite sheet, a hand through its font).
 
 A film names ids in `assets:` and reads them with `fromStore(IDS)` at the
 top. A 2.0 film that inlines a data URL still loads; lint warns and `hdf
@@ -479,7 +503,7 @@ github.com/kamalmostafa/hershey-fonts (`hershey-fonts/*.jhf`):
 
 ```bash
 hdf hand --hershey greeks.jhf --name hershey-greek          # --map ascii | greek | cyrillic when the name does not say
-hdf hand --hershey assets/src/hershey/romans.jhf --merge hershey-cyrillic --name ru-en   # Latin added, its own glyphs kept
+hdf hand --hershey ../assets/src/hershey/romans.jhf --merge hershey-cyrillic --name ru-en   # Latin added, its own glyphs kept
 ```
 
 Lint `hand-missing` also fails a sign-off with letters no glyph draws, which
