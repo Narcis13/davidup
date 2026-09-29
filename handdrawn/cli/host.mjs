@@ -5,9 +5,12 @@
 // Previewers: one per kind hdf draws, all named hdf at PREVIEW_VERSION, so a thumb says `hdf@1`. Adds (D3): what
 // `hdf import` hands assetlib's addAsset (cli/import.mjs HOST: a cutout's silhouette traced, a puppet linted and
 // boxed, hdf's checks, skia's pixels), so `asset add` and davidup's add_asset put a cutout as hdf would.
+// Makers (I1): how `asset remake` makes again what hdf made, by the tool in the record's made block (makers.mjs).
 // Loading this module is cheap; the drawing (cli/previews.mjs) and the import side (cli/import.mjs), and skia
 // with them, are imported on the first thumb or the first add.
 // Bump PREVIEW_VERSION when a picture changes: every thumb hdf drew before is redrawn, and no other host's is.
+import { makers } from './makers.mjs';
+
 export const PREVIEW_VERSION = 1;
 
 // The seven kinds hdf draws (core/assets.js KINDS; test/previews.test.js holds the two lists equal).
@@ -25,4 +28,6 @@ let importing;
 const side = () => (importing ??= import('./import.mjs').then((m) => m.HOST));
 export const adds = Object.fromEntries(KINDS.map((k) => [k, side]));
 
-export default { name: 'hdf', previewers, adds };
+export { makers };
+
+export default { name: 'hdf', previewers, adds, makers };

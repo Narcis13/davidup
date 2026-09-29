@@ -17,6 +17,7 @@
 //   await lib.refresh('paper', { probes });   // colours, dark, room read off the blob when the entry lacks them
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
+//   await remake(lib, 'hdf-mini', { makers });   // the tool in its made block, run again; the blob replaced in place
 //
 // Plain ESM, zero dependencies: hdf imports it as it is, davidup through index.d.ts. Anything heavier (a
 // probe, a previewer, a ranker) is injected by the host.
@@ -31,14 +32,15 @@ import { SCHEMAS, mediaOf } from './record.js';
 import { searchIndex } from './search.js';
 import { newest, useOf } from './use.js';
 
-export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
+export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, MADE_KEYS, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
 export { FROM_BYTES, readShelf, sha } from './catalogue.js';
 export { DARK_LUMA, ROOM, ROOM_CELLS, ROOM_SIZE, colours, imageInfo, imageType, lightFacts, meanLuma, quantise, roomOf, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
 export { HOUSE_BLOB_MAX, HOUSE_BUDGET, LEGACY_DIRS, LEVELS, RULES, check, gitIgnored, houseFindings, legacyFindings } from './check.js';
 export { migrateSha256 } from './migrate.js';
-export { KNOWN_HOSTS, addHost, loadHosts } from './hosts.js';
+export { KNOWN_HOSTS, addHost, loadHosts, maker } from './hosts.js';
+export { KEPT, recipeOf, remake } from './remake.js';
 export { defaultProbes } from './probe.js';
 export { DARK, EXACT_ID, HUES, ROOM_REGIONS, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 

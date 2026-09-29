@@ -11,6 +11,7 @@
 //   asset facts --all --shelf house           colours, dark and room for the records that lack them (D6)
 //   asset ls --shelf house                    asset check
 //   asset migrate --sha256 house              rehash a shelf's sha1 blobs as sha256 (H1)
+//   asset remake hdf-mini                     run the tool that made it again, the blob replaced in place (I1)
 //
 // The shelves are the standard three (index.js standardShelves): `--project <dir>` opens <dir>/assets as the
 // project shelf; $DAVIDUP_ASSETS and $DAVIDUP_HOUSE move the user's pool and the house. A write goes to
@@ -20,8 +21,9 @@
 // (add.js, re-exported here) the one way in. A host (hdf's find/import/remove/gc since H2, davidup) passes what it knows better: `probes`
 // (over probe.js's), `previewers`, `derive` ({ kind: (bytes, { file, entry }) -> fields }, over DERIVE),
 // `fields` (validate()'s per-kind checks), `adds` (hosts' add sides by kind, loadHosts; the bin finds hdf's, so
-// `asset add x.png --kind cutout` traces the silhouette), `by` (the door an add came in by) and `library` (a
-// library it opened itself); tests pass `out`, `err`, `env`, `cwd` and `home`.
+// `asset add x.png --kind cutout` traces the silhouette), `makers` (the tools `remake` runs, by made.tool; the bin
+// finds hdf's), `by` (the door an add came in by) and `library` (a library it opened itself); tests pass `out`,
+// `err`, `env`, `cwd` and `home`.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
@@ -30,6 +32,7 @@ import { DERIVE, addAsset, idOf } from './add.js';
 import { check, houseFindings, LEVELS } from './check.js';
 import { addHost, loadHosts } from './hosts.js';
 import { defaultProbes } from './probe.js';
+import { remake } from './remake.js';
 import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, migrateSha256, openLibrary, readShelf, standardShelves } from './index.js';
 
 export const USAGE = `asset: the asset library shared by davidup and hdf (docs/asset-library-plan.md)
@@ -68,15 +71,18 @@ usage: asset <verb> [args] [--project <dir>] [--json]
                                     no git-ignored blob that is not made, 15 MB in all that ships
   migrate --sha256 <shelf | dir> [--dry]   rename a shelf's sha1 blobs by their sha256 (bytes kept; a JSON
                                     payload naming another blob's sha1 names its sha256) and rewrite the entries
+  remake  <id...> [--shelf]         make a record again with the tool its made.tool names (hdf render, hdf
+                                    sprite, hdf hand --export-ttf, hdf sheet store: hdf's makers), the blob
+                                    replaced in place; says whether the sha changed
 
 shelves: project (--project <dir>: <dir>/assets), user ($DAVIDUP_ASSETS, else ~/.davidup/assets),
          house ($DAVIDUP_HOUSE, else the repo's store). kinds: ${KINDS.join(' ')}
          licences: ${LICENCES.join(' ')}
-hosts:   previews are drawn by hdf (handdrawn/cli/host.mjs) when it is next to this package, and by the
-         modules $ASSETLIB_HOSTS names ('-' first: those alone)
+hosts:   previews are drawn, and made assets made again, by hdf (handdrawn/cli/host.mjs) when it is next to
+         this package, and by the modules $ASSETLIB_HOSTS names ('-' first: those alone)
 `;
 
-export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'facts', 'thumb', 'sheet', 'ls', 'check', 'migrate'];
+export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'facts', 'thumb', 'sheet', 'ls', 'check', 'migrate', 'remake'];
 
 export class UsageError extends Error {}
 const usage = (msg) => new UsageError(msg);
@@ -425,6 +431,19 @@ export const verbs = {
     lines.push(`${out.blobs.length} blob${out.blobs.length === 1 ? '' : 's'}, ${n} entr${n === 1 ? 'y' : 'ies'} on ${shelf.name}${dry ? ' (dry run: nothing written)' : ' rehashed as sha256'}`);
     return { code: 0, data: out, text: `${lines.join('\n')}\n` };
   },
+
+  async remake(ctx, args, flags) {
+    if (!args.length) throw usage('remake: need <id...>');
+    const lib = ctx.lib(), shelf = str(flags, 'shelf'), done = [], lines = [], warnings = [];
+    const w = Math.max(...args.map((r) => r.length));
+    for (const ref of args) {
+      const out = await remake(lib, ref, defined({ shelf, makers: ctx.host.makers, host: ctx.host }));
+      done.push({ id: out.id, shelf: out.shelf, tool: out.tool, was: out.was, sha: out.sha, changed: out.changed, path: out.path, removed: out.removed });
+      warnings.push(...out.warnings);
+      lines.push(`${pad(ref, w)}  ${pad(out.shelf, 8)} ${pad(out.tool, 12)} ${out.changed ? `${short(out.was)} -> ${short(out.sha)}  changed` : `${short(out.sha)}  same bytes`}`);
+    }
+    return { code: 0, data: done, warnings, text: `${lines.join('\n')}\n` };
+  },
 };
 
 // A room grid on one line, a row a third: "tl t tr / l c r / bl b br" as numbers.
@@ -440,6 +459,7 @@ const NEXT = {
   tags: 'asset tag <id> +tag',
   shadow: 'asset rm --shelf, or asset mv',
   duplicate: 'asset mv collapses them',
+  made: 'put the source back on a shelf, or asset remake to record what it is made from now',
 };
 
 // ---------- main ----------
@@ -483,7 +503,7 @@ export async function main(argv = process.argv.slice(2), host = {}) {
     if (host.discover) {
       const found = await loadHosts(defined({ env: host.env, cwd: host.cwd }));
       for (const w of found.warnings) err.write(`warning: ${w}\n`);
-      host = { ...host, previewers: { ...found.previewers, ...host.previewers }, adds: { ...found.adds, ...host.adds } };
+      host = { ...host, previewers: { ...found.previewers, ...host.previewers }, adds: { ...found.adds, ...host.adds }, makers: { ...found.makers, ...host.makers } };
     }
     const res = await run(verb, parsed, host);
     for (const w of res.warnings ?? []) err.write(`warning: ${w}\n`);

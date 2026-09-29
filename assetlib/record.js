@@ -61,6 +61,22 @@ const align = { opt: true, why: 'word timing: { text, by, words: [[text, t0, t1]
 const mouth = { opt: true, why: "mouth shapes: { by, shapes: 'XBDCA...' }", ok: (v) => !!v && typeof v === 'object' && isStr(v.shapes) };
 const track = { opt: true, why: "a track's kind (hdf: 'face' | 'hands')", ok: (v) => isStr(v) && v.length > 0 };
 
+// How an asset our own tools made was made (I1): the tool that made it (the key `asset remake` finds its maker
+// by), the ids it was made from, the arguments that make it again, when (ISO time) and by which version of
+// the maker. Only `tool` is required; a remake fills in `at` and `version`. null says nothing made it.
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+export const MADE_KEYS = Object.freeze(['tool', 'from', 'args', 'at', 'version']);
+const made = {
+  opt: true,
+  why: '{ tool, from: [ids], args: {}, at: ISO time, version: an integer > 0 or a string }, or null',
+  ok: (v) => v === null || (isObj(v) && isStr(v.tool) && v.tool.trim().length > 0
+    && Object.keys(v).every((k) => MADE_KEYS.includes(k))
+    && (v.from === undefined || (isStrs(v.from) && v.from.every((id) => ID.test(id))))
+    && (v.args === undefined || isObj(v.args))
+    && (v.at === undefined || (isStr(v.at) && !Number.isNaN(Date.parse(v.at))))
+    && (v.version === undefined || posInt.ok(v.version) || (isStr(v.version) && v.version.length > 0))),
+};
+
 // Fields any record may carry, whatever its kind. `file` is the name the payload came in as (hdf requires it
 // on its own entries; a davidup upload may not know one).
 const COMMON = {
@@ -69,7 +85,7 @@ const COMMON = {
   bytes: opt({ why: 'an integer >= 0', ok: (v) => Number.isInteger(v) && v >= 0 }),
   added: opt({ why: 'a date, YYYY-MM-DD', ok: (v) => isStr(v) && /^\d{4}-\d{2}-\d{2}/.test(v) }),
   by: opt(str),
-  made: opt({ why: '{ tool, from: [ids], args, at }', ok: (v) => !!v && typeof v === 'object' && isStr(v.tool) && (v.from === undefined || isStrs(v.from)) }),
+  made,
   rel: opt({ why: '{ from: [ids], variants: [ids] }', ok: (v) => !!v && typeof v === 'object' && Object.values(v).every(isStrs) }),
 };
 

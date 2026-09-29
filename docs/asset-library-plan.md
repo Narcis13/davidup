@@ -838,6 +838,33 @@ check` flags a `made` record whose `from` id is missing. **Done when** a
 test remakes a 6-frame hdf clip and gets the same sha (determinism), and a
 remake after changing a `from` asset gets a new sha.
 
+*As built:* `made` is checked on every kind (`record.js`): `tool` a non-empty
+string, `from` ids by the id rule, `args` an object, `at` an ISO time,
+`version` an integer > 0 or a string, no other key; `null` says nothing made
+it. `assetlib/remake.js` has `remake(lib, ref, { makers, shelf, host })`: a
+maker (`{ version, make(record, ctx) }`, or the bare function) resolves to
+`{ bytes | file, from, fields }`. The entry keeps everything but what its
+old bytes decided (the kind's schema fields and `box`, except a font's
+`family` and a clip's `track`), which the new bytes give again through
+`addAsset` (the kind's add side, probes). `made` gets the maker's `from`,
+a new `at` and its `version`. `added` and `by` stay, and the old blob and
+thumb go unless another entry on the shelf holds them. Makers come from
+hosts like previewers (`makers` beside `previewers` and `adds`,
+`loadHosts().makers`). hdf's are in `handdrawn/cli/makers.mjs`: `hdf
+render`, `hdf sprite`, `hdf hand --export-ttf` and `hdf sheet store`, the
+four tools D4 writes, each running hdf's command line again from
+`made.args` as a subprocess, `MAKER_VERSION` 1. A render cut to a
+composition's marks (`cues: 'composition'`) is refused, since its marks
+are not in its args. `paper` and `synth sample` land with the I2 pack that
+first makes those records, and `davidup render` when something writes
+one; until then `asset remake` on such a record names the makers there
+are. `asset check` has a `made` warning. The done-when is
+`handdrawn/test/remake.test.js`: a film draws a cutout off a temp shelf,
+its 6-frame clip is remade by the `asset` bin with the same sha, then the
+cutout is imported again with other pixels and the remake is a new sha,
+the old blob gone. `assetlib/test/remake.test.js` covers the rest with
+fixture makers.
+
 ### I2. The first house pack
 
 *Something worth searching for.*
@@ -954,7 +981,7 @@ then D and E in parallel, I when D4 exists, S last.
 | E3 | Promote is move | 0.5 | E1 | [x] |
 | E4 | The record drawer | 1 | E1 D3 | [x] |
 | H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [x] |
-| I1 | `made` and `asset remake` | 1 | D4 | [ ] |
+| I1 | `made` and `asset remake` | 1 | D4 | [x] |
 | I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [ ] |
 | I3 | Packs as tarballs | 0.5 | A2 | [ ] |
 | H5 | The skill and the README | 0.5 | H2 H4 I2 | [ ] |

@@ -101,6 +101,21 @@ probes }> }`, loaded on the first add of that kind. `addHost(adds, kind)` turns 
 addAsset loads it itself when given `host.adds`. hdf lends `hdf import`'s side, so the `asset` bin and
 davidup's `add_asset` trace a cutout's silhouette and lint a puppet as `hdf import` does.
 
+A generated asset is a recipe plus a blob (plan I1, `remake.js`). A record our own tools made carries `made: {
+tool, from, args, at, version }` (only `tool` is required; `from` holds ids), and a host registers a maker per
+tool: `makers: { tool: { version, make(record, ctx) } }`, `make` resolving to `{ bytes | file, from, fields }`.
+`remake(lib, id, { makers })` (`asset remake <id>`) runs it and puts the new bytes in place on the record's
+shelf: the facts the old bytes gave are dropped and read off the new ones, the rest of the entry stays, `made`
+gets the new `from`, `at` and the maker's `version`, and the old blob goes unless the shelf holds it for another
+entry. It says whether the sha changed. hdf registers `hdf render`, `hdf sprite`, `hdf hand --export-ttf` and
+`hdf sheet store` (`handdrawn/cli/makers.mjs`), the tools davidup names when it puts what hdf made in the library
+(D4); a render cut to a composition's marks is not remade from its args.
+
+```js
+const { makers } = await loadHosts();
+await remake(lib, 'hdf-mini', { makers });   // { id, shelf, tool, was, sha, changed, entry, path, removed, warnings }
+```
+
 Every search hit carries `use`: the exact call that brings the record into each app, or null where the app
 cannot take it (plan A5, `use.js`). The agent copies it; it does not translate.
 
@@ -132,7 +147,8 @@ lib.update('teapot', { tags: ['met', 'kitchen'], desc: 'Silver teapot, three-qua
 
 `check(lib)` (`check.js`) lists what is wrong with the shelves, each finding `{ level, rule, shelf, id, detail }`:
 errors (`id` outside the rule, `invalid` entry, missing `blob`, a blob whose bytes miss its `sha`), warnings
-(`sha1` entries from before H1, `licence` unknown, CC-BY with no `credit`, `duplicate` bytes across shelves, `shadow`,
+(`sha1` entries from before H1, `licence` unknown, CC-BY with no `credit`, a `made` record whose `made.from` names
+an id on no shelf, `duplicate` bytes across shelves, `shadow`,
 `orphan` blob) and notes (no `thumb`, `desc` or `tags`). With `legacy: <root>` (`asset check --legacy`: davidup's
 old library, `$DAVIDUP_LIBRARY` else `~/.davidup/library`) it also notes each file in `<root>/assets` and
 `<root>/fonts` whose bytes are on no shelf, with the `asset add` line that puts it on the user's pool (D5).
@@ -152,6 +168,7 @@ asset facts --all [--force]                 colours, dark and room for records t
 asset thumb teapot | --all                  asset sheet teapot cup fox --out candidates.png
 asset ls --shelf house                      asset check [--legacy]    (exits 1 on an error)
 asset migrate --sha256 house [--dry]        rehash a shelf written with sha1 (H1)
+asset remake hdf-mini                       run the tool in its made block again, the blob replaced in place (I1)
 ```
 
 `--project <dir>` opens `<dir>/assets` as the project shelf; `$DAVIDUP_ASSETS` and `$DAVIDUP_HOUSE` move the
@@ -161,7 +178,7 @@ length, a TrueType/OpenType/WOFF font's family, weight, style and glyphs, a JSON
 video or other audio through `ffprobe` (`$FFPROBE`) when it is there (`probe.js`). What only hdf can work out (a
 cutout's silhouette, a puppet's box from its parts) comes from the host (the bin finds hdf's `adds`) or from
 `--with '<json>'`. `main(argv, host)` is the whole CLI; a host passes its `probes`, `previewers`, per-kind
-`derive` and `fields`, or `adds`.
+`derive` and `fields`, `adds`, or `makers`.
 `run(verb, argv, host)` is one verb without the printing (`{ code, data, text, warnings }`, `data` being what
 `--json` prints), on `host.library` when the host opened its own; `addAsset(lib, { bytes, file, entry, shelf },
 host)` is `add` for a host that already holds the bytes. hdf's `find`, `import`, `remove` and `gc` are these

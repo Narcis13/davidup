@@ -11,6 +11,7 @@
 //   warn   sha1       a 40-hex sha1 from before H1 (`asset migrate --sha256` rehashes the shelf)
 //   warn   licence    licence unknown
 //   warn   credit     CC-BY or CC-BY-SA with no credit (davidup's W_ASSET_CREDIT)
+//   warn   made       a made record (I1) whose made.from names an id on no shelf, so what it was made from is gone
 //   warn   duplicate  the same bytes on two shelves (`move` collapses them)
 //   warn   shadow     an id an earlier shelf holds too, so this one is never read
 //   warn   orphan     a blob no entry points at (`gc` deletes it)
@@ -31,7 +32,7 @@ import { ID, SCHEMAS, isLegacySha, validate } from './record.js';
 export const LEVELS = Object.freeze(['error', 'warn', 'note']);
 export const RULES = Object.freeze({
   id: 'error', invalid: 'error', blob: 'error', sha: 'error', size: 'error', ignored: 'error', budget: 'error',
-  sha1: 'warn', licence: 'warn', credit: 'warn', duplicate: 'warn', shadow: 'warn', orphan: 'warn',
+  sha1: 'warn', licence: 'warn', credit: 'warn', made: 'warn', duplicate: 'warn', shadow: 'warn', orphan: 'warn',
   thumb: 'note', desc: 'note', tags: 'note', legacy: 'note',
 });
 const ORDER = Object.keys(RULES);
@@ -69,6 +70,8 @@ export function check(lib, { shelves, fields, thumbCache, legacy, house } = {}) 
       }
       if (e.licence === 'unknown') add('licence', s.name, id, 'licence unknown');
       if ((e.licence === 'CC-BY' || e.licence === 'CC-BY-SA') && !String(e.credit ?? '').trim()) add('credit', s.name, id, `${e.licence} with no credit`);
+      const gone = e.made && Array.isArray(e.made.from) ? [...new Set(e.made.from)].filter((f) => typeof f === 'string' && !lib.has(f)) : [];
+      if (gone.length) add('made', s.name, id, `made by ${e.made.tool} from ${gone.map((f) => `'${f}'`).join(', ')}, on no shelf`);
       if (lib.has(id) && lib.locate(id).shelf !== s.name) add('shadow', s.name, id, `shadowed by ${lib.locate(id).shelf}`);
       if (typeof e.sha === 'string' && !existsSync(s.thumbPath(e)) && !(thumbCache && existsSync(join(thumbCache, `${e.sha}.png`)))) add('thumb', s.name, id, 'no thumb');
       if (!String(e.desc ?? '').trim()) add('desc', s.name, id, 'no desc');

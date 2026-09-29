@@ -12,13 +12,21 @@ export const SHA256: RegExp;
 export const SHA1: RegExp;
 export const HOUSE_ROOT: string;
 
-/** How an asset made by our own tools was made, so `asset remake` can re-run it. */
+/** How an asset made by our own tools was made, so `asset remake` can re-run it (I1). */
 export interface Made {
+  /** The tool that made it: the key `asset remake` finds its maker by (`hdf render`, `hdf sprite`...). */
   tool: string;
+  /** The ids it was made from. */
   from?: string[];
+  /** What makes it again. */
   args?: Record<string, unknown>;
+  /** When, an ISO time. */
   at?: string;
+  /** The maker's version, set by a remake. */
+  version?: number | string;
 }
+/** The keys a `made` block may have. */
+export const MADE_KEYS: readonly ['tool', 'from', 'args', 'at', 'version'];
 
 /** A catalogue entry as a shelf holds it: the common envelope plus the kind's own fields. */
 export interface Entry {
@@ -517,7 +525,7 @@ export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker; previ
 // ---------- check (A6) ----------
 
 export type CheckLevel = 'error' | 'warn' | 'note';
-export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'size' | 'ignored' | 'budget' | 'sha1' | 'licence' | 'credit' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags' | 'legacy';
+export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'size' | 'ignored' | 'budget' | 'sha1' | 'licence' | 'credit' | 'made' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags' | 'legacy';
 export interface Finding {
   level: CheckLevel;
   rule: CheckRule;
@@ -600,18 +608,38 @@ export interface AddHost {
 /** Per kind, the host's add side, loaded on the first add (D3). */
 export type Adds = Partial<Record<Kind, () => Promise<AddSide>>>;
 
+/** What a maker resolves to: the payload (`bytes`, else read from `file`), the ids it was made from this time, and fields only it knows. */
+export interface MakerOutput {
+  bytes?: Uint8Array;
+  /** The payload's path (read when there are no bytes), or with bytes its name. */
+  file?: string;
+  ext?: string;
+  from?: string[];
+  fields?: Record<string, unknown>;
+  warnings?: string[];
+}
+/** How `asset remake` makes a record again, registered by a host under the `made.tool` it answers for (I1). */
+export type MakeFn = (record: AssetRecord & { shelf: string }, ctx: { lib: Library; shelf: string; root: string }) => Promise<MakerOutput> | MakerOutput;
+export type Maker = MakeFn | { version?: number | string; make: MakeFn };
+export type Makers = Record<string, Maker>;
+/** A maker as remake runs it, or throws saying what a maker is. */
+export function maker(m: unknown, tool?: string): { version: number | string | undefined; make: MakeFn };
+
 /** An app that draws some kinds: a module whose default export (or the module) is this. */
 export interface Host {
   name?: string;
   previewers?: Previewers;
   adds?: Adds;
+  makers?: Makers;
 }
 export interface LoadedHosts {
-  hosts: { name: string; file: string; kinds: string[]; adds: string[] }[];
+  hosts: { name: string; file: string; kinds: string[]; adds: string[]; makers: string[] }[];
   /** Every host's previewers merged, later hosts taking a kind from earlier ones: pass to openLibrary. */
   previewers: Previewers;
   /** Every host's add sides merged the same way: addHost(adds, kind) for addAsset. */
   adds: Adds;
+  /** Every host's makers merged the same way, by tool: for remake. */
+  makers: Makers;
   /** A host on disk that did not load, or registered something that is not a previewer. */
   warnings: string[];
 }
@@ -621,3 +649,31 @@ export const KNOWN_HOSTS: string[];
 export function loadHosts(opts?: { env?: Record<string, string | undefined>; known?: string[]; cwd?: string }): Promise<LoadedHosts>;
 /** addAsset's host for a payload of `kind` (its derive, checks and probes), or {} when no host adds the kind. */
 export function addHost(adds: Adds | undefined, kind: Kind | string): Promise<AddHost>;
+
+// ---------- remake (I1) ----------
+
+/** The fields a remake keeps although its kind's schema lists them (a font's family, a clip's track). */
+export const KEPT: readonly string[];
+/** An entry as a remake hands it on: the fields its old bytes decided dropped. */
+export function recipeOf(entry: Entry): Partial<Entry>;
+export interface RemakeResult {
+  id: string;
+  shelf: string;
+  tool: string;
+  /** The sha before. */
+  was: string;
+  /** The sha now. */
+  sha: string;
+  changed: boolean;
+  entry: Entry;
+  path: string;
+  /** The old blob and thumb, when nothing else on the shelf held them. */
+  removed: string[];
+  warnings: string[];
+}
+/**
+ * Makes a ref again with the maker for its `made.tool` and puts the new bytes in place on its shelf (the facts read
+ * off them, `made` stamped with `at` and the maker's version). Rejects, the shelf untouched, when nothing made
+ * it, no maker answers for its tool, or the maker fails.
+ */
+export function remake(lib: Library, ref: string, opts?: { makers?: Makers; shelf?: string; host?: import('./add.js').AddAssetHost }): Promise<RemakeResult>;

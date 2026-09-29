@@ -55,7 +55,7 @@ test('validate: the four davidup kinds, and what it refuses', () => {
   assert.deepEqual(validate('a', { ...base, kind: 'image', ext: 'mp4', media: 'video' }), ["media 'video': a image is raster", "ext 'mp4': a image payload is png, jpg, webp, gif, svg"]);
   assert.deepEqual(validate('a', { ...base, kind: 'audio', ext: 'wav', licence: 'MIT', sha: 'abc' }), ['sha: 64 hex (sha256) over the payload bytes', "licence 'MIT': expected CC0 | CC-BY | CC-BY-SA | OFL | PD | own | unknown"]);
   assert.deepEqual(validate('a', { ...base, kind: 'sprite' }), ["kind 'sprite': expected image | video | audio | font | cutout | clip | puppet | hand | stock | motif | sample"]);
-  assert.deepEqual(validate('a', { ...base, kind: 'image', ext: 'png', made: { from: ['b'] } }), ['made: { tool, from: [ids], args, at }']);
+  assert.deepEqual(validate('a', { ...base, kind: 'image', ext: 'png', made: { from: ['b'] } }), ['made: { tool, from: [ids], args: {}, at: ISO time, version: an integer > 0 or a string }, or null']);
 
   // A host that knows a field's exact shape passes its own check.
   const strict = { sample: { align: { opt: true, why: 'hdf word timing', ok: () => false } } };
