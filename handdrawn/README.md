@@ -698,7 +698,9 @@ asset sheet fox teapot hershey-script --out out/candidates.png   # several in on
 ```
 
 `assets/catalogue.json` holds one entry per id (`kind`, `sha`, `licence`,
-`box`, and for a cutout its `w`, `h`, `sil` and `colours`);
+`box`, and for a cutout its `w`, `h`, `sil`, `colours`, and `dark` and `room`,
+how dark it is and how busy each third of it is, which `asset find --room`
+filters on);
 `assets/blobs/<sha>.{webp,png,json}` holds the payload, so two imports of the
 same file are one blob. `hdf import` validates the payload against its kind's
 schema (`core/assets.js`) before anything is written, and `--licence` is

@@ -58,7 +58,7 @@ test('help, a verb\'s usage, an unknown verb and a usage error', async () => {
   const help = await t.run('help');
   assert.equal(help.code, 0);
   assert.match(help.out, /^asset: the asset library/);
-  for (const v of ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'thumb', 'sheet', 'ls', 'check']) assert.match(help.out, new RegExp(`\\n  ${v} `));
+  for (const v of ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'facts', 'thumb', 'sheet', 'ls', 'check']) assert.match(help.out, new RegExp(`\\n  ${v} `));
   const one = await t.run('help', 'mv');
   assert.equal(one.out, '  mv      <id> --to <shelf> [--from <shelf>]   move blob, thumb and entry (the editor\'s promote)\n');
   assert.equal((await t.run('frob')).code, 2);
@@ -80,7 +80,7 @@ test('add: hashes, derives and probes a stock, a sample and a font; the same byt
   assert.deepEqual({ ...e, added: 'x' }, {
     kind: 'stock', name: 'Warm paper', file: 'paper.png', licence: 'own', credit: '', source: '', tags: ['paper', 'warm'], desc: 'warm cream paper',
     box: [0, 0, 40, 20], media: 'raster', sha: sha(bytes), ext: 'png', bytes: bytes.length, w: 40, h: 20, alpha: false,
-    colours: [{ hex: '#e6c896', area: 1 }], added: 'x', by: 'asset add',
+    colours: [{ hex: '#e6c896', area: 1 }], dark: false, room: { tl: 0, t: 0, tr: 0, l: 0, c: 0, r: 0, bl: 0, b: 0, br: 0 }, added: 'x', by: 'asset add',
   });
   const again = await t.run('add', f, '--kind', 'stock', '--name', 'Warm paper', '--licence', 'own', ...P);
   assert.match(again.out, /on project \(unchanged bytes\)/);
@@ -97,6 +97,38 @@ test('add: hashes, derives and probes a stock, a sample and a font; the same byt
   const ff = await t.run('add', INTER, '--kind', 'font', '--name', 'inter', '--licence', 'OFL', '--credit', 'Inter by Rasmus Andersson', '--json');
   assert.equal(ff.code, 0, ff.err);
   assert.deepEqual((({ family, weight, style, glyphs }) => ({ family, weight, style, glyphs }))(JSON.parse(ff.out).entry), { family: 'Inter', weight: 400, style: 'normal', glyphs: 549 });
+  t.done();
+});
+
+test('facts fills colours, dark and room on records that lack them; find --room lists the quietest first (D6)', async () => {
+  const t = setup();
+  // A navy field, and a frame whose top third is a 2 px checkerboard.
+  const navy = png(60, 30, [0, 0, 128]);
+  const data = new Uint8ClampedArray(60 * 60 * 4);
+  for (let y = 0; y < 60; y++) for (let x = 0; x < 60; x++) data.set(y < 20 && ((x >> 1) + (y >> 1)) % 2 ? [255, 255, 255, 255] : [200, 200, 200, 255], (y * 60 + x) * 4);
+  const busy = encodePng({ data, width: 60, height: 60 });
+  for (const [name, bytes] of [['navy', navy], ['busy', busy]]) {
+    assert.equal((await t.run('add', t.file(`${name}.png`, bytes), '--kind', 'image', '--name', name, '--licence', 'own', ...P)).code, 0);
+  }
+  const shelf = t.shelf('project');
+  assert.equal(shelf.entry('navy').dark, true);
+  // A record from before D6: its light facts dropped by hand.
+  const lib = openLibrary({ shelves: [{ name: 'project', root: shelf.root }] });
+  lib.update('navy', { dark: null, room: null });
+  const f = await t.run('facts', '--all', ...P);
+  assert.equal(f.code, 0, f.err);
+  // The checkerboard's lower edge reaches one row into the middle third.
+  assert.match(f.out, /^busy  project  unchanged {12}light  room 1\.00 1\.00 0\.99 \/ 0\.03 0\.03 0\.03 \/ 0\.00 0\.00 0\.00\n/m);
+  assert.match(f.out, /^navy  project  \+dark,room {11}dark   room 0\.00 0\.00 0\.00 \/ 0\.00 0\.00 0\.00 \/ 0\.00 0\.00 0\.00\n/m);
+  assert.equal(t.shelf('project').entry('navy').dark, true);
+  assert.equal((await t.run('facts', ...P)).code, 2, 'names ids or --all');
+
+  const top = await t.run('find', '--room', 'top', '--json', ...P);
+  assert.deepEqual(JSON.parse(top.out).hits.map((h) => h.id), ['navy']);
+  const low = JSON.parse((await t.run('find', '--room', 'bottom', '--json', ...P)).out);
+  assert.deepEqual(low.hits.map((h) => [h.id, h.why]), [['busy', ['room: bl 0, b 0, br 0']], ['navy', ['room: bl 0, b 0, br 0']]]);
+  const show = await t.run('show', 'navy', ...P);
+  assert.match(show.out, /\n  light {5}dark\n  room {6}0\.00 0\.00 0\.00 \/ 0\.00 0\.00 0\.00 \/ 0\.00 0\.00 0\.00\n/);
   t.done();
 });
 

@@ -618,7 +618,8 @@ serves records at `/asset-files/<id>[@<sha12>]` and blobs at
 
 **Finding a record from an agent.** `search_assets` searches the three shelves
 (ranked free text, with filters for kind, media, shelf, tags, licence, alpha,
-size, aspect, duration, dark and hue) and every hit carries `use.davidup`: the
+size, aspect, duration, dark, hue and room: `{ dark: true, room: 'top' }` is a
+dark background with a quiet top third for a headline) and every hit carries `use.davidup`: the
 exact `register_asset` call, pinned `asset:` src and the record's credit and
 licence included. `get_asset` returns the whole record with what it was made
 from and into; `get_asset_preview` returns its thumb (`id`) or one contact

@@ -7,6 +7,8 @@
 //   asset tag teapot +kitchen -object         asset desc teapot "Silver teapot, three-quarter view"
 //   asset rm teapot     asset mv teapot --to house     asset gc --dry
 //   asset thumb teapot | --all                asset sheet teapot cup fox --out candidates.png
+//   asset find --dark --room top              dark backgrounds with a quiet top third, quietest first
+//   asset facts --all --shelf house           colours, dark and room for the records that lack them (D6)
 //   asset ls --shelf house                    asset check
 //   asset migrate --sha256 house              rehash a shelf's sha1 blobs as sha256 (H1)
 //
@@ -26,7 +28,8 @@ import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DERIVE, addAsset, idOf } from './add.js';
 import { check, LEVELS } from './check.js';
-import { loadHosts } from './hosts.js';
+import { addHost, loadHosts } from './hosts.js';
+import { defaultProbes } from './probe.js';
 import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, migrateSha256, openLibrary, readShelf, standardShelves } from './index.js';
 
 export const USAGE = `asset: the asset library shared by davidup and hdf (docs/asset-library-plan.md)
@@ -34,8 +37,11 @@ export const USAGE = `asset: the asset library shared by davidup and hdf (docs/a
 usage: asset <verb> [args] [--project <dir>] [--json]
 
   find    <words...> [--kind k,k] [--media m] [--shelf s] [--tags t,t] [--licence l,l] [--alpha] [--dark]
-          [--hue warm|cool|red|...] [--min-w px] [--min-h px] [--aspect 16:9] [--sec-min s] [--sec-max s] [--limit n]
-                                    ranked hits with why each matched; with no hit, what the library has
+          [--hue warm|cool|red|...] [--room tl,top,...] [--min-w px] [--min-h px] [--aspect 16:9] [--sec-min s]
+          [--sec-max s] [--limit n]
+                                    ranked hits with why each matched; with no hit, what the library has.
+                                    --room: quiet thirds to letter on (tl t tr l c r bl b br, or top bottom
+                                    left right); filters alone list the quietest first
   show    <id | sha:hex> [--shelf]  the record, its shelves, blob and thumb, what it was made from and into,
                                     and the exact call that brings it into davidup and into hdf
   add     <file> --kind <kind> --name <name> [--id] [--licence] [--credit] [--source] [--tags a,b] [--desc]
@@ -47,6 +53,8 @@ usage: asset <verb> [args] [--project <dir>] [--json]
   rm      <id...> [--shelf]         remove, with the blob and thumb when nothing else on the shelf shares them
   mv      <id> --to <shelf> [--from <shelf>]   move blob, thumb and entry (the editor's promote)
   gc      [--dry] [--shelf]         delete blobs and thumbs no entry points at
+  facts   <id...> | --all [--shelf] [--force]  read colours, dark and room off the blob of each raster and
+                                    video that lacks them (--force: all three again); the bytes are untouched
   thumb   <id...> | --all [--shelf] [--force]  draw the previews: a host's picture where one draws the kind
                                     (hdf's for its seven kinds), else a card
   sheet   <id...> [--cols n] [--cell px] [--out file]   one contact sheet PNG with id captions
@@ -66,7 +74,7 @@ hosts:   previews are drawn by hdf (handdrawn/cli/host.mjs) when it is next to t
          modules $ASSETLIB_HOSTS names ('-' first: those alone)
 `;
 
-export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'thumb', 'sheet', 'ls', 'check', 'migrate'];
+export const VERBS = ['find', 'show', 'add', 'tag', 'desc', 'rm', 'mv', 'gc', 'facts', 'thumb', 'sheet', 'ls', 'check', 'migrate'];
 
 export class UsageError extends Error {}
 const usage = (msg) => new UsageError(msg);
@@ -147,7 +155,7 @@ export const verbs = {
       kind: list(flags, 'kind'), media: list(flags, 'media'), shelf: list(flags, 'shelf'), tags: list(flags, 'tags'),
       licence: list(flags, 'licence'), alpha: bool(flags, 'alpha'), minW: num(flags, 'minW'), minH: num(flags, 'minH'),
       aspect: str(flags, 'aspect'), secMin: num(flags, 'secMin'), secMax: num(flags, 'secMax'), dark: bool(flags, 'dark'),
-      hue: list(flags, 'hue'),
+      hue: list(flags, 'hue'), room: list(flags, 'room'),
     });
     const q = args.join(' ').trim();
     if (!q && !Object.keys(filters).length) throw usage('find: need <words...> or a filter (asset ls lists everything)');
@@ -197,6 +205,8 @@ export const verbs = {
       row('source', record.source),
       row('facts', factsOf(record)),
       row('colours', record.colours?.slice(0, 5).map((c) => `${c.hex} ${Math.round(c.area * 100)}%`).join('  ')),
+      row('light', typeof record.dark === 'boolean' ? (record.dark ? 'dark' : 'light') : null),
+      row('room', record.room ? roomGrid(record.room) : null),
       row('sha', `${short(entry.sha)}${isLegacySha(entry.sha) ? ' (sha1: asset migrate --sha256)' : ''}`),
       row('blob', existsSync(blob) ? `${ctx.rel(blob)}  ${kb(entry.bytes ?? readFileSync(blob).length)}` : `MISSING: ${ctx.rel(blob)}`),
       row('thumb', thumb ? ctx.rel(thumb) : `none yet (asset thumb ${loc.id})`),
@@ -300,6 +310,27 @@ export const verbs = {
     return { code: 0, data: out, text: `${lines.join('\n')}\n` };
   },
 
+  async facts(ctx, args, flags) {
+    const lib = ctx.lib(), shelf = str(flags, 'shelf'), force = !!bool(flags, 'force');
+    const measured = (id) => ['raster', 'video'].includes(lib.get(id).media);
+    const refs = flags.all ? lib.ids.filter((id) => (!shelf || lib.locate(id).shelf === shelf) && measured(id)) : args;
+    if (!refs.length) throw usage(flags.all ? `facts: no raster or video on ${shelf ?? ctx.names()}` : 'facts: need <id...> or --all');
+    const done = [], lines = [], warnings = [];
+    const w = Math.max(...refs.map((r) => r.length));
+    for (const ref of refs) {
+      const id = lib.locate(ref).id, kind = lib.get(ref).kind;
+      // The probes an add would use for the kind: probe.js's, under a host's (hdf's skia reads a webp).
+      const side = await addHost(ctx.host.adds, kind);
+      const out = await lib.refresh(id, defined({ shelf, force, fields: ctx.host.fields, probes: { ...defaultProbes(), ...side.probes, ...ctx.host.probes } }));
+      done.push({ id: out.id, shelf: out.shelf, changed: out.changed, dark: out.entry.dark, room: out.entry.room });
+      warnings.push(...out.warnings);
+      const e = out.entry;
+      const now = [typeof e.dark === 'boolean' ? (e.dark ? 'dark ' : 'light') : null, e.room ? `room ${roomGrid(e.room)}` : null].filter(Boolean).join('  ');
+      lines.push(`${pad(ref, w)}  ${pad(out.shelf, 8)} ${out.changed.length ? `${pad(`+${out.changed.join(',')}`, 20)}` : pad('unchanged', 20)} ${now}`.trimEnd());
+    }
+    return { code: 0, data: done, warnings, text: `${lines.join('\n')}\n` };
+  },
+
   async thumb(ctx, args, flags) {
     const lib = ctx.lib(), shelf = str(flags, 'shelf');
     const refs = flags.all ? lib.ids.filter((id) => !shelf || lib.locate(id).shelf === shelf) : args;
@@ -388,6 +419,9 @@ export const verbs = {
     return { code: 0, data: out, text: `${lines.join('\n')}\n` };
   },
 };
+
+// A room grid on one line, a row a third: "tl t tr / l c r / bl b br" as numbers.
+const roomGrid = (room) => [['tl', 't', 'tr'], ['l', 'c', 'r'], ['bl', 'b', 'br']].map((row) => row.map((c) => room[c].toFixed(2)).join(' ')).join(' / ');
 
 // What to run about a grouped finding.
 const NEXT = {

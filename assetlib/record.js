@@ -8,6 +8,7 @@
 // probe facts; the few fields whose exact shape only hdf knows (a sample's word timing and mouth track, a
 // clip's track kind) are checked structurally here, and a host that knows more passes its own checks to
 // validate() as `fields` (hdf does, from H1 on).
+import { ROOM_CELLS } from './image.js';
 
 export const KINDS = Object.freeze(['image', 'video', 'audio', 'font', 'cutout', 'clip', 'puppet', 'hand', 'stock', 'motif', 'sample']);
 
@@ -53,6 +54,9 @@ const str = { why: 'a string', ok: isStr };
 const bool = { why: 'true or false', ok: (v) => typeof v === 'boolean' };
 const path = { why: 'a path ({ sub: [{ pts, closed }], box })', ok: (v) => !!v && Array.isArray(v.sub) && Array.isArray(v.box) && v.sub.every((s) => Array.isArray(s.pts) && s.pts.length >= 4 && s.pts.length % 2 === 0) };
 const colours = { opt: true, why: 'a table of { hex, area }', ok: (v) => Array.isArray(v) && v.every((c) => c && isStr(c.hex) && isNum(c.area)) };
+// A frame's light (D6, image.js lightFacts): dark on the whole, and the edge density of each third.
+const dark = opt(bool);
+const room = { opt: true, why: `edge density 0..1 in each third: { ${ROOM_CELLS.join(', ')} }`, ok: (v) => !!v && typeof v === 'object' && ROOM_CELLS.every((c) => isNum(v[c]) && v[c] >= 0 && v[c] <= 1) };
 const align = { opt: true, why: 'word timing: { text, by, words: [[text, t0, t1], ...] }', ok: (v) => !!v && typeof v === 'object' && isStr(v.text) && Array.isArray(v.words) };
 const mouth = { opt: true, why: "mouth shapes: { by, shapes: 'XBDCA...' }", ok: (v) => !!v && typeof v === 'object' && isStr(v.shapes) };
 const track = { opt: true, why: "a track's kind (hdf: 'face' | 'hands')", ok: (v) => isStr(v) && v.length > 0 };
@@ -72,10 +76,10 @@ const COMMON = {
 // Each kind: the extensions its payload is stored as, whether the entry carries a box ([x, y, w, h] in the
 // asset's own units), and the fields it adds. Rasters keep the bytes they came in as.
 export const SCHEMAS = Object.freeze({
-  image: { exts: ['png', 'jpg', 'webp', 'gif', 'svg'], fields: { w: opt(posInt), h: opt(posInt), alpha: opt(bool), colours } },
-  cutout: { exts: ['webp', 'png', 'jpg'], box: true, fields: { w: posInt, h: posInt, sil: path, alpha: opt(bool), colours } },
-  stock: { exts: ['webp', 'png', 'jpg'], box: true, fields: { w: posInt, h: posInt, alpha: opt(bool), colours } },
-  video: { exts: ['mp4', 'mov', 'webm', 'mkv'], fields: { sec: opt(posNum), fps: opt(posNum), w: opt(posInt), h: opt(posInt), alpha: opt(bool), codec: opt(str), audio: opt(bool), colours } },
+  image: { exts: ['png', 'jpg', 'webp', 'gif', 'svg'], fields: { w: opt(posInt), h: opt(posInt), alpha: opt(bool), colours, dark, room } },
+  cutout: { exts: ['webp', 'png', 'jpg'], box: true, fields: { w: posInt, h: posInt, sil: path, alpha: opt(bool), colours, dark, room } },
+  stock: { exts: ['webp', 'png', 'jpg'], box: true, fields: { w: posInt, h: posInt, alpha: opt(bool), colours, dark, room } },
+  video: { exts: ['mp4', 'mov', 'webm', 'mkv'], fields: { sec: opt(posNum), fps: opt(posNum), w: opt(posInt), h: opt(posInt), alpha: opt(bool), codec: opt(str), audio: opt(bool), colours, dark, room } },
   audio: { exts: ['mp3', 'wav', 'm4a', 'ogg', 'aac', 'flac'], fields: { sec: opt(posNum), rate: opt(posInt), channels: opt(posInt), codec: opt(str) } },
   sample: { exts: ['wav'], fields: { sec: opt(posNum), align, mouth } },
   font: { exts: ['ttf', 'otf', 'woff', 'woff2'], fields: { family: { why: 'the family name a composition asks for', ok: (v) => isStr(v) && v.length > 0 }, weight: opt({ why: 'a number or a CSS weight', ok: (v) => isNum(v) || isStr(v) }), style: opt(str), glyphs: opt(posInt) } },

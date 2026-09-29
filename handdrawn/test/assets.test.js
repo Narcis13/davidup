@@ -219,3 +219,33 @@ test('a film may name its assets by id, in the package store or one beside it', 
     await assert.rejects(loadFilm(join(dir, 'gone.js')), /film byid: no asset 'ghost'.*has blob/s);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Asset library D6: what a put measures, for a cutout through hdf's own door (import.mjs HOST, what `hdf
+// import`, `asset add` and davidup's add_asset lend assetlib's addAsset). Each Met cutout, put again from its
+// blob, gets the palette the store holds now, and a `dark` and `room` like the ones `asset facts` wrote.
+test('D6: the Met cutouts put again get their current palette, and dark and room', async () => {
+  const { addAsset } = await import('../../assetlib/add.js');
+  const { colours, openLibrary } = await import('../../assetlib/index.js');
+  const { HOST } = await import('../cli/import.mjs');
+  const st = readCatalogue(), dir = tmp();
+  try {
+    const lib = openLibrary({ shelves: [{ name: 'house', root: dir }] });
+    const met = st.ids.filter((id) => st.entry(id).tags?.includes('met'));
+    assert.deepEqual(met, ['cup', 'helmet', 'hourglass', 'lantern', 'teapot', 'violin', 'watch']);
+    for (const id of met) {
+      const was = st.entry(id), bytes = readFileSync(st.payloadPath(was));
+      const { sha: _s, colours: _c, sil: _l, dark: _d, room: _r, w: _w, h: _h, box: _b, ...entry } = was;
+      const put = await addAsset(lib, { bytes, file: was.file, entry: { ...entry, id } }, HOST);
+      assert.deepEqual(put.warnings, [], id);
+      assert.deepEqual(put.entry.colours, was.colours, `${id}: the palette it has`);
+      assert.deepEqual([put.entry.dark, put.entry.room], [was.dark, was.room], `${id}: the light facts asset facts wrote`);
+      // assetlib's own clip (pixel centres in the silhouette, no skia) finds the same three biggest swatches.
+      const px = await HOST.probes.pixels(st.payloadPath(was));
+      const own = colours(px, { sil: was.sil });
+      assert.deepEqual(own.slice(0, 3).map((c) => c.hex), was.colours.slice(0, 3).map((c) => c.hex), id);
+      own.forEach((c, i) => assert.ok(Math.abs(c.area - was.colours[i].area) < 0.005, `${id} swatch ${i}`));
+    }
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});

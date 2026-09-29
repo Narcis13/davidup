@@ -14,6 +14,7 @@
 //   lib.use('teapot');                 // { davidup: { tool: 'register_asset', args }, hdf: { assets, code, ... } }
 //   await lib.put('user', { id: 'paper', kind: 'stock', ... }, bytes, { probes });   // one way in
 //   lib.update('paper', { tags: ['paper', 'warm'] });   // an entry's own fields, in place
+//   await lib.refresh('paper', { probes });   // colours, dark, room read off the blob when the entry lacks them
 //   lib.move('paper', 'house');        // the editor's promote, generalised
 //   lib.remove('paper'); lib.gc();     // and out
 //
@@ -24,7 +25,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extFor, readShelf, sha } from './catalogue.js';
-import { colours, imageType, usesAlpha } from './image.js';
+import { colours, imageType, lightFacts, usesAlpha } from './image.js';
 import { PREVIEW_WIDTH, card, contactSheet, decodePng, fresh, previewer, tagOf, tagged } from './preview.js';
 import { SCHEMAS, mediaOf } from './record.js';
 import { searchIndex } from './search.js';
@@ -32,14 +33,14 @@ import { newest, useOf } from './use.js';
 
 export { KINDS, MEDIA, LICENCES, SCHEMAS, ID, SHA256, SHA1, isLegacySha, mediaOf, validate } from './record.js';
 export { FROM_BYTES, readShelf, sha } from './catalogue.js';
-export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
+export { DARK_LUMA, ROOM, ROOM_CELLS, ROOM_SIZE, colours, imageInfo, imageType, lightFacts, meanLuma, quantise, roomOf, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
 export { LEGACY_DIRS, LEVELS, RULES, check, legacyFindings } from './check.js';
 export { migrateSha256 } from './migrate.js';
 export { KNOWN_HOSTS, addHost, loadHosts } from './hosts.js';
 export { defaultProbes } from './probe.js';
-export { DARK, EXACT_ID, HUES, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
+export { DARK, EXACT_ID, HUES, ROOM_REGIONS, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
 // The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
 // <repo>/assets/.
@@ -61,14 +62,20 @@ export function standardShelves({ project, env = process.env, home = homedir() }
 //   probeVideo(file) -> { sec | duration, fps, w | width, h | height, alpha | hasAlpha, codec, audio | hasAudio }
 //   probeAudio(file) -> { sec | duration, rate | sampleRate, channels, codec }      (audio and sample kinds)
 //   fontMeta(file)   -> { family, weight, style, glyphs }
-//   pixels(file, { kind, ext }) -> { data: RGBA, width, height }   (a raster's pixels, a video's representative frame)
-// davidup's probe results read as they are; only the fields the kind's schema has are kept.
+//   pixels(file, { kind, ext }) -> { data: RGBA, width, height }   (a raster's pixels)
+//   extractFrame(file, { at, kind, ext }) -> PNG bytes | { data, width, height }   (a video's frame at `at` s)
+// davidup's probe results read as they are; only the fields the kind's schema has are kept. A raster's pixels
+// and a video's representative frame (at 1 s, or half way through a shorter one) give the pixel facts:
+// `colours`, `dark` and `room` (image.js), each only where the entry does not already say it.
 const PROBE_OF = { video: 'probeVideo', audio: 'probeAudio', sample: 'probeAudio', font: 'fontMeta' };
 const RENAME = { duration: 'sec', width: 'w', height: 'h', sampleRate: 'rate', hasAlpha: 'alpha', hasAudio: 'audio' };
+export const PIXEL_FACTS = Object.freeze(['colours', 'dark', 'room']);
+export const FRAME_AT = 1;
 
 // The facts a host's probes give for a payload, and a warning for every probe that is missing or failed while
 // the entry still lacks what it would have said. Throws only when the bytes are not the kind's (extFor).
-export async function probeFacts(entry, bytes, probes = {}) {
+// `pixelsOnly` asks for the pixel facts alone (lib.refresh).
+export async function probeFacts(entry, bytes, probes = {}, { pixelsOnly = false } = {}) {
   const s = SCHEMAS[entry?.kind], facts = {}, warnings = [];
   if (!s) return { facts, warnings };
   const ext = extFor(entry, bytes), media = mediaOf(entry.kind);
@@ -82,9 +89,9 @@ export async function probeFacts(entry, bytes, probes = {}) {
     try { return await fn(); } catch (err) { warnings.push(`${name} could not read the ${entry.kind}: ${err?.message ?? err}; ${why} left empty`); return null; }
   };
   try {
-    const name = PROBE_OF[entry.kind];
+    const name = pixelsOnly ? null : PROBE_OF[entry.kind];
     if (name) {
-      const keys = Object.keys(s.fields ?? {}).filter((k) => !['colours', 'align', 'mouth'].includes(k));
+      const keys = Object.keys(s.fields ?? {}).filter((k) => ![...PIXEL_FACTS, 'align', 'mouth'].includes(k));
       const want = lacks(keys);
       if (want.length && !probes[name]) warnings.push(`no ${name} probe: ${want.join(', ')} left empty`);
       else if (want.length) {
@@ -95,13 +102,24 @@ export async function probeFacts(entry, bytes, probes = {}) {
         }
       }
     }
-    if ((media === 'raster' || media === 'video') && entry.colours === undefined) {
-      if (!probes.pixels) warnings.push('no pixels probe: colours left empty');
+    const want = (media === 'raster' || media === 'video') ? lacks(PIXEL_FACTS) : [];
+    if (want.length) {
+      const name = media === 'raster' ? 'pixels' : 'extractFrame';
+      if (!probes[name]) warnings.push(`no ${name} probe: ${want.join(', ')} left empty`);
       else {
-        const px = await run('pixels', () => probes.pixels(file(), { kind: entry.kind, ext }), 'colours');
+        const sec = facts.sec ?? entry.sec, at = sec > 0 ? Math.min(FRAME_AT, sec / 2) : FRAME_AT;
+        const px = await run(name, async () => {
+          const got = await (media === 'raster' ? probes.pixels(file(), { kind: entry.kind, ext }) : probes.extractFrame(file(), { at, kind: entry.kind, ext }));
+          if (!got || got.data) return got;
+          if (imageType(got) !== 'png') throw new Error('gave neither pixels nor a PNG');
+          return decodePng(got);
+        }, want.join(', '));
         if (px?.data) {
-          facts.colours = colours(px, { sil: entry.sil });
-          if (media === 'raster') Object.assign(facts, { w: px.width, h: px.height, alpha: usesAlpha(px) });
+          const light = lightFacts(px);
+          if (want.includes('colours')) facts.colours = colours(px, { sil: entry.sil });
+          if (want.includes('dark') && light.dark !== undefined) facts.dark = light.dark;
+          if (want.includes('room')) facts.room = light.room;
+          if (media === 'raster' && !pixelsOnly) Object.assign(facts, { w: px.width, h: px.height, alpha: usesAlpha(px) });
         }
       }
     }
@@ -344,6 +362,21 @@ export function openLibrary({ shelves = standardShelves(), rank, previewers = {}
       const out = s.update(id, patch, { fields });
       index();
       return { ...out, shelf: s.name };
+    },
+    // Reads the pixel facts (colours, dark, room: a raster's pixels, a video's frame) off the blob of a record
+    // on `shelf` (default: the shelf it resolves to) that lacks them, or all three with `force`, and writes
+    // them to the entry; the bytes are untouched. A record of another media is left as it is. Resolves to
+    // { id, shelf, entry, changed: [fields], warnings }.
+    async refresh(id, { shelf, probes, force = false, fields } = {}) {
+      const s = shelf ? lib.shelf(shelf) : holder(id), e = s.entry(id);
+      if (!['raster', 'video'].includes(mediaOf(e.kind))) return { id, shelf: s.name, entry: e, changed: [], warnings: [] };
+      const base = force ? Object.fromEntries(Object.entries(e).filter(([k]) => !PIXEL_FACTS.includes(k))) : e;
+      const { facts, warnings } = await probeFacts(base, s.payload(e), probes, { pixelsOnly: true });
+      const patch = Object.fromEntries(PIXEL_FACTS.filter((k) => facts[k] !== undefined && JSON.stringify(facts[k]) !== JSON.stringify(e[k])).map((k) => [k, facts[k]]));
+      if (!Object.keys(patch).length) return { id, shelf: s.name, entry: e, changed: [], warnings };
+      const out = s.update(id, patch, { fields });
+      index();
+      return { id, shelf: s.name, entry: out.entry, changed: Object.keys(patch), warnings };
     },
     // Removes an id from `shelf` (default: the shelf it resolves to), with its blob and thumb when nothing
     // else on that shelf shares them. Returns { id, shelf, removed: [paths] }.

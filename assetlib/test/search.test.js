@@ -278,5 +278,7 @@ test('on the house shelf: hdf\'s search is the library\'s (H2), the exact id fir
   assert.deepEqual(hdf.search(st, ['met'], { kind: 'cutout' }).map((h) => h.id), ids(house.search({ q: 'met', kind: 'cutout' })));
   assert.equal(house.search('teapot').hits[0].id, 'teapot');
   assert.equal(house.search('fox').hits[0].id, 'fox');
-  assert.deepEqual(ids(house.search({ kind: 'cutout', dark: true })), ['helmet', 'hourglass', 'violin']);
+  // `dark` as measured on the pixels (D6, asset facts): the hourglass's palette reads L* 49.8, its pixels a mean
+  // luma of 0.47, so it is light.
+  assert.deepEqual(ids(house.search({ kind: 'cutout', dark: true })), ['helmet', 'violin']);
 });

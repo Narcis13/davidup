@@ -5,7 +5,8 @@
 //   probeAudio  a WAV's header (format, rate, channels, length) read here; anything else through ffprobe
 //   probeVideo  ffprobe ($FFPROBE, else `ffprobe` on the PATH)
 //   fontMeta    a TrueType, OpenType or WOFF font's name, OS/2 and maxp tables: family, weight, style, glyphs
-//   pixels      a PNG's pixels (preview.js's decoder); other rasters and a video's frame need a host
+//   pixels      a PNG's pixels (preview.js's decoder); other rasters need a host
+//   extractFrame  a video's frame at `at` seconds as a PNG, through ffmpeg ($FFMPEG, else `ffmpeg` on the PATH)
 //
 // Each takes the payload as a file and throws when it cannot read it; the library turns that into a warning
 // and leaves the fields empty (index.js probeFacts).
@@ -93,7 +94,7 @@ export function fontInfo(bytes) {
   };
 }
 
-// ---------- ffprobe ----------
+// ---------- ffprobe, ffmpeg ----------
 
 // ffprobe's JSON for a file: $FFPROBE, else `ffprobe` on the PATH. Throws naming what went wrong.
 export function ffprobe(file, { bin = process.env.FFPROBE || 'ffprobe' } = {}) {
@@ -134,6 +135,28 @@ export function audioInfo(file, opts) {
   return { sec: seconds(p.format?.duration, s.duration), rate: Number(s.sample_rate) || undefined, channels: s.channels, codec: s.codec_name };
 }
 
+// A video's frame at `at` seconds (its first frame when it is shorter) as PNG bytes (RGBA, so a transparent
+// video keeps its alpha), scaled down to FRAME_MAX on its longer side: a palette and a room grid need no more.
+// A VP8/VP9 webm is read with libvpx first, the decoder that keeps alpha, and with ffmpeg's own when libvpx is
+// not built in.
+export const FRAME_MAX = 960;
+export function videoFrame(file, { at = 1, ext, bin = process.env.FFMPEG || 'ffmpeg' } = {}) {
+  const grab = (pre) => spawnSync(bin, ['-v', 'error', ...pre, '-ss', String(at), '-i', file, '-frames:v', '1', '-an', '-vf', `scale=w='min(${FRAME_MAX},iw)':h='min(${FRAME_MAX},ih)':force_original_aspect_ratio=decrease`, '-pix_fmt', 'rgba', '-f', 'image2pipe', '-c:v', 'png', '-'], { maxBuffer: 256 * 1024 * 1024 });
+  let r = ext === 'webm' ? grab(['-c:v', 'libvpx-vp9']) : null;
+  if (r && r.status === 0 && r.stdout?.length) return r.stdout;
+  if (r && ext === 'webm') {
+    const vp8 = grab(['-c:v', 'libvpx']);
+    if (vp8.status === 0 && vp8.stdout?.length) return vp8.stdout;
+  }
+  r = grab([]);
+  if (r.error) throw new Error(r.error.code === 'ENOENT' ? `${bin} is not on the PATH (set $FFMPEG)` : r.error.message);
+  if (r.status !== 0) throw new Error(`${bin} failed: ${(r.stderr?.toString() || '').trim().split('\n').pop() || `exit ${r.status}`}`);
+  if (r.stdout?.length) return r.stdout;
+  // Past the end of a short video: its first frame.
+  if (at > 0) return videoFrame(file, { at: 0, ext, bin });
+  throw new Error(`${bin} found no frame`);
+}
+
 // A raster's pixels, for `colours`: PNGs only (other formats need a host's decoder).
 export function pngPixels(file) {
   const bytes = readFileSync(file);
@@ -142,9 +165,10 @@ export function pngPixels(file) {
 }
 
 // The probes above, in the shape lib.put takes.
-export const defaultProbes = ({ ffprobe: bin } = {}) => ({
+export const defaultProbes = ({ ffprobe: bin, ffmpeg } = {}) => ({
   probeVideo: (file) => videoInfo(file, { bin }),
   probeAudio: (file) => audioInfo(file, { bin }),
   fontMeta: (file) => fontInfo(readFileSync(file)),
   pixels: (file) => pngPixels(file),
+  extractFrame: (file, { at, ext } = {}) => videoFrame(file, { at, ext, ...(ffmpeg ? { bin: ffmpeg } : {}) }),
 });

@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { assetSrc, defaultProbes, type AssetRecord, type Library, type Probes } from "../../assetlib/index.js";
 import type { Marker, SpriteSheet } from "../schema/types.js";
 import { ASSET_LICENCES, type AssetLicence } from "../schema/zod.js";
+import { resolveFfmpeg } from "../drivers/node/ffmpeg.js";
 
 export class HdfError extends Error {}
 
@@ -321,12 +322,12 @@ const dropUndefined = <T extends Record<string, unknown>>(o: T) =>
 
 /**
  * Puts a file hdf made on `shelf` as a record with its `made` block, probed (a video's duration, size, alpha
- * and sound; a font's tables; a PNG's palette), replacing the id in place. `probes` go over assetlib's own.
- * A video's palette waits for a frame grabber (plan D6), so it is not asked for. The blob it replaces is
+ * and sound; a font's tables; a PNG's or a video frame's palette, light and room, D6), replacing the id in
+ * place. `probes` go over assetlib's own, whose frame grabber runs davidup's ffmpeg. The blob it replaces is
  * deleted when no other entry on the shelf holds it (a re-render leaves no orphan behind).
  */
 export async function putDerived(lib: Library, shelf: string, d: Derived, probes: Probes = {}): Promise<PutDerived> {
-  const own = defaultProbes();
+  const own = defaultProbes({ ffmpeg: await resolveFfmpeg() });
   probes = { ...own, pixels: (file, info) => (info.ext === "png" ? own.pixels(file, info) : null), ...probes };
   const bytes = readFileSync(d.file);
   const target = lib.shelf(shelf);

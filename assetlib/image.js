@@ -1,9 +1,10 @@
 // What some bytes are, without decoding them (asset-library plan §2): the payload's type by its magic, a
-// raster's size and alpha from its header, and the palette of pixels a host decoded.
+// raster's size and alpha from its header, and the palette, light and room of pixels a host decoded.
 //
 //   sniff(bytes, 'audio')        'wav' | 'mp3' | 'm4a' | ... | null (the kind picks between a container's names)
 //   imageInfo(bytes)             { type, w, h, alpha } from a PNG, JPEG, WebP or GIF header, or null
 //   colours({ data, width, height }, { sil })   the top 8 swatches, as `hdf photo` writes them
+//   lightFacts({ data, width, height })         { dark, room }: dark on the whole, and how busy each third is (D6)
 //
 // Zero dependencies: nothing here decodes pixels. A host that can (skia in both apps) hands them to colours().
 
@@ -162,4 +163,69 @@ export function colours({ data, width, height }, { sil } = {}) {
 export function usesAlpha({ data }) {
   for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true;
   return false;
+}
+
+// ---------- light and room (plan D6) ----------
+
+// `dark`: the mean luma (Rec. 709 weights over the sRGB values, 0..1) of the pixels, each counted by its
+// alpha, is under DARK_LUMA. `room`: how busy each third of the frame is, as the share of its pixels on an
+// edge, in the cells ROOM_CELLS name (tl t tr / l c r / bl b br); under ROOM a cell is quiet enough to letter
+// on. Edges are found on the frame averaged down to ROOM_SIZE on its longer side (paper grain and video noise
+// average out, a drawn line does not), by a Sobel step over EDGE on the luma premultiplied by alpha or on the
+// alpha itself, so a cutout's outline is an edge and the transparent field around it is room.
+export const DARK_LUMA = 0.4;
+export const ROOM = 0.2;
+export const ROOM_CELLS = Object.freeze(['tl', 't', 'tr', 'l', 'c', 'r', 'bl', 'b', 'br']);
+export const ROOM_SIZE = 128;
+const EDGE = 0.1;
+const luma = (d, i) => (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+
+// The pixels' mean luma counted by alpha, or null when every pixel is transparent.
+export function meanLuma({ data }) {
+  let sum = 0, weight = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3] / 255;
+    if (!a) continue;
+    sum += luma(data, i) * a;
+    weight += a;
+  }
+  return weight > 0 ? sum / weight : null;
+}
+
+// The 3×3 grid of edge density, { tl, t, tr, l, c, r, bl, b, br }, each 0..1 to 2 places.
+export function roomOf({ data, width, height }) {
+  // Box-average down to at most ROOM_SIZE on the longer side: premultiplied luma and alpha, per cell.
+  const scale = Math.max(1, Math.max(width, height) / ROOM_SIZE);
+  const w = Math.max(1, Math.round(width / scale)), h = Math.max(1, Math.round(height / scale));
+  const lum = new Float64Array(w * h), alp = new Float64Array(w * h), n = new Float64Array(w * h);
+  for (let y = 0; y < height; y++) {
+    const row = Math.min(h - 1, Math.floor((y * h) / height)) * w;
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4, k = row + Math.min(w - 1, Math.floor((x * w) / width)), a = data[i + 3] / 255;
+      lum[k] += luma(data, i) * a; alp[k] += a; n[k]++;
+    }
+  }
+  for (let k = 0; k < w * h; k++) if (n[k]) { lum[k] /= n[k]; alp[k] /= n[k]; }
+  // A Sobel step, clamped at the borders; a unit step reads 4, so it is divided by 4.
+  const at = (g, x, y) => g[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))];
+  const step = (g, x, y) => {
+    const gx = at(g, x + 1, y - 1) + 2 * at(g, x + 1, y) + at(g, x + 1, y + 1) - at(g, x - 1, y - 1) - 2 * at(g, x - 1, y) - at(g, x - 1, y + 1);
+    const gy = at(g, x - 1, y + 1) + 2 * at(g, x, y + 1) + at(g, x + 1, y + 1) - at(g, x - 1, y - 1) - 2 * at(g, x, y - 1) - at(g, x + 1, y - 1);
+    return Math.hypot(gx, gy) / 4;
+  };
+  const edges = new Array(9).fill(0), count = new Array(9).fill(0);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const cell = Math.min(2, Math.floor((3 * y) / h)) * 3 + Math.min(2, Math.floor((3 * x) / w));
+      count[cell]++;
+      if (step(lum, x, y) > EDGE || step(alp, x, y) > EDGE) edges[cell]++;
+    }
+  }
+  return Object.fromEntries(ROOM_CELLS.map((c, i) => [c, count[i] ? +(edges[i] / count[i]).toFixed(2) : 0]));
+}
+
+// The light facts of some pixels: { dark, room }; `dark` is left out when every pixel is transparent.
+export function lightFacts(px) {
+  const l = meanLuma(px);
+  return { ...(l === null ? {} : { dark: l < DARK_LUMA }), room: roomOf(px) };
 }

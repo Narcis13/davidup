@@ -85,10 +85,12 @@ import {
   KINDS,
   LICENCES,
   MEDIA,
+  ROOM_REGIONS,
   type Hue,
   type Kind,
   type Licence,
   type Media,
+  type RoomRegion,
   type Adds,
   type Previewers,
   type SearchQuery,
@@ -127,6 +129,7 @@ import {
   assetPreviewers,
   assetSheet,
   editAsset,
+  frameProbe,
   libraryShelfItems,
   moveAsset,
   openShelves,
@@ -3540,6 +3543,7 @@ const ASSET_KIND = z.enum(KINDS as unknown as [Kind, ...Kind[]]);
 const ASSET_MEDIA = z.enum(MEDIA as unknown as [Media, ...Media[]]);
 const ASSET_LICENCE = z.enum(LICENCES as unknown as [Licence, ...Licence[]]);
 const ASSET_HUE = z.enum(HUES as unknown as [Hue, ...Hue[]]);
+const ASSET_ROOM = z.enum(Object.keys(ROOM_REGIONS) as [RoomRegion, ...RoomRegion[]]);
 const oneOrMore = <T extends z.ZodTypeAny>(t: T) => z.union([t, z.array(t).min(1)]);
 const ASSET_REF = z
   .string()
@@ -3551,7 +3555,7 @@ const searchAssets = defineTool({
   title: "Search assets",
   description:
     "Search the asset library before placing anything: the open project's `assets/` (editor-hosted, else `$DAVIDUP_PROJECT`'s), the user's pool (`~/.davidup/assets`) and the house shelf, in that order (an id on an earlier shelf shadows a later one). Works on the standalone server. `q` is free text, ranked (id, name, tags, desc, credit; each word a prefix, a synonym table maps `dog` to `animal`, `paper` to `stock texture`, ...); every filter is optional and filters alone list their hits. " +
-    "Each hit carries `record` (kind, name, desc, tags, licence, credit, w/h, sec, colours, ...; a cutout's `sil` and a sample's `align`/`mouth` are left out, `get_asset` has them), `shelf`, `path` (the blob), `thumb` (or null until previewed), `why` (the field hits: tell a real match from a lucky prefix), and `use`: `use.davidup` is the exact `register_asset` call (an `asset:<id>@<sha12>` src with the record's credit and licence copied in) or null when davidup cannot take the kind (a puppet with a made sprite sheet offers the sheet via `use.davidup.via`); `use.hdf` is the hand-drawn film's `fromStore` line. " +
+    "Each hit carries `record` (kind, name, desc, tags, licence, credit, w/h, sec, colours, dark, room, ...; a cutout's `sil` and a sample's `align`/`mouth` are left out, `get_asset` has them), `shelf`, `path` (the blob), `thumb` (or null until previewed), `why` (the field hits: tell a real match from a lucky prefix), and `use`: `use.davidup` is the exact `register_asset` call (an `asset:<id>@<sha12>` src with the record's credit and licence copied in) or null when davidup cannot take the kind (a puppet with a made sprite sheet offers the sheet via `use.davidup.via`); `use.hdf` is the hand-drawn film's `fromStore` line. " +
     "`count` is every match, `hits` the first `limit` (default 20); `facets` count kind / media / shelf / licence / tags over the matches, or over the whole library (`facetsOf: 'all'`) when nothing matched, so the next call can narrow. `get_asset_preview { ids }` shows candidates on one contact sheet.",
   inputSchema: {
     q: z.string().optional().describe("Free text: `warm paper`, `fox walk`, `pop`."),
@@ -3566,8 +3570,13 @@ const searchAssets = defineTool({
     aspect: z.union([z.string(), z.number().positive()]).optional().describe('"16:9", "9:16", or w / h; within 2 %.'),
     secMin: z.number().nonnegative().optional(),
     secMax: z.number().nonnegative().optional(),
-    dark: z.boolean().optional().describe("Mean lightness of the palette under L* 50 (true) or at least (false)."),
+    dark: z.boolean().optional().describe("Dark on the whole: the pixels' mean luma under 0.4, measured when the asset came in (a video's frame at 1 s); a record with only a palette, its mean L* under 50."),
     hue: oneOrMore(ASSET_HUE).optional().describe("The dominant swatch's band: warm, cool, neutral, red, orange, yellow, green, cyan, blue, purple, pink."),
+    room: oneOrMore(ASSET_ROOM)
+      .optional()
+      .describe(
+        "Room to letter on: each third named must be quiet (its `record.room` edge density under 0.2). Thirds: tl t tr / l c r / bl b br; sides: top bottom left right (all three of that side). A headline over a background is `{ media: 'raster', room: 'top' }`. With no `q`, the quietest hits come first.",
+      ),
     limit: z.number().int().min(0).max(200).optional(),
     facets: z.boolean().optional().describe("Default true."),
   },
@@ -3711,6 +3720,7 @@ const addAssetTool = defineTool({
       probes: {
         probeVideo: deps.probeVideo ?? defaultProbeVideo,
         probeAudio: deps.probeAudio ?? defaultProbeAudio,
+        extractFrame: await frameProbe(),
       },
     });
     const after = openShelves(project);

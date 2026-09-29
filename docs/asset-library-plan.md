@@ -567,6 +567,23 @@ Met cutouts get palettes matching their current `colours`, `long.mp4`
 (solid navy) is `dark: true` with `room` all zero, and `search_assets
 { dark: true, room: 'tl' }` ranks it.
 
+*As built:* the facts are `image.js lightFacts`: `dark` is the mean Rec. 709
+luma counted by alpha; `room` is the share of each third's pixels whose
+Sobel step (on the luma premultiplied by alpha, or on the alpha) is over
+0.1, on the frame box-averaged to 128 px, so grain and codec noise are room
+and a cutout's outline is not. `probeFacts` measures what an entry lacks
+(`PIXEL_FACTS`): a raster through `pixels`, a video through a new
+`extractFrame` probe (pixels or PNG bytes) at 1 s, or half a shorter video;
+assetlib's default runs ffmpeg (scaled to 960 px, libvpx first for a webm's
+alpha), davidup passes `resolveFfmpeg()`'s. hdf's cutouts keep the palette
+its skia clip gives (the derive), so the Met cutouts put again get their
+colours exactly; assetlib's own clip agrees on the top three swatches.
+`room` takes cells or sides (`top bottom left right`); filters alone sort
+quietest first. `dark` prefers the record's own over the palette's L* 50,
+which moves the hourglass (L* 49.8, luma 0.47) to light. `lib.refresh` /
+`asset facts` measure records already on a shelf; the house's seven cutouts
+were, so their `dark` and `room` are in `catalogue.json`.
+
 ---
 
 ## 7. hdf adoption (H)
@@ -812,7 +829,7 @@ then D and E in parallel, I when D4 exists, S last.
 | D3 | MCP: write and use | 1 | A5 D2 | [x] |
 | D4 | Derived assets land in the library | 1 | A2 D1 H1 | [x] |
 | D5 | The seed writes the user shelf | 0.5 | A2 D1 | [x] |
-| D6 | Palette and text-room facts | 1 | A2 | [ ] |
+| D6 | Palette and text-room facts | 1 | A2 | [x] |
 | E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [ ] |
 | E2 | Upload and drop | 1 | D3 E1 | [ ] |
 | E3 | Promote is move | 0.5 | E1 | [ ] |

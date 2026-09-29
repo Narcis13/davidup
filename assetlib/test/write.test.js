@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
-import { HOUSE_ROOT, colours, imageInfo, isLegacySha, openLibrary, quantise, readShelf, sha, sniff } from '../index.js';
+import { HOUSE_ROOT, colours, encodePng, imageInfo, isLegacySha, openLibrary, quantise, readShelf, sha, sniff } from '../index.js';
 
 // A PNG of w x h RGBA pixels (filter 0, one IDAT), and the pixels themselves for a `pixels` probe.
 function png(w, h, rgba) {
@@ -192,29 +192,36 @@ test('move rehashes a legacy sha1 entry as sha256: the blob is renamed, not re-e
   rmSync(dir, { recursive: true });
 });
 
-test('lib.put runs the host\'s probes: davidup\'s ffprobe shape, pixels for colours, a warning for each gap', async () => {
+test('lib.put runs the host\'s probes: davidup\'s ffprobe shape, a frame for colours, dark and room, a warning for each gap', async () => {
   const dir = temp(), lib = openLibrary({ shelves: [{ name: 'project', root: join(dir, 'p') }, { name: 'user', root: join(dir, 'u') }] });
   const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(12)]);
   const VIDEO = { id: 'walk', kind: 'video', name: 'Walk', tags: [], licence: 'own', credit: '', source: '' };
-  let seen;
+  let seen, asked;
   const probeVideo = async (file) => { seen = readFileSync(file); return { duration: 4.5, width: 1920, height: 1080, fps: 30, fpsRational: '30/1', hasAlpha: false, codec: 'h264', pixelFormat: 'yuv420p', hasAudio: true }; };
-  const frame = () => pixels(4, 4, () => BLUE);
-  const v = await lib.put(null, VIDEO, mp4, { probes: { probeVideo, pixels: frame } });
+  const frame = (file, info) => { asked = info; return pixels(4, 4, () => BLUE); };
+  const v = await lib.put(null, VIDEO, mp4, { probes: { probeVideo, extractFrame: frame } });
   assert.deepEqual(seen, mp4, 'the probe reads the payload from a file');
+  assert.deepEqual(asked, { at: 1, kind: 'video', ext: 'mp4' }, 'the frame at 1 s');
   assert.equal(v.shelf, 'project');
   assert.deepEqual(v.warnings, []);
   const { id: _id, ...fields } = VIDEO;
   assert.deepEqual({ ...v.entry, added: undefined }, {
     ...fields, media: 'video', sha: sha(mp4), ext: 'mp4', bytes: mp4.length, added: undefined,
     sec: 4.5, fps: 30, w: 1920, h: 1080, alpha: false, codec: 'h264', audio: true, colours: [{ hex: '#1e3cc8', area: 1 }],
+    dark: true, room: { tl: 0, t: 0, tr: 0, l: 0, c: 0, r: 0, bl: 0, b: 0, br: 0 },
   });
   assert.equal(lib.get('walk').sec, 4.5, 'the library sees the write');
 
   // No probe, or one that throws: the fields stay empty and the warning says which.
   const bare = await lib.put('user', { ...VIDEO, id: 'walk2' }, mp4);
-  assert.deepEqual(bare.warnings, ['no probeVideo probe: sec, fps, w, h, alpha, codec, audio left empty', 'no pixels probe: colours left empty']);
+  assert.deepEqual(bare.warnings, ['no probeVideo probe: sec, fps, w, h, alpha, codec, audio left empty', 'no extractFrame probe: colours, dark, room left empty']);
   const boom = await lib.put('user', { ...VIDEO, id: 'walk3', colours: [] }, mp4, { probes: { probeVideo: () => { throw new Error('ffprobe not found'); } } });
-  assert.deepEqual(boom.warnings, ['probeVideo could not read the video: ffprobe not found; sec, fps, w, h, alpha, codec, audio left empty']);
+  assert.deepEqual(boom.warnings, ['probeVideo could not read the video: ffprobe not found; sec, fps, w, h, alpha, codec, audio left empty', 'no extractFrame probe: dark, room left empty']);
+  // A short video's frame is half way through; a frame may come back as PNG bytes; bytes that are not one warn.
+  const short = await lib.put('user', { ...VIDEO, id: 'blink' }, mp4, { probes: { probeVideo: () => ({ duration: 0.5 }), extractFrame: (f, info) => { asked = info; return encodePng(pixels(4, 4, () => [250, 250, 250, 255])); } } });
+  assert.deepEqual([asked.at, short.entry.dark, short.entry.colours], [0.25, false, [{ hex: '#fafafa', area: 1 }]]);
+  const junk = await lib.put('user', { ...VIDEO, id: 'junk' }, mp4, { probes: { probeVideo, extractFrame: () => Buffer.from('not a png') } });
+  assert.deepEqual(junk.warnings, ['extractFrame could not read the video: gave neither pixels nor a PNG; colours, dark, room left empty']);
   assert.equal(boom.entry.sec, undefined);
 
   // Audio and sample kinds share probeAudio; a sample keeps only the fields it has.

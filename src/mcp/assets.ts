@@ -21,6 +21,7 @@ import {
   KINDS,
   THUMB_CACHE,
   assetSrc,
+  defaultProbes,
   imageInfo,
   loadHosts,
   sha,
@@ -36,6 +37,7 @@ import {
   type SearchResult,
 } from "../../assetlib/index.js";
 import { parseAssetSrc } from "../assets/assetSrc.js";
+import { resolveFfmpeg } from "../drivers/node/ffmpeg.js";
 import { openAssetLibrary } from "../assets/library.js";
 import { MCPToolError } from "./errors.js";
 
@@ -340,6 +342,14 @@ export interface AddAssetArgs {
   fields?: Record<string, unknown>;
   shelf?: string;
   replace?: boolean;
+}
+
+/**
+ * A video's representative frame through davidup's ffmpeg (ffmpeg-static, else the PATH): what gives a video
+ * its colours, dark and room at put (D6).
+ */
+export async function frameProbe(): Promise<NonNullable<Probes["extractFrame"]>> {
+  return defaultProbes({ ffmpeg: await resolveFfmpeg() }).extractFrame;
 }
 
 /**

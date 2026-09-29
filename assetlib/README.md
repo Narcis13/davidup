@@ -39,8 +39,16 @@ lib.gc({ dry: true });            // orphan blobs and stale thumbs
 
 `put` hashes with sha256 and derives `media`, `ext` (by the bytes' magic), `bytes`, `added` and a raster's
 header size and alpha; the caller's fields win over anything derived except those four. Heavier facts come from
-the host's `probes` (`probeVideo`, `probeAudio`, `fontMeta`, `pixels` for `colours`), each optional; davidup's
+the host's `probes` (`probeVideo`, `probeAudio`, `fontMeta`, `pixels`, `extractFrame`), each optional; davidup's
 ffprobe results are read as they are. `shelf.put` is the same without probes, and synchronous.
+
+A raster's pixels (`pixels`) and a video's frame at 1 s (`extractFrame`, half way through a shorter video; the
+default one runs ffmpeg, `$FFMPEG`) give the pixel facts (plan D6, `image.js`): `colours` (the top 8 swatches
+by area, hdf's quantiser), `dark` (the mean luma, counted by alpha, under 0.4) and `room`, the busy-ness of
+each third of the frame as the share of its pixels on an edge (`{ tl, t, tr, l, c, r, bl, b, br }`, 0..1),
+found on the frame averaged down to 128 px so grain and noise do not count and a cutout's outline does. Under
+0.2 a third is quiet enough to letter on. `lib.refresh(id, { probes, force })` measures a record already on a
+shelf that lacks them (`asset facts`); the bytes are untouched.
 
 Search is local, ranked and explained (plan §4, `search.js`):
 
@@ -54,9 +62,11 @@ out.hits[0];                      // { id, shelf, score, why: ['id: warm', 'id: 
 Words are folded (case, diacritics), stop words dropped, and each is a prefix of a record word. A record scores
 its best field per word (id 6, name 5, tags 4, desc 2, credit, source, kind, licence 1), 0.6 of that for a word
 found through `synonyms.json` (`dog` finds `animal`), and 10 more when the query is its id; ties go to the
-newest, then the id. Filters: `kind media shelf tags licence alpha minW minH aspect secMin secMax dark hue`.
-`dark` is the mean CIE lightness of `colours` under 50; `hue` is the dominant swatch's band (`warm`, `cool`,
-`neutral`, or `red` ... `pink`). A query with only filters lists by kind, then id. `openLibrary({ rank })`
+newest, then the id. Filters: `kind media shelf tags licence alpha minW minH aspect secMin secMax dark hue
+room`. `dark` is the record's own (measured at put), else the mean CIE lightness of its `colours` under 50;
+`hue` is the dominant swatch's band (`warm`, `cool`, `neutral`, or `red` ... `pink`); `room` names thirds
+(`tl` ... `br`) or sides (`top bottom left right`) whose every cell must be under 0.2. A query with only
+filters lists by kind, then id, or the quietest first when it asks for `room`. `openLibrary({ rank })`
 takes a host scorer (an embedding, later) with the same result shape.
 
 Every record can be looked at (plan A4, `preview.js`). A host registers a previewer per kind; anything
@@ -137,6 +147,8 @@ asset show teapot                           record, shelves, blob, thumb, made f
 asset add paper.png --kind stock --name "Warm paper" --licence own --tags paper,warm
 asset tag teapot +kitchen -object           asset desc teapot "Silver teapot, three-quarter view"
 asset rm teapot    asset mv teapot --to house    asset gc --dry
+asset find --dark --room top               dark, a quiet top third for a headline; quietest first
+asset facts --all [--force]                 colours, dark and room for records that lack them (D6)
 asset thumb teapot | --all                  asset sheet teapot cup fox --out candidates.png
 asset ls --shelf house                      asset check [--legacy]    (exits 1 on an error)
 asset migrate --sha256 house [--dry]        rehash a shelf written with sha1 (H1)

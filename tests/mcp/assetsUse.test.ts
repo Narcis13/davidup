@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { readShelf, type EntryInput } from "../../assetlib/index.js";
+import { encodePng, readShelf, type EntryInput } from "../../assetlib/index.js";
 import { CompositionStore, TOOLS, dispatchTool, type ToolDef, type ToolDeps } from "../../src/mcp/index.js";
 import { BLUE_PNG, RED_PNG, makeShelves, put, putFont, repoRoot, solidPng, type Shelves } from "../assets/libraryShelves.js";
 
@@ -161,6 +161,27 @@ describe("add_asset", () => {
     const a = await ok("add_asset", { path: TONE_WAV, kind: "audio", name: "Tone", licence: "own" }, standalone());
     expect(a.record).toMatchObject({ kind: "audio", sec: 1, rate: 44100, channels: 1 });
   });
+
+  it("measures a video's frame and a raster's pixels, so search_assets { dark, room } finds the navy video (D6)", async () => {
+    // long.mp4 is solid navy: its frame at 1 s through davidup's ffmpeg.
+    const v = await ok("add_asset", { path: LONG_MP4, kind: "video", name: "Long", licence: "own" }, standalone());
+    expect(v.warnings).toEqual([]);
+    expect(v.record).toMatchObject({ dark: true, room: { tl: 0, t: 0, tr: 0, l: 0, c: 0, r: 0, bl: 0, b: 0, br: 0 } });
+    expect(v.record.colours[0].hex).toMatch(/^#0000[78]/);
+    // A dark still whose top-left third is a checkerboard: dark, but no room there.
+    const data = new Uint8ClampedArray(90 * 90 * 4);
+    for (let y = 0; y < 90; y++) for (let x = 0; x < 90; x++) data.set(x < 30 && y < 30 && ((x >> 1) + (y >> 1)) % 2 ? [255, 255, 255, 255] : [10, 10, 30, 255], (y * 90 + x) * 4);
+    writeFileSync(join(sh.project, "ink.png"), encodePng({ data, width: 90, height: 90 }));
+    const ink = await ok("add_asset", { path: join(sh.project, "ink.png"), kind: "image", name: "Ink", licence: "own" }, standalone());
+    expect(ink.record.dark).toBe(true);
+    expect(ink.record.room.tl).toBeGreaterThan(0.5);
+
+    const out = await ok("search_assets", { dark: true, room: "tl" }, standalone());
+    expect(out.hits.map((h: { id: string }) => h.id)).toEqual(["long"]);
+    expect(out.hits[0].why).toEqual(["dark: true", "room: tl 0"]);
+    expect((await ok("search_assets", { dark: true }, standalone())).hits.map((h: { id: string }) => h.id)).toEqual(["ink", "long"]);
+    await fails("search_assets", { room: "middle" }, standalone(), "E_INVALID_VALUE");
+  }, 30_000);
 
   it("moves a record with id and shelf, keeping its sha so a pinned src still resolves", async () => {
     const file = join(sh.project, "red.png");

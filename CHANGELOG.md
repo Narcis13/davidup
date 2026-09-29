@@ -9,6 +9,25 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Palette and text-room facts (asset library D6)
+
+- Every raster and every video put on an asset shelf (`add_asset`,
+  `asset add`, `hdf import`, what `render_hdf_clip` makes) is measured on
+  its pixels: `colours` (the top 8 swatches, hdf's quantiser), `dark` (mean
+  luma under 0.4) and `room`, how busy each third of the frame is
+  (`{ tl, t, tr, l, c, r, bl, b, br }`, the share of its pixels on an edge;
+  under 0.2 is quiet enough to letter on). A video is measured on its frame
+  at 1 s (half way through a shorter one), grabbed with davidup's ffmpeg
+  (assetlib's `extractFrame` probe; `$FFMPEG` for the `asset` bin).
+- `search_assets` (and `asset find --room`) takes `room`: thirds (`tl` ...
+  `br`) or sides (`top`, `bottom`, `left`, `right`) that must be quiet; a
+  search of filters alone lists the quietest first. `dark` reads the
+  record's measured `dark`, and a record with only a palette as before.
+- `asset facts <id...> | --all [--force]` measures records already on a
+  shelf; run on the house shelf, it gave the seven Met cutouts `dark` and
+  `room` (their palettes unchanged). The hourglass, borderline by its
+  palette, now counts as light.
+
 ### The seed puts its fonts on the user shelf (asset library D5)
 
 - `bun run seed:library` (pack v3) puts its ten fonts on the user asset shelf

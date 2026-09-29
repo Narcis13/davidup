@@ -71,7 +71,7 @@ describe("assetlib from davidup", () => {
       const lib = openLibrary({ shelves: [{ name: "user", root }] });
       const bytes = readFileSync(new URL("../drivers/fixtures/video/small.mp4", import.meta.url));
       const out = await lib.put("user", { id: "small", kind: "video", name: "Small", tags: [], licence: "own", credit: "", source: "" }, bytes, { probes: { probeVideo } });
-      expect(out.warnings).toEqual(["no pixels probe: colours left empty"]);
+      expect(out.warnings).toEqual(["no extractFrame probe: colours, dark, room left empty"]);
       expect(out.entry).toMatchObject({ kind: "video", media: "video", ext: "mp4", w: 320, h: 240, codec: "h264", alpha: false, bytes: bytes.length });
       expect(out.entry.fps).toBeCloseTo(30, 5);
       expect(lib.get("small").shelf).toBe("user");

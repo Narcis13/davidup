@@ -7,7 +7,8 @@
 // a prefix in an index of the records' words. A record scores, for each query word, its best field hit:
 // id 6, name 5, tags 4, desc 2, credit, source, kind and licence 1. A word found only through the synonym
 // table (synonyms.json) scores 0.6 of its field's weight; a query that is the id adds 10. Filters are exact
-// and every one must hold. Ties break on `added` (newest first), then id, so a test can pin an order.
+// and every one must hold. Ties break on `added` (newest first), then id, so a test can pin an order. A query
+// of filters alone lists by kind then id, or quietest first when it asks for `room` (D6).
 //
 // `why` is the hits themselves ("name: paper", "tags: animal (dog)", "colours: warm #efe6d4"), so an agent can
 // tell a real match from a lucky prefix. Facets count the matches (all of them, not only the page), and when
@@ -15,6 +16,7 @@
 //
 // A host may replace the scorer (`rank`) with one that has seen an embedding; the result does not change shape.
 import { readFileSync } from 'node:fs';
+import { ROOM, ROOM_CELLS } from './image.js';
 import { KINDS, LICENCES, MEDIA, mediaOf } from './record.js';
 
 export const WEIGHTS = Object.freeze({ id: 6, name: 5, tags: 4, desc: 2, credit: 1, source: 1, kind: 1, licence: 1 });
@@ -74,7 +76,8 @@ export function hueOf(hex) {
 }
 
 // The area-weighted mean CIE lightness (L*, 0..100) of a colours table, or null when it has none. Under 50 is
-// dark: about where white text starts to out-contrast black on it.
+// dark: about where white text starts to out-contrast black on it. The `dark` filter reads a record's own `dark`
+// (measured on its pixels at put, D6) and falls back to this for a record that has only a palette.
 export const DARK = 50;
 const linear = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 export function lightness(colours) {
@@ -89,12 +92,19 @@ export function lightness(colours) {
   return area > 0 ? sum / area : null;
 }
 
+// The regions a `room` filter names: a third of the frame (image.js ROOM_CELLS: tl t tr / l c r / bl b br) or a
+// side of it (top: tl t tr). Every cell of every region named must be quieter than ROOM.
+export const ROOM_REGIONS = Object.freeze({
+  ...Object.fromEntries(ROOM_CELLS.map((c) => [c, [c]])),
+  top: ['tl', 't', 'tr'], bottom: ['bl', 'b', 'br'], left: ['tl', 'l', 'bl'], right: ['tr', 'r', 'br'],
+});
+
 // Whether a record's pixels carry alpha: as it says; a cutout always does, a jpeg never does; else unknown.
 const alphaOf = (r) => (typeof r.alpha === 'boolean' ? r.alpha : r.kind === 'cutout' ? true : r.ext === 'jpg' ? false : undefined);
 
 // ---------- the query ----------
 
-const KEYS = ['q', 'kind', 'media', 'shelf', 'tags', 'licence', 'alpha', 'minW', 'minH', 'aspect', 'secMin', 'secMax', 'dark', 'hue', 'limit', 'facets'];
+const KEYS = ['q', 'kind', 'media', 'shelf', 'tags', 'licence', 'alpha', 'minW', 'minH', 'aspect', 'secMin', 'secMax', 'dark', 'hue', 'room', 'limit', 'facets'];
 export const LIMIT = 20;
 // How many tags the facets list (the most common first); the other facets list every value.
 export const TAG_FACETS = 30;
@@ -149,6 +159,7 @@ export function parseQuery(query = {}, { shelves } = {}) {
     minW, minH, aspect: ratio(query.aspect), secMin, secMax,
     dark: flag('dark', query.dark),
     hue: oneOf('hue', query.hue, HUES),
+    room: oneOf('room', query.room, Object.keys(ROOM_REGIONS)),
     limit: num('limit', query.limit, { int: true, min: 0 }) ?? LIMIT,
     facets: flag('facets', query.facets) ?? true,
   };
@@ -176,8 +187,16 @@ function filtersOf(p) {
   if (p.secMax !== null) f.push((r) => typeof r.sec === 'number' && r.sec <= p.secMax);
   if (p.dark !== null) {
     f.push((r) => {
+      if (typeof r.dark === 'boolean') return r.dark === p.dark && `dark: ${r.dark}`;
       const l = lightness(r.colours);
       return l !== null && (l < DARK) === p.dark && `colours: ${p.dark ? 'dark' : 'light'} (L* ${Math.round(l)})`;
+    });
+  }
+  if (p.room) {
+    const cells = roomCells(p.room);
+    f.push((r) => {
+      if (!r.room || !cells.every((c) => typeof r.room[c] === 'number' && r.room[c] < ROOM)) return false;
+      return `room: ${cells.map((c) => `${c} ${r.room[c]}`).join(', ')}`;
     });
   }
   if (p.hue) {
@@ -189,6 +208,11 @@ function filtersOf(p) {
   }
   return f;
 }
+
+// The cells some room regions cover, in grid order.
+const roomCells = (regions) => ROOM_CELLS.filter((c) => regions.some((g) => ROOM_REGIONS[g].includes(c)));
+// How busy a record is where a room filter asked for quiet: the sum of those cells.
+const busy = (r, cells) => cells.reduce((n, c) => n + r.room[c], 0);
 
 // ---------- the index ----------
 
@@ -284,9 +308,11 @@ export function searchIndex(records) {
         if (!s || !(s.score > 0)) return;
         matches.push({ r, score: round(s.score), why: [...(s.why ?? []), ...whyFilters] });
       });
+      // Filters alone list by kind then id; with a room filter, the quietest there first.
+      const cells = p.room ? roomCells(p.room) : null;
       matches.sort(ranked
         ? (a, b) => b.score - a.score || String(b.r.added ?? '').localeCompare(String(a.r.added ?? '')) || cmp(a.r.id, b.r.id)
-        : (a, b) => cmp(a.r.kind, b.r.kind) || cmp(a.r.id, b.r.id));
+        : (a, b) => (cells ? busy(a.r, cells) - busy(b.r, cells) : 0) || cmp(a.r.kind, b.r.kind) || cmp(a.r.id, b.r.id));
       const out = { count: matches.length, total: recs.length };
       if (p.facets) {
         out.facetsOf = matches.length ? 'hits' : 'all';

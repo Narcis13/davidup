@@ -41,6 +41,10 @@ export interface Entry {
   h?: number;
   alpha?: boolean;
   colours?: { hex: string; area: number }[];
+  /** Mean luma of the pixels (a video's frame) under 0.4, measured at put (D6). */
+  dark?: boolean;
+  /** Edge density 0..1 in each third of the frame (D6); under ROOM is quiet enough to letter on. */
+  room?: Room;
   made?: Made | null;
   rel?: { from?: string[]; variants?: string[] };
   [field: string]: unknown;
@@ -96,6 +100,26 @@ export function quantise(data: Uint8Array | Uint8ClampedArray): Swatch[];
 /** The palette of a decoded image; with `sil`, only the pixels whose centres it encloses (even-odd). */
 export function colours(pixels: Pixels, opts?: { sil?: { sub: { pts: number[] }[] } }): Swatch[];
 
+/** A third of the frame: top-left, top, top-right / left, centre, right / bottom-left, bottom, bottom-right. */
+export type RoomCell = 'tl' | 't' | 'tr' | 'l' | 'c' | 'r' | 'bl' | 'b' | 'br';
+export type Room = Record<RoomCell, number>;
+/** What a `room` filter names: a third, or a side (top: tl t tr). */
+export type RoomRegion = RoomCell | 'top' | 'bottom' | 'left' | 'right';
+export const ROOM_CELLS: readonly RoomCell[];
+export const ROOM_REGIONS: Readonly<Record<RoomRegion, RoomCell[]>>;
+/** A cell busier than this is not room (0.2). */
+export const ROOM: number;
+/** `dark` is a mean luma under this (0.4). */
+export const DARK_LUMA: number;
+/** Frames are averaged down to this on the longer side before edges are found. */
+export const ROOM_SIZE: number;
+/** The pixels' mean luma (Rec. 709 over sRGB, 0..1) counted by alpha, or null when all are transparent. */
+export function meanLuma(pixels: Pixels): number | null;
+/** The 3×3 grid of edge density, 0..1 to 2 places. */
+export function roomOf(pixels: Pixels): Room;
+/** { dark, room }; `dark` left out when every pixel is transparent. */
+export function lightFacts(pixels: Pixels): { dark?: boolean; room: Room };
+
 /**
  * A host's probes, each optional, each given the payload as a file. davidup's ffprobe results read as they
  * are (duration, width, height, sampleRate, hasAlpha, hasAudio are renamed); only the kind's fields are kept.
@@ -104,8 +128,10 @@ export interface Probes {
   probeVideo?: (file: string) => Promise<object> | object;
   probeAudio?: (file: string) => Promise<object> | object;
   fontMeta?: (file: string) => Promise<object> | object;
-  /** A raster's pixels, or a video's representative frame: gives `colours` (and a raster's real `alpha`). */
+  /** A raster's pixels: gives `colours`, `dark`, `room` (and a raster's real `alpha`). */
   pixels?: (file: string, info: { kind: Kind; ext: string }) => Promise<Pixels | null> | Pixels | null;
+  /** A video's frame at `at` seconds (1, or half a shorter video), as pixels or PNG bytes: gives `colours`, `dark`, `room`. */
+  extractFrame?: (file: string, info: { at: number; kind: Kind; ext: string }) => Promise<Pixels | Uint8Array | null> | Pixels | Uint8Array | null;
 }
 
 /** What a put is given: an entry to be, named by `id`; sha, ext, media and bytes are derived. */
@@ -129,10 +155,14 @@ export interface PutResult {
 }
 
 /** The facts a host's probes give for a payload, and a warning for each probe missing or failed. */
-export function probeFacts(entry: EntryInput, bytes: Uint8Array, probes?: Probes): Promise<{ facts: Record<string, unknown>; warnings: string[] }>;
+export function probeFacts(entry: EntryInput, bytes: Uint8Array, probes?: Probes, opts?: { pixelsOnly?: boolean }): Promise<{ facts: Record<string, unknown>; warnings: string[] }>;
+/** The facts read off pixels: colours, dark, room. */
+export const PIXEL_FACTS: readonly ['colours', 'dark', 'room'];
+/** Where a video's representative frame is taken, in seconds (half way through a shorter one). */
+export const FRAME_AT: number;
 
-/** The probes assetlib has itself (probe.js): WAV headers, ffprobe for video and other audio, font tables, a PNG's pixels. */
-export function defaultProbes(opts?: { ffprobe?: string }): Required<Probes>;
+/** The probes assetlib has itself (probe.js): WAV headers, ffprobe for video and other audio, font tables, a PNG's pixels, ffmpeg for a video's frame. */
+export function defaultProbes(opts?: { ffprobe?: string; ffmpeg?: string }): Required<Probes>;
 
 export interface ShelfSpec {
   name: string;
@@ -201,10 +231,12 @@ export interface SearchQuery {
   aspect?: string | number;
   secMin?: number;
   secMax?: number;
-  /** Mean lightness of `colours` under (true) or at least (false) L* 50. */
+  /** The record's measured `dark` (D6); for a record with only a palette, its mean L* under 50. */
   dark?: boolean;
   /** The dominant swatch's band. */
   hue?: OneOrMore<Hue>;
+  /** Thirds (or sides) that must be quiet, each cell under ROOM; filters alone then list the quietest first. */
+  room?: OneOrMore<RoomRegion>;
   /** Hits returned (default 20); count and facets cover every match. */
   limit?: number;
   /** Default true. */
@@ -227,6 +259,7 @@ export interface ParsedQuery {
   secMax: number | null;
   dark: boolean | null;
   hue: Hue[] | null;
+  room: RoomRegion[] | null;
   limit: number;
   facets: boolean;
 }
@@ -471,6 +504,8 @@ export interface Library {
   put(shelf: string | null, entry: EntryInput, bytes: Uint8Array | string, opts?: { probes?: Probes; fields?: PutOptions['fields']; by?: string }): Promise<PutResult & { shelf: string; warnings: string[] }>;
   /** A record's own fields (tags, desc, credit...) on `shelf` (default: where it resolves), validated; the blob untouched. */
   update(id: string, patch: Partial<Record<string, unknown>>, opts?: { shelf?: string; fields?: PutOptions['fields'] }): { id: string; shelf: string; entry: Entry };
+  /** colours, dark and room read off the blob of a raster or video that lacks them (all three with `force`), written in place. */
+  refresh(id: string, opts?: { shelf?: string; probes?: Probes; force?: boolean; fields?: PutOptions['fields'] }): Promise<{ id: string; shelf: string; entry: Entry; changed: string[]; warnings: string[] }>;
   remove(id: string, opts?: { shelf?: string }): { id: string; shelf: string; removed: string[] };
   /** Blob, thumb and entry to `to` (rehashed sha256, validated), then removed from where it was. */
   move(id: string, to: string, opts?: { from?: string; fields?: PutOptions['fields'] }): { id: string; from: string; to: string; entry: Entry; path: string };
