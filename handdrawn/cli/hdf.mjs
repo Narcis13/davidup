@@ -77,8 +77,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     your face (blendshapes) or hands (finger curls), MediaPipe per frame -> a track
                                     in the store at 12 fps; a film reads it with actor.face(id, t) / actor.hands(id, t)
   retarget --clip <id> --to <puppet> --map <map.json> --name <cycle> [--dry]   a clip's skeleton as a
-                                    puppet cycle in the store (maps in assets/src/): joints on 2 degrees, a lift,
-                                    a pose clip's stride by leg length
+                                    puppet cycle in the store (maps in <repo>/assets/src/): joints on 2 degrees, a
+                                    lift, a pose clip's stride by leg length
                                     (--clip me --map biped-fox.json --name walk: the fox walks like you;
                                     a stick puppet needs no --map)
   stick   --name <id> [--h 300] [--build kid|adult|tall|round] [--style line|tube] [--hands dots|mitts|fingers|none]
@@ -126,8 +126,8 @@ const USAGE = `usage: hdf <command> [args] [flags]
                                     (then --look 'x~hand:<id>')
   hand    --synth <id> [--root dir] a deterministic hand made from the house one, into the store
   hand    --hershey <file.jhf> --name <id> [--map ascii|greek|cyrillic] [--merge <hand>] [--root dir] [--no-sheet]
-                                    a Hershey font as a hand (licence PD; assets/src/hershey has romans, scripts and
-                                    cyrillic); --merge adds its glyphs to a stored hand, the hand's own kept
+                                    a Hershey font as a hand (licence PD; <repo>/assets/src/hershey has romans,
+                                    scripts and cyrillic); --merge adds its glyphs to a stored hand, the hand's own kept
   hand    --font <file.ttf|otf> --name <id> [--glyphs latin,cyrillic,greek,symbols] [--px 400] [--licence OFL]
                                     [--credit] [--root dir] [--no-sheet]   a font as a hand: each glyph it has drawn and
                                     traced to its centre lines (serifs pruned); no --licence is 'unknown' (lint credit)

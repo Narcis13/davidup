@@ -27,7 +27,7 @@ export async function bundle(path, { loadFilm, out, look, marks }) {
   for (const [f, src] of mods) imports[key(f)] = f.endsWith('.json') ? dataUrl('application/json', src) : dataUrl('text/javascript', rewrite(src, (s) => key(resolveSpec(s, f))));
 
   // Only the ids the film named: a record each, with the pixels of the rasters lifted out as data URLs.
-  // A voice the score speaks but the film forgot to name comes from the store next to the package (4.0 V1).
+  // A voice the score speaks but the film forgot to name comes from the house store (<repo>/assets) (4.0 V1).
   const assets = {}, catalogue = {}, named = { ...assetsOf(film) }, st = readCatalogue(ASSET_ROOT);
   for (const id of voiceIds(scoreEvents(film)?.events ?? [])) if (!named[id] && st.has(id)) named[id] = recordOf(st, id);
   for (const [id, a] of Object.entries(named)) {

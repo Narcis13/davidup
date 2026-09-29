@@ -139,10 +139,16 @@ describe("cli · render · asset: srcs (asset library D1, integration)", () => {
     expect(pixel(await renderOne(elsewhere), 5, 5)).toEqual([255, 0, 0]);
   }, 30_000);
 
-  // The plan's done-when: `asset:teapot` off the real house shelf (hdf's Met cutout, a WebP).
-  it.skipIf(!readShelf(HOUSE_ROOT).has("teapot"))("renders the house shelf's teapot", async () => {
+  // The plan's done-when (D1, H4): `asset:teapot` off the real house shelf (hdf's Met cutout, a WebP) on a
+  // machine with no ~/.davidup: an empty home, no $DAVIDUP_ASSETS, no $DAVIDUP_HOUSE.
+  it.skipIf(!readShelf(HOUSE_ROOT).has("teapot"))("renders the house shelf's teapot with no ~/.davidup", async () => {
     const sh = shelves();
-    delete process.env.DAVIDUP_HOUSE; // the house shelf by path
+    delete process.env.DAVIDUP_HOUSE; // the house shelf by path, <repo>/assets
+    delete process.env.DAVIDUP_ASSETS;
+    // The temp home is captured here: afterEach restores process.env before the cleanups run.
+    const home = await mkdtemp(join(tmpdir(), "davidup-home-"));
+    process.env.HOME = home;
+    cleanups.push(() => rm(home, { recursive: true, force: true }));
     const teapot = readShelf(HOUSE_ROOT).entry("teapot");
     expect(existsSync(join(HOUSE_ROOT, "blobs", `${teapot.sha}.${teapot.ext}`))).toBe(true);
     await writeFile(

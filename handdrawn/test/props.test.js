@@ -49,7 +49,7 @@ test('sockets: array and object forms, keyed by view, and what a bad one says', 
 });
 
 test('a socket draws nothing: the fox with its sockets draws and hashes as the fox without', () => {
-  const json = JSON.parse(readFileSync(new URL('../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
+  const json = JSON.parse(readFileSync(new URL('../../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
   const { sockets, ...bare } = json;
   assert.ok(sockets, 'the JSON fox declares sockets');
   const a = puppet(json), b = puppet(bare);

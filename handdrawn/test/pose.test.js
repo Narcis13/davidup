@@ -9,7 +9,7 @@ import { RIGS } from '../core/rig.js';
 import { landmarks, walker } from './walker.js';
 
 const TAU = 2 * Math.PI;
-const MAP = JSON.parse(readFileSync('assets/src/biped-fox.json', 'utf8'));
+const MAP = JSON.parse(readFileSync('../assets/src/biped-fox.json', 'utf8'));
 const fox = () => ({ ...readCatalogue().json('fox'), cycles: undefined });
 // The joints a retarget through biped-fox.json should give for generating angles g, side 1 being `one`.
 function expected(g, one) {

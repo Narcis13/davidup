@@ -18,7 +18,7 @@ import {
 import { hog } from '../recipes/doodle.js';
 import { fromStore } from '../core/assets.js';
 
-// The five cutouts, by id, out of the store next to the package (assets/catalogue.json).
+// The five cutouts, by id, out of the house store (<repo>/assets) (assets/catalogue.json).
 const IDS = ['lantern', 'violin', 'watch', 'helmet', 'hourglass'];
 const PHOTOS = fromStore(IDS);
 

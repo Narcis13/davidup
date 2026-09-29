@@ -517,13 +517,13 @@ export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker; previ
 // ---------- check (A6) ----------
 
 export type CheckLevel = 'error' | 'warn' | 'note';
-export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'sha1' | 'licence' | 'credit' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags' | 'legacy';
+export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'size' | 'ignored' | 'budget' | 'sha1' | 'licence' | 'credit' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags' | 'legacy';
 export interface Finding {
   level: CheckLevel;
   rule: CheckRule;
   /** The shelf; `library` for a legacy file (davidup's old library root). */
   shelf: string;
-  /** The entry it is about; null for an orphan blob or a legacy file (then `path`). */
+  /** The entry it is about; null for an orphan blob, a legacy file (then `path`) or the house budget. */
   id: string | null;
   detail: string;
   path?: string;
@@ -536,7 +536,22 @@ export const LEVELS: readonly CheckLevel[];
 /** Each rule's level. */
 export const RULES: Readonly<Record<CheckRule, CheckLevel>>;
 /** What is wrong with a library's shelves (or the ones named), errors first; reads every blob once, writes nothing. */
-export function check(lib: Library, opts?: { shelves?: string[]; fields?: PutOptions['fields']; thumbCache?: string; legacy?: string }): Finding[];
+export function check(lib: Library, opts?: { shelves?: string[]; fields?: PutOptions['fields']; thumbCache?: string; legacy?: string; house?: true | HouseLimits }): Finding[];
+/** The house shelf's limits (H4): a blob over `maxBlob` ships only if not at all (made and git-ignored); what ships stays under `budget`. */
+export interface HouseLimits {
+  maxBlob?: number;
+  budget?: number;
+  /** Which of `paths` (files under `root`) git ignores; gitIgnored unless given. */
+  ignored?: (root: string, paths: string[]) => Set<string>;
+}
+/** 5 MB: the largest blob the house shelf ships. */
+export const HOUSE_BLOB_MAX: number;
+/** 15 MB: what the house shelf's shipped blobs may weigh in all. */
+export const HOUSE_BUDGET: number;
+/** The paths among `paths` that git ignores, by one `git check-ignore` run in `root`; none outside a work tree. */
+export function gitIgnored(root: string, paths: string[]): Set<string>;
+/** The size rules on one shelf: its `size`, `ignored` and `budget` findings, and the blobs that ship and what they weigh. */
+export function houseFindings(shelf: Shelf, limits?: HouseLimits): { findings: Finding[]; bytes: number; blobs: number; budget: number };
 /** davidup's old library directories whose loose files `check --legacy` offers for import (D5). */
 export const LEGACY_DIRS: readonly string[];
 /** A `legacy` note for every file under <root>/assets and <root>/fonts whose bytes are on no shelf, with its `asset add` line. */

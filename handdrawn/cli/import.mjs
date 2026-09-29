@@ -7,7 +7,7 @@
 //   hdf import work/fox.puppet.json --kind puppet --name fox --licence own --tags fox,cast
 //   hdf import work/horse.json --kind clip --name horse --licence PD
 //   hdf import work/line1.wav --kind sample --name moon-1 --licence own   a recorded line, for voice() (4.0 V1)
-//   hdf import ... --root ../other-store          import into a store that is not handdrawn/assets
+//   hdf import ... --root ../other-store          import into a store that is not <repo>/assets
 //   hdf import --v2 films/held-once-photos.js --licence CC0   a 2.0 data module: every record into the store
 //
 // A stick source (`hdf stick` writes one, 4.0 K2) imported as a puppet is compiled to parts on the way in.
@@ -41,7 +41,7 @@ export async function run(args, flags) {
   return putPayload({ kind, name, bytes: readFileSync(abs), abs, flags });
 }
 
-// Validates a payload, puts it in the store (--root, or handdrawn/assets) under `name` and says what changed.
+// Validates a payload, puts it in the store (--root, or <repo>/assets) under `name` and says what changed.
 // It is `asset add` (assetlib's addAsset, asset-library plan H2) with hdf's side of it: the fields below as the
 // kind's `derive` (a cutout's silhouette traced, a puppet linted and boxed), hdf's checks, skia's pixels.
 // `hdf svg`, `hdf clip` and `hdf sketch` hand their payloads here, so each passes every check an import does;

@@ -24,7 +24,7 @@ export const imagesOf = (film) => decoded.get(film) ?? decoded.get(film?.whole) 
 export const assetsOf = (film) => records.get(film) ?? records.get(film?.whole) ?? film?.assets ?? {};
 
 // film.assets is either the 2.0 object ({ id: record }) or a list of store references: an id, or
-// { id, from: '<dir>' } for a store that is not handdrawn/assets (`from` is read relative to the film).
+// { id, from: '<dir>' } for a store that is not <repo>/assets (`from` is read relative to the film).
 // Either way the result is { id: record }, so everything downstream sees one shape.
 export function resolveAssets(film, dir = '.') {
   const list = film?.assets;

@@ -9,7 +9,7 @@
 //   hdf find teapot --root ../other      a store that is not the library's (that directory alone)
 //   hdf find fox --json                  what `asset find fox --json` prints, the same bytes
 //
-// The library is the user's pool (~/.davidup/assets) and the house (handdrawn/assets), as `asset` opens it. One
+// The library is the user's pool (~/.davidup/assets) and the house (<repo>/assets), as `asset` opens it. One
 // line per hit: id, kind, licence, what it takes (a puppet's inputs, a clip's poses, a cutout's pixels), then
 // indented under it why it matched, its check sheet, its credit and source, and how a film reads it when that
 // is not plain fromStore(['id']). A pack cel is found as its mirror in the store (`pack:<cel>`, 3.0 S13).

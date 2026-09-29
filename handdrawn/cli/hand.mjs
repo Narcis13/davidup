@@ -18,7 +18,7 @@
 //   hdf hand --export-ttf narcis                         a stored hand as a TrueType font (4.0 D3): out/narcis.ttf, and
 //                                                        out/narcis-ttf.png, a line set in it over the same line lettered
 //                                                        (--family, --pen 4.5 em units, --no-composites, --text '...')
-//   ... --root ../other                                  into (or from) a store that is not handdrawn/assets
+//   ... --root ../other                                  into (or from) a store that is not <repo>/assets
 //
 // Reading a sheet writes the hand into the store, its page next to the house's (assets/sheets/<id>.jpg, as
 // `hdf sheet --hand <id>` does) and each photo straightened with the traces over it (out/hand-<id>-trace.jpg for
@@ -265,7 +265,7 @@ async function rigTemplate(paper, flags) {
 // the Hershey notice as its credit), or its glyphs added to a stored hand (--name defaults to that hand).
 async function hershey(flags) {
   const file = flags.hershey === true ? '' : String(flags.hershey);
-  if (!file) throw new UsageError('hand: need --hershey <file.jhf>, e.g. hdf hand --hershey assets/src/hershey/scripts.jhf --name hershey-script');
+  if (!file) throw new UsageError('hand: need --hershey <file.jhf>, e.g. hdf hand --hershey ../assets/src/hershey/scripts.jhf --name hershey-script');
   if (!existsSync(file)) throw new UsageError(`hand: no file ${file}`);
   const map = flags.map === undefined ? mapFor(file) : String(flags.map);
   if (!MAPS[map]) throw new UsageError(`hand: --map ${map} (expected ${Object.keys(MAPS).join(' | ')})`);

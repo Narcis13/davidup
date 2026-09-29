@@ -5,6 +5,9 @@
 //   error  invalid    an entry validate() refuses
 //   error  blob       an entry whose blob is missing
 //   error  sha        a blob whose bytes do not hash to its entry's sha
+//   error  size       with `house`: a house blob over 5 MB that is not `made` and git-ignored (plan H4)
+//   error  ignored    with `house`: a house blob git ignores whose entry is not `made`, so a checkout lacks it
+//   error  budget     with `house`: the house blobs that ship (in git and the npm package) over 15 MB
 //   warn   sha1       a 40-hex sha1 from before H1 (`asset migrate --sha256` rehashes the shelf)
 //   warn   licence    licence unknown
 //   warn   credit     CC-BY or CC-BY-SA with no credit (davidup's W_ASSET_CREDIT)
@@ -18,15 +21,16 @@
 //                     with the `asset add` line that brings it onto the user's pool (D5)
 //
 // Reading only: nothing is written. Blobs are hashed once each, so a check reads every byte on the shelves.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join, relative, sep } from 'node:path';
 import { fontInfo } from './probe.js';
 import { ID, SCHEMAS, isLegacySha, validate } from './record.js';
 
 export const LEVELS = Object.freeze(['error', 'warn', 'note']);
 export const RULES = Object.freeze({
-  id: 'error', invalid: 'error', blob: 'error', sha: 'error',
+  id: 'error', invalid: 'error', blob: 'error', sha: 'error', size: 'error', ignored: 'error', budget: 'error',
   sha1: 'warn', licence: 'warn', credit: 'warn', duplicate: 'warn', shadow: 'warn', orphan: 'warn',
   thumb: 'note', desc: 'note', tags: 'note', legacy: 'note',
 });
@@ -35,8 +39,10 @@ const ORDER = Object.keys(RULES);
 // Every finding on a library's shelves (or the ones named in `shelves`), errors first, then by rule, shelf
 // and id. `fields` is validate()'s per-kind checks; `thumbCache` the machine-wide thumb cache (a read-only
 // shelf's thumbs are there); `legacy` davidup's old library root, whose loose files are offered for import
-// (legacyFindings). Each finding is { level, rule, shelf, id, detail } (`path` for an orphan or a legacy file).
-export function check(lib, { shelves, fields, thumbCache, legacy } = {}) {
+// (legacyFindings); `house` (true, or { maxBlob, budget, ignored }) adds the house shelf's size rules
+// (houseFindings). Each finding is { level, rule, shelf, id, detail } (`path` for an orphan, a legacy file or a
+// house blob).
+export function check(lib, { shelves, fields, thumbCache, legacy, house } = {}) {
   const on = lib.shelves.filter((s) => !shelves || shelves.includes(s.name));
   const out = [], hashed = new Map();
   const add = (rule, shelf, id, detail, more) => out.push({ level: RULES[rule], rule, shelf, id, detail, ...more });
@@ -87,10 +93,59 @@ export function check(lib, { shelves, fields, thumbCache, legacy } = {}) {
   }
 
   if (legacy) out.push(...legacyFindings(lib, legacy));
+  if (house && on.some((s) => s.name === 'house')) out.push(...houseFindings(lib.shelf('house'), house === true ? {} : house).findings);
 
   const shelfAt = Object.fromEntries(lib.shelves.map((s, i) => [s.name, i]));
   return out.sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || ORDER.indexOf(a.rule) - ORDER.indexOf(b.rule)
     || (shelfAt[a.shelf] ?? -1) - (shelfAt[b.shelf] ?? -1) || String(a.id ?? a.path).localeCompare(String(b.id ?? b.path)));
+}
+
+// ---------- house (H4) ----------
+
+// The house shelf is in git and in davidup's npm package (package.json#files: assets/catalogue.json,
+// assets/blobs), so what it holds is what every checkout and every install carries. A blob over HOUSE_BLOB_MAX
+// is kept only when its entry is `made` (`asset remake` rebuilds it) and git ignores it; the blobs that ship
+// together stay under HOUSE_BUDGET.
+export const HOUSE_BLOB_MAX = 5 * 1024 * 1024;
+export const HOUSE_BUDGET = 15 * 1024 * 1024;
+
+const mb = (n) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+
+// The paths among `paths` (files under `root`) that git ignores, by one `git check-ignore`; none outside a work
+// tree or without git, where nothing is ignored.
+export function gitIgnored(root, paths) {
+  if (!paths.length) return new Set();
+  const r = spawnSync('git', ['check-ignore', '--stdin', '-z'], { cwd: root, input: paths.map((p) => relative(root, p)).join('\0') });
+  if (r.status !== 0 || !r.stdout) return new Set();
+  return new Set(r.stdout.toString('utf8').split('\0').filter(Boolean).map((p) => join(root, p)));
+}
+
+// The size rules on one shelf (the house): { findings, bytes, blobs } where `bytes` is what the `blobs` that
+// ship weigh. A blob several entries share is counted once. `ignored(root, paths)` is gitIgnored unless given.
+export function houseFindings(shelf, { maxBlob = HOUSE_BLOB_MAX, budget = HOUSE_BUDGET, ignored = gitIgnored } = {}) {
+  const blobs = new Map();
+  for (const id of shelf.ids) {
+    const e = shelf.entries.get(id);
+    if (!e || typeof e.sha !== 'string' || typeof e.ext !== 'string') continue;
+    const path = shelf.blobPath(e);
+    if (!existsSync(path)) continue;
+    const b = blobs.get(path) ?? { path, bytes: statSync(path).size, ids: [], made: true };
+    b.ids.push(id);
+    b.made &&= !!e.made && typeof e.made === 'object';
+    blobs.set(path, b);
+  }
+  const off = ignored(shelf.root, [...blobs.keys()]), findings = [];
+  const add = (rule, id, detail, path) => findings.push({ level: RULES[rule], rule, shelf: shelf.name, id, detail, ...(path ? { path } : {}) });
+  let bytes = 0, shipped = 0;
+  for (const b of blobs.values()) {
+    const name = `blob ${basename(b.path).slice(0, 12)}….${b.path.slice(b.path.lastIndexOf('.') + 1)}`;
+    if (off.has(b.path) && !b.made) add('ignored', b.ids[0], `${name} is ignored by git but not made, so a checkout has no copy`, b.path);
+    if (off.has(b.path) && b.made) continue;
+    bytes += b.bytes; shipped++;
+    if (b.bytes > maxBlob) add('size', b.ids[0], `${name} is ${mb(b.bytes)}, over ${mb(maxBlob)}: make it (\`made\`) and git-ignore it, or keep it off the house`, b.path);
+  }
+  if (bytes > budget) add('budget', null, `the ${shipped} blobs that ship weigh ${mb(bytes)}, over the ${mb(budget)} budget`);
+  return { findings, bytes, blobs: shipped, budget };
 }
 
 // ---------- legacy (D5) ----------

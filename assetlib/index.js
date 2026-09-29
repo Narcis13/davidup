@@ -36,15 +36,15 @@ export { FROM_BYTES, readShelf, sha } from './catalogue.js';
 export { DARK_LUMA, ROOM, ROOM_CELLS, ROOM_SIZE, colours, imageInfo, imageType, lightFacts, meanLuma, quantise, roomOf, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
-export { LEGACY_DIRS, LEVELS, RULES, check, legacyFindings } from './check.js';
+export { HOUSE_BLOB_MAX, HOUSE_BUDGET, LEGACY_DIRS, LEVELS, RULES, check, gitIgnored, houseFindings, legacyFindings } from './check.js';
 export { migrateSha256 } from './migrate.js';
 export { KNOWN_HOSTS, addHost, loadHosts } from './hosts.js';
 export { defaultProbes } from './probe.js';
 export { DARK, EXACT_ID, HUES, ROOM_REGIONS, SYNONYM, SYNONYMS, WEIGHTS, facetsOf, fold, hueOf, lightness, parseQuery, search, searchIndex, tokenise } from './search.js';
 
-// The house shelf: in git, where in-house production lands. hdf's store is it by path until H4 moves it to
-// <repo>/assets/.
-export const HOUSE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'handdrawn', 'assets');
+// The house shelf: <repo>/assets, in git, where in-house production lands (hdf's store; H4 moved it from
+// handdrawn/assets). The packaged davidup ships its catalogue and blobs, so it sits next to this package there too.
+export const HOUSE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
 
 // The standard shelves in search order: the open project's `assets/` (when a project is named), the user's
 // pool ($DAVIDUP_ASSETS, else ~/.davidup/assets), the house ($DAVIDUP_HOUSE, else HOUSE_ROOT).

@@ -7,7 +7,7 @@
 //   record('teapot')                               // the same record, anywhere downstream
 const RECORDS = new Map();
 
-// How a record the film did not name is read (node: core/assets.js installs the store next to the package;
+// How a record the film did not name is read (node: core/assets.js installs the house store (<repo>/assets);
 // the player installs none, its page registers every record up front).
 let READER = null;
 export function setReader(fn) { READER = fn; }

@@ -96,7 +96,7 @@ test('the fox in the store: painter order survives the nesting, every part turns
 });
 
 test('the fox payload passes the rules `hdf import` runs over it', () => {
-  const d = JSON.parse(readFileSync(new URL('../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
+  const d = JSON.parse(readFileSync(new URL('../../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
   assert.deepEqual(lintPuppet(d), []);
   assert.equal(d.units, 300);
 });

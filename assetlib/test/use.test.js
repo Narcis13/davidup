@@ -74,7 +74,7 @@ test('a puppet with a made sprite sheet offers the sheet; a model sheet is the f
 });
 
 test('hdf reads a record off its own store with { from }', () => {
-  const hdf = useOf(rec('paper-warm', 'stock'), { root: "/p/it's/assets", store: '/repo/handdrawn/assets' }).hdf;
+  const hdf = useOf(rec('paper-warm', 'stock'), { root: "/p/it's/assets", store: '/repo/assets' }).hdf;
   assert.deepEqual(hdf, {
     assets: [{ id: 'paper-warm', from: "/p/it's/assets" }],
     code: "fromStore(['paper-warm'], { from: '/p/it\\'s/assets' })",

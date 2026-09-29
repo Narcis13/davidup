@@ -231,9 +231,9 @@ test('view errors name the part and the view', () => {
 });
 
 test('the SVG fox is the S4 JSON fox from the side: same parts, same boxes, the same list in every state', () => {
-  const json = JSON.parse(readFileSync(new URL('../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
-  const { payload: turned, table } = svgPuppet(readFileSync(new URL('../assets/src/fox.svg', import.meta.url), 'utf8'), {
-    name: 'fox', roles: JSON.parse(readFileSync(new URL('../assets/src/fox.roles.json', import.meta.url), 'utf8')),
+  const json = JSON.parse(readFileSync(new URL('../../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
+  const { payload: turned, table } = svgPuppet(readFileSync(new URL('../../assets/src/fox.svg', import.meta.url), 'utf8'), {
+    name: 'fox', roles: JSON.parse(readFileSync(new URL('../../assets/src/fox.roles.json', import.meta.url), 'utf8')),
   });
   assert.ok(table.every((r) => r.how === 'map'), 'the checked-in roles table covers every colour');
   assert.deepEqual(turned.views, ['side', 'three-quarter', 'front']);

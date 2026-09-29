@@ -127,7 +127,7 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
   const dir = mkdtempSync(join(tmpdir(), 'hdf-svg-'));
   try {
     const root = join(dir, 'store'), file = join(dir, 'fox.svg');
-    cpSync('assets/src/fox.svg', file);
+    cpSync('../assets/src/fox.svg', file);
     assert.match((await hdf('help')).out, /^ {2}svg {5}<file\.svg> --name <id>/m);
 
     const ask = await hdf('svg', file, '--name', 'fox', '--roles', 'ask', '--root', root);
@@ -137,7 +137,7 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     assert.deepEqual(Object.keys(table), ['#e8734a', '#fff1d6', '#2b2b2b', '#5a3a28', '#c8473f'], 'largest area first');
     assert.ok(!existsSync(join(root, 'catalogue.json')), 'ask stops before the store');
 
-    const { code, out } = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root);
+    const { code, out } = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', '../assets/src/fox.roles.json', '--root', root);
     assert.equal(code, 0, out);
     assert.match(out, /^#fff1d6\s+19439\s+light\s+map$/m);
     assert.match(out, /^fox {2}puppet {2}[0-9a-f]{64}\.json {2}own {2}\(new\)$/m);
@@ -145,13 +145,13 @@ test('svg: --roles ask writes the colour table, an import prints it, puts the pu
     const cat = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
     assert.deepEqual([cat.fox.kind, cat.fox.file, cat.fox.box], ['puppet', 'fox.svg', [-126, -314, 236, 324]]);
     // The house fox is the SVG plus the gallop `hdf retarget` wrote into the store; the SVG alone is the rest.
-    const house = JSON.parse(readFileSync('assets/catalogue.json', 'utf8')).fox, housePath = join('assets/blobs', `${house.sha}.json`);
+    const house = JSON.parse(readFileSync('../assets/catalogue.json', 'utf8')).fox, housePath = join('../assets/blobs', `${house.sha}.json`);
     const { gallop, ...drawn } = JSON.parse(readFileSync(housePath, 'utf8')).cycles;
     assert.ok(gallop?.from, 'the house fox has a retargeted gallop');
     assert.deepEqual(JSON.parse(readFileSync(join(root, 'blobs', `${cat.fox.sha}.json`), 'utf8')), { ...JSON.parse(readFileSync(housePath, 'utf8')), cycles: drawn });
     // Re-importing the SVG over a fox that has it keeps the retargeted cycle: the payload is the house one.
     assert.equal((await hdf('import', housePath, '--kind', 'puppet', '--name', 'fox', '--licence', 'own', '--root', root)).code, 0);
-    const again = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root, '--no-sheet');
+    const again = await hdf('svg', file, '--name', 'fox', '--licence', 'own', '--roles', '../assets/src/fox.roles.json', '--root', root, '--no-sheet');
     assert.equal(again.code, 0, again.out);
     assert.match(again.out, /^keeps cycle gallop \(retargeted from horse\)$/m);
     assert.equal(JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8')).fox.sha, house.sha, 'the same payload as the fox in the house store');
@@ -291,15 +291,15 @@ export default film({ name: 'tea', look: 'paperInk', timeline: seq(brew, sign) }
 test('skeletons and retargeting: clip --store rigs a stored clip in place, retarget writes a cycle into a puppet', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'hdf-rig-'));
   try {
-    const root = join(dir, 'store'), house = JSON.parse(readFileSync('assets/catalogue.json', 'utf8'));
+    const root = join(dir, 'store'), house = JSON.parse(readFileSync('../assets/catalogue.json', 'utf8'));
     assert.match((await hdf('help')).out, /^ {2}retarget --clip <id> --to <puppet> --map <map\.json> --name <cycle>/m);
     // The horse without its skeleton, as it was before S14, and the fox as its SVG draws it.
-    const bare = JSON.parse(readFileSync(join('assets/blobs', `${house.horse.sha}.json`), 'utf8'));
+    const bare = JSON.parse(readFileSync(join('../assets/blobs', `${house.horse.sha}.json`), 'utf8'));
     for (const f of bare.frames) delete f.skel;
     delete bare.rig; delete bare.facing;
     writeFileSync(join(dir, 'horse.json'), JSON.stringify(bare));
     assert.equal((await hdf('import', join(dir, 'horse.json'), '--kind', 'clip', '--name', 'horse', '--licence', 'PD', '--root', root)).code, 0);
-    assert.equal((await hdf('svg', 'assets/src/fox.svg', '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root, '--no-sheet')).code, 0);
+    assert.equal((await hdf('svg', '../assets/src/fox.svg', '--name', 'fox', '--licence', 'own', '--roles', '../assets/src/fox.roles.json', '--root', root, '--no-sheet')).code, 0);
 
     const early = await hdf('retarget', '--clip', 'horse', '--to', 'fox', '--map', 'horse-fox.json', '--name', 'gallop', '--root', root);
     assert.equal(early.code, 1);
@@ -357,7 +357,7 @@ test('motion from your phone: clip --kind pose explains itself without MediaPipe
     assert.match(made.out, /^next: hdf retarget --clip me --to fox --map biped-fox\.json --name walk/m);
 
     // The fox as its SVG draws it, with the hand-authored walk; the filmed one replaces it.
-    assert.equal((await hdf('svg', 'assets/src/fox.svg', '--name', 'fox', '--licence', 'own', '--roles', 'assets/src/fox.roles.json', '--root', root, '--no-sheet')).code, 0);
+    assert.equal((await hdf('svg', '../assets/src/fox.svg', '--name', 'fox', '--licence', 'own', '--roles', '../assets/src/fox.roles.json', '--root', root, '--no-sheet')).code, 0);
     const walk = await hdf('retarget', '--clip', 'me', '--to', 'fox', '--map', 'biped-fox.json', '--name', 'walk', '--root', root);
     assert.equal(walk.code, 0, walk.out);
     assert.match(walk.out, /^me -> fox\.walk: 12 frames at 12 fps, body head tail leg-l leg-r arm-l arm-r, lift x0\.\d+$/m);

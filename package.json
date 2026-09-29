@@ -59,6 +59,8 @@
     "editor-dist",
     "assetlib",
     "!assetlib/test",
+    "assets/catalogue.json",
+    "assets/blobs",
     "fonts",
     "src",
     "README.md",

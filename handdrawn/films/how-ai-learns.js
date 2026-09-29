@@ -6,7 +6,7 @@
 //       blueprint means "look inside"), grown out of an ink blot on Bit's screen
 // Hand: house (the sign-off in hershey-script)
 // Anchor: Bit, the little computer (every page but the opening mind map, where the lettered "AI" is it)
-// Cast: sam (the store's puppet: the one who teaches), bit (a new store puppet: hdf svg assets/src/bit.svg),
+// Cast: sam (the store's puppet: the one who teaches), bit (a new store puppet: hdf svg ../assets/src/bit.svg),
 //       fox (the store's puppet, its fur recoloured orange for the notebook: the running gag, called a cat
 //       three times and finally seen for what it is)
 // Voices: edge-tts, imported as samples and aligned with faster-whisper (how-ai-learns/lines.tsv,

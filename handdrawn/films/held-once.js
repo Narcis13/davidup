@@ -17,7 +17,7 @@ import { film, seq, cel, pen, pentHz, note, burst, LOOKS } from '../core/index.j
 import { hog, doesItsJob, timeOnIt, becomesVehicle, nightFalls, livesInside, printsOnALine, lastFrame } from '../recipes/doodle.js';
 import { fromStore } from '../core/assets.js';
 
-// The five cutouts, by id, out of the store next to the package (assets/catalogue.json).
+// The five cutouts, by id, out of the house store (<repo>/assets) (assets/catalogue.json).
 const IDS = ['teapot', 'watch', 'violin', 'lantern', 'cup'];
 const PHOTOS = fromStore(IDS);
 

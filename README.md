@@ -606,7 +606,9 @@ three shelves in order: the project's `assets/` (for `davidup render`, the
 composition's directory when it holds `assets/catalogue.json`; in the editor,
 the open project; else `$DAVIDUP_PROJECT`), the user's pool
 (`$DAVIDUP_ASSETS`, default `~/.davidup/assets`) and the house shelf
-(`$DAVIDUP_HOUSE`). A record no shelf holds is `E_ASSET_MISSING` (naming the
+(`$DAVIDUP_HOUSE`, default the `assets/` directory at the root of the repo,
+which the npm package ships: its catalogue and blobs, so `asset:teapot`
+renders with no `~/.davidup`). A record no shelf holds is `E_ASSET_MISSING` (naming the
 shelves searched) and a pin the record has moved from is `E_ASSET_STALE`; the
 render CLI and the MCP render tools check both before the first frame.
 `register_asset` with an `asset:` src checks the record's kind against `type`

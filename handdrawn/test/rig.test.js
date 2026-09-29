@@ -176,8 +176,8 @@ test('a lift: frameOf and cycle draw without it, liftOf reads it, the actor stag
   assert.match(bad[0].detail, /lifts by "high"/);
 });
 
-test('the fox gallops: its gallop is the horse retargeted through assets/src/horse-fox.json', () => {
-  const st = readCatalogue(), fox = st.json('fox'), map = JSON.parse(readFileSync('assets/src/horse-fox.json', 'utf8'));
+test('the fox gallops: its gallop is the horse retargeted through <repo>/assets/src/horse-fox.json', () => {
+  const st = readCatalogue(), fox = st.json('fox'), map = JSON.parse(readFileSync('../assets/src/horse-fox.json', 'utf8'));
   const g = fox.cycles.gallop;
   assert.deepEqual(g.from, { clip: 'horse', sha: st.entry('horse').sha, map: 'horse-fox.json' });
   const { cycle } = retarget(st.json('horse'), { ...fox, cycles: undefined }, map);

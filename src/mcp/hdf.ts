@@ -16,7 +16,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { assetSrc, defaultProbes, type AssetRecord, type Library, type Probes } from "../../assetlib/index.js";
+import { HOUSE_ROOT, assetSrc, defaultProbes, type AssetRecord, type Library, type Probes } from "../../assetlib/index.js";
 import type { Marker, SpriteSheet } from "../schema/types.js";
 import { ASSET_LICENCES, type AssetLicence } from "../schema/zod.js";
 import { resolveFfmpeg } from "../drivers/node/ffmpeg.js";
@@ -68,16 +68,15 @@ export function filmPath(ref: string, cwd = process.cwd(), near: string[] = []):
 }
 
 /**
- * What handdrawn's store says of an entry (RE-14): its `credit` (when it has one) and `licence`, for the
- * davidup asset made from it. `house`, the package's own hand, is `own`. Empty for a name the store does not
- * hold (a cast member a film module defines, say).
+ * What handdrawn's store (the house shelf, `<repo>/assets`) says of an entry (RE-14): its `credit` (when it
+ * has one) and `licence`, for the davidup asset made from it. `house`, the package's own hand, is `own`.
+ * Empty for a name the store does not hold (a cast member a film module defines, say).
  */
-export function storeCredit(id: string, root = hdfRoot()): { credit?: string; licence?: AssetLicence } {
+export function storeCredit(id: string, store = HOUSE_ROOT): { credit?: string; licence?: AssetLicence } {
   if (id === "house") return { licence: "own" };
-  if (!root) return {};
   let e: { credit?: unknown; licence?: unknown } | undefined;
   try {
-    e = (JSON.parse(readFileSync(join(root, "assets", "catalogue.json"), "utf8")) as Record<string, typeof e>)[id];
+    e = (JSON.parse(readFileSync(join(store, "catalogue.json"), "utf8")) as Record<string, typeof e>)[id];
   } catch { return {}; }
   if (!e) return {};
   const licence = (ASSET_LICENCES as readonly unknown[]).includes(e.licence) ? (e.licence as AssetLicence) : undefined;

@@ -9,7 +9,7 @@ import { expandChains, FOLLOW } from '../core/follow.js';
 import { hashList } from '../core/list.js';
 import { svgPuppet } from '../core/svg.js';
 
-const FOXJSON = JSON.parse(readFileSync(new URL('../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
+const FOXJSON = JSON.parse(readFileSync(new URL('../../assets/src/fox.puppet.json', import.meta.url), 'utf8'));
 const scarfSrc = (follow = { lag: 2, damp: 0.5, limit: 45 }) => ({
   ...stickSource({ name: 'sam-scarf' }),
   parts: { scarf: { parent: 'neck', pivot: 'neck', chain: { n: 4, len: 18, w: 9, angle: 60, role: 'inks.2', taper: 0.3 }, follow, before: 'head' } },

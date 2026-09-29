@@ -41,7 +41,7 @@ async function fails(name: string, args: Record<string, unknown>, deps: ToolDeps
 const png = (b64: string) => decodePng(Buffer.from(b64, "base64"));
 
 // The house teapot: a real cutout (silhouette and all), so hdf's previewer draws it.
-const HOUSE = join(repoRoot, "handdrawn", "assets");
+const HOUSE = join(repoRoot, "assets");
 function putTeapot(root: string): string {
   const { sha: _sha, ...entry } = readShelf(HOUSE).entry("teapot");
   return put(root, { ...entry, id: "teapot" } as EntryInput, readShelf(HOUSE).payload("teapot"));

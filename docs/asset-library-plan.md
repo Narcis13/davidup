@@ -641,6 +641,23 @@ and gitignored). **Done when** both suites pass from a clean checkout, `npm
 pack --dry-run` lists the house shelf, and a `davidup render` on a machine
 with no `~/.davidup` still resolves `asset:teapot`.
 
+*As built:* `assetlib`'s `HOUSE_ROOT` is `<assetlib>/../assets`, so it is the
+repo's `assets/` in a checkout and `<package>/assets` in an install; hdf's
+`ASSET_ROOT` is `HOUSE_ROOT`. The shelf's own `.gitignore` holds `sheets/` and
+`thumbs/` (sheets stay at `<shelf>/sheets/`); `src/` moved with it, so hdf
+commands run from `handdrawn/` name `../assets/src/...`. `hdf bundle` and `hdf
+dev` needed no change (dev already serves and watches the store's directory).
+davidup's `storeCredit` (`src/mcp/hdf.ts`) reads the house catalogue by
+`HOUSE_ROOT`, not through `handdrawn/`. `package.json#files` gains
+`assets/catalogue.json` and `assets/blobs` (71 blobs, 10.8 MB). `asset check
+--house` checks the house shelf and adds three errors: `size` (a blob over
+5 MB not `made` and git-ignored), `ignored` (a git-ignored blob that is not
+`made`, so a checkout lacks it) and `budget` (the shipped blobs over 15 MB),
+and prints what ships; `houseFindings` / `gitIgnored` are exported.
+`tests/assets/houseShelf.integration.test.ts` copies the files `npm pack
+--dry-run` lists into a temp install and resolves `teapot` there with an empty
+home; the teapot render test runs with an empty `HOME` and no overrides.
+
 ### H5. The skill and the README
 
 *The rule stays, the inventory is generated.*
@@ -936,7 +953,7 @@ then D and E in parallel, I when D4 exists, S last.
 | E2 | Upload and drop | 1 | D3 E1 | [x] |
 | E3 | Promote is move | 0.5 | E1 | [x] |
 | E4 | The record drawer | 1 | E1 D3 | [x] |
-| H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [ ] |
+| H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [x] |
 | I1 | `made` and `asset remake` | 1 | D4 | [ ] |
 | I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [ ] |
 | I3 | Packs as tarballs | 0.5 | A2 | [ ] |

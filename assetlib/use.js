@@ -70,7 +70,7 @@ export function davidupUse(record, { made = [] } = {}) {
 }
 
 // hdf's call for a record, or null. `root` is the shelf the record is on; `store` is the store hdf reads when
-// fromStore names none (handdrawn/assets, the house shelf), so a record anywhere else is read with `{ from }`.
+// fromStore names none (<repo>/assets, the house shelf), so a record anywhere else is read with `{ from }`.
 // `path` is the blob, which a font is handed to `hdf hand --font` as.
 //   assets  what the film's `assets:` names (an id, or { id, from } off hdf's own store)
 //   code    the line at the top of the film that reads it

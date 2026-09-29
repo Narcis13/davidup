@@ -3,7 +3,7 @@
 // adds its sheets from assets/sheets.
 //
 //   hdf remove octo-raw                  a trial import
-//   hdf remove octo-raw --root ../other  a store that is not handdrawn/assets
+//   hdf remove octo-raw --root ../other  a store that is not <repo>/assets
 //
 // A pack mirror (`pack:<cel>`) is written by `hdf donate --manifest` and comes back on the next one; remove
 // the cel from its pack instead. Films that still name the id fail to load, so `hdf find` it first.

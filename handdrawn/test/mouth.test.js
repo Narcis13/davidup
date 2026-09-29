@@ -12,7 +12,7 @@ import { checkMouth, clearMouths, cuesMouth, energyMouth, mouthAt, mouthFrom, mo
 import { clearAligns, packAlign } from '../core/align.js';
 import { SR, pcmOf, setPcm, toWav16 } from '../core/synth.js';
 import { register } from '../core/store.js';
-import { fromStore, readCatalogue } from '../core/assets.js';
+import { ASSET_ROOT, fromStore, readCatalogue } from '../core/assets.js';
 import { actorOf, puppet, stickSource } from '../core/index.js';
 import { CAST } from '../recipes/doodle.js';
 
@@ -99,7 +99,7 @@ test('a voiced say moves the mouth with the recording; actor.mouth does it with 
 
 test('films/hello.js: the fox says a recorded "hello there" and its mouth shuts on the consonants', async () => {
   clearMouths();
-  const e = readCatalogue(join(ROOT, 'assets')).entry('hello-there');
+  const e = readCatalogue(ASSET_ROOT).entry('hello-there');
   assert.equal(e.mouth.by, 'rhubarb');
   const { HELLO, LINE_AT } = await import('../films/hello.js');
   const at = (k) => LINE_AT + k / 12;

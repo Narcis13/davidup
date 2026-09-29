@@ -17,7 +17,7 @@
 // is what the loader decodes. Every kind has a schema below and a validator `hdf import` runs before anything
 // is written -- plain JS checks, no library.
 //
-//   const st = readCatalogue();                 // the store next to the package
+//   const st = readCatalogue();                 // the house store (<repo>/assets)
 //   st.entry('teapot');                         // the catalogue entry, or an error naming the ones there are
 //   st.payloadPath(st.entry('teapot'));         // assets/blobs/<sha>.webp
 //   st.put({ kind: 'cutout', name: 'teapot', ... }, bytes);   // hash, write the blob, replace the entry
@@ -27,9 +27,8 @@
 // out of this module; `hdf bundle` and `hdf dev` serve core/assets.web.js in its place, so the same film
 // plays in the browser. `cli/load.mjs` resolves the film's `assets` list the same way, for the renderer.
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { KINDS as LIBRARY_KINDS, LICENCES, SHA256, imageType, isLegacySha, openLibrary, readShelf, search as searchRecords, sha, validate as validateRecord } from '../../assetlib/index.js';
+import { join, resolve } from 'node:path';
+import { HOUSE_ROOT, KINDS as LIBRARY_KINDS, LICENCES, SHA256, imageType, isLegacySha, openLibrary, readShelf, search as searchRecords, sha, validate as validateRecord } from '../../assetlib/index.js';
 import { mkPath } from './list.js';
 import { peek, register, setReader } from './store.js';
 import { setPcmReader } from './synth.js';
@@ -40,9 +39,9 @@ import { MARKS } from './glyphs.js';
 
 export { LICENCES, imageType, sha };
 
-// The store next to the package (handdrawn/assets) unless a command names another root: the library's house
-// shelf until H4 moves it to <repo>/assets.
-export const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
+// The store unless a command names another root: the library's house shelf, <repo>/assets (asset-library
+// plan H4; handdrawn/assets before).
+export const ASSET_ROOT = HOUSE_ROOT;
 
 // ---------- schemas ----------
 
@@ -249,20 +248,20 @@ export function recordOf(st, id) {
 }
 
 // A look that names an asset the film has not read yet (`'pencilMinimal~hand:test'` at a module's top level)
-// finds it here, in the store next to the package.
+// finds it here, in the house store (<repo>/assets).
 setReader((id) => {
   const st = readCatalogue(ASSET_ROOT);
   return st.has(id) ? recordOf(st, id) : undefined;
 });
 
 // A voice in a score (4.0 V1) reads its sample's wav through the registry: a record a film read (or
-// cli/load.mjs registered from another store), else the store next to the package.
+// cli/load.mjs registered from another store), else the house store (<repo>/assets).
 setPcmReader((id) => {
   const r = peek(id);
   return typeof r?.src === 'string' && /\.wav$/i.test(r.src) && existsSync(r.src) ? readFileSync(r.src) : undefined;
 });
 
-// The records for the ids a film names, read from the store next to the package (or `from`, a directory
+// The records for the ids a film names, read from the house store, <repo>/assets (or `from`, a directory
 // relative to the working directory). They go into the registry too (core/store.js), so an engine can read
 // one back by id -- `clipFromStore('horse')` is how films/gallop.js hands a traced clip to the engine.
 export function fromStore(ids, { from } = {}) {

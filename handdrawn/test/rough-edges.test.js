@@ -24,10 +24,10 @@ test('RE-1: a failed command ends on its message; only an unknown command prints
 });
 
 test('RE-2: hdf svg widens a puppet box that a pose swings past, and keeps the viewBox as frame', () => tmp((dir) => {
-  const src = readFileSync('assets/src/octopus.svg', 'utf8').replace(/viewBox="[^"]*"/, 'viewBox="0 0 520 440"');
+  const src = readFileSync('../assets/src/octopus.svg', 'utf8').replace(/viewBox="[^"]*"/, 'viewBox="0 0 520 440"');
   const file = join(dir, 'octo.svg'), root = join(dir, 'store');
   writeFileSync(file, src);
-  const r = hdf('svg', file, '--name', 'octo', '--licence', 'own', '--roles', 'assets/src/octopus.roles.json', '--root', root, '--no-sheet');
+  const r = hdf('svg', file, '--name', 'octo', '--licence', 'own', '--roles', '../assets/src/octopus.roles.json', '--root', root, '--no-sheet');
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^box -?\d+ -?\d+ \d+ \d+ \(the viewBox [\d. -]+ widened for pose 'wave'/m);
   const e = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8')).octo;

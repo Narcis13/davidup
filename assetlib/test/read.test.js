@@ -109,7 +109,8 @@ test('openLibrary: an unknown id errors naming the shelves searched', () => {
   const lib = openLibrary({ shelves: [PROJECT, USER, HOUSE] });
   assert.equal(lib.has('unicorn'), false);
   assert.throws(() => lib.get('unicorn'),
-    (err) => /^no asset 'unicorn' on shelves project \(.*fixtures\/project\), user \(.*fixtures\/user\), house \(.*handdrawn\/assets\)$/.test(err.message));
+    (err) => /^no asset 'unicorn' on shelves project \(.*fixtures\/project\), user \(.*fixtures\/user\), house \(.*\)$/.test(err.message)
+      && err.message.endsWith(`house (${HOUSE_ROOT})`));
   assert.throws(() => lib.shelf('attic'), /no shelf 'attic' \(shelves: project, user, house\)/);
   assert.throws(() => openLibrary({ shelves: [PROJECT, { name: 'project', root: USER.root }] }), /shelf 'project' is named twice/);
 });

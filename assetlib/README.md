@@ -13,9 +13,9 @@ The library is a set of directories, not a service. Each directory is a *shelf*:
 ```
 
 Shelves are searched in order: `project` (`<project>/assets`), `user` (`$DAVIDUP_ASSETS`, else
-`~/.davidup/assets`), `house` (`$DAVIDUP_HOUSE`, else `handdrawn/assets` until H4 moves it to
-`<repo>/assets`). When two shelves hold the same id, the earlier one wins and the record lists the
-others in `shadowed`.
+`~/.davidup/assets`), `house` (`$DAVIDUP_HOUSE`, else `<repo>/assets`, which the npm package ships
+too). When two shelves hold the same id, the earlier one wins and the record lists the others in
+`shadowed`.
 
 ```js
 import { openLibrary, standardShelves } from 'assetlib';

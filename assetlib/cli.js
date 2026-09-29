@@ -27,7 +27,7 @@ import { homedir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DERIVE, addAsset, idOf } from './add.js';
-import { check, LEVELS } from './check.js';
+import { check, houseFindings, LEVELS } from './check.js';
 import { addHost, loadHosts } from './hosts.js';
 import { defaultProbes } from './probe.js';
 import { ID, KINDS, LICENCES, THUMB_CACHE, factsOf, isLegacySha, migrateSha256, openLibrary, readShelf, standardShelves } from './index.js';
@@ -59,11 +59,13 @@ usage: asset <verb> [args] [--project <dir>] [--json]
                                     (hdf's for its seven kinds), else a card
   sheet   <id...> [--cols n] [--cell px] [--out file]   one contact sheet PNG with id captions
   ls      [--shelf] [--kind]        every entry, shelf by shelf, with what shadows what
-  check   [--shelf] [--legacy]      licence unknown, missing blob, orphan, duplicate sha across shelves,
-                                    missing thumb, sha1 entries, bad ids, empty desc or tags; exits 1 on an error;
-                                    --legacy also offers each file in davidup's old library ($DAVIDUP_LIBRARY,
-                                    else ~/.davidup/library: assets/, fonts/) that is on no shelf, as the
-                                    asset add line that puts it on the user's pool
+  check   [--shelf] [--legacy] [--house]   licence unknown, missing blob, orphan, duplicate sha across
+                                    shelves, missing thumb, sha1 entries, bad ids, empty desc or tags; exits 1 on
+                                    an error; --legacy also offers each file in davidup's old library
+                                    ($DAVIDUP_LIBRARY, else ~/.davidup/library: assets/, fonts/) that is on no
+                                    shelf, as the asset add line that puts it on the user's pool; --house checks
+                                    the house shelf and its size: no blob over 5 MB unless made and git-ignored,
+                                    no git-ignored blob that is not made, 15 MB in all that ships
   migrate --sha256 <shelf | dir> [--dry]   rename a shelf's sha1 blobs by their sha256 (bytes kept; a JSON
                                     payload naming another blob's sha1 names its sha256) and rewrite the entries
 
@@ -82,7 +84,7 @@ const usage = (msg) => new UsageError(msg);
 // ---------- arguments ----------
 
 // Flags that never take a value, so `asset find --alpha fox` searches for fox.
-const BOOLEAN = new Set(['json', 'dry', 'all', 'force', 'alpha', 'dark', 'help', 'sha256', 'legacy']);
+const BOOLEAN = new Set(['json', 'dry', 'all', 'force', 'alpha', 'dark', 'help', 'sha256', 'legacy', 'house']);
 const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 // --key value, --key=value, --flag, --no-flag, -- ends flags. Values stay strings: each verb reads its own.
@@ -377,11 +379,14 @@ export const verbs = {
   },
 
   async check(ctx, args, flags) {
-    const lib = ctx.lib(), shelf = str(flags, 'shelf');
+    const lib = ctx.lib(), house = !!bool(flags, 'house');
+    const shelf = house ? 'house' : str(flags, 'shelf');
+    if (house && str(flags, 'shelf') && str(flags, 'shelf') !== 'house') throw usage('check: --house checks the house shelf; drop --shelf');
     if (shelf) lib.shelf(shelf);
     const env = ctx.host.env ?? process.env;
     const legacy = bool(flags, 'legacy') ? env.DAVIDUP_LIBRARY || join(ctx.host.home ?? homedir(), '.davidup', 'library') : undefined;
-    const findings = check(lib, defined({ shelves: shelf ? [shelf] : undefined, fields: ctx.host.fields, thumbCache: ctx.thumbCache, legacy }));
+    const findings = check(lib, defined({ shelves: shelf ? [shelf] : undefined, fields: ctx.host.fields, thumbCache: ctx.thumbCache, legacy, house: house || undefined }));
+    const size = house ? houseFindings(lib.shelf('house')) : null;
     const by = (level) => findings.filter((f) => f.level === level).length;
     const counts = Object.fromEntries(LEVELS.map((l) => [l, by(l)]));
     const on = (shelf ? [lib.shelf(shelf)] : lib.shelves).map((s) => `${s.name} (${s.ids.length})`).join(', ');
@@ -398,10 +403,12 @@ export const verbs = {
       if (g.items.length > 3) lines.push(`${head}  ${g.items.length} entries: ${ids(g.items.map((f) => f.id ?? basename(f.path)))}${NEXT[g.rule] ? `  (${NEXT[g.rule]})` : ''}`);
       else for (const f of g.items) lines.push(`${head}  ${f.id ? `${f.id}: ` : ''}${f.detail}`);
     }
+    if (size) lines.push(`house ships ${size.blobs} blob${size.blobs === 1 ? '' : 's'}, ${kb(size.bytes)} of its ${kb(size.budget)} budget`);
     lines.push(findings.length
       ? `${counts.error} error${counts.error === 1 ? '' : 's'}, ${counts.warn} warning${counts.warn === 1 ? '' : 's'}, ${counts.note} note${counts.note === 1 ? '' : 's'} on ${on}`
       : `clean: ${on}`);
-    return { code: counts.error ? 1 : 0, data: { counts, findings }, text: `${lines.join('\n')}\n` };
+    const ships = size ? { house: { blobs: size.blobs, bytes: size.bytes, budget: size.budget } } : {};
+    return { code: counts.error ? 1 : 0, data: { counts, findings, ...ships }, text: `${lines.join('\n')}\n` };
   },
 
   async migrate(ctx, args, flags) {

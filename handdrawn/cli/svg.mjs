@@ -1,6 +1,6 @@
 // hdf svg: an SVG drawing into the asset store as a puppet (or a motif), then its check sheet (plan 1.5).
 //
-//   hdf svg assets/src/fox.svg --name fox --licence own --roles assets/src/fox.roles.json
+//   hdf svg ../assets/src/fox.svg --name fox --licence own --roles ../assets/src/fox.roles.json
 //   hdf svg fox.svg --name fox --roles ask          the colour table to fox.roles.json next to the SVG; stops
 //   hdf svg fox.svg --name fox --roles '#e8734a=fills.0,#f3c9a2=skin'              the map inline
 //   hdf svg star.svg --name star --kind motif        one op list, no rig

@@ -17,7 +17,7 @@ import { film, seq, shot } from '../core/tree.js';
 import { paper, meta, walk } from '../core/list.js';
 import { signOff } from '../core/text.js';
 import { lintAll } from '../core/lint.js';
-import { fromStore, readCatalogue } from '../core/assets.js';
+import { ASSET_ROOT, fromStore, readCatalogue } from '../core/assets.js';
 import { CAST } from '../recipes/doodle.js';
 
 fromStore(['fox']);   // CAST.FOX is the store's fox
@@ -201,7 +201,7 @@ test('hdf align: --json and --estimate store on the entry, --show reads, no tran
 
 test('RE-6: whisper\'s ghost words (the prompt repeated at the end) are trimmed, and a fit on them throws', () => {
   const G = JSON.parse(readFileSync(join(ROOT, 'test/fixtures/whisper-ghosts.json'), 'utf8'));
-  const st = readCatalogue(join(ROOT, 'assets')), x = decodeWav(readFileSync(st.payloadPath(st.entry(G.id))));
+  const st = readCatalogue(ASSET_ROOT), x = decodeWav(readFileSync(st.payloadPath(st.entry(G.id))));
   const dur = x.length / SR, voiced = voicedSpan(x);
   assert.equal(G.words.length, 64);
   // As it was: the copy fits the ghosts, every word at 9.02 s, 0.20 s in all. That is refused now.
@@ -249,7 +249,7 @@ test('hdf align: ghost words in --json are trimmed; only ghosts, or a fit coveri
 });
 
 test('films/narrated.js: the stored alignment is a transcriber\'s, and the underline follows it', async () => {
-  const e = readCatalogue(join(ROOT, 'assets')).entry('moon-para');
+  const e = readCatalogue(ASSET_ROOT).entry('moon-para');
   assert.equal(e.align.by, 'whisper');
   const { CAPS, VOICE_AT } = await import('../films/narrated.js');
   const words = CAPS.words;

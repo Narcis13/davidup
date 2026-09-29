@@ -16,7 +16,7 @@ import { handText, signOff } from '../core/text.js';
 import { film, frame, seq, shot } from '../core/tree.js';
 import mini, { roll, sign } from '../films/mini.js';
 
-const SRC = 'assets/src/hershey';
+const SRC = '../assets/src/hershey';
 const jhf = (f) => readFileSync(join(SRC, `${f}.jhf`), 'latin1');
 const FILES = { romans: 'hershey-romans', scripts: 'hershey-script', cyrillic: 'hershey-cyrillic' };
 const ys = (g) => g.s.flat().filter((_, i) => i % 2);

@@ -20,7 +20,7 @@ import {
 } from '../core/index.js';
 import { fromStore } from '../core/assets.js';
 
-// The four traced clips, by id, out of the store next to the package; each one handed to the engine.
+// The four traced clips, by id, out of the house store (<repo>/assets); each one handed to the engine.
 const IDS = ['horse', 'kangaroo', 'elephant', 'pigeons'];
 fromStore(IDS);
 IDS.forEach((id) => clipFromStore(id));

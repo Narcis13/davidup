@@ -31,7 +31,7 @@ async function fails(name: string, args: Record<string, unknown>, deps: ToolDeps
   return out.error;
 }
 
-const HOUSE = join(repoRoot, "handdrawn", "assets");
+const HOUSE = join(repoRoot, "assets");
 const LONG_MP4 = join(repoRoot, "tests", "drivers", "fixtures", "video", "long.mp4");
 const TONE_WAV = join(repoRoot, "tests", "drivers", "fixtures", "audio", "tone-mono.wav");
 
