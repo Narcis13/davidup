@@ -303,6 +303,53 @@ test('asset check on the house shelf prints its real findings', async () => {
   rmSync(user, { recursive: true });
 });
 
+test('check --legacy offers the files in davidup\'s old library that are on no shelf (D5)', async () => {
+  const t = setup();
+  try {
+    const lib = join(t.dir, 'library');
+    mkdirSync(join(lib, 'assets'), { recursive: true });
+    mkdirSync(join(lib, 'fonts', 'more'), { recursive: true });
+    writeFileSync(join(lib, 'assets', 'X_profile.png'), png(3, 3, [20, 40, 60]));
+    writeFileSync(join(lib, 'assets', 'notes.txt'), 'not an asset');
+    writeFileSync(join(lib, 'assets', '.DS_Store'), 'finder');
+    writeFileSync(join(lib, 'fonts', 'brand.ttf'), readFileSync(INTER));
+    writeFileSync(join(lib, 'fonts', 'more', 'seeded.woff2'), 'woff2 bytes already on a shelf');
+    writeFileSync(join(lib, 'index.json'), JSON.stringify({ assets: [], fonts: [{ id: 'brand-sans', family: 'Brand Sans', src: 'global:fonts/brand.ttf' }] }));
+    await t.run('add', t.file('seeded.woff2', 'woff2 bytes already on a shelf'), '--kind', 'font', '--name', 'seeded', '--family', 'Seeded', '--licence', 'OFL');
+
+    // Without --legacy nothing looks there.
+    t.env.DAVIDUP_LIBRARY = lib;
+    assert.ok(!(await t.run('check')).out.includes('legacy'));
+
+    const j = JSON.parse((await t.run('check', '--legacy', '--json')).out);
+    const legacy = j.findings.filter((f) => f.rule === 'legacy');
+    assert.deepEqual(legacy.map((f) => [f.level, f.shelf, f.id, f.kind]), [['note', 'library', null, null], ['note', 'library', null, 'image'], ['note', 'library', null, 'font']]);
+    assert.deepEqual(legacy.map((f) => f.path), ['assets/notes.txt', 'assets/X_profile.png', 'fonts/brand.ttf'].map((p) => join(lib, p)));
+    assert.equal(legacy[0].detail, 'assets/notes.txt is on no shelf, and .txt is no kind davidup takes');
+    assert.equal(legacy[1].add, `asset add ${join(lib, 'assets', 'X_profile.png')} --kind image --name X_profile --licence unknown --shelf user`);
+    // The font's id and family come from the index.json entry naming the file.
+    assert.equal(legacy[2].add, `asset add ${join(lib, 'fonts', 'brand.ttf')} --kind font --name 'Brand Sans' --id brand-sans --family 'Brand Sans' --licence unknown --shelf user`);
+    const text = (await t.run('check', '--legacy')).out;
+    assert.match(text, /\nnote {3}legacy {5}library {3}assets\/X_profile\.png is on no shelf: asset add /);
+
+    // The offered lines run as they are; then nothing is left to offer.
+    for (const f of legacy.filter((x) => x.add)) {
+      const argv = f.add.match(/'[^']*'|\S+/g).slice(1).map((a) => a.replace(/^'|'$/g, ''));
+      assert.equal((await t.run(...argv)).code, 0);
+    }
+    assert.equal(t.shelf('user').entry('brand-sans').family, 'Brand Sans');
+    assert.deepEqual(JSON.parse((await t.run('check', '--legacy', '--json')).out).findings.filter((f) => f.rule === 'legacy').map((f) => f.kind), [null]);
+
+    // $DAVIDUP_LIBRARY unset: the library under the home directory.
+    delete t.env.DAVIDUP_LIBRARY;
+    let out = '';
+    await main(['check', '--legacy', '--json'], { cwd: t.dir, env: t.env, home: join(t.dir, 'home'), out: { write: (x) => { out += x; } }, err: { write: () => {} } });
+    assert.deepEqual(JSON.parse(out).findings.filter((f) => f.rule === 'legacy'), []);
+  } finally {
+    t.done();
+  }
+});
+
 test('the bin runs as a program, and the root package names it', () => {
   const r = spawnSync(process.execPath, [CLI, 'help', 'check'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);

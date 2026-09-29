@@ -22,6 +22,7 @@
 import { resolve, dirname, join, isAbsolute } from 'node:path'
 import { promises as fs } from 'node:fs'
 import logger from '@adonisjs/core/services/logger'
+import { resolveLibraryAsset } from 'davidup/assets'
 import { renderPreviewFrame } from 'davidup/mcp'
 import globalLibraryRoot from '#services/global_library_root'
 import type { LibraryItem } from '#services/library_index'
@@ -84,9 +85,23 @@ function isAbsoluteUrl(s: string): boolean {
  * `global:<rest>` srcs are resolved against the shared-pool root
  * (`~/.davidup/library` by default) — they're the encoding the global
  * library uses for its own entries so they stay portable across projects.
+ * `asset:<id>[@sha12]` srcs (the seed's fonts, asset library D5) are
+ * resolved on the asset library's shelves, a project item's project first.
  */
-async function resolveSourceFile(libraryRoot: string, raw: string): Promise<string | null> {
+async function resolveSourceFile(
+  libraryRoot: string,
+  raw: string,
+  scope: LibraryItem['scope']
+): Promise<string | null> {
   if (!raw) return null
+  if (raw.startsWith('asset:')) {
+    try {
+      const project = scope === 'project' ? dirname(libraryRoot) : undefined
+      return resolveLibraryAsset(raw, { project }).path
+    } catch {
+      return null
+    }
+  }
   if (raw.startsWith('global:')) {
     const rest = raw.slice('global:'.length).replace(/^\/+/, '')
     const root = await globalLibraryRoot.ensure().catch(() => null)
@@ -163,7 +178,7 @@ async function synthAssetComposition(
 ): Promise<SynthComposition | null> {
   const url = item.url ?? (item.raw as { url?: string } | null)?.url
   if (typeof url !== 'string') return null
-  const path = await resolveSourceFile(libraryRoot, url)
+  const path = await resolveSourceFile(libraryRoot, url, item.scope)
   if (!path) return null
   return {
     version: '0.1',
@@ -191,7 +206,7 @@ async function synthFontComposition(
   const url = item.url ?? raw.url ?? raw.src
   const family = raw.family ?? item.name ?? item.id
   if (typeof url !== 'string') return null
-  const path = await resolveSourceFile(libraryRoot, url)
+  const path = await resolveSourceFile(libraryRoot, url, item.scope)
   if (!path) return null
   return {
     version: '0.1',

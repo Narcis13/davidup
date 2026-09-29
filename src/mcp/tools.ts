@@ -131,6 +131,7 @@ import {
   moveAsset,
   openShelves,
   pngResult,
+  pointsAtShelf,
   requireAsset,
   searchShelves,
   shadowNote,
@@ -3483,11 +3484,15 @@ const listLibrary = defineTool({
       ...(args.kind === "asset" || args.kind === "font" ? { kind: args.kind } : {}),
       ...(args.scope !== undefined ? { scope: args.scope } : {}),
     });
+    // An editor item that is only an `asset:` pointer (the seed's index.json
+    // fonts, D5) is listed once, as the record it points at.
+    const listed = new Set(shelf.items.map((i) => i.id));
+    const own = catalog.items.filter((i) => !pointsAtShelf(i, listed));
     return {
       ...catalog,
-      items: [...catalog.items, ...shelf.items],
-      count: catalog.count + shelf.items.length,
-      total: catalog.total + shelf.total,
+      items: [...own, ...shelf.items],
+      count: own.length + shelf.items.length,
+      total: catalog.total - (catalog.items.length - own.length) + shelf.total,
       shelves: lib.shelves.map((s) => ({ name: s.name, root: s.root })),
     };
   },
@@ -3953,7 +3958,7 @@ const listFontsTool = defineTool({
   name: "list_fonts",
   title: "List fonts",
   description:
-    "List fonts available to `add_text`. `bundled` is the font that ships with davidup — `font:default` (Inter Regular, `bundled: true`), usable from any composition with no `register_asset`; it is also what `add_text` uses when `font` is omitted. `composition` lists font assets registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). When the MCP server is hosted by an editor, `library` also enumerates fonts in the merged Library (project + global) — register one with `register_asset` before referencing it from `add_text`. " +
+    "List fonts available to `add_text`. `bundled` is the font that ships with davidup — `font:default` (Inter Regular, `bundled: true`), usable from any composition with no `register_asset`; it is also what `add_text` uses when `font` is omitted. `composition` lists font assets registered on the composition (pass their `id` as the text item's `font` field; `family` is the underlying CSS family name). `library` lists the asset library's font records (the project's `assets/`, the user's `~/.davidup/assets` — where `bun run seed:library` puts ten OFL fonts — and the house shelf; `scope` is `project` or `global`, `shelf` the shelf, `src` the `asset:<id>@<sha12>` to pass to `register_asset`, or call `use_asset { id, as: 'font' }`), with or without an editor; editor-hosted, it also enumerates the fonts in the editor's merged Library (project + global). Register one before referencing it from `add_text`. " +
     "When only the bundled font is available, the response carries a `hint` explaining how to register another typeface.",
   inputSchema: {
     compositionId: COMPOSITION_ID,
@@ -3976,14 +3981,41 @@ const listFontsTool = defineTool({
     const library: {
       id: string;
       name?: string;
+      family?: string;
       scope: "project" | "global";
       source: string;
       overridden?: boolean;
+      shelf?: string;
+      src?: string;
+      licence?: string;
     }[] = [];
+    // The asset library's font records (D5): no editor needed.
+    const onShelves = new Set<string>();
+    try {
+      const lib = openShelves(await libraryProject(deps));
+      for (const item of libraryShelfItems(lib, { kind: "font" }).items) {
+        const record = lib.get(item.id);
+        onShelves.add(item.id);
+        library.push({
+          id: item.id,
+          ...(item.name !== undefined ? { name: item.name } : {}),
+          ...(typeof record.family === "string" ? { family: record.family } : {}),
+          scope: item.scope,
+          source: item.source,
+          shelf: item.shelf,
+          src: item.url,
+          licence: item.licence,
+        });
+      }
+    } catch {
+      // A shelf that cannot be read must not block composition-scoped
+      // discovery; `list_library` and `asset check` say what is wrong.
+    }
     if (deps.libraryControls) {
       try {
         const catalog = await deps.libraryControls.list({ kind: "font" });
         for (const item of catalog.items) {
+          if (pointsAtShelf(item, onShelves)) continue;
           library.push({
             id: item.id,
             ...(item.name !== undefined ? { name: item.name } : {}),

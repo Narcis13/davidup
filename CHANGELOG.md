@@ -9,6 +9,26 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### The seed puts its fonts on the user shelf (asset library D5)
+
+- `bun run seed:library` (pack v3) puts its ten fonts on the user asset shelf
+  (`~/.davidup/assets`, `$DAVIDUP_ASSETS`) as `font` records: licence OFL,
+  the foundry as credit, the mirror URL as source, `family` and `weight`.
+  `index.json` lists them as `asset:<id>`; its `assets`, and any font entry
+  the pack does not ship, are left as they are (a run no longer resets
+  `assets` to `[]`). The files stay in `fonts/`, so `global:fonts/...` srcs
+  resolve as before, and a run takes the bytes from there (or the shelf)
+  before it downloads.
+- A seed run writes only what changed: a second run reports every template,
+  behavior, font and index.json `unchanged` and touches nothing.
+- `list_fonts` lists the asset library's font records in `library` (`scope`,
+  `shelf`, `family`, the pinned `src`, `licence`), on the standalone server
+  too. `list_library` and `list_fonts` list an editor item that is only an
+  `asset:` pointer to a record once, as the record.
+- `asset check --legacy` lists every file in `~/.davidup/library/assets` and
+  `fonts/` (`$DAVIDUP_LIBRARY`) that is on no shelf, with the `asset add`
+  line that puts it on the user shelf.
+
 ### What hdf makes lands in the asset library (asset library D4)
 
 - `render_hdf_clip`, `scripts/hdf-to-davidup.ts` and

@@ -1250,11 +1250,12 @@ bun run seed:library -- --skip-existing
 bun run seed:library -- --dry-run
 ```
 
-Idempotent. Re-running is also the **upgrade** path: nothing rewrites an
+Idempotent: a second run changes nothing on disk. Re-running is also the
+**upgrade** path: nothing rewrites an
 existing library behind your back (the editor's Library panel only reads and
 watches), so a pack change reaches disk when you run the script again.
 `.davidup-seed.json` at the library root records the pack version that wrote
-the files — currently **v2** — and a run against an older library prints what
+the files — currently **v3** — and a run against an older library prints what
 the upgrade brings. `--skip-existing` leaves your copies alone and says so
 instead of claiming the new version.
 
@@ -1270,8 +1271,13 @@ Provisions:
   the built-in expansion at compile time).
 - **10 fonts** from the `@fontsource` jsdelivr mirror: Inter (bold/reg),
   Bebas Neue, Anton, Playfair Display Bold, Montserrat Bold, Space Grotesk,
-  JetBrains Mono, Caveat Bold, DM Sans. Registered with `global:fonts/...`
-  URLs that the browser loader rewrites at runtime.
+  JetBrains Mono, Caveat Bold, DM Sans. Put on the user asset shelf
+  (`~/.davidup/assets`, or `$DAVIDUP_ASSETS`) as `font` records — licence
+  OFL, credited to their foundries — so `search_assets`, `list_fonts` and
+  `use_asset` find them with or without the editor; `index.json` lists them
+  as `asset:<id>` srcs. The files also stay in `fonts/`, so a composition
+  that says `global:fonts/anton-400.woff2` still renders. `index.json`'s
+  `assets` and any font entry of your own are left as they are.
 - No scenes or image assets are seeded; add your own or save them from the
   editor.
 
@@ -1279,6 +1285,10 @@ Any composition can name a template or behavior from this pool with the
 `global:` prefix — `{ "$template": "global:ctaButton" }` — which resolves at
 compile time, so `davidup render` picks it up with no editor or MCP session
 involved (see *Level 3* above).
+
+Files you dropped into `~/.davidup/library/assets` or `fonts/` before the
+asset library are not on any shelf; `asset check --legacy` lists each one
+with the `asset add` line that puts it on the user shelf.
 
 Override the library root with `$DAVIDUP_LIBRARY`. See
 [`scripts/seed-global-library.ts`](./scripts/seed-global-library.ts) for the

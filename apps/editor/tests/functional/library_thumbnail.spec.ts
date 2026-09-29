@@ -11,7 +11,8 @@
 //   - Cache invalidates when the underlying catalog reloads
 
 import { test } from '@japa/runner'
-import { mkdtemp, mkdir, writeFile, copyFile, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, mkdir, writeFile, copyFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import libraryIndex from '#services/library_index'
@@ -246,6 +247,47 @@ test.group('Library thumbnails · HTTP', (group) => {
       res.assertStatus(200)
       assert.equal(res.header('content-type'), 'image/png')
       assert.isTrue(isPng(res.response.body))
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('font item with an asset: url renders from the asset library (D5)', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeLibraryProject()
+    try {
+      // The project's asset shelf holds the font; the Library entry points at it,
+      // as the seed's index.json fonts do.
+      const bytes = await readFile(FONT_TTF)
+      const sha = createHash('sha256').update(bytes).digest('hex')
+      await mkdir(join(dir, 'assets', 'blobs'), { recursive: true })
+      await writeFile(join(dir, 'assets', 'blobs', `${sha}.ttf`), bytes)
+      await writeFile(
+        join(dir, 'assets', 'catalogue.json'),
+        JSON.stringify({
+          'shelf-display': {
+            kind: 'font', name: 'Shelf display', tags: [], licence: 'OFL', credit: '', source: '',
+            family: 'ShelfDisplay', sha, ext: 'ttf', bytes: bytes.length,
+          },
+        })
+      )
+      const index = JSON.parse(await readFile(join(dir, 'library', 'index.json'), 'utf8'))
+      index.fonts.push({ id: 'shelf-display', family: 'ShelfDisplay', src: 'asset:shelf-display' })
+      index.fonts.push({ id: 'shelf-missing', family: 'Nope', src: 'asset:no-such-record' })
+      await writeFile(join(dir, 'library', 'index.json'), JSON.stringify(index))
+
+      await client.post('/api/project').json({ directory: dir })
+      await libraryIndex.flush()
+      const res = await client.get('/api/library/thumbnail').qs({ kind: 'font', id: 'shelf-display' })
+      res.assertStatus(200)
+      assert.isUndefined(res.header('x-thumbnail-placeholder'))
+      assert.isTrue(isPng(res.response.body))
+      const miss = await client.get('/api/library/thumbnail').qs({ kind: 'font', id: 'shelf-missing' })
+      miss.assertStatus(200)
+      assert.equal(miss.header('x-thumbnail-placeholder'), '1')
     } finally {
       await projectStore.unload()
       await rm(dir, { recursive: true, force: true })

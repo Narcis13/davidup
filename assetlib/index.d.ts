@@ -482,21 +482,30 @@ export function openLibrary(opts?: { shelves?: ShelfSpec[]; rank?: Ranker; previ
 // ---------- check (A6) ----------
 
 export type CheckLevel = 'error' | 'warn' | 'note';
-export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'sha1' | 'licence' | 'credit' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags';
+export type CheckRule = 'id' | 'invalid' | 'blob' | 'sha' | 'sha1' | 'licence' | 'credit' | 'duplicate' | 'shadow' | 'orphan' | 'thumb' | 'desc' | 'tags' | 'legacy';
 export interface Finding {
   level: CheckLevel;
   rule: CheckRule;
+  /** The shelf; `library` for a legacy file (davidup's old library root). */
   shelf: string;
-  /** The entry it is about; null for an orphan blob (then `path`). */
+  /** The entry it is about; null for an orphan blob or a legacy file (then `path`). */
   id: string | null;
   detail: string;
   path?: string;
+  /** A legacy file's davidup kind by extension, or null when it is none. */
+  kind?: Kind | null;
+  /** A legacy file's `asset add` line (null when its kind is none). */
+  add?: string | null;
 }
 export const LEVELS: readonly CheckLevel[];
 /** Each rule's level. */
 export const RULES: Readonly<Record<CheckRule, CheckLevel>>;
 /** What is wrong with a library's shelves (or the ones named), errors first; reads every blob once, writes nothing. */
-export function check(lib: Library, opts?: { shelves?: string[]; fields?: PutOptions['fields']; thumbCache?: string }): Finding[];
+export function check(lib: Library, opts?: { shelves?: string[]; fields?: PutOptions['fields']; thumbCache?: string; legacy?: string }): Finding[];
+/** davidup's old library directories whose loose files `check --legacy` offers for import (D5). */
+export const LEGACY_DIRS: readonly string[];
+/** A `legacy` note for every file under <root>/assets and <root>/fonts whose bytes are on no shelf, with its `asset add` line. */
+export function legacyFindings(lib: Library, root: string): Finding[];
 
 // ---------- migrate (H1) ----------
 

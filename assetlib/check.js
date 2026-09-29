@@ -14,25 +14,29 @@
 //   note   thumb      no preview drawn yet (`asset thumb`)
 //   note   desc       no one-line description, so search has less to go on
 //   note   tags       no tags
+//   note   legacy     with `legacy`: a file in davidup's old library (<root>/assets, <root>/fonts) on no shelf,
+//                     with the `asset add` line that brings it onto the user's pool (D5)
 //
 // Reading only: nothing is written. Blobs are hashed once each, so a check reads every byte on the shelves.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { isLegacySha, validate } from './record.js';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, extname, join, relative, sep } from 'node:path';
+import { fontInfo } from './probe.js';
+import { ID, SCHEMAS, isLegacySha, validate } from './record.js';
 
 export const LEVELS = Object.freeze(['error', 'warn', 'note']);
 export const RULES = Object.freeze({
   id: 'error', invalid: 'error', blob: 'error', sha: 'error',
   sha1: 'warn', licence: 'warn', credit: 'warn', duplicate: 'warn', shadow: 'warn', orphan: 'warn',
-  thumb: 'note', desc: 'note', tags: 'note',
+  thumb: 'note', desc: 'note', tags: 'note', legacy: 'note',
 });
 const ORDER = Object.keys(RULES);
 
 // Every finding on a library's shelves (or the ones named in `shelves`), errors first, then by rule, shelf
 // and id. `fields` is validate()'s per-kind checks; `thumbCache` the machine-wide thumb cache (a read-only
-// shelf's thumbs are there). Each finding is { level, rule, shelf, id, detail } (`path` for an orphan).
-export function check(lib, { shelves, fields, thumbCache } = {}) {
+// shelf's thumbs are there); `legacy` davidup's old library root, whose loose files are offered for import
+// (legacyFindings). Each finding is { level, rule, shelf, id, detail } (`path` for an orphan or a legacy file).
+export function check(lib, { shelves, fields, thumbCache, legacy } = {}) {
   const on = lib.shelves.filter((s) => !shelves || shelves.includes(s.name));
   const out = [], hashed = new Map();
   const add = (rule, shelf, id, detail, more) => out.push({ level: RULES[rule], rule, shelf, id, detail, ...more });
@@ -82,7 +86,65 @@ export function check(lib, { shelves, fields, thumbCache } = {}) {
     add('duplicate', holders[0].shelf, holders[0].id, `same bytes as ${holders.slice(1).map((x) => `${x.shelf}:${x.id}`).join(', ')}`);
   }
 
+  if (legacy) out.push(...legacyFindings(lib, legacy));
+
   const shelfAt = Object.fromEntries(lib.shelves.map((s, i) => [s.name, i]));
   return out.sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || ORDER.indexOf(a.rule) - ORDER.indexOf(b.rule)
-    || shelfAt[a.shelf] - shelfAt[b.shelf] || String(a.id ?? a.path).localeCompare(String(b.id ?? b.path)));
+    || (shelfAt[a.shelf] ?? -1) - (shelfAt[b.shelf] ?? -1) || String(a.id ?? a.path).localeCompare(String(b.id ?? b.path)));
+}
+
+// ---------- legacy (D5) ----------
+
+// Where davidup kept assets before the library: the editor's uploads in <root>/assets and the seed's fonts in
+// <root>/fonts, <root> being $DAVIDUP_LIBRARY or ~/.davidup/library.
+export const LEGACY_DIRS = Object.freeze(['assets', 'fonts']);
+const DAVIDUP_KINDS = ['image', 'video', 'audio', 'font'];
+
+const quote = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+const walk = (dir) => {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).filter((d) => !d.name.startsWith('.'))
+    .flatMap((d) => (d.isDirectory() ? walk(join(dir, d.name)) : d.isFile() ? [join(dir, d.name)] : [])).sort();
+};
+
+// What <root>/index.json says about a file, by its path under <root> (`global:fonts/x.woff2` -> fonts/x.woff2).
+function indexed(root) {
+  const out = new Map();
+  let idx;
+  try { idx = JSON.parse(readFileSync(join(root, 'index.json'), 'utf8')); } catch { return out; }
+  for (const e of [...(Array.isArray(idx?.assets) ? idx.assets : []), ...(Array.isArray(idx?.fonts) ? idx.fonts : [])]) {
+    const src = e && typeof e === 'object' ? [e.src, e.url, e.path].find((v) => typeof v === 'string' && v.startsWith('global:')) : null;
+    if (src) out.set(src.slice('global:'.length), e);
+  }
+  return out;
+}
+
+// A `legacy` note for every file under <root>/assets and <root>/fonts whose bytes are on none of the library's
+// shelves, its detail the `asset add` line that puts it on the user's pool: the kind from the extension, the
+// id, name and a font's family from the index.json entry naming the file, else from the file itself. A file
+// whose extension is no davidup kind is listed without a line. Each is { level, rule, shelf: 'library', id:
+// null, path, detail, kind, add }.
+export function legacyFindings(lib, root) {
+  const out = [], named = indexed(root);
+  for (const sub of LEGACY_DIRS) {
+    for (const path of walk(join(root, sub))) {
+      const bytes = readFileSync(path);
+      if (lib.has(`sha:${createHash('sha256').update(bytes).digest('hex')}`)) continue;
+      const rel = [sub, ...relative(join(root, sub), path).split(sep)].join('/');
+      const ext = extname(path).slice(1).toLowerCase().replace(/^jpeg$/, 'jpg');
+      const kind = DAVIDUP_KINDS.find((k) => SCHEMAS[k].exts.includes(ext)) ?? null;
+      const finding = { level: RULES.legacy, rule: 'legacy', shelf: 'library', id: null, path, kind, add: null };
+      if (!kind) { out.push({ ...finding, detail: `${rel} is on no shelf, and .${ext} is no kind davidup takes` }); continue; }
+      const e = named.get(rel) ?? {};
+      let family = kind === 'font' && typeof e.family === 'string' ? e.family : undefined;
+      if (kind === 'font' && !family) try { family = fontInfo(bytes).family; } catch { family = undefined; }
+      const name = [e.name, e.family, e.id].find((v) => typeof v === 'string' && v) ?? basename(path, extname(path));
+      const add = ['asset', 'add', quote(path), '--kind', kind, '--name', quote(name),
+        ...(typeof e.id === 'string' && ID.test(e.id) ? ['--id', e.id] : []),
+        ...(kind === 'font' ? ['--family', quote(family ?? '<family>')] : []),
+        '--licence', 'unknown', '--shelf', 'user'].join(' ');
+      out.push({ ...finding, add, detail: `${rel} is on no shelf: ${add}` });
+    }
+  }
+  return out;
 }

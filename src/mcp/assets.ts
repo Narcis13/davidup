@@ -35,6 +35,7 @@ import {
   type SearchQuery,
   type SearchResult,
 } from "../../assetlib/index.js";
+import { parseAssetSrc } from "../assets/assetSrc.js";
 import { openAssetLibrary } from "../assets/library.js";
 import { MCPToolError } from "./errors.js";
 
@@ -284,6 +285,21 @@ export function libraryShelfItems(
     ...(typeof r.sec === "number" ? { duration: r.sec } : {}),
   }));
   return { items, total };
+}
+
+/**
+ * True for an editor library item that only points at a record the shelves
+ * list too (the seed's `index.json` fonts are `asset:<id>` srcs, D5): the
+ * shelf item says more (shelf, licence, the pinned src), so it is the one kept.
+ */
+export function pointsAtShelf(item: { kind: string; url?: string | undefined }, ids: ReadonlySet<string>): boolean {
+  if ((item.kind !== "asset" && item.kind !== "font") || item.url === undefined) return false;
+  try {
+    const ref = parseAssetSrc(item.url);
+    return ref !== null && ids.has(ref.id);
+  } catch {
+    return false;
+  }
 }
 
 // ── add_asset (D3) ──

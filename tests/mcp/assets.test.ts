@@ -291,10 +291,74 @@ describe("list_library and get_library_thumbnail over the asset library", () => 
     expect(thumb).toMatchObject({ mimeType: "image/png", width: 480, placeholder: false });
   });
 
+  it("lists an editor item that points at a record once, as the record (D5)", async () => {
+    const d = hosted({
+      libraryControls: {
+        list: (args) => {
+          const items = [
+            { kind: "font" as const, id: "inter", source: "index.json", scope: "global" as const, url: "asset:inter" },
+            { kind: "font" as const, id: "brand", source: "index.json", scope: "global" as const, url: "global:fonts/brand.ttf" },
+          ];
+          return {
+            root: "/lib",
+            roots: [],
+            loadedAt: 0,
+            attached: true,
+            globalAttached: true,
+            projectRoot: sh.project,
+            count: items.length,
+            total: items.length,
+            query: { q: args.q ?? null, kind: args.kind ?? null, scope: args.scope ?? null },
+            items,
+            errors: [],
+          };
+        },
+        thumbnail: ({ id }) => {
+          throw Object.assign(new Error(`no ${id}`), { code: "E_NOT_FOUND" });
+        },
+      },
+    });
+    const out = (await ok("list_library", { kind: "font" }, d)) as MCPLibraryCatalog;
+    expect(out.items.map((i) => [i.id, i.shelf ?? i.source])).toEqual([
+      ["brand", "index.json"],
+      ["inter", "house"],
+    ]);
+    expect([out.count, out.total]).toEqual([2, 2]);
+
+    d.store.createComposition({ width: 64, height: 64, fps: 30, duration: 1 });
+    const fonts = await ok("list_fonts", {}, d);
+    expect(fonts.library.map((f: { id: string }) => f.id)).toEqual(["inter", "brand"]);
+  });
+
   it("get_library_thumbnail draws a library record on the standalone server", async () => {
     const card = await ok("get_library_thumbnail", { kind: "font", id: "inter" }, standalone());
     expect(card).toMatchObject({ mimeType: "image/png", placeholder: true });
     await fails("get_library_thumbnail", { kind: "font", id: "dot" }, standalone(), "E_NOT_FOUND");
     await fails("get_library_thumbnail", { kind: "template", id: "x" }, standalone(), "E_FEATURE_UNAVAILABLE");
+  });
+});
+
+describe("list_fonts over the asset library (D5)", () => {
+  it("lists the shelves' font records with or without an editor", async () => {
+    putFont(sh.user, "brand-sans", "Brand Sans");
+    const sha = readShelf(sh.user).entry("brand-sans").sha;
+    for (const deps of [standalone(), hosted()]) {
+      deps.store.createComposition({ width: 64, height: 64, fps: 30, duration: 1 });
+      const out = await ok("list_fonts", {}, deps);
+      expect(out.library).toEqual([
+        {
+          id: "brand-sans",
+          name: "brand-sans",
+          family: "Brand Sans",
+          scope: "global",
+          source: join(sh.user, "blobs", `${sha}.ttf`),
+          shelf: "user",
+          src: `asset:brand-sans@${sha.slice(0, 12)}`,
+          licence: "own",
+        },
+        expect.objectContaining({ id: "inter", family: "LibInter", shelf: "house" }),
+      ]);
+      expect(out.hint).toBeUndefined();
+    }
   });
 });

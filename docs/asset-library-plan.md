@@ -535,6 +535,25 @@ writes `index.json` fonts as `src: 'asset:<id>'`; it stops touching
 against a temp root lists ten font puts, a second run is a no-op, and
 `list_fonts` shows them with `library` scope.
 
+*As built:* each font's bytes come from `<library>/fonts/<file>` when an
+earlier seed left them there, else from the shelf's blob, else the mirror;
+the file is kept in `fonts/` so `global:fonts/...` srcs (the
+`showcase-vertical` example) still resolve. Records carry `name`, `desc`,
+`tags`, `family`, `weight`, `style`, `source` (the mirror URL), `by: seed`;
+assetlib does not read WOFF2, so the spec names what `fontMeta` would. A run
+compares every file and record before it writes (templates and behaviors
+too), so the second run prints `unchanged` throughout. `index.json` keeps
+every key but `fonts`; in `fonts` the pack's ten come first as `asset:<id>`
+(a pack font that failed keeps the entry it had) and the user's own follow.
+Pack v3. `list_fonts` lists the shelves' font records in `library`
+(`scope`, `shelf`, `family`, the pinned `src`, `licence`) on the standalone
+server too, and `list_library` / `list_fonts` drop an editor item that is
+only an `asset:` pointer to a record they list, so a seeded font is listed
+once. `asset check --legacy` notes each file under
+`$DAVIDUP_LIBRARY` (else `~/.davidup/library`) `/assets` and `/fonts` whose
+bytes are on no shelf, with a runnable `asset add` line (kind from the
+extension; id, name and family from the index.json entry naming the file).
+
 ### D6. Palette and text-room facts
 
 *Filters an agent actually uses.*
@@ -792,7 +811,7 @@ then D and E in parallel, I when D4 exists, S last.
 | D2 | MCP: search and read | 1 | A3 A4 D1 | [x] |
 | D3 | MCP: write and use | 1 | A5 D2 | [x] |
 | D4 | Derived assets land in the library | 1 | A2 D1 H1 | [x] |
-| D5 | The seed writes the user shelf | 0.5 | A2 D1 | [ ] |
+| D5 | The seed writes the user shelf | 0.5 | A2 D1 | [x] |
 | D6 | Palette and text-room facts | 1 | A2 | [ ] |
 | E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [ ] |
 | E2 | Upload and drop | 1 | D3 E1 | [ ] |

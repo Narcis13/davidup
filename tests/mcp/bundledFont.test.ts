@@ -3,9 +3,11 @@
 // resolves in the validator and every loader without a `register_asset`, and
 // `add_text` falls back to it when `font` is omitted.
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_FONT_ASSET,
@@ -152,7 +154,27 @@ describe("loaders", () => {
   });
 });
 
+// list_fonts reads the asset library's shelves (D5): point the user's pool and
+// the house at empty temp shelves, so fonts the seed put in ~/.davidup/assets
+// do not show up here.
+function emptyShelves(): void {
+  let before: NodeJS.ProcessEnv;
+  let dir: string;
+  beforeEach(() => {
+    before = { ...process.env };
+    dir = mkdtempSync(join(tmpdir(), "davidup-no-shelves-"));
+    Object.assign(process.env, { DAVIDUP_ASSETS: join(dir, "user"), DAVIDUP_HOUSE: join(dir, "house") });
+    delete process.env.DAVIDUP_PROJECT;
+  });
+  afterEach(() => {
+    process.env = before;
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
 describe("MCP: text with zero setup", () => {
+  emptyShelves();
+
   it("list_fonts reports the bundled font", async () => {
     const deps: ToolDeps = { store: new CompositionStore() };
     await call(deps, "create_composition", { width: 64, height: 64, fps: 30, duration: 1 });

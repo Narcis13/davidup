@@ -15,7 +15,11 @@
 // `create_composition` / `reset` descriptions in src/mcp/tools.ts — so there
 // is nothing behavioural to assert here.
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   CompositionStore,
@@ -112,7 +116,27 @@ describe("list_engine_capabilities — server flavor (R-28)", () => {
   });
 });
 
+// list_fonts reads the asset library's shelves (D5): point the user's pool and
+// the house at empty temp shelves, so fonts the seed put in ~/.davidup/assets
+// do not show up here.
+function emptyShelves(): void {
+  let before: NodeJS.ProcessEnv;
+  let dir: string;
+  beforeEach(() => {
+    before = { ...process.env };
+    dir = mkdtempSync(join(tmpdir(), "davidup-no-shelves-"));
+    Object.assign(process.env, { DAVIDUP_ASSETS: join(dir, "user"), DAVIDUP_HOUSE: join(dir, "house") });
+    delete process.env.DAVIDUP_PROJECT;
+  });
+  afterEach(() => {
+    process.env = before;
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
 describe("list_fonts — cold-start hint (R-30)", () => {
+  emptyShelves();
+
   it("returns an actionable hint when no fonts are registered anywhere", async () => {
     const deps = freshDeps();
     deps.store.createComposition({ width: 100, height: 100, fps: 30, duration: 1 });

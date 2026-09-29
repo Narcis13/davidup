@@ -6,9 +6,17 @@
 //   $DAVIDUP_LIBRARY   (if set)
 //   ~/.davidup/library (default)
 //
-// Idempotent — re-running overwrites files this script owns. User-authored
-// files under the library root are left alone unless they collide with an
-// id this script ships (templates/behaviors are keyed by file basename).
+// Idempotent — re-running overwrites files this script owns, and a run that
+// would change nothing writes nothing. User-authored files under the library
+// root are left alone unless they collide with an id this script ships
+// (templates/behaviors are keyed by file basename).
+//
+// Fonts are put on the user asset shelf (docs/asset-library-plan.md D5):
+//   $DAVIDUP_ASSETS    (if set)
+//   ~/.davidup/assets  (default)
+// as `font` records (licence OFL, the foundry as credit), and index.json
+// lists them as `asset:<id>` srcs. index.json's `assets`, and any font entry
+// the seed does not ship, are left as they are.
 //
 // Re-running is also the *upgrade* path: an already-seeded library is never
 // rewritten behind the user's back, so a pack change only reaches disk when
@@ -19,12 +27,13 @@
 // USAGE
 //   bun run scripts/seed-global-library.ts
 //   bun run seed:library
-//   DAVIDUP_LIBRARY=/tmp/lib bun run scripts/seed-global-library.ts
+//   DAVIDUP_LIBRARY=/tmp/lib DAVIDUP_ASSETS=/tmp/assets bun run scripts/seed-global-library.ts
 //
 // FLAGS
-//   --skip-fonts      Don't download font files (offline mode). Templates +
-//                     behavior cards still get written.
-//   --skip-existing   Leave files that already exist on disk untouched.
+//   --skip-fonts      Don't put fonts on the user shelf (offline mode).
+//                     Templates + behavior cards still get written.
+//   --skip-existing   Leave files that already exist on disk, and font
+//                     records already on the user shelf, untouched.
 //   --dry-run         Print what would be written without touching disk.
 //   --quiet           Suppress per-file logs (final summary still prints).
 //   --help            This help text.
@@ -32,6 +41,8 @@
 import { promises as fs, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+import { openLibrary, sha, standardShelves, type Entry, type EntryInput } from "../assetlib/index.js";
 
 // ──────────────── CLI ────────────────
 
@@ -50,6 +61,10 @@ const LIBRARY_ROOT =
 
 const SUBDIRS = ["templates", "behaviors", "scenes", "assets", "fonts"] as const;
 
+// The user asset shelf the fonts are put on: $DAVIDUP_ASSETS, else
+// ~/.davidup/assets (assetlib's standardShelves, the rule every reader uses).
+const USER_SHELF = standardShelves().find((s) => s.name === "user")!.root;
+
 // ──────────────── Seed version ────────────────
 //
 // A library on disk is just files: nothing re-seeds it, and neither the CLI
@@ -63,7 +78,7 @@ const SUBDIRS = ["templates", "behaviors", "scenes", "assets", "fonts"] as const
 // warn that it left stale copies behind. Nothing reads it at runtime; the
 // dot prefix and the name keep it out of the library watcher's file kinds.
 
-const SEED_VERSION = 2;
+const SEED_VERSION = 3;
 const SEED_MARKER = ".davidup-seed.json";
 
 /** What each bump changed, newest last. Printed when upgrading a library. */
@@ -76,20 +91,30 @@ const SEED_CHANGELOG: Array<{ version: number; note: string }> = [
       "of sitting with its baseline on the centre line. Nine templates moved; " +
       "`ctaButton` and `tagPill` labels now sit in the middle of their pill.",
   },
+  {
+    version: 3,
+    note:
+      "Asset library D5: the ten fonts are `font` records on the user asset " +
+      "shelf (~/.davidup/assets; licence OFL, credited to their foundries) and " +
+      "index.json lists them as `asset:<id>`. index.json's `assets` is no " +
+      "longer reset. The files stay in fonts/, so `global:fonts/...` still resolves.",
+  },
 ];
 
 // Help is printed here rather than in the CLI section above so it can name
 // the pack version and the marker file.
 if (argv.has("--help") || argv.has("-h")) {
   process.stdout.write(`\
-Seed the global davidup library at $DAVIDUP_LIBRARY (default ~/.davidup/library).
+Seed the global davidup library at $DAVIDUP_LIBRARY (default ~/.davidup/library),
+and put its fonts on the user asset shelf at $DAVIDUP_ASSETS (default
+~/.davidup/assets).
 
 USAGE
   bun run scripts/seed-global-library.ts [flags]
 
 FLAGS
-  --skip-fonts      Skip font downloads (templates + behaviors only).
-  --skip-existing   Leave already-present files untouched.
+  --skip-fonts      Skip the fonts (templates + behaviors only).
+  --skip-existing   Leave already-present files and font records untouched.
   --dry-run         Print actions without writing.
   --quiet           Final summary only.
   --help            This help text.
@@ -1326,103 +1351,150 @@ const BEHAVIORS: BehaviorDoc[] = [
 
 // ──────────────── Fonts ────────────────
 //
-// Files are downloaded from the @fontsource jsdelivr mirror. They land under
-// <library>/fonts/<file>.woff2 and are registered in index.json with
-// `global:fonts/<file>.woff2` URLs — the browser asset loader rewrites that
-// prefix to /library-files/... at runtime (see src/assets/browser.ts).
+// Files are downloaded from the @fontsource jsdelivr mirror and put on the
+// user asset shelf as `font` records (D5): licence OFL, the foundry as
+// credit, the mirror URL as source, `family` and `weight` from the spec
+// (assetlib does not read WOFF2, so the spec says what the file would).
+// index.json lists each as `asset:<id>`, which resolves through the shelves.
+//
+// The file is also kept at <library>/fonts/<file>.woff2, so a composition
+// that still says `global:fonts/<file>.woff2` resolves unchanged; a run finds
+// the bytes there (or on the shelf) before it downloads anything.
 
 interface FontSpec {
   id: string;
   family: string;
+  weight: number;
   file: string;
   url: string;
   description: string;
+  /** The foundry or designer, as the record's credit. */
+  credit: string;
+  tags: string[];
 }
 
 const FONTS: FontSpec[] = [
   {
     id: "inter-bold",
     family: "Inter",
+    weight: 700,
     file: "inter-700.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/inter/files/inter-latin-700-normal.woff2",
     description: "Inter Bold — modern UI sans-serif, great default headline.",
+    credit: "Inter by Rasmus Andersson",
+    tags: ["sans", "ui", "headline"],
   },
   {
     id: "inter-regular",
     family: "Inter Regular",
+    weight: 400,
     file: "inter-400.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/inter/files/inter-latin-400-normal.woff2",
     description: "Inter Regular — body copy and small caption text.",
+    credit: "Inter by Rasmus Andersson",
+    tags: ["sans", "ui", "body"],
   },
   {
     id: "bebas-neue",
     family: "Bebas Neue",
+    weight: 400,
     file: "bebas-neue-400.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff2",
     description: "Bebas Neue — narrow display caps, classic lower-third stalwart.",
+    credit: "Bebas Neue by Dharma Type (Ryoichi Tsunekawa)",
+    tags: ["sans", "display", "condensed", "caps"],
   },
   {
     id: "anton",
     family: "Anton",
+    weight: 400,
     file: "anton-400.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/anton/files/anton-latin-400-normal.woff2",
     description: "Anton — heavy single-weight impact for hero titles.",
+    credit: "Anton by Vernon Adams",
+    tags: ["sans", "display", "condensed", "impact"],
   },
   {
     id: "playfair-display-bold",
     family: "Playfair Display",
+    weight: 700,
     file: "playfair-display-700.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display/files/playfair-display-latin-700-normal.woff2",
     description: "Playfair Display Bold — high-contrast serif for editorial quotes.",
+    credit: "Playfair Display by Claus Eggers Sørensen",
+    tags: ["serif", "display", "editorial"],
   },
   {
     id: "montserrat-bold",
     family: "Montserrat",
+    weight: 700,
     file: "montserrat-700.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/montserrat/files/montserrat-latin-700-normal.woff2",
     description: "Montserrat Bold — geometric sans for posters and stat callouts.",
+    credit: "Montserrat by Julieta Ulanovsky",
+    tags: ["sans", "geometric", "poster"],
   },
   {
     id: "space-grotesk",
     family: "Space Grotesk",
+    weight: 500,
     file: "space-grotesk-500.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2",
     description: "Space Grotesk Medium — quirky-but-clean modern sans.",
+    credit: "Space Grotesk by Florian Karsten",
+    tags: ["sans", "grotesque"],
   },
   {
     id: "jetbrains-mono",
     family: "JetBrains Mono",
+    weight: 500,
     file: "jetbrains-mono-500.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2",
     description: "JetBrains Mono Medium — code overlays and technical captions.",
+    credit: "JetBrains Mono by JetBrains",
+    tags: ["mono", "code"],
   },
   {
     id: "caveat-bold",
     family: "Caveat",
+    weight: 700,
     file: "caveat-700.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/caveat/files/caveat-latin-700-normal.woff2",
     description: "Caveat Bold — handwritten accent for annotations and arrows.",
+    credit: "Caveat by Impallari Type",
+    tags: ["handwritten", "script", "annotation"],
   },
   {
     id: "dm-sans",
     family: "DM Sans",
+    weight: 500,
     file: "dm-sans-500.woff2",
     url: "https://cdn.jsdelivr.net/npm/@fontsource/dm-sans/files/dm-sans-latin-500-normal.woff2",
     description: "DM Sans Medium — friendly geometric sans for product UI.",
+    credit: "DM Sans by Colophon Foundry",
+    tags: ["sans", "geometric", "ui"],
   },
 ];
 
 // ──────────────── Plumbing ────────────────
 
 interface WriteResult {
-  kind: "wrote" | "skipped" | "would-write" | "failed";
+  kind: "wrote" | "unchanged" | "skipped" | "would-write" | "failed";
   reason?: string;
 }
 
+interface Counter {
+  wrote: number;
+  unchanged: number;
+  skipped: number;
+  failed: number;
+}
+const counter = (): Counter => ({ wrote: 0, unchanged: 0, skipped: 0, failed: 0 });
+
 const summary = {
-  templates: { wrote: 0, skipped: 0, failed: 0 },
-  behaviors: { wrote: 0, skipped: 0, failed: 0 },
-  fonts: { wrote: 0, skipped: 0, failed: 0 },
+  templates: counter(),
+  behaviors: counter(),
+  fonts: counter(),
 };
 
 function log(line: string): void {
@@ -1444,14 +1516,25 @@ async function ensureDirs(): Promise<void> {
   }
 }
 
+// Writes `text` unless the file already says exactly that, so a second run
+// changes nothing on disk.
+async function writeText(absPath: string, text: string): Promise<WriteResult> {
+  try {
+    if ((await fs.readFile(absPath, "utf8")) === text) return { kind: "unchanged" };
+  } catch {
+    // Missing or unreadable: write it.
+  }
+  if (DRY_RUN) return { kind: "would-write" };
+  await fs.mkdir(dirname(absPath), { recursive: true });
+  await fs.writeFile(absPath, text, "utf8");
+  return { kind: "wrote" };
+}
+
 async function writeJson(absPath: string, value: unknown): Promise<WriteResult> {
   if (SKIP_EXISTING && existsSync(absPath)) {
     return { kind: "skipped", reason: "exists" };
   }
-  if (DRY_RUN) return { kind: "would-write" };
-  await fs.mkdir(dirname(absPath), { recursive: true });
-  await fs.writeFile(absPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  return { kind: "wrote" };
+  return writeText(absPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 // The pack version that wrote the files currently on disk, plus the per-id
@@ -1484,38 +1567,131 @@ async function writeMarker(): Promise<WriteResult> {
     seedVersion: SEED_VERSION,
     templates: Object.fromEntries(TEMPLATES.map((t) => [t.id, t.version])),
   };
-  const path = join(LIBRARY_ROOT, SEED_MARKER);
-  if (DRY_RUN) return { kind: "would-write" };
-  await fs.writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  return { kind: "wrote" };
+  return writeText(join(LIBRARY_ROOT, SEED_MARKER), `${JSON.stringify(value, null, 2)}\n`);
 }
 
-async function downloadFont(spec: FontSpec): Promise<WriteResult> {
-  const dest = join(LIBRARY_ROOT, "fonts", spec.file);
-  if (SKIP_EXISTING && existsSync(dest)) {
-    return { kind: "skipped", reason: "exists" };
-  }
-  if (DRY_RUN) {
-    return { kind: "would-write" };
-  }
+// ──────────────── Fonts on the user shelf ────────────────
+
+type Library = ReturnType<typeof openLibrary>;
+
+/** The record the seed puts for a font: everything but what the bytes decide. */
+function fontEntry(f: FontSpec): EntryInput {
+  const [name, rest] = f.description.split(" — ");
+  const desc = rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : f.description;
+  return {
+    id: f.id,
+    kind: "font",
+    name: name!,
+    desc,
+    tags: ["font", ...f.tags],
+    licence: "OFL",
+    credit: f.credit,
+    source: f.url,
+    family: f.family,
+    weight: f.weight,
+    style: "normal",
+  } as EntryInput;
+}
+
+/** The shelf already holds `entry` as the seed would put it. */
+function sameRecord(had: Entry, entry: EntryInput, bytes: Uint8Array): boolean {
+  if (had.sha !== sha(bytes)) return false;
+  const was = had as unknown as Record<string, unknown>;
+  // A stored entry is keyed by its id and does not carry it.
+  return Object.entries(entry).every(([k, v]) => k === "id" || JSON.stringify(was[k]) === JSON.stringify(v));
+}
+
+// A font's bytes: the <library>/fonts copy, else the shelf's blob when its
+// record came from the same URL, else a download. null when only a download
+// would have them and this is a dry run.
+async function fontBytes(lib: Library, f: FontSpec, had: Entry | undefined): Promise<Uint8Array | null> {
+  const copy = join(LIBRARY_ROOT, "fonts", f.file);
+  if (existsSync(copy)) return fs.readFile(copy);
+  const shelf = lib.shelf("user");
+  if (had && had.source === f.url && existsSync(shelf.blobPath(had))) return fs.readFile(shelf.blobPath(had));
+  if (DRY_RUN) return null;
+  const res = await fetch(f.url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+async function seedFont(lib: Library, f: FontSpec): Promise<WriteResult> {
+  const shelf = lib.shelf("user");
+  const had = shelf.entries.get(f.id);
+  if (SKIP_EXISTING && had) return { kind: "skipped", reason: "on the user shelf" };
+  let bytes: Uint8Array | null;
   try {
-    const res = await fetch(spec.url);
-    if (!res.ok) {
-      return { kind: "failed", reason: `HTTP ${res.status}` };
-    }
-    const buf = new Uint8Array(await res.arrayBuffer());
-    await fs.mkdir(dirname(dest), { recursive: true });
-    await fs.writeFile(dest, buf);
-    return { kind: "wrote" };
+    bytes = await fontBytes(lib, f, had);
   } catch (err) {
     return { kind: "failed", reason: (err as Error).message };
   }
+  if (!bytes) return { kind: "would-write", reason: "download and put" };
+
+  // Keep the global:fonts/<file> path resolving for compositions that name it.
+  const copy = join(LIBRARY_ROOT, "fonts", f.file);
+  if (!DRY_RUN && !existsSync(copy)) {
+    await fs.mkdir(dirname(copy), { recursive: true });
+    await fs.writeFile(copy, bytes);
+  }
+
+  const entry = fontEntry(f);
+  if (had && sameRecord(had, entry, bytes)) return { kind: "unchanged" };
+  if (DRY_RUN) return { kind: "would-write", ...(had ? { reason: "replace" } : {}) };
+  try {
+    // assetlib does not read WOFF2; the entry already names what it would
+    // (family, weight, style), so the probe has nothing to add.
+    const out = await lib.put("user", entry, bytes, { probes: { fontMeta: () => ({}) }, by: "seed" });
+    for (const w of out.warnings) warn(`  font      ${f.id}: ${w}`);
+    // A replaced blob nothing else on the shelf holds goes with its thumb.
+    if (had && had.sha !== out.entry.sha && ![...shelf.entries.values()].some((e) => e.sha === had.sha)) {
+      for (const p of [shelf.blobPath(had), shelf.thumbPath(had)]) await fs.rm(p, { force: true });
+    }
+    return { kind: "wrote", ...(had ? { reason: "replaced" } : {}) };
+  } catch (err) {
+    return { kind: "failed", reason: (err as Error).message };
+  }
+}
+
+// index.json: the seed's fonts as `asset:<id>` srcs, in pack order, then any
+// font entry the pack does not ship; every other key (`assets` among them)
+// as it was. A pack font that is on no shelf keeps the entry it had.
+async function writeIndex(onShelf: Set<string>): Promise<WriteResult> {
+  const path = join(LIBRARY_ROOT, "index.json");
+  let prev: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      const raw: unknown = JSON.parse(await fs.readFile(path, "utf8"));
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("not an object");
+      prev = raw as Record<string, unknown>;
+    } catch (err) {
+      return { kind: "failed", reason: `index.json is not a JSON object (${(err as Error).message}); left as it is` };
+    }
+  }
+  const old = (Array.isArray(prev.fonts) ? prev.fonts : []) as unknown[];
+  const idOf = (e: unknown) => (typeof e === "object" && e !== null ? (e as { id?: unknown }).id : undefined);
+  const ours = new Set(FONTS.map((f) => f.id));
+  const fonts = [
+    ...FONTS.flatMap((f) =>
+      onShelf.has(f.id)
+        ? [{ id: f.id, type: "font", family: f.family, src: `asset:${f.id}`, description: f.description }]
+        : old.filter((e) => idOf(e) === f.id),
+    ),
+    ...old.filter((e) => !ours.has(idOf(e) as string)),
+  ];
+  return writeJson(path, {
+    ...prev,
+    $generatedBy: "scripts/seed-global-library.ts",
+    $note:
+      "Fonts are listed here so the Library panel shows them; the seed's are `asset:<id>` records on the user asset shelf (~/.davidup/assets). Re-running the seed rewrites its own font entries; other entries and `assets` are left as they are.",
+    fonts,
+  });
 }
 
 // ──────────────── Main ────────────────
 
 async function main(): Promise<void> {
   log(`davidup library seed → ${LIBRARY_ROOT} (pack v${SEED_VERSION})`);
+  if (!SKIP_FONTS) log(`  fonts → user asset shelf ${USER_SHELF}`);
   if (DRY_RUN) log("(dry-run: no files will change)");
 
   const previous = await readMarker();
@@ -1545,46 +1721,20 @@ async function main(): Promise<void> {
   }
 
   // Fonts ────────
-  const fontEntries: Array<Record<string, unknown>> = [];
   if (SKIP_FONTS) {
-    log("(skipping font downloads — --skip-fonts)");
+    log("(skipping fonts — --skip-fonts; index.json left as it is)");
   } else {
+    const lib = openLibrary({ shelves: [{ name: "user", root: USER_SHELF }] });
+    const onShelf = new Set<string>();
     for (const f of FONTS) {
-      const res = await downloadFont(f);
+      const res = await seedFont(lib, f);
       bump(summary.fonts, res);
-      log(`  font      ${f.id.padEnd(28)}  ${describe(res)}`);
-      // Even if the download failed or was skipped, register the entry in
-      // index.json — the file may already exist on disk from a prior run.
-      // Skip only when the destination genuinely doesn't exist (a fresh
-      // failure with no fallback file).
-      const dest = join(LIBRARY_ROOT, "fonts", f.file);
-      if (!existsSync(dest) && !DRY_RUN) continue;
-      fontEntries.push({
-        id: f.id,
-        type: "font",
-        family: f.family,
-        src: `global:fonts/${f.file}`,
-        description: f.description,
-      });
+      log(`  font      ${f.id.padEnd(28)}  ${describe(res, "put")}`);
+      if (lib.shelf("user").has(f.id) || res.kind === "would-write") onShelf.add(f.id);
     }
-  }
-
-  // index.json with the font catalog. Templates and behaviors are written
-  // as one-file-per-definition (see above), so they're discovered by the
-  // library watcher without needing an inline reference here.
-  const indexPath = join(LIBRARY_ROOT, "index.json");
-  const indexValue = {
-    $generatedBy: "scripts/seed-global-library.ts",
-    $note:
-      "Fonts are registered here so they're discoverable in the Library panel and via list_fonts. Edit by re-running the seed script — overwrites are intentional.",
-    assets: [] as unknown[],
-    fonts: fontEntries,
-  };
-  if (fontEntries.length > 0 || !existsSync(indexPath)) {
-    const res = await writeJson(indexPath, indexValue);
+    const res = await writeIndex(onShelf);
+    if (res.kind === "failed") summary.fonts.failed += 1;
     log(`  index     ${"index.json".padEnd(20)}  ${describe(res)}`);
-  } else {
-    log("  index     index.json            skipped (no fonts to register)");
   }
 
   // Seed marker ────────
@@ -1609,19 +1759,15 @@ async function main(): Promise<void> {
   }
 
   // Summary ────────
+  const line = (name: string, c: Counter, verb = "wrote") =>
+    `  ${name.padEnd(10)} ${c.wrote} ${verb} / ${c.unchanged} unchanged / ${c.skipped} skipped${c.failed ? ` / ${c.failed} failed` : ""}`;
   process.stdout.write(
     [
       "",
       `Seeded ${LIBRARY_ROOT}`,
-      `  templates  ${summary.templates.wrote} wrote / ${summary.templates.skipped} skipped${
-        summary.templates.failed ? ` / ${summary.templates.failed} failed` : ""
-      }`,
-      `  behaviors  ${summary.behaviors.wrote} wrote / ${summary.behaviors.skipped} skipped${
-        summary.behaviors.failed ? ` / ${summary.behaviors.failed} failed` : ""
-      }`,
-      `  fonts      ${summary.fonts.wrote} wrote / ${summary.fonts.skipped} skipped${
-        summary.fonts.failed ? ` / ${summary.fonts.failed} failed` : ""
-      }`,
+      line("templates", summary.templates),
+      line("behaviors", summary.behaviors),
+      line("fonts", summary.fonts, DRY_RUN ? "to put" : "put"),
       "",
     ].join("\n"),
   );
@@ -1634,21 +1780,22 @@ async function main(): Promise<void> {
   }
 }
 
-function bump(
-  counter: { wrote: number; skipped: number; failed: number },
-  res: WriteResult,
-): void {
+function bump(counter: Counter, res: WriteResult): void {
   if (res.kind === "wrote" || res.kind === "would-write") counter.wrote += 1;
+  else if (res.kind === "unchanged") counter.unchanged += 1;
   else if (res.kind === "skipped") counter.skipped += 1;
   else if (res.kind === "failed") counter.failed += 1;
 }
 
-function describe(res: WriteResult): string {
+function describe(res: WriteResult, verb = "write"): string {
+  const past = verb === "write" ? "wrote" : verb;
   switch (res.kind) {
     case "wrote":
-      return "wrote";
+      return res.reason ? `${past} (${res.reason})` : past;
+    case "unchanged":
+      return "unchanged";
     case "would-write":
-      return "would write (dry-run)";
+      return `would ${res.reason ?? verb} (dry-run)`;
     case "skipped":
       return `skipped (${res.reason})`;
     case "failed":

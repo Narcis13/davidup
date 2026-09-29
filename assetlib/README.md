@@ -123,7 +123,9 @@ lib.update('teapot', { tags: ['met', 'kitchen'], desc: 'Silver teapot, three-qua
 `check(lib)` (`check.js`) lists what is wrong with the shelves, each finding `{ level, rule, shelf, id, detail }`:
 errors (`id` outside the rule, `invalid` entry, missing `blob`, a blob whose bytes miss its `sha`), warnings
 (`sha1` entries from before H1, `licence` unknown, CC-BY with no `credit`, `duplicate` bytes across shelves, `shadow`,
-`orphan` blob) and notes (no `thumb`, `desc` or `tags`).
+`orphan` blob) and notes (no `thumb`, `desc` or `tags`). With `legacy: <root>` (`asset check --legacy`: davidup's
+old library, `$DAVIDUP_LIBRARY` else `~/.davidup/library`) it also notes each file in `<root>/assets` and
+`<root>/fonts` whose bytes are on no shelf, with the `asset add` line that puts it on the user's pool (D5).
 
 ## The `asset` CLI
 
@@ -136,7 +138,7 @@ asset add paper.png --kind stock --name "Warm paper" --licence own --tags paper,
 asset tag teapot +kitchen -object           asset desc teapot "Silver teapot, three-quarter view"
 asset rm teapot    asset mv teapot --to house    asset gc --dry
 asset thumb teapot | --all                  asset sheet teapot cup fox --out candidates.png
-asset ls --shelf house                      asset check          (exits 1 on an error)
+asset ls --shelf house                      asset check [--legacy]    (exits 1 on an error)
 asset migrate --sha256 house [--dry]        rehash a shelf written with sha1 (H1)
 ```
 

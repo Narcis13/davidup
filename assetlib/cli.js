@@ -21,6 +21,7 @@
 // `asset add x.png --kind cutout` traces the silhouette), `by` (the door an add came in by) and `library` (a
 // library it opened itself); tests pass `out`, `err`, `env`, `cwd` and `home`.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DERIVE, addAsset, idOf } from './add.js';
@@ -50,8 +51,11 @@ usage: asset <verb> [args] [--project <dir>] [--json]
                                     (hdf's for its seven kinds), else a card
   sheet   <id...> [--cols n] [--cell px] [--out file]   one contact sheet PNG with id captions
   ls      [--shelf] [--kind]        every entry, shelf by shelf, with what shadows what
-  check   [--shelf]                 licence unknown, missing blob, orphan, duplicate sha across shelves,
-                                    missing thumb, sha1 entries, bad ids, empty desc or tags; exits 1 on an error
+  check   [--shelf] [--legacy]      licence unknown, missing blob, orphan, duplicate sha across shelves,
+                                    missing thumb, sha1 entries, bad ids, empty desc or tags; exits 1 on an error;
+                                    --legacy also offers each file in davidup's old library ($DAVIDUP_LIBRARY,
+                                    else ~/.davidup/library: assets/, fonts/) that is on no shelf, as the
+                                    asset add line that puts it on the user's pool
   migrate --sha256 <shelf | dir> [--dry]   rename a shelf's sha1 blobs by their sha256 (bytes kept; a JSON
                                     payload naming another blob's sha1 names its sha256) and rewrite the entries
 
@@ -70,7 +74,7 @@ const usage = (msg) => new UsageError(msg);
 // ---------- arguments ----------
 
 // Flags that never take a value, so `asset find --alpha fox` searches for fox.
-const BOOLEAN = new Set(['json', 'dry', 'all', 'force', 'alpha', 'dark', 'help', 'sha256']);
+const BOOLEAN = new Set(['json', 'dry', 'all', 'force', 'alpha', 'dark', 'help', 'sha256', 'legacy']);
 const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 // --key value, --key=value, --flag, --no-flag, -- ends flags. Values stay strings: each verb reads its own.
@@ -344,18 +348,20 @@ export const verbs = {
   async check(ctx, args, flags) {
     const lib = ctx.lib(), shelf = str(flags, 'shelf');
     if (shelf) lib.shelf(shelf);
-    const findings = check(lib, defined({ shelves: shelf ? [shelf] : undefined, fields: ctx.host.fields, thumbCache: ctx.thumbCache }));
+    const env = ctx.host.env ?? process.env;
+    const legacy = bool(flags, 'legacy') ? env.DAVIDUP_LIBRARY || join(ctx.host.home ?? homedir(), '.davidup', 'library') : undefined;
+    const findings = check(lib, defined({ shelves: shelf ? [shelf] : undefined, fields: ctx.host.fields, thumbCache: ctx.thumbCache, legacy }));
     const by = (level) => findings.filter((f) => f.level === level).length;
     const counts = Object.fromEntries(LEVELS.map((l) => [l, by(l)]));
     const on = (shelf ? [lib.shelf(shelf)] : lib.shelves).map((s) => `${s.name} (${s.ids.length})`).join(', ');
     const lines = [];
-    // Errors one line each; a warning or note that many entries share is one line listing them.
+    // Errors and legacy files one line each; a warning or note that many entries share is one line listing them.
     const groups = [];
     for (const f of findings) {
-      const g = groups.find((x) => f.level !== 'error' && x.level === f.level && x.rule === f.rule && x.shelf === f.shelf);
+      const g = groups.find((x) => f.level !== 'error' && f.rule !== 'legacy' && x.level === f.level && x.rule === f.rule && x.shelf === f.shelf);
       if (g) g.items.push(f); else groups.push({ level: f.level, rule: f.rule, shelf: f.shelf, items: [f] });
     }
-    const w = Math.max(8, ...lib.shelves.map((s) => s.name.length));
+    const w = Math.max(8, ...lib.shelves.map((s) => s.name.length), ...findings.map((f) => f.shelf.length));
     for (const g of groups) {
       const head = `${pad(g.level, 5)}  ${pad(g.rule, 9)}  ${pad(g.shelf, w)}`;
       if (g.items.length > 3) lines.push(`${head}  ${g.items.length} entries: ${ids(g.items.map((f) => f.id ?? basename(f.path)))}${NEXT[g.rule] ? `  (${NEXT[g.rule]})` : ''}`);

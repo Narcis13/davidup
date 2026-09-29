@@ -35,7 +35,7 @@ export { FROM_BYTES, readShelf, sha } from './catalogue.js';
 export { colours, imageInfo, imageType, quantise, sniff } from './image.js';
 export { CARD_H, CARD_W, PREVIEW_VERSION, PREVIEW_WIDTH, TAG_KEY, card, cardKey, contactSheet, decodePng, encodePng, factsOf, fresh, lettering, pngText, tagOf, withText } from './preview.js';
 export { DAVIDUP_TYPE, DAVIDUP_VIA, PIN, assetSrc, davidupUse, hdfUse, useOf } from './use.js';
-export { LEVELS, RULES, check } from './check.js';
+export { LEGACY_DIRS, LEVELS, RULES, check, legacyFindings } from './check.js';
 export { migrateSha256 } from './migrate.js';
 export { KNOWN_HOSTS, addHost, loadHosts } from './hosts.js';
 export { defaultProbes } from './probe.js';
