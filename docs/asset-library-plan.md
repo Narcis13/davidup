@@ -671,7 +671,7 @@ shows facet chips.
 
 *As built:* the shelf half is `app/services/library_shelves.ts`;
 `LibraryIndex` reads it on every reload while anything is attached, next to
-the `index.json` items (uploads still write there until E2), and drops an
+the `index.json` items (uploads wrote there until E2), and drops an
 `index.json` asset or font that is only an `asset:` pointer to a listed
 record (D5's rule). The project shelf is named by
 `libraryIndex.setAssetProject(root)`, which the project store calls on every
@@ -710,6 +710,33 @@ and registers on pick. **Done when** `assets_upload.spec.ts` and
 `library_drop.spec.ts` pass with the new paths, dropping an audio card on a
 track adds an audio track, and dropping a video on the stage adds a video
 item.
+
+*As built:* the upload is the MCP `add_asset` (dispatched in-process), so an
+upload and an agent's put share the probes, hdf's derives and the
+validation; `app/services/asset_pipeline.ts` names the file as the user did
+(the extension tells an audio, video or font payload) and picks the id: the
+file's name as an id, `-2`, `-3` ... while any shelf holds it, so an upload
+never replaces or shadows a record. The same bytes already on the target
+shelf return that record (`status: 'unchanged bytes'`). The form also takes
+`name`, `desc`, `kind` (`cutout`, `stock`, `sample` instead of the
+extension's) and `family` (a WOFF2's, which assetlib cannot read; it
+defaults to the file's name). The response is `{ asset, status, warnings }`,
+`asset` the record with `shelf` and the pinned `src`; the upload toast shows
+the warnings (the `own` default among them) and stays as long as an error's.
+`index.json` is no longer written. A card drop is `POST /api/library/use`
+(`app/services/library_use.ts`): `use_asset` through the MCP bridge's router
+with `source: 'ui'` and one `coalesceKey`, so register and place are one
+undo step (`register_asset`, `remove_asset`, `add_sprite`, `add_video` and
+`add_audio_track` take `coalesceKey` now). Only a record card (one with a
+`shelf`) drops that way; an `index.json` card keeps the commands it had.
+An image on the stage is a sprite centred on the drop point, sized by
+`use_asset`; a video a clip centred there from the playhead; audio has no
+stage drop, and on the timeline (a track row, the new-track gutter, the
+audio lane) is a track from the drop time. The asset pickers (sprite,
+video, font, an audio track's) list the records of their type the
+composition has not registered, under "Library", and register one on pick
+(`place: false`); a font card's **+ Add** registers a record through
+`use_asset` too, so it takes the record's credit and licence.
 
 ### E3. Promote is move
 
@@ -858,7 +885,7 @@ then D and E in parallel, I when D4 exists, S last.
 | D5 | The seed writes the user shelf | 0.5 | A2 D1 | [x] |
 | D6 | Palette and text-room facts | 1 | A2 | [x] |
 | E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [x] |
-| E2 | Upload and drop | 1 | D3 E1 | [ ] |
+| E2 | Upload and drop | 1 | D3 E1 | [x] |
 | E3 | Promote is move | 0.5 | E1 | [ ] |
 | E4 | The record drawer | 1 | E1 D3 | [ ] |
 | H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [ ] |

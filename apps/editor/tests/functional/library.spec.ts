@@ -1042,7 +1042,13 @@ test.group('LibraryIndex · asset library (E1)', (group) => {
   test('an uploaded video is typed video (the badge), an uploaded image image', async ({ client, assert }) => {
     const dir = await makeProject({ withLibrary: true })
     try {
+      // An entry an upload wrote before E2 says `kind`, not `type`.
+      const indexPath = join(dir, 'library', 'index.json')
+      const index = JSON.parse(await readFile(indexPath, 'utf8'))
+      index.assets.push({ id: 'ab12', url: 'assets/ab12.mp4', kind: 'video', mediaType: 'video/mp4' })
+      await writeFile(indexPath, JSON.stringify(index), 'utf8')
       await client.post('/api/project').json({ directory: dir })
+      // Since E2 an upload is a record on the project shelf.
       const video = await readFile(resolve(import.meta.dirname, '../../../../tests/drivers/fixtures/video/small.mp4'))
       const up = await client
         .post('/api/assets')
@@ -1052,14 +1058,18 @@ test.group('LibraryIndex · asset library (E1)', (group) => {
       const items = (await client.get('/api/library').qs({ kind: 'asset' })).body().items as {
         id: string
         assetType?: string
+        shelf?: string
         raw?: { kind?: string; type?: string }
       }[]
-      const clip = items.find((i) => i.id === sha256(video))
+      const clip = items.find((i) => i.id === 'clip')
       assert.exists(clip)
-      // The pipeline writes `kind`, not `type`; the item's type reads either.
-      assert.equal(clip!.raw?.kind, 'video')
-      assert.isUndefined(clip!.raw?.type)
+      assert.equal(clip!.shelf, 'project')
       assert.equal(clip!.assetType, 'video')
+      // The item's type reads an entry's `type` or `kind`.
+      const legacy = items.find((i) => i.id === 'ab12')
+      assert.equal(legacy!.raw?.kind, 'video')
+      assert.isUndefined(legacy!.raw?.type)
+      assert.equal(legacy!.assetType, 'video')
       assert.equal(items.find((i) => i.id === 'logo-png')?.assetType, undefined)
       assert.equal(items.find((i) => i.id === 'kraft')?.assetType, 'image')
     } finally {

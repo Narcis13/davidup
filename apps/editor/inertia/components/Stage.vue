@@ -25,9 +25,10 @@
 // `useStage` can keep its existing `Ref<HTMLCanvasElement | null>` contract.
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { Composition, Command } from '~/composables/useCommandBus'
+import type { Composition, Command, UseAssetRequest } from '~/composables/useCommandBus'
 import {
   buildCommandsForStageDrop,
+  useAssetForStageDrop,
   useLibraryDrag,
 } from '~/composables/useLibraryDrag'
 import { useActiveLayer } from '~/composables/useActiveLayer'
@@ -90,6 +91,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'apply', command: Command): void
+  // Asset library E2: a record card dropped — registered and placed by use_asset.
+  (event: 'use-asset', request: UseAssetRequest): void
 }>()
 
 const selection = useSelection()
@@ -162,12 +165,13 @@ function onDrop(event: DragEvent): void {
   if (!layerId) return
   const { x, y } = dropCoordsToCanvas(event)
   const start = Math.max(0, props.playhead)
-  const commands = buildCommandsForStageDrop(payload, {
-    layerId,
-    x,
-    y,
-    start,
-  })
+  const ctx = { layerId, x, y, start }
+  if (payload.kind === 'asset' && payload.shelf) {
+    const request = useAssetForStageDrop(payload, ctx)
+    if (request) emit('use-asset', request)
+    return
+  }
+  const commands = buildCommandsForStageDrop(payload, ctx)
   for (const cmd of commands) emit('apply', cmd)
 }
 

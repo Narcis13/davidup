@@ -46,6 +46,7 @@ router
     router.get('/library', [LibraryController, 'index'])
     router.get('/library/thumbnail', [LibraryController, 'thumbnail'])
     router.post('/library/promote', [LibraryController, 'promote'])
+    router.post('/library/use', [LibraryController, 'use'])
     router.post('/library/definitions', [LibraryController, 'saveDefinition'])
     router.post('/assets', [AssetsController, 'store'])
     router.post('/renders', [RendersController, 'store'])

@@ -920,7 +920,7 @@ Component roster (see `apps/editor/inertia/components/`):
 | `LayersPanel` | Reorder, visible/locked toggles, rename, multi-select |
 | `Outliner` / `OutlinerNode` | Hierarchical tree with group expansion |
 | `Inspector` | Typed per-field inputs; "+ animate"; tween / audio / video editors; multi-select "Mixed" badges; resolved-at-playhead values |
-| `Library` / `LibraryCard` | Templates / behaviors / scenes / assets / fonts (global + project), search, thumbnails, drag, file-drop upload |
+| `Library` / `LibraryCard` | Templates / behaviors / scenes / assets / fonts (global + project), search, thumbnails, drag (a record card registers and places through `use_asset`), file-drop upload onto the asset library |
 | `ApplyTemplateDialog` | Edit template params before drop |
 | `SaveDefinitionDialog` | Save a template / behavior / scene to the project or global library |
 | `CompositionSettingsDialog` | Size / fps / duration / background |

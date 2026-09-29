@@ -537,6 +537,10 @@ function onLibraryAdd(item: LibraryItem): void {
 }
 
 function addLibraryFont(item: LibraryItem): void {
+  if (item.shelf) {
+    void addShelfFont(item)
+    return
+  }
   const raw = (item.raw as { url?: string; family?: string; src?: string } | null) ?? {}
   const src = item.url ?? raw.url ?? raw.src
   if (typeof src !== 'string' || src.length === 0) {
@@ -562,6 +566,23 @@ function addLibraryFont(item: LibraryItem): void {
     payload: { id: item.id, type: 'font', src, family },
     source: 'ui',
   })
+  toasts.success(`Registered font "${family}". The Text tool is now available.`, {
+    dedupeKey: `library:add-font:${item.id}:ok`,
+  })
+}
+
+// Asset library E2: a font record is registered by use_asset (its pinned src,
+// family, credit and licence); registering it again is a no-op it reports.
+async function addShelfFont(item: LibraryItem): Promise<void> {
+  const out = await bus.useAsset({ id: item.id, as: 'font', place: false })
+  if (!out) return
+  const family = typeof out.family === 'string' ? out.family : (item.name ?? item.id)
+  if (out.registered === 'already') {
+    toasts.info(`Font "${family}" is already registered in this composition.`, {
+      dedupeKey: `library:add-font:${item.id}:dup`,
+    })
+    return
+  }
   toasts.success(`Registered font "${family}". The Text tool is now available.`, {
     dedupeKey: `library:add-font:${item.id}:ok`,
   })
@@ -922,6 +943,7 @@ onBeforeUnmount(() => {
         :status="stage.status.value"
         :pause="stage.pause"
         @apply="bus.apply"
+        @use-asset="bus.useAsset"
       />
       <div v-else class="empty">
         <h1>davidup editor</h1>
@@ -941,6 +963,7 @@ onBeforeUnmount(() => {
         :item-last-source="bus.itemLastSource.value"
         :last-pick-source="selection.lastPickSource.value"
         :get-resolved-item-at="stage.getResolvedItemAt"
+        :use-asset="bus.useAsset"
         @apply="bus.apply"
         @reveal-source="onRevealSourceFromInspector"
         @seek="(t: number) => stage.seek(t)"
@@ -956,6 +979,7 @@ onBeforeUnmount(() => {
         :source-map="props.sourceMap"
         @seek="(t) => stage.seek(t)"
         @apply="bus.apply"
+        @use-asset="bus.useAsset"
         @open-scene-source="onOpenSceneSource"
         @toggle-play="() => stage.togglePlay()"
       />

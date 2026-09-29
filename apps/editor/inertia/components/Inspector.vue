@@ -35,7 +35,13 @@ import type { Easing } from 'davidup/easings'
 import { BLEND_MODES, getTweenable, listTweenable } from 'davidup/schema'
 import type { ItemType } from 'davidup/schema'
 import { useSelection } from '~/composables/useSelection'
-import type { Command, CommandSource, Composition } from '~/composables/useCommandBus'
+import type {
+  Command,
+  CommandSource,
+  Composition,
+  UseAssetRequest,
+  UseAssetResult,
+} from '~/composables/useCommandBus'
 import { readPath } from '~/composables/useCommandBus'
 import type { PickSourceInfo } from '~/composables/useSelection'
 import NumberInput from '~/components/inputs/Number.vue'
@@ -103,6 +109,12 @@ const props = defineProps<{
    * stage isn't attached.
    */
   getResolvedItemAt?: (itemId: string, t?: number) => Record<string, unknown> | null
+  /**
+   * Asset library E2 — register a library record (POST /api/library/use).
+   * Given, the asset pickers list the library's records and register one on
+   * pick; optional so the panel mounts without it (composition assets only).
+   */
+  useAsset?: (request: UseAssetRequest) => Promise<UseAssetResult | null>
 }>()
 
 const emit = defineEmits<{
@@ -770,9 +782,17 @@ function extraPropsFor(field: FieldDef): Record<string, unknown> {
     return {
       assets: compositionAssets.value,
       assetType: field.assetType,
+      ...(props.useAsset ? { pickLibrary: registerLibraryRecord } : {}),
     }
   }
   return {}
+}
+
+/** A library record picked in an asset picker: registered only; resolves to its composition asset id. */
+async function registerLibraryRecord(recordId: string): Promise<string | null> {
+  if (!props.useAsset) return null
+  const out = await props.useAsset({ id: recordId, place: false })
+  return out?.assetId ?? null
 }
 
 // ──────────────── Provenance ────────────────
@@ -1339,6 +1359,7 @@ function deleteSelectedAudioTrack(): void {
           label="asset"
           asset-type="audio"
           :assets="compositionAssets"
+          :pick-library="props.useAsset ? registerLibraryRecord : undefined"
           :disabled="pending"
           @update:model-value="(v: string) => dispatchAudioTrackEdit('asset', v)"
         />

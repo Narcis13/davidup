@@ -145,6 +145,13 @@ const ITEM_PROPS = z
 
 const SOURCE = z.enum(['ui', 'mcp']).default('ui')
 
+// Editor-only undo hint (v1.1 S26), beside `payload`: consecutive commands
+// with the same key inside CommandBus's coalesce window are ONE undo step.
+// Beyond update_item's nudges, the commands `use_asset` is made of carry it
+// when the editor drops a library card (asset library E2), so a drop that
+// registers and places undoes in one step.
+const COALESCE_KEY = z.string().min(1).max(200).optional()
+
 // ──────────────── Composition-document fragments ────────────────
 
 // A named moment (4.0 D4). DUAL of engine `MarkerSchema`: on an audio track
@@ -303,6 +310,7 @@ const registerAsset = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  coalesceKey: COALESCE_KEY,
 })
 
 const removeAsset = z.object({
@@ -312,6 +320,7 @@ const removeAsset = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  coalesceKey: COALESCE_KEY,
 })
 
 const addLayer = z.object({
@@ -379,6 +388,7 @@ const addSprite = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  coalesceKey: COALESCE_KEY,
 })
 
 const addText = z.object({
@@ -473,7 +483,7 @@ const updateItem = z.object({
   // same key within CommandBus's coalesce window fold into ONE undo step —
   // arrow-key nudges use it so a burst of presses undoes in one ⌘Z. Never
   // reaches the engine/MCP tool (it sits beside `payload`, not inside it).
-  coalesceKey: z.string().min(1).max(200).optional(),
+  coalesceKey: COALESCE_KEY,
 })
 
 const moveItemToLayer = z.object({
@@ -523,6 +533,7 @@ const addVideo = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  coalesceKey: COALESCE_KEY,
 })
 
 const updateVideo = z.object({
@@ -628,6 +639,7 @@ const addAudioTrack = z.object({
     compositionId: COMPOSITION_ID,
   }),
   source: SOURCE,
+  coalesceKey: COALESCE_KEY,
 })
 
 const updateAudioTrack = z.object({

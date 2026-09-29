@@ -1,77 +1,106 @@
-// Asset upload pipeline — step 18 of the editor build plan.
+// Asset upload pipeline — step 18 of the editor build plan, on the asset
+// library since E2 (docs/asset-library-plan.md).
 //
-// Pipeline (per PRD §18):
-//   1. Stream the upload into a temp file (handled by AdonisJS bodyparser).
-//   2. Compute a SHA-256 content hash of the bytes.
-//   3. Pick a deterministic filename `<hash><ext>`. Fonts (ttf/otf/woff/
-//      woff2) land in `<library>/fonts/`; everything else in
-//      `<library>/assets/`.
-//   4. Detect kind (image | video | audio | font) and run ffprobe (for
-//      video/audio) or read pixel dimensions (for image) to fill in
-//      metadata. Fonts skip probing — the family/weight/style would need
-//      an OpenType parser; the human-facing name is taken from the
-//      original filename.
-//   5. Extract a thumbnail PNG (video only — images are rendered by the
-//      existing library_thumbnail service from the source file).
-//   6. Register the entry in `<library>/index.json` — fonts go into the
-//      `fonts` array, everything else into `assets`. Re-uploading the
-//      exact same bytes is a no-op and returns the existing record.
-//   7. Return the asset record.
+// A file dropped on the editor is put on an asset library shelf: the open
+// project's `assets/` (target `project`), or the user's pool,
+// `~/.davidup/assets` or `$DAVIDUP_ASSETS` (target `global`). The put is the
+// MCP `add_asset` tool's, so an upload and an agent's `add_asset` are the same
+// door: sha256, the kind's fields read off the file (a raster's size, alpha and
+// palette; a video's or audio's streams through ffprobe; a font's family; a
+// cutout's silhouette by hdf when it sits beside davidup), validation before
+// anything is written, the catalogue written atomically.
 //
-// The pipeline is intentionally project-aware: it requires a loaded project
-// and writes inside `<project>/library/assets/`. The library_index watcher
-// picks up the new files on disk and the catalog refreshes within ~1s.
+//   - kind: from the extension (image, video, audio, font), or the form's
+//     `kind` (`cutout`, `stock`, `sample`, ...).
+//   - id: the file's name as an id (`Warm Paper.png` → `warm-paper`), with
+//     `-2`, `-3`, ... when a shelf already holds the id, so an upload never
+//     shadows or replaces another record.
+//   - the same bytes again: the record the shelf already holds for them is
+//     returned (`status: 'unchanged bytes'`), whatever the file is called now.
+//   - provenance: `licence` defaults to `own` for a file the user dropped, with
+//     a warning saying so; `credit`, `source`, `tags`, `name`, `desc` come from
+//     the form.
+//
+// The Library panel lists the record once the shelf's catalogue is re-read,
+// which this pipeline asks for before it returns.
 
-import { createHash } from 'node:crypto'
-import { promises as fs, createReadStream } from 'node:fs'
-import { dirname, extname, join } from 'node:path'
-import { spawn } from 'node:child_process'
-import logger from '@adonisjs/core/services/logger'
+import { mkdtemp, rename, copyFile, unlink, rm, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { extname, join } from 'node:path'
+import { CompositionStore, TOOLS, dispatchTool } from 'davidup/mcp'
+import {
+  ID,
+  LICENCES,
+  assetSrc,
+  openLibrary,
+  sha,
+  standardShelves,
+  type Licence,
+} from 'davidup/assetlib'
 import projectStore from '#services/project_store'
 import libraryIndex from '#services/library_index'
-import globalLibraryRoot from '#services/global_library_root'
 
 export type AssetKind = 'image' | 'video' | 'audio' | 'font'
 
 export type AssetTarget = 'project' | 'global'
 
+/** What the upload answers: the record as the shelf now holds it, and where. */
 export interface AssetRecord {
   id: string
+  /** The record's kind (`image`, `cutout`, `video`, `sample`, `font`, ...). */
+  kind: string
   name: string
-  /** Path relative to the library root, e.g. `assets/<hash>.png`. */
-  url: string
-  kind: AssetKind
-  mediaType: string
-  size: number
-  hash: string
-  width?: number
-  height?: number
-  duration?: number
-  /** Path relative to the library root, when one was extracted. */
-  thumbnail?: string
-  /**
-   * Human-readable note about a non-fatal ingest issue. Set when the file
-   * was persisted but probing produced unexpected results (e.g. skia was
-   * available but `loadImage` threw on an image). Consumers may surface this
-   * in the UI; its absence means the ingest had no caveats.
-   */
-  warning?: string
-  createdAt: string
+  /** `project` or `user`. */
+  shelf: string
+  /** The pinned src a composition registers it by: `asset:<id>@<sha12>`. */
+  src: string
+  sha: string
+  ext: string
+  bytes: number
+  licence: string
+  credit: string
+  source: string
+  tags: string[]
+  added?: string
+  w?: number
+  h?: number
+  sec?: number
+  family?: string
+  [field: string]: unknown
 }
 
-export interface AssetIngestInput {
+export interface AssetIngestResult {
+  asset: AssetRecord
+  /** `new`, or `unchanged bytes` when the shelf already held these bytes. */
+  status: 'new' | 'unchanged bytes'
+  /** What the put noticed (a licence defaulted, a probe missing, ...). */
+  warnings: string[]
+}
+
+/** The record's own fields a form may give. */
+export interface AssetIngestFields {
+  kind?: string
+  name?: string
+  licence?: string
+  credit?: string
+  source?: string
+  tags?: string[]
+  desc?: string
+  family?: string
+}
+
+export interface AssetIngestInput extends AssetIngestFields {
   /** Absolute path to the source bytes (the tmp file produced by bodyparser). */
   tmpPath: string
   /** Original filename as supplied by the client (used for display + ext hint). */
   clientName: string
   /** MIME type sent by the client. May be empty / generic. */
   contentType?: string
-  /** Pre-computed size (bytes). Optional — stat() is used as fallback. */
+  /** Pre-computed size (bytes). Unused: the shelf counts the bytes it holds. */
   size?: number
   /**
-   * Which library root to write into. `'project'` (default) writes into
-   * `<project>/library/`; `'global'` writes into the shared pool at
-   * `$DAVIDUP_LIBRARY` (default `~/.davidup/library`).
+   * Which shelf to put on. `'project'` (default) is `<project>/assets/`;
+   * `'global'` is the user's pool (`$DAVIDUP_ASSETS`, else ~/.davidup/assets).
    */
   target?: AssetTarget
 }
@@ -79,6 +108,7 @@ export interface AssetIngestInput {
 export type AssetIngestErrorCode =
   | 'E_NO_PROJECT'
   | 'E_UNSUPPORTED_TYPE'
+  | 'E_INVALID_VALUE'
   | 'E_INGEST_FAILED'
 
 export class AssetIngestError extends Error {
@@ -92,30 +122,30 @@ export class AssetIngestError extends Error {
   }
 }
 
-const MIME_BY_EXT: Record<string, { kind: AssetKind; mediaType: string }> = {
-  '.png': { kind: 'image', mediaType: 'image/png' },
-  '.jpg': { kind: 'image', mediaType: 'image/jpeg' },
-  '.jpeg': { kind: 'image', mediaType: 'image/jpeg' },
-  '.webp': { kind: 'image', mediaType: 'image/webp' },
-  '.gif': { kind: 'image', mediaType: 'image/gif' },
-  '.svg': { kind: 'image', mediaType: 'image/svg+xml' },
-  '.mp4': { kind: 'video', mediaType: 'video/mp4' },
-  '.mov': { kind: 'video', mediaType: 'video/quicktime' },
-  '.webm': { kind: 'video', mediaType: 'video/webm' },
-  '.mkv': { kind: 'video', mediaType: 'video/x-matroska' },
-  '.mp3': { kind: 'audio', mediaType: 'audio/mpeg' },
-  '.wav': { kind: 'audio', mediaType: 'audio/wav' },
-  '.ogg': { kind: 'audio', mediaType: 'audio/ogg' },
-  '.m4a': { kind: 'audio', mediaType: 'audio/mp4' },
-  '.aac': { kind: 'audio', mediaType: 'audio/aac' },
-  '.flac': { kind: 'audio', mediaType: 'audio/flac' },
-  '.ttf': { kind: 'font', mediaType: 'font/ttf' },
-  '.otf': { kind: 'font', mediaType: 'font/otf' },
-  '.woff': { kind: 'font', mediaType: 'font/woff' },
-  '.woff2': { kind: 'font', mediaType: 'font/woff2' },
+const KIND_BY_EXT: Record<string, AssetKind> = {
+  '.png': 'image',
+  '.jpg': 'image',
+  '.jpeg': 'image',
+  '.webp': 'image',
+  '.gif': 'image',
+  '.svg': 'image',
+  '.mp4': 'video',
+  '.mov': 'video',
+  '.webm': 'video',
+  '.mkv': 'video',
+  '.mp3': 'audio',
+  '.wav': 'audio',
+  '.ogg': 'audio',
+  '.m4a': 'audio',
+  '.aac': 'audio',
+  '.flac': 'audio',
+  '.ttf': 'font',
+  '.otf': 'font',
+  '.woff': 'font',
+  '.woff2': 'font',
 }
 
-const MIME_TO_EXT: Record<string, string> = {
+const EXT_BY_MIME: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
   'image/webp': '.webp',
@@ -143,286 +173,15 @@ const MIME_TO_EXT: Record<string, string> = {
   'application/font-woff2': '.woff2',
 }
 
-function detectMediaType(clientName: string, contentType: string | undefined): {
-  ext: string
-  kind: AssetKind
-  mediaType: string
-} | null {
-  const lcName = clientName.toLowerCase()
-  const ext = extname(lcName)
-  if (ext && MIME_BY_EXT[ext]) {
-    return { ext, ...MIME_BY_EXT[ext] }
-  }
-  const ct = (contentType ?? '').toLowerCase().split(';')[0].trim()
-  const mapped = MIME_TO_EXT[ct]
-  if (mapped) {
-    const m = MIME_BY_EXT[mapped]!
-    return { ext: mapped, kind: m.kind, mediaType: m.mediaType }
-  }
-  return null
-}
-
-async function hashFile(path: string): Promise<{ hash: string; size: number }> {
-  const sha = createHash('sha256')
-  let size = 0
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(path)
-    stream.on('data', (chunk: string | Buffer) => {
-      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
-      size += buf.length
-      sha.update(buf)
-    })
-    stream.on('end', () => resolve())
-    stream.on('error', reject)
-  })
-  return { hash: sha.digest('hex'), size }
-}
-
-async function ensureDir(dir: string): Promise<void> {
-  await fs.mkdir(dir, { recursive: true })
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  return fs
-    .stat(path)
-    .then(() => true)
-    .catch(() => false)
-}
-
-async function moveOrCopy(src: string, dst: string): Promise<void> {
-  // rename() fails across filesystems (EXDEV) — bodyparser tmp dir is often
-  // on /tmp while the project lives in the user's home. Try rename first,
-  // fall back to copy + unlink.
-  try {
-    await fs.rename(src, dst)
-    return
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code !== 'EXDEV' && code !== 'EPERM' && code !== 'EACCES') throw err
-  }
-  await fs.copyFile(src, dst)
-  await fs.unlink(src).catch(() => {})
-}
-
-interface FfprobeStream {
-  codec_type?: string
-  codec_name?: string
-  width?: number
-  height?: number
-  duration?: string
-}
-interface FfprobeOutput {
-  streams?: FfprobeStream[]
-  format?: { duration?: string }
-}
-
-async function runFfprobe(ffprobePath: string, file: string): Promise<FfprobeOutput | null> {
-  return new Promise((resolve) => {
-    let stdout = ''
-    let stderr = ''
-    const proc = spawn(
-      ffprobePath,
-      [
-        '-v',
-        'error',
-        '-print_format',
-        'json',
-        '-show_streams',
-        '-show_format',
-        file,
-      ],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
-    )
-    proc.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')))
-    proc.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')))
-    proc.on('error', (err) => {
-      logger.warn({ err }, 'asset_pipeline: ffprobe spawn failed')
-      resolve(null)
-    })
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        logger.warn({ code, stderr }, 'asset_pipeline: ffprobe exited non-zero')
-        resolve(null)
-        return
-      }
-      try {
-        resolve(JSON.parse(stdout) as FfprobeOutput)
-      } catch (err) {
-        logger.warn({ err }, 'asset_pipeline: ffprobe output not JSON')
-        resolve(null)
-      }
-    })
-  })
-}
-
-async function extractVideoThumbnail(
-  ffmpegPath: string,
-  src: string,
-  dst: string,
-  atSeconds: number
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const proc = spawn(
-      ffmpegPath,
-      [
-        '-y',
-        '-ss',
-        atSeconds.toFixed(2),
-        '-i',
-        src,
-        '-frames:v',
-        '1',
-        '-vf',
-        'scale=480:-2:flags=lanczos',
-        '-an',
-        dst,
-      ],
-      { stdio: ['ignore', 'ignore', 'pipe'] }
-    )
-    let stderr = ''
-    proc.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')))
-    proc.on('error', (err) => {
-      logger.warn({ err }, 'asset_pipeline: ffmpeg spawn failed')
-      resolve(false)
-    })
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        logger.warn({ code, stderr }, 'asset_pipeline: ffmpeg thumbnail failed')
-        resolve(false)
-      } else {
-        resolve(true)
-      }
-    })
-  })
-}
-
-interface ResolvedBinaries {
-  ffprobe: string | null
-  ffmpeg: string | null
-}
-
-async function resolveBinaries(): Promise<ResolvedBinaries> {
-  let ffprobe: string | null = null
-  let ffmpeg: string | null = null
-  try {
-    const mod = (await import('ffprobe-static' as string)) as unknown as
-      | { default?: { path?: string } | string | null; path?: string }
-      | null
-    const fromDefault = (mod?.default as { path?: string } | string | null | undefined) ?? null
-    if (typeof fromDefault === 'string') ffprobe = fromDefault
-    else if (fromDefault && typeof fromDefault === 'object' && typeof fromDefault.path === 'string')
-      ffprobe = fromDefault.path
-    else if (mod && typeof (mod as { path?: string }).path === 'string')
-      ffprobe = (mod as { path: string }).path
-  } catch {
-    /* not installed */
-  }
-  try {
-    const mod = (await import('ffmpeg-static' as string)) as unknown as {
-      default?: string | null
-    }
-    if (typeof mod?.default === 'string') ffmpeg = mod.default
-  } catch {
-    /* not installed */
-  }
-  return { ffprobe, ffmpeg }
-}
-
-interface SkiaCanvasShim {
-  loadImage: (src: string) => Promise<{ width: number; height: number }>
-}
-
-let skiaPromise: Promise<SkiaCanvasShim> | null = null
-async function loadSkia(): Promise<SkiaCanvasShim | null> {
-  if (!skiaPromise) {
-    const specifier = 'skia-canvas'
-    skiaPromise = (
-      Function('s', 'return import(s)') as (s: string) => Promise<SkiaCanvasShim>
-    )(specifier)
-  }
-  try {
-    return await skiaPromise
-  } catch (err) {
-    logger.warn({ err }, 'asset_pipeline: skia-canvas not available')
-    return null
-  }
-}
-
-type ImageProbeOutcome =
-  | { status: 'ok'; width: number; height: number }
-  | { status: 'skia-unavailable' }
-  | { status: 'probe-failed' }
-
-async function readImageDims(file: string): Promise<ImageProbeOutcome> {
-  const skia = await loadSkia()
-  if (!skia) return { status: 'skia-unavailable' }
-  try {
-    const img = await skia.loadImage(file)
-    if (typeof img.width === 'number' && typeof img.height === 'number') {
-      return { status: 'ok', width: img.width, height: img.height }
-    }
-    // skia returned, but the dims weren't numbers — treat as a probe failure.
-    return { status: 'probe-failed' }
-  } catch (err) {
-    logger.warn({ err, file }, 'asset_pipeline: loadImage failed for dim read')
-    return { status: 'probe-failed' }
-  }
-}
-
-interface ProbeMetadata {
-  width?: number
-  height?: number
-  duration?: number
-  /**
-   * Set when probing was attempted and failed in a way the caller should
-   * surface (e.g. skia was available but `loadImage` threw). Absent when
-   * probing succeeded *or* when no probing was attempted (e.g. skia not
-   * installed) — the latter is a system capability gap, not a file problem.
-   */
-  warning?: string
-}
-
-async function probeMedia(
-  file: string,
-  kind: AssetKind,
-  ffprobePath: string | null
-): Promise<ProbeMetadata> {
-  const out: ProbeMetadata = {}
-  if (kind === 'font') {
-    // Nothing useful to probe for fonts at the bytes level; the family /
-    // weight / style would require an OpenType parser. v1.0 derives the
-    // human-facing name from the original filename in the record-builder
-    // step, so leave metadata empty here.
-    return out
-  }
-  if (kind === 'image') {
-    const outcome = await readImageDims(file)
-    if (outcome.status === 'ok') {
-      out.width = outcome.width
-      out.height = outcome.height
-    } else if (outcome.status === 'probe-failed') {
-      out.warning = 'Could not read image dimensions (loadImage failed)'
-    }
-    return out
-  }
-  if (!ffprobePath) return out
-  const probe = await runFfprobe(ffprobePath, file)
-  if (!probe) return out
-  if (kind === 'video') {
-    const stream = (probe.streams ?? []).find((s) => s.codec_type === 'video')
-    if (stream) {
-      if (typeof stream.width === 'number') out.width = stream.width
-      if (typeof stream.height === 'number') out.height = stream.height
-    }
-  }
-  const dur =
-    probe.format?.duration ??
-    (probe.streams ?? []).find((s) => typeof s.duration === 'string')?.duration
-  if (typeof dur === 'string') {
-    const n = Number.parseFloat(dur)
-    if (Number.isFinite(n)) out.duration = n
-  }
-  return out
+/** The file's extension (from its name, else its MIME type) and the davidup kind it is. */
+function detect(
+  clientName: string,
+  contentType: string | undefined
+): { ext: string; kind: AssetKind } | null {
+  const ext = extname(clientName.toLowerCase())
+  if (ext && KIND_BY_EXT[ext]) return { ext, kind: KIND_BY_EXT[ext]! }
+  const mapped = EXT_BY_MIME[(contentType ?? '').toLowerCase().split(';')[0]!.trim()]
+  return mapped ? { ext: mapped, kind: KIND_BY_EXT[mapped]! } : null
 }
 
 function safeDisplayName(clientName: string): string {
@@ -431,185 +190,145 @@ function safeDisplayName(clientName: string): string {
   return base.length > 0 ? base : 'asset'
 }
 
-interface IndexShape {
-  version?: string
-  templates?: unknown[]
-  behaviors?: unknown[]
-  scenes?: unknown[]
-  assets?: unknown[]
-  fonts?: unknown[]
-  [k: string]: unknown
+/** A file name as a library id: `Warm Paper (2).png` → `warm-paper-2`; `asset` when nothing is left. */
+export function idOfFileName(stem: string): string {
+  const id = stem
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/, '')
+  return id && ID.test(id) ? id : 'asset'
 }
 
-async function readIndex(indexPath: string): Promise<IndexShape> {
-  const raw = await fs.readFile(indexPath, 'utf8').catch(() => null)
-  if (raw === null) return { version: '0.1', templates: [], behaviors: [], scenes: [], assets: [], fonts: [] }
+async function moveOrCopy(src: string, dst: string): Promise<void> {
+  // rename() fails across filesystems (EXDEV) — bodyparser tmp dir is often
+  // on /tmp while the project lives in the user's home. Try rename first,
+  // fall back to copy + unlink.
   try {
-    const parsed = JSON.parse(raw) as IndexShape
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    await rename(src, dst)
+    return
   } catch (err) {
-    throw new AssetIngestError(
-      'E_INGEST_FAILED',
-      `library/index.json is not valid JSON: ${(err as Error).message}`
-    )
+    const code = (err as NodeJS.ErrnoException).code
+    if (code !== 'EXDEV' && code !== 'EPERM' && code !== 'EACCES') throw err
   }
+  await copyFile(src, dst)
+  await unlink(src).catch(() => {})
 }
 
-async function writeIndexAtomic(indexPath: string, data: IndexShape): Promise<void> {
-  const tmp = `${indexPath}.tmp`
-  await ensureDir(dirname(indexPath))
-  await fs.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-  await fs.rename(tmp, indexPath)
-}
+const ADD_ASSET = TOOLS.find((t) => t.name === 'add_asset')
 
-function findAssetById(list: unknown[] | undefined, id: string): AssetRecord | null {
-  if (!Array.isArray(list)) return null
-  for (const item of list) {
-    if (item && typeof item === 'object' && (item as { id?: unknown }).id === id) {
-      return item as AssetRecord
-    }
-  }
-  return null
-}
-
-export interface AssetPipelineOptions {
-  /** Override binary discovery (mostly for tests). */
-  ffprobePath?: string | null
-  ffmpegPath?: string | null
-}
+const OWN_WARNING =
+  'Licence set to own: you dropped the file. If it is not yours, set its licence and credit.'
 
 export class AssetPipeline {
-  #ffprobeOverride: string | null | undefined
-  #ffmpegOverride: string | null | undefined
-
-  constructor(opts: AssetPipelineOptions = {}) {
-    this.#ffprobeOverride = opts.ffprobePath
-    this.#ffmpegOverride = opts.ffmpegPath
-  }
-
-  async ingest(input: AssetIngestInput): Promise<AssetRecord> {
+  async ingest(input: AssetIngestInput): Promise<AssetIngestResult> {
     const target: AssetTarget = input.target ?? 'project'
-
-    let libraryRoot: string
-    if (target === 'global') {
-      // Global pool exists at server scope; no project load required.
-      libraryRoot = await globalLibraryRoot.ensure()
-    } else {
-      const project = projectStore.project
-      if (!project) {
-        throw new AssetIngestError('E_NO_PROJECT', 'No project loaded')
-      }
-      libraryRoot = join(project.root, 'library')
+    // The open project's shelf is read either way (an id it holds is taken);
+    // it is written only for target `project`.
+    const project = projectStore.project?.root
+    if (target === 'project' && !project) {
+      throw new AssetIngestError('E_NO_PROJECT', 'No project loaded')
     }
+    const shelf = target === 'project' ? 'project' : 'user'
 
     const displayName = safeDisplayName(input.clientName)
-    const detected = detectMediaType(displayName, input.contentType)
+    const detected = detect(displayName, input.contentType)
     if (!detected) {
       throw new AssetIngestError(
         'E_UNSUPPORTED_TYPE',
         `Unsupported file type for "${displayName}" (content-type: ${input.contentType ?? 'unknown'})`
       )
     }
+    if (input.licence !== undefined && !(LICENCES as readonly string[]).includes(input.licence)) {
+      throw new AssetIngestError(
+        'E_INVALID_VALUE',
+        `Unknown licence "${input.licence}". Allowed: ${LICENCES.join(', ')}.`
+      )
+    }
+    const stem =
+      displayName.slice(0, displayName.length - extname(displayName).length) || displayName
+    const bytes = await readFile(input.tmpPath)
+    const hex = sha(bytes)
 
-    const { hash, size } = await hashFile(input.tmpPath)
-    // Fonts live under `library/fonts/` and are registered in the index's
-    // `fonts` array (so `library_index.readFontItem` picks them up). Every
-    // other kind goes under `library/assets/` and into the `assets` array.
-    const isFont = detected.kind === 'font'
-    const subdir = isFont ? 'fonts' : 'assets'
-    const indexArrayKey: 'fonts' | 'assets' = isFont ? 'fonts' : 'assets'
-    const storeDir = join(libraryRoot, subdir)
-    await ensureDir(storeDir)
-
-    const finalName = `${hash}${detected.ext}`
-    const finalPath = join(storeDir, finalName)
-    const relativeUrl = `${subdir}/${finalName}`
-    const indexPath = join(libraryRoot, 'index.json')
-
-    const existingIndex = await readIndex(indexPath)
-    const existingRecord = findAssetById(
-      existingIndex[indexArrayKey] as unknown[] | undefined,
-      hash
-    )
-    if (existingRecord && (await pathExists(finalPath))) {
-      // Idempotent: same bytes already ingested. Drop the tmp upload.
-      await fs.unlink(input.tmpPath).catch(() => {})
-      return existingRecord
+    // The same bytes on the target shelf: that record, not a second one.
+    const lib = openLibrary({ shelves: standardShelves(project ? { project } : {}) })
+    const held = lib.shelves.some((s) => s.name === shelf)
+      ? [...lib.shelf(shelf).entries].find(([, e]) => e.sha === hex)
+      : undefined
+    if (held) {
+      await unlink(input.tmpPath).catch(() => {})
+      const [id] = held
+      return { asset: recordOn(lib, shelf, id), status: 'unchanged bytes', warnings: [] }
     }
 
-    if (await pathExists(finalPath)) {
-      // File already on disk but not in index — drop the tmp copy and reuse.
-      await fs.unlink(input.tmpPath).catch(() => {})
-    } else {
-      await moveOrCopy(input.tmpPath, finalPath)
+    // An id no shelf holds, so the upload neither replaces nor shadows a record.
+    const base = idOfFileName(stem)
+    let id = base
+    for (let n = 2; lib.shelves.some((s) => s.has(id)); n++) id = `${base}-${n}`
+
+    // add_asset reads a file; it is named as the user named it, since the
+    // extension says what an audio, video or font payload is.
+    const dir = await mkdtemp(join(tmpdir(), 'davidup-upload-'))
+    const file = join(dir, `${stem.replace(/[^\w.() -]+/g, '_') || 'asset'}${detected.ext}`)
+    try {
+      await moveOrCopy(input.tmpPath, file)
+      const kind = input.kind ?? detected.kind
+      const licence = (input.licence ?? 'own') as Licence
+      // assetlib reads a TrueType, OpenType or WOFF font's family, not a WOFF2's.
+      const family =
+        input.family ?? (kind === 'font' && detected.ext === '.woff2' ? stem : undefined)
+      const args: Record<string, unknown> = {
+        path: file,
+        id,
+        kind,
+        name: input.name ?? stem,
+        licence,
+        shelf,
+        ...(input.credit !== undefined ? { credit: input.credit } : {}),
+        ...(input.source !== undefined ? { source: input.source } : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        ...(input.desc !== undefined ? { desc: input.desc } : {}),
+        ...(family !== undefined ? { family } : {}),
+      }
+      if (!ADD_ASSET)
+        throw new AssetIngestError('E_INGEST_FAILED', 'This davidup has no add_asset tool.')
+      const out = await dispatchTool(ADD_ASSET, args, {
+        store: new CompositionStore(),
+        ...(project ? { assetProject: project } : {}),
+      })
+      if (!out.ok) {
+        const code = out.error.code === 'E_INVALID_VALUE' ? 'E_INVALID_VALUE' : 'E_INGEST_FAILED'
+        throw new AssetIngestError(code, out.error.message, {
+          code: out.error.code,
+          ...(out.error.hint ? { hint: out.error.hint } : {}),
+        })
+      }
+      const result = out.result as { warnings?: string[] }
+      const warnings = [...(result.warnings ?? [])]
+      if (input.licence === undefined) warnings.unshift(OWN_WARNING)
+      // The panel lists the record now rather than on the shelf's next poll.
+      await libraryIndex.reloadNow().catch(() => {})
+      const after = openLibrary({ shelves: standardShelves(project ? { project } : {}) })
+      return { asset: recordOn(after, shelf, id), status: 'new', warnings }
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
     }
-
-    const ffprobePath =
-      this.#ffprobeOverride === undefined ? null : this.#ffprobeOverride
-    const ffmpegPath = this.#ffmpegOverride === undefined ? null : this.#ffmpegOverride
-    const resolved =
-      this.#ffprobeOverride === undefined || this.#ffmpegOverride === undefined
-        ? await resolveBinaries()
-        : { ffprobe: ffprobePath, ffmpeg: ffmpegPath }
-    const effectiveFfprobe =
-      this.#ffprobeOverride === undefined ? resolved.ffprobe : this.#ffprobeOverride
-    const effectiveFfmpeg =
-      this.#ffmpegOverride === undefined ? resolved.ffmpeg : this.#ffmpegOverride
-
-    const meta = await probeMedia(finalPath, detected.kind, effectiveFfprobe)
-
-    let thumbnail: string | undefined
-    if (detected.kind === 'video' && effectiveFfmpeg) {
-      const thumbName = `${hash}.thumb.png`
-      const thumbPath = join(storeDir, thumbName)
-      const thumbAt = meta.duration ? Math.min(meta.duration / 2, 1) : 0
-      const ok = await extractVideoThumbnail(effectiveFfmpeg, finalPath, thumbPath, thumbAt)
-      if (ok) thumbnail = `${subdir}/${thumbName}`
-    }
-
-    const record: AssetRecord = {
-      id: hash,
-      name: displayName,
-      url: relativeUrl,
-      kind: detected.kind,
-      mediaType: detected.mediaType,
-      size: input.size ?? size,
-      hash: `sha256:${hash}`,
-      createdAt: new Date().toISOString(),
-    }
-    if (meta.width !== undefined) record.width = meta.width
-    if (meta.height !== undefined) record.height = meta.height
-    if (meta.duration !== undefined) record.duration = meta.duration
-    if (thumbnail) record.thumbnail = thumbnail
-    if (meta.warning) record.warning = meta.warning
-
-    const nextIndex: IndexShape = {
-      version: typeof existingIndex.version === 'string' ? existingIndex.version : '0.1',
-      templates: Array.isArray(existingIndex.templates) ? existingIndex.templates : [],
-      behaviors: Array.isArray(existingIndex.behaviors) ? existingIndex.behaviors : [],
-      scenes: Array.isArray(existingIndex.scenes) ? existingIndex.scenes : [],
-      fonts: Array.isArray(existingIndex.fonts) ? [...existingIndex.fonts] : [],
-      assets: Array.isArray(existingIndex.assets) ? [...existingIndex.assets] : [],
-    }
-    // Preserve any other top-level keys the user authored.
-    for (const [k, v] of Object.entries(existingIndex)) {
-      if (!(k in nextIndex)) nextIndex[k] = v
-    }
-    const bucket = nextIndex[indexArrayKey] as unknown[]
-    const existingIdx = bucket.findIndex(
-      (a) => a && typeof a === 'object' && (a as { id?: unknown }).id === record.id
-    )
-    if (existingIdx >= 0) bucket[existingIdx] = record
-    else bucket.push(record)
-
-    await writeIndexAtomic(indexPath, nextIndex)
-
-    // Nudge the watcher in case fs.watch missed the directory creation
-    // (recursive watching can be flaky on the first write after mkdir).
-    await libraryIndex.flush().catch(() => {})
-
-    return record
   }
+}
+
+/** The record `id` on `shelf`, with its shelf and pinned src, without its bulky fields. */
+function recordOn(lib: ReturnType<typeof openLibrary>, shelf: string, id: string): AssetRecord {
+  const entry = { ...lib.shelf(shelf).entry(id) } as Record<string, unknown>
+  for (const k of ['sil', 'align', 'mouth']) delete entry[k]
+  return {
+    ...entry,
+    id,
+    shelf,
+    src: assetSrc({ ...(entry as { sha: string }), id }),
+  } as AssetRecord
 }
 
 const assetPipeline = new AssetPipeline()

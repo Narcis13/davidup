@@ -105,15 +105,29 @@ function dismissToast(id: string): void {
           v-else-if="entry.job.status === 'success' && uploadAsset(entry.job)"
           class="detail success-detail"
         >
-          Added to library · {{ uploadAsset(entry.job)!.kind }}
-          <template v-if="uploadAsset(entry.job)!.width && uploadAsset(entry.job)!.height">
-            · {{ uploadAsset(entry.job)!.width }}×{{ uploadAsset(entry.job)!.height }}
+          <template v-if="entry.job.uploadStatus === 'unchanged bytes'">Already in the library</template>
+          <template v-else>Added to the library</template>
+          · {{ uploadAsset(entry.job)!.id }} · {{ uploadAsset(entry.job)!.kind }}
+          <template v-if="uploadAsset(entry.job)!.w && uploadAsset(entry.job)!.h">
+            · {{ uploadAsset(entry.job)!.w }}×{{ uploadAsset(entry.job)!.h }}
           </template>
+          · {{ uploadAsset(entry.job)!.shelf }}
         </p>
 
         <p v-else-if="entry.job.status === 'error'" class="detail error-detail">
           {{ entry.job.error?.message ?? 'Upload failed' }}
         </p>
+
+        <template v-if="entry.job.status === 'success'">
+          <p
+            v-for="(w, i) in entry.job.warnings ?? []"
+            :key="i"
+            class="detail warning-detail"
+            data-testid="upload-toast-warning"
+          >
+            {{ w }}
+          </p>
+        </template>
       </article>
 
       <!-- ── Generic toast ──────────────────────────────────────────── -->
@@ -307,7 +321,8 @@ function dismissToast(id: string): void {
   color: #8bd6a5;
 }
 
-.detail[data-level='warning'] {
+.detail[data-level='warning'],
+.warning-detail {
   color: #f0c971;
 }
 

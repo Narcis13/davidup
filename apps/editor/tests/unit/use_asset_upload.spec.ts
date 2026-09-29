@@ -108,18 +108,24 @@ test.group('useAssetUpload · uploadFiles', (group) => {
 
     xhr.finishWith(201, {
       asset: {
-        id: 'abc',
-        name: 'logo.png',
-        url: 'assets/abc.png',
+        id: 'logo',
+        name: 'logo',
         kind: 'image',
-        mediaType: 'image/png',
-        size: 4096,
-        hash: 'sha256:abc',
-        createdAt: '2024-01-01T00:00:00Z',
+        shelf: 'project',
+        src: 'asset:logo@abc123abc123',
+        sha: 'abc123abc123',
+        ext: 'png',
+        bytes: 4096,
+        licence: 'own',
       },
+      status: 'new',
+      warnings: ['Licence set to own: you dropped the file.'],
     })
     assert.equal(api.jobs.value[0]!.status, 'success')
-    assert.equal(api.jobs.value[0]!.asset?.id, 'abc')
+    assert.equal(api.jobs.value[0]!.asset?.id, 'logo')
+    assert.equal(api.jobs.value[0]!.asset?.shelf, 'project')
+    assert.equal(api.jobs.value[0]!.uploadStatus, 'new')
+    assert.deepEqual(api.jobs.value[0]!.warnings, ['Licence set to own: you dropped the file.'])
     assert.equal(api.jobs.value[0]!.progress, 1)
   })
 

@@ -33,7 +33,7 @@
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import type { Easing } from 'davidup/easings'
-import type { Command, Composition } from '~/composables/useCommandBus'
+import type { Command, Composition, UseAssetRequest } from '~/composables/useCommandBus'
 import { useSelection } from '~/composables/useSelection'
 import { useTimelineDrag } from '~/composables/useTimelineDrag'
 import { useVideoTrimDrag } from '~/composables/useVideoTrimDrag'
@@ -58,7 +58,9 @@ import {
 import {
   buildCommandsForNewTrackDrop,
   buildCommandsForTrackDrop,
+  useAssetForTrackDrop,
   useLibraryDrag,
+  type LibraryDragPayload,
 } from '~/composables/useLibraryDrag'
 import TimelineTrack, {
   type BarPointerDownPayload,
@@ -105,6 +107,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'seek', t: number): void
   (event: 'apply', command: Command): void
+  // Asset library E2: a record card dropped — registered and placed by use_asset.
+  (event: 'use-asset', request: UseAssetRequest): void
   // §20.27 — bubbles up the scene-instance id that owns a sealed bar so the
   // page can route the SourceDrawer to the scene declaration line.
   (event: 'openSceneSource', sceneInstanceId: string): void
@@ -858,6 +862,7 @@ function onAudioLaneDrop(event: DragEvent): void {
   libraryDrag.onDragEnd()
   if (!payload || payload.kind !== 'asset' || payload.mediaType !== 'audio') return
   const start = timeAtClientX(event.clientX)
+  if (dropAudioRecord(payload, start)) return
   emit('apply', {
     kind: 'add_audio_track',
     payload: { asset: payload.id, start: Math.max(0, start) },
@@ -908,7 +913,23 @@ const dragHoverActive = computed(() => libraryDrag.isActive.value)
 
 function tweenAcceptsDrop(): boolean {
   const p = libraryDrag.payload.value
-  return !!p && (p.kind === 'behavior' || p.kind === 'template' || p.kind === 'scene')
+  return (
+    !!p &&
+    (p.kind === 'behavior' || p.kind === 'template' || p.kind === 'scene' || isAudioRecord(p))
+  )
+}
+
+/** An asset library audio record (audio, a sample): dropped anywhere on the tracks, an audio track. */
+function isAudioRecord(p: LibraryDragPayload): boolean {
+  return p.kind === 'asset' && !!p.shelf && p.mediaType === 'audio'
+}
+
+/** Emit use_asset for an audio record dropped at `start`; false when `payload` is not one. */
+function dropAudioRecord(payload: LibraryDragPayload, start: number): boolean {
+  const request = useAssetForTrackDrop(payload, { start })
+  if (!request) return false
+  emit('use-asset', request)
+  return true
 }
 
 function onTrackDragOver(event: DragEvent, targetItemId: string): void {
@@ -937,6 +958,7 @@ function onTrackDrop(event: DragEvent, targetItemId: string): void {
   const layerId = layerForDropId.value
   if (!layerId) return
   const start = roundToSnap(Math.max(0, props.playhead))
+  if (dropAudioRecord(payload, start)) return
   let commands: Command[] = []
   if (payload.kind === 'behavior') {
     commands = buildCommandsForTrackDrop(payload, {
@@ -953,7 +975,7 @@ function onTrackDrop(event: DragEvent, targetItemId: string): void {
 
 function onNewTrackDragOver(event: DragEvent): void {
   const p = libraryDrag.payload.value
-  if (!p || (p.kind !== 'template' && p.kind !== 'scene')) return
+  if (!p || (p.kind !== 'template' && p.kind !== 'scene' && !isAudioRecord(p))) return
   event.preventDefault()
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
   libraryDrag.setHover('new-track', null)
@@ -968,9 +990,10 @@ function onNewTrackDrop(event: DragEvent): void {
   const payload = libraryDrag.readDropPayload(event)
   libraryDrag.onDragEnd()
   if (!payload) return
+  const start = roundToSnap(Math.max(0, props.playhead))
+  if (dropAudioRecord(payload, start)) return
   const layerId = layerForDropId.value
   if (!layerId) return
-  const start = roundToSnap(Math.max(0, props.playhead))
   const commands = buildCommandsForNewTrackDrop(payload, { layerId, start })
   for (const cmd of commands) emit('apply', cmd)
 }

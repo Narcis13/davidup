@@ -14,9 +14,9 @@
 //
 // Step 18b adds a file-drop zone: dragging files (anything not already a
 // library card drag) anywhere on the panel surfaces a hit-zone overlay; on
-// drop the files are POSTed to `/api/assets` via `useAssetUpload`. The
-// library_index watcher picks the new files up within ~1s and the panel's
-// 2-second poll refreshes the catalog so the new card appears.
+// drop the files are POSTed to `/api/assets` via `useAssetUpload`, which puts
+// them on the project's asset shelf (`assets/`), or the user's pool under the
+// Global scope (asset library E2); the panel's 2-second poll shows the card.
 //
 // Asset library E1: the Assets and Fonts tabs list the asset shelves' records
 // too, searched by assetlib; the search's facets (record kind, shelf, licence,
@@ -410,8 +410,8 @@ function setScope(s: LibraryScopeFilter) {
 /**
  * Where new uploads should land. The scope toggle doubles as the
  * "save to global" switch: when the user is filtering to `Global`,
- * dropped files go to the shared pool; otherwise they land in the
- * current project library. `All` defaults to project.
+ * dropped files go to the user's asset pool (~/.davidup/assets); otherwise
+ * they land on the project's shelf (`assets/`). `All` defaults to project.
  */
 const uploadTarget = computed<'project' | 'global'>(() =>
   lib.scope.value === 'global' ? 'global' : 'project'
@@ -660,7 +660,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         v-if="uploadTarget === 'global'"
         class="scope-hint"
         data-testid="library-upload-hint"
-        :title="`Drops upload to ~/.davidup/library`"
+        :title="`Drops upload to your asset pool, ~/.davidup/assets`"
       >
         ⤓ to 🌐 global
       </span>
@@ -788,7 +788,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       <div class="drop-card">
         <span class="drop-icon">⤓</span>
         <p class="drop-title">Drop to upload</p>
-        <p class="drop-sub">Images, video, or audio — added to the Assets library</p>
+        <p class="drop-sub">Images, video, audio or fonts — added to the asset library</p>
       </div>
     </div>
 

@@ -9,6 +9,26 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Upload and drop go through the asset library (asset library E2)
+
+- A file dropped on the editor is put on an asset shelf: the project's
+  `assets/`, or your pool (`~/.davidup/assets`) under the Global scope. It
+  is the MCP `add_asset`'s put, so an upload is probed and validated as an
+  agent's is. Its id is the file's name (`Warm Paper.png` → `warm-paper`,
+  `-2` when taken); the same bytes again return the record already there.
+  `POST /api/assets` takes `licence` (default `own`, with a warning the
+  toast shows), `credit`, `source`, `tags`, `name`, `desc`, `kind` and
+  `family`, and answers `{ asset, status, warnings }`. Fonts upload too.
+  Uploads no longer write `library/index.json`.
+- A record card dropped on the stage or the timeline is registered and
+  placed by `use_asset` (`POST /api/library/use`), as one undo step: an
+  image is a sprite sized from the record, a video a clip, an audio or
+  sample record an audio track (on any track row, the new-track gutter or
+  the audio lane). Before, a drop placed the card's id without registering
+  it.
+- The Inspector's asset pickers list the library's records of their type
+  under "Library"; picking one registers it and sets the field.
+
 ### The Assets tab reads the asset library (asset library E1)
 
 - The editor's Assets and Fonts tabs list the records on the three asset
@@ -31,8 +51,7 @@ and cite the behavior/expansion version marker that moved
   the badge read the entry's `type`, which uploads never wrote (they write
   `kind`). Items carry `assetType` for that now.
 - A seeded font listed in `index.json` as an `asset:` pointer is listed
-  once, as its record. Uploads still land in `library/` until E2; promoting
-  a shelf record is E3.
+  once, as its record. Promoting a shelf record is E3.
 - `davidup/assetlib` is a package export.
 
 ### Palette and text-room facts (asset library D6)

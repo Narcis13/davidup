@@ -104,6 +104,7 @@ import {
   COMMAND_TO_TOOL,
   type Command,
   type CommandKind,
+  type CommandSource,
 } from '#types/commands'
 import type { Composition } from 'davidup/schema'
 
@@ -145,11 +146,24 @@ export function createEditorMcpServer(
   })
 }
 
+/**
+ * How a router's commands are sent. An agent's are `mcp`, each its own undo
+ * step; the editor's own dispatch of a composite tool (a library card dropped,
+ * `use_asset`) sends `ui` with one `coalesceKey`, so the tool's commands undo
+ * together (asset library E2).
+ */
+export interface RouterOptions {
+  source?: CommandSource
+  coalesceKey?: string
+}
+
 /** Exposed for tests — a router that does what createEditorMcpServer wires up. */
 export function buildRouter(
   bus: CommandBus,
-  store: ProjectStore
+  store: ProjectStore,
+  opts: RouterOptions = {}
 ): DispatchRouter {
+  const source: CommandSource = opts.source ?? 'mcp'
   return async (tool, parsedArgs) => {
     const kind = TOOL_TO_COMMAND.get(tool.name)
     if (kind === undefined) return null // fall through
@@ -167,7 +181,12 @@ export function buildRouter(
     }
 
     const payload = stripCompositionId(parsedArgs)
-    const command = { kind, payload, source: 'mcp' } as unknown as Command
+    const command = {
+      kind,
+      payload,
+      source,
+      ...(opts.coalesceKey !== undefined ? { coalesceKey: opts.coalesceKey } : {}),
+    } as unknown as Command
 
     try {
       const result = await bus.apply(command)

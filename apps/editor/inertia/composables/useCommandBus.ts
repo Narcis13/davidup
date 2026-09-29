@@ -23,7 +23,7 @@ export interface Command {
   kind: string
   payload: Record<string, unknown>
   source?: 'ui' | 'mcp'
-  /** v1.1 S26 — `update_item` only: same key in a burst → one undo step. */
+  /** v1.1 S26 — same key in a burst → one undo step (nudges; a library drop's commands). */
   coalesceKey?: string
 }
 
@@ -44,6 +44,32 @@ export interface CommandErrorReport {
 }
 
 export type CommandSource = 'ui' | 'mcp'
+
+/**
+ * An asset library record to register and place (asset library E2): the MCP
+ * `use_asset`'s input, run by the server through the bus as one undo step.
+ * `place` is the placing tool's fields (`layerId`, `x`, `y`, `start`, ...),
+ * or `false` to register only.
+ */
+export interface UseAssetRequest {
+  id: string
+  as?: 'sprite' | 'video' | 'audio' | 'font'
+  assetId?: string
+  place?: Record<string, unknown> | false
+  replace?: boolean
+}
+
+/** What `use_asset` answered: the composition asset id and the placed item or track. */
+export interface UseAssetResult {
+  as: 'sprite' | 'video' | 'audio' | 'font'
+  assetId: string
+  src: string
+  registered: 'new' | 'already' | 'replaced'
+  itemId?: string
+  audioTrackId?: string
+  warnings?: string[]
+  [k: string]: unknown
+}
 
 type Composition = {
   composition: { width: number; height: number; fps: number | string; duration: number; background?: string }
@@ -110,6 +136,12 @@ export interface UseCommandBusReturn {
    */
   errorReport: Ref<CommandErrorReport | null>
   apply: (command: Command) => Promise<void>
+  /**
+   * Register an asset library record and place it (POST /api/library/use).
+   * Resolves to use_asset's result, or null when the server refused (the
+   * error is toasted and reported like a refused command).
+   */
+  useAsset: (request: UseAssetRequest) => Promise<UseAssetResult | null>
   /** Pop the most recent forward edit and restore the pre-edit composition. */
   undo: () => Promise<void>
   /** Re-apply the most recently undone edit. */
@@ -240,6 +272,51 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     }
   }
 
+  async function useAsset(request: UseAssetRequest): Promise<UseAssetResult | null> {
+    pending.value = true
+    error.value = null
+    try {
+      const res = await fetch('/api/library/use', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(request),
+      })
+      if (!res.ok) {
+        const report = await parseErrorBody(res)
+        errorReport.value = report
+        sink?.recordCommandError(report)
+        useToasts().error(report.message, {
+          message: report.hint ?? report.code,
+          dedupeKey: `use-asset:${report.code}`,
+        })
+        throw new Error(report.message)
+      }
+      const data = (await res.json()) as {
+        result: UseAssetResult
+        composition: Composition
+        undoStackSize?: number
+        redoStackSize?: number
+      }
+      composition.value = rewriteAssetsForBrowser(data.composition)
+      errorReport.value = null
+      sink?.clearCommandError()
+      sink?.setComposition(composition.value)
+      if (typeof data.undoStackSize === 'number') undoStackSize.value = data.undoStackSize
+      if (typeof data.redoStackSize === 'number') redoStackSize.value = data.redoStackSize
+      const itemId = data.result?.itemId
+      if (typeof itemId === 'string') {
+        itemLastSource.value.set(itemId, 'ui')
+        triggerRef(itemLastSource)
+      }
+      return data.result
+    } catch (err) {
+      error.value = (err as Error).message ?? String(err)
+      return null
+    } finally {
+      pending.value = false
+    }
+  }
+
   // Shared body for undo() + redo(). Both endpoints return the same
   // envelope; the only difference is the URL. A 409 response means the
   // respective stack is empty — silent no-op (no toast) since the button
@@ -320,6 +397,7 @@ export function useCommandBus(options: UseCommandBusOptions): UseCommandBusRetur
     error,
     errorReport,
     apply,
+    useAsset,
     undo,
     redo,
     resync,

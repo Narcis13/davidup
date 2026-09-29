@@ -13,11 +13,16 @@
 //
 // This is the precise sequence the live UI runs on every drop, minus the
 // HTML5 DnD plumbing (Chrome MCP verifies that end of the pipeline live).
+//
+// Asset library E2: an asset library record card drops as `use_asset`
+// (POST /api/library/use) — registered with its pinned `asset:` src and
+// placed with the tool its kind takes, as one undo step. Those tests upload
+// real files (POST /api/assets) and drop the records the panel lists.
 
 import { test } from '@japa/runner'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import projectStore from '#services/project_store'
 import libraryIndex from '#services/library_index'
@@ -25,6 +30,8 @@ import commandBus from '#services/command_bus'
 import {
   buildCommandsForNewTrackDrop,
   buildCommandsForTrackDrop,
+  useAssetForStageDrop,
+  useAssetForTrackDrop,
   type LibraryDragPayload,
 } from '../../inertia/composables/useLibraryDrag.js'
 
@@ -225,5 +232,182 @@ test.group('Library drop → composition mutation (step 14)', (group) => {
       await projectStore.unload()
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// ─── asset library E2: a record card drops as use_asset ──────────────────────
+
+const FIXTURES = resolve(import.meta.dirname, '../../../../tests/drivers/fixtures')
+// A 1x1 red PNG.
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+  'base64'
+)
+
+interface DropComp {
+  assets: Array<{ id: string; type: string; src: string; licence?: string }>
+  layers: Array<{ id: string; items: string[] }>
+  items: Record<string, Record<string, unknown>>
+  audio?: Array<{ id: string; asset: string; start: number }>
+}
+
+/** The payload LibraryCard puts on a drag of the record the panel lists as `id`. */
+async function recordPayload(
+  client: { get: (url: string) => { qs: (q: Record<string, string>) => Promise<{ body: () => unknown }> } },
+  id: string
+): Promise<LibraryDragPayload> {
+  await libraryIndex.flush()
+  const res = await client.get('/api/library').qs({ kind: 'asset' })
+  const item = (res.body() as { items: Array<Record<string, unknown>> }).items.find((i) => i.id === id)
+  if (!item) throw new Error(`the panel does not list ${id}`)
+  return {
+    kind: 'asset',
+    id,
+    name: String(item.name ?? id),
+    defaults: {},
+    mediaType: item.assetType as LibraryDragPayload['mediaType'],
+    shelf: item.shelf as string,
+  }
+}
+
+test.group('Library record drop → use_asset (asset library E2)', (group) => {
+  let dir: string
+  let shelves: string
+  const before = { assets: process.env.DAVIDUP_ASSETS, house: process.env.DAVIDUP_HOUSE }
+
+  group.each.setup(async () => {
+    await libraryIndex.detach()
+    await projectStore.unload()
+    shelves = await mkdtemp(join(tmpdir(), 'davidup-libdrop-shelves-'))
+    process.env.DAVIDUP_ASSETS = join(shelves, 'user')
+    process.env.DAVIDUP_HOUSE = join(shelves, 'house')
+    dir = await mkdtemp(join(tmpdir(), 'davidup-libdrop-rec-'))
+    await writeFile(join(dir, 'composition.json'), JSON.stringify(BASE_COMP, null, 2), 'utf8')
+  })
+
+  group.each.teardown(async () => {
+    await projectStore.unload()
+    await libraryIndex.detach()
+    for (const [key, v] of [['DAVIDUP_ASSETS', before.assets], ['DAVIDUP_HOUSE', before.house]] as const) {
+      if (v === undefined) delete process.env[key]
+      else process.env[key] = v
+    }
+    await rm(dir, { recursive: true, force: true })
+    await rm(shelves, { recursive: true, force: true })
+  })
+
+  test('an audio card dropped on a track adds an audio track', async ({ client, assert }) => {
+    await client.post('/api/project').json({ directory: dir })
+    commandBus.reset()
+    const up = await client
+      .post('/api/assets')
+      .file('file', await readFile(join(FIXTURES, 'audio', 'tone-mono.wav')), {
+        filename: 'tone.wav',
+        contentType: 'audio/wav',
+      })
+    up.assertStatus(201)
+    const sha = (up.body() as { asset: { sha: string } }).asset.sha
+
+    const request = useAssetForTrackDrop(await recordPayload(client, 'tone'), { start: 1.5 })
+    assert.deepEqual(request, { id: 'tone', as: 'audio', place: { start: 1.5 } })
+    const res = await client.post('/api/library/use').json(request!)
+    res.assertStatus(200)
+    const body = res.body() as { result: { assetId: string; audioTrackId: string }; composition: DropComp; undoStackSize: number }
+    assert.equal(body.result.assetId, 'tone')
+    const comp = projectStore.composition as unknown as DropComp
+    assert.deepInclude(comp.assets.find((a) => a.id === 'tone'), {
+      type: 'audio',
+      src: `asset:tone@${sha.slice(0, 12)}`,
+      licence: 'own',
+    })
+    assert.deepInclude(comp.audio?.find((t) => t.id === body.result.audioTrackId), { asset: 'tone', start: 1.5 })
+    assert.equal(body.undoStackSize, 1, 'register + place are one undo step')
+  })
+
+  test('a video card dropped on the stage adds a video item', async ({ client, assert }) => {
+    await client.post('/api/project').json({ directory: dir })
+    commandBus.reset()
+    const up = await client
+      .post('/api/assets')
+      .file('file', await readFile(join(FIXTURES, 'video', 'small.mp4')), {
+        filename: 'small.mp4',
+        contentType: 'video/mp4',
+      })
+    up.assertStatus(201)
+
+    const request = useAssetForStageDrop(await recordPayload(client, 'small'), {
+      layerId: 'fg',
+      x: 400,
+      y: 300,
+      start: 0.5,
+    })
+    const res = await client.post('/api/library/use').json(request!)
+    res.assertStatus(200)
+    const itemId = (res.body() as { result: { itemId: string } }).result.itemId
+    const comp = projectStore.composition as unknown as DropComp
+    assert.deepInclude(comp.items[itemId], { type: 'video', asset: 'small', start: 0.5 })
+    assert.include(comp.layers.find((l) => l.id === 'fg')!.items, itemId)
+    assert.equal(comp.assets.find((a) => a.id === 'small')?.type, 'video')
+  })
+
+  test('an image card dropped on the stage is a sprite sized from the record; one undo takes it all back', async ({
+    client,
+    assert,
+  }) => {
+    await client.post('/api/project').json({ directory: dir })
+    commandBus.reset()
+    ;(await client.post('/api/assets').file('file', PNG, { filename: 'dot.png', contentType: 'image/png' })).assertStatus(201)
+
+    const request = useAssetForStageDrop(await recordPayload(client, 'dot'), {
+      layerId: 'fg',
+      x: 100,
+      y: 80,
+      start: 0,
+    })
+    const res = await client.post('/api/library/use').json(request!)
+    res.assertStatus(200)
+    const itemId = (res.body() as { result: { itemId: string } }).result.itemId
+    const comp = projectStore.composition as unknown as DropComp
+    assert.deepInclude(comp.items[itemId], { type: 'sprite', asset: 'dot', width: 1, height: 1 })
+    assert.deepInclude(comp.items[itemId].transform as object, { x: 100, y: 80, anchorX: 0.5, anchorY: 0.5 })
+
+    // Dropped again: the registration is reused, a second sprite placed.
+    const again = await client.post('/api/library/use').json(request!)
+    again.assertStatus(200)
+    assert.equal((again.body() as { result: { registered: string } }).result.registered, 'already')
+
+    commandBus.undo()
+    commandBus.undo()
+    const after = projectStore.composition as unknown as DropComp
+    assert.notProperty(after.items, itemId)
+    assert.isUndefined(after.assets.find((a) => a.id === 'dot'), 'the registration undoes with the drop')
+  })
+
+  test('the asset picker registers a record without placing it', async ({ client, assert }) => {
+    await client.post('/api/project').json({ directory: dir })
+    ;(await client.post('/api/assets').file('file', PNG, { filename: 'dot.png', contentType: 'image/png' })).assertStatus(201)
+    const res = await client.post('/api/library/use').json({ id: 'dot', place: false })
+    res.assertStatus(200)
+    assert.deepInclude((res.body() as { result: Record<string, unknown> }).result, { assetId: 'dot', registered: 'new' })
+    const comp = projectStore.composition as unknown as DropComp
+    assert.lengthOf(Object.keys(comp.items), 0)
+    assert.exists(comp.assets.find((a) => a.id === 'dot'))
+  })
+
+  test('an index.json card is not a record: its drop stays the composition-asset commands', ({ assert }) => {
+    const payload: LibraryDragPayload = { kind: 'asset', id: 'ball', name: 'Ball', defaults: {}, mediaType: 'audio' }
+    assert.isNull(useAssetForTrackDrop(payload, { start: 0 }))
+    assert.isNull(useAssetForStageDrop({ ...payload, mediaType: 'image' }, { layerId: 'fg', x: 0, y: 0, start: 0 }))
+  })
+
+  test('an unknown record is 404 E_ASSET_MISSING; no project is 404 E_NO_PROJECT', async ({ client }) => {
+    const none = await client.post('/api/library/use').json({ id: 'dot' })
+    none.assertStatus(404)
+    none.assertBodyContains({ error: { code: 'E_NO_PROJECT' } })
+
+    await client.post('/api/project').json({ directory: dir })
+    const missing = await client.post('/api/library/use').json({ id: 'nothing-here' })
+    missing.assertStatus(404)
+    missing.assertBodyContains({ error: { code: 'E_ASSET_MISSING' } })
   })
 })

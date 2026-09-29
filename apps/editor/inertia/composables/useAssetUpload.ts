@@ -3,7 +3,9 @@
 // Browser side of FR-12: drop a file on the editor (anywhere or specifically
 // on the Library panel) → POST it to `/api/assets` → show per-file progress
 // and result toasts → let the existing library_index watcher reveal the new
-// asset card.
+// asset card. Since asset library E2 the server puts the file on a shelf and
+// answers with the record (`id`, `kind`, `shelf`, `src`, `w`/`h`, `licence`)
+// and the put's warnings (a licence defaulted to `own`), which the toast shows.
 //
 // The composable is a module-singleton so the LibraryPanel, the EditorShell,
 // and the UploadToasts component all observe the same queue: the panels push
@@ -19,19 +21,26 @@ import { computed, reactive, readonly, type ComputedRef, type DeepReadonly } fro
 
 export type UploadStatus = 'uploading' | 'success' | 'error'
 
+/** The asset library record an upload put on a shelf (POST /api/assets `asset`). */
 export interface UploadedAsset {
   id: string
   name: string
-  url: string
-  kind: 'image' | 'video' | 'audio'
-  mediaType: string
-  size: number
-  hash: string
-  width?: number
-  height?: number
-  duration?: number
-  thumbnail?: string
-  createdAt: string
+  /** The record's kind: image, video, audio, font (or cutout, stock, sample, ...). */
+  kind: string
+  /** `project` or `user`. */
+  shelf: string
+  /** The pinned `asset:<id>@<sha12>` src a composition registers it by. */
+  src: string
+  sha: string
+  ext: string
+  bytes: number
+  licence: string
+  credit?: string
+  tags?: readonly string[]
+  w?: number
+  h?: number
+  sec?: number
+  family?: string
 }
 
 export interface UploadJob {
@@ -43,6 +52,10 @@ export interface UploadJob {
   status: UploadStatus
   /** Set when status === 'success'. */
   asset?: UploadedAsset
+  /** `unchanged bytes` when the shelf already held the file (its record is `asset`). */
+  uploadStatus?: 'new' | 'unchanged bytes'
+  /** What the server noticed putting it (a licence defaulted to `own`, a probe missing). */
+  warnings?: readonly string[]
   /** Set when status === 'error'. */
   error?: { code: string; message: string }
   startedAt: number
@@ -81,6 +94,10 @@ const ALLOWED_EXT = new Set([
   'm4a',
   'aac',
   'flac',
+  'ttf',
+  'otf',
+  'woff',
+  'woff2',
 ])
 
 function extOf(name: string): string {
@@ -158,7 +175,7 @@ function uploadFiles(files: Iterable<File>, opts: UploadOptions = {}): UploadJob
         job,
         {
           code: 'E_UNSUPPORTED_TYPE',
-          message: `"${file.name}" is not an image, video, or audio file we accept`,
+          message: `"${file.name}" is not an image, video, audio or font file we accept`,
         },
         opts.errorLingerMs ?? ERROR_LINGER_MS
       )
@@ -199,8 +216,20 @@ function startUpload(
     const status = xhr.status
     const body = parseBody(xhr)
     if (status >= 200 && status < 300 && body && typeof body === 'object' && 'asset' in body) {
-      const asset = (body as { asset: UploadedAsset }).asset
-      finalizeSuccess(job, asset, opts.successLingerMs ?? TOAST_LINGER_MS)
+      const out = body as { asset: UploadedAsset; status?: unknown; warnings?: unknown }
+      const warnings = Array.isArray(out.warnings)
+        ? out.warnings.filter((w): w is string => typeof w === 'string')
+        : []
+      finalizeSuccess(
+        job,
+        out.asset,
+        out.status === 'unchanged bytes' ? 'unchanged bytes' : 'new',
+        warnings,
+        // A toast with warnings stays as long as an error's, so they can be read.
+        warnings.length > 0
+          ? (opts.errorLingerMs ?? ERROR_LINGER_MS)
+          : (opts.successLingerMs ?? TOAST_LINGER_MS)
+      )
       return
     }
     const err =
@@ -269,10 +298,18 @@ function parseBody(xhr: XMLHttpRequest): unknown {
   return null
 }
 
-function finalizeSuccess(job: UploadJobInternal, asset: UploadedAsset, lingerMs: number): void {
+function finalizeSuccess(
+  job: UploadJobInternal,
+  asset: UploadedAsset,
+  uploadStatus: 'new' | 'unchanged bytes',
+  warnings: string[],
+  lingerMs: number
+): void {
   job.status = 'success'
   job.progress = 1
   job.asset = asset
+  job.uploadStatus = uploadStatus
+  if (warnings.length > 0) job.warnings = warnings
   job.completedAt = Date.now()
   job.xhr = null
   scheduleAutoDismiss(job.id, lingerMs)

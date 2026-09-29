@@ -3,6 +3,7 @@ import libraryIndex, { type LibraryItemKind, type LibraryScope } from '#services
 import libraryThumbnail from '#services/library_thumbnail'
 import projectStore from '#services/project_store'
 import { promoteLibraryItem, PromoteError } from '#services/promote_library_item'
+import { useLibraryAsset, UseAssetError } from '#services/library_use'
 import {
   saveLibraryDefinition,
   SaveDefinitionError,
@@ -211,6 +212,40 @@ export default class LibraryController {
                   : 500
         return response.status(status).send({
           error: { code: err.code, message: err.message, details: err.details },
+        })
+      }
+      throw err
+    }
+  }
+
+  /**
+   * POST /api/library/use — an asset library record registered and placed in
+   * the open composition (asset library E2): the MCP `use_asset`, its commands
+   * sent through the CommandBus as `ui` and undone as one step. The body is
+   * use_asset's input: `{ id, as?, assetId?, place?, replace? }` — `place` the
+   * placing tool's fields (`layerId`, `x`, `y`, `start`, ...) or `false` to
+   * register only (the Inspector's asset picker).
+   *
+   * Status codes:
+   *   200 — `{ result, composition, undoStackSize, redoStackSize }`; `result`
+   *         is use_asset's (`assetId`, `itemId` | `audioTrackId`, ...).
+   *   400 — bad arguments. 404 — no project, or no such record.
+   *   409 — the record cannot be taken that way, or a command was refused.
+   */
+  async use({ request, response }: HttpContext) {
+    const body = request.body() as Record<string, unknown>
+    try {
+      const out = await useLibraryAsset(body)
+      return response.ok(out)
+    } catch (err) {
+      if (err instanceof UseAssetError) {
+        return response.status(err.status).send({
+          error: {
+            code: err.code,
+            message: err.message,
+            ...(err.hint ? { hint: err.hint } : {}),
+            ...(err.issues ? { issues: err.issues } : {}),
+          },
         })
       }
       throw err

@@ -13,6 +13,10 @@ import {
   buildCommandsForNewTrackDrop,
   buildCommandsForStageDrop,
   buildCommandsForTrackDrop,
+  LIBRARY_MIME,
+  readDropPayload,
+  useAssetForStageDrop,
+  useAssetForTrackDrop,
   useLibraryDrag,
   type LibraryDragPayload,
 } from '../../inertia/composables/useLibraryDrag.js'
@@ -372,5 +376,55 @@ test.group('useLibraryDrag · media type of a dragged asset (asset library E1)',
     })
     assert.equal(payload?.mediaType, 'audio')
     assert.equal(payload?.duration, 0.4)
+    assert.equal(payload?.shelf, 'house')
+  })
+})
+
+test.group('useLibraryDrag · a record drops as use_asset (asset library E2)', (group) => {
+  group.each.teardown(() => __resetLibraryDragForTests())
+
+  const record = (mediaType: LibraryDragPayload['mediaType']): LibraryDragPayload => ({
+    kind: 'asset',
+    id: 'rec',
+    name: 'Rec',
+    defaults: {},
+    mediaType,
+    shelf: 'project',
+  })
+  const stage = { layerId: 'fg', x: 10, y: 20, start: 1 }
+
+  test('an image on the stage: a sprite centred on the drop point, sized by use_asset', ({ assert }) => {
+    assert.deepEqual(useAssetForStageDrop(record('image'), stage), {
+      id: 'rec',
+      as: 'sprite',
+      place: { layerId: 'fg', x: 10, y: 20 },
+    })
+  })
+
+  test('a video on the stage: a clip centred on the drop point from the drop time', ({ assert }) => {
+    assert.deepEqual(useAssetForStageDrop(record('video'), stage), {
+      id: 'rec',
+      as: 'video',
+      place: { layerId: 'fg', x: 10, y: 20, anchorX: 0.5, anchorY: 0.5, start: 1 },
+    })
+  })
+
+  test('audio and fonts have no stage drop; audio on the timeline is a track', ({ assert }) => {
+    assert.isNull(useAssetForStageDrop(record('audio'), stage))
+    assert.isNull(useAssetForStageDrop(record('font'), stage))
+    assert.deepEqual(useAssetForTrackDrop(record('audio'), { start: -2 }), {
+      id: 'rec',
+      as: 'audio',
+      place: { start: 0 },
+    })
+    assert.isNull(useAssetForTrackDrop(record('image'), { start: 0 }))
+  })
+
+  test('the shelf survives the dataTransfer fallback', ({ assert }) => {
+    const data = new Map<string, string>([
+      [LIBRARY_MIME, JSON.stringify(record('audio'))],
+    ])
+    const event = { dataTransfer: { getData: (k: string) => data.get(k) ?? '' } } as unknown as DragEvent
+    assert.equal(readDropPayload(event)?.shelf, 'project')
   })
 })

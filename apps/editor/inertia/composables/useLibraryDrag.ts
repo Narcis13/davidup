@@ -5,7 +5,10 @@
 // Timeline + Stage components register as drop targets, and this module
 // translates a successful drop into a Command (`apply_template`,
 // `apply_behavior`, or `add_scene_instance`) that the editor page hands off
-// to the command bus.
+// to the command bus. An asset library record (a card with a `shelf`, asset
+// library E2) becomes a `use_asset` request instead (`useAssetForStageDrop`,
+// `useAssetForTrackDrop`): the server registers the record and places it with
+// the tool its kind takes, as one undo step.
 //
 // Two coordination signals leave this composable:
 //   - `payloadRef` — a reactive snapshot of the in-flight drag (kind, id,
@@ -25,7 +28,7 @@
 // engine's own param resolution wins.
 
 import { computed, reactive, readonly, type ComputedRef } from 'vue'
-import type { Command } from '~/composables/useCommandBus'
+import type { Command, UseAssetRequest } from '~/composables/useCommandBus'
 import type { LibraryItem } from '~/composables/useLibrary'
 
 export const LIBRARY_MIME = 'application/x-davidup-library'
@@ -48,6 +51,12 @@ export interface LibraryDragPayload {
    * (audio) — a plain asset drop no longer always means "sprite".
    */
   mediaType?: 'image' | 'font' | 'audio' | 'video'
+  /**
+   * The asset library shelf of a record card (`project`, `user`, `house`).
+   * Set, a drop is `use_asset` on the record `id`; absent (an `index.json`
+   * entry), the drop places `id` as a composition asset id, as before.
+   */
+  shelf?: string
 }
 
 interface DragState {
@@ -82,6 +91,8 @@ export function useLibraryDrag() {
     buildCommandsForTrackDrop,
     buildCommandsForStageDrop,
     buildCommandsForNewTrackDrop,
+    useAssetForStageDrop,
+    useAssetForTrackDrop,
   }
 }
 
@@ -155,6 +166,7 @@ export function readDropPayload(event: DragEvent): LibraryDragPayload | null {
           ? parsed.duration
           : undefined,
       mediaType: isMediaType(parsed.mediaType) ? parsed.mediaType : undefined,
+      shelf: typeof parsed.shelf === 'string' && parsed.shelf.length > 0 ? parsed.shelf : undefined,
     }
   } catch {
     return null
@@ -184,6 +196,7 @@ function libraryItemToPayload(item: LibraryItem): LibraryDragPayload {
         ? item.duration
         : rawDuration,
     mediaType,
+    ...(item.shelf ? { shelf: item.shelf } : {}),
   }
 }
 
@@ -451,6 +464,63 @@ export function buildCommandsForStageDrop(
       // behaviors/fonts have no stand-alone stage representation
       return []
   }
+}
+
+// ──────────────── Asset library records (E2) ────────────────
+//
+// A record card dropped is `use_asset`: the server registers the record (its
+// pinned `asset:` src, credit and licence) and places it with the tool its
+// kind takes. `place` carries only where the drop was; use_asset sizes a
+// sprite from the record (its frame or image, shrunk to a quarter of the
+// stage) and names it.
+
+/** True when the payload is an asset library record, which drops as `use_asset`. */
+export function isShelfAsset(payload: LibraryDragPayload): boolean {
+  return payload.kind === 'asset' && typeof payload.shelf === 'string'
+}
+
+/**
+ * A record dropped on the stage: an image (a cutout, a stock, a sprite sheet)
+ * as a sprite centred on the drop point, a video as a clip centred there from
+ * the drop time. Audio and fonts have no place on the stage (null), nor has a
+ * card that is not a record (use buildCommandsForStageDrop).
+ */
+export function useAssetForStageDrop(
+  payload: LibraryDragPayload,
+  ctx: StageDropContext,
+): UseAssetRequest | null {
+  if (!isShelfAsset(payload)) return null
+  if (payload.mediaType === 'image') {
+    return { id: payload.id, as: 'sprite', place: { layerId: ctx.layerId, x: ctx.x, y: ctx.y } }
+  }
+  if (payload.mediaType === 'video') {
+    return {
+      id: payload.id,
+      as: 'video',
+      place: {
+        layerId: ctx.layerId,
+        x: ctx.x,
+        y: ctx.y,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        start: Math.max(0, ctx.start),
+      },
+    }
+  }
+  return null
+}
+
+/**
+ * A record dropped on the timeline (a track row, the new-track gutter, the
+ * audio lane): an audio record (audio, a sample) as an audio track from the
+ * drop time. Anything else is null.
+ */
+export function useAssetForTrackDrop(
+  payload: LibraryDragPayload,
+  ctx: { start: number },
+): UseAssetRequest | null {
+  if (!isShelfAsset(payload) || payload.mediaType !== 'audio') return null
+  return { id: payload.id, as: 'audio', place: { start: Math.max(0, ctx.start) } }
 }
 
 function defaultBehaviorDuration(payload: LibraryDragPayload): number {

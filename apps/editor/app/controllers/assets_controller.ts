@@ -19,23 +19,43 @@ const ALLOWED_EXTNAMES = [
   'm4a',
   'aac',
   'flac',
-  // Fonts — pipeline stores these in `library/fonts/` and registers them
-  // in the `fonts` array of `index.json` (D6 in vision/davidup-v1.0-manual).
+  // Fonts — put on the shelf as `font` records (the family read off the file).
   'ttf',
   'otf',
   'woff',
   'woff2',
 ]
 
+/** An optional text field: trimmed, undefined when absent or not a string. */
+function textField(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.trim() : undefined
+}
+
+/** `tags`: comma-separated, or the field repeated. */
+function tagsField(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined
+  const parts = (Array.isArray(value) ? value : [value])
+    .filter((v): v is string => typeof v === 'string')
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0)
+  return [...new Set(parts)]
+}
+
 export default class AssetsController {
   /**
    * POST /api/assets — multipart upload. Field `file` carries the bytes.
    *
-   * Pipeline (see asset_pipeline.ts): hash → name `<hash><ext>` →
-   * ffprobe/loadImage for metadata → optional thumbnail → register in
-   * `library/index.json`. Returns the asset record.
+   * The file is put on an asset library shelf (asset_pipeline.ts, asset
+   * library E2): the open project's `assets/`, or with `target=global` the
+   * user's pool (`$DAVIDUP_ASSETS`, else ~/.davidup/assets). Optional fields
+   * say what search reads: `licence` (default `own`, with a warning),
+   * `credit`, `source`, `tags` (comma-separated or repeated), `name`, `desc`,
+   * `kind` (`cutout`, `stock`, `sample`, ... instead of the extension's),
+   * `family` (a font's). Returns `{ asset, status, warnings }`; `asset.src`
+   * is the pinned `asset:<id>@<sha12>` a composition registers it by.
    *
-   * Requires a loaded project (404 with E_NO_PROJECT otherwise).
+   * Requires a loaded project unless `target=global` (404 E_NO_PROJECT).
    */
   async store({ request, response }: HttpContext) {
     const rawTarget = request.input('target')
@@ -83,19 +103,37 @@ export default class AssetsController {
       })
     }
 
+    const fields = {
+      kind: textField(request.input('kind')) || undefined,
+      name: textField(request.input('name')) || undefined,
+      licence: textField(request.input('licence')) || undefined,
+      credit: textField(request.input('credit')),
+      source: textField(request.input('source')),
+      tags: tagsField(request.input('tags')),
+      desc: textField(request.input('desc')) || undefined,
+      family: textField(request.input('family')) || undefined,
+    }
+
     try {
-      const record = await assetPipeline.ingest({
+      const out = await assetPipeline.ingest({
         tmpPath: file.tmpPath,
         clientName: file.clientName,
         contentType: file.headers?.['content-type'] as string | undefined,
         size: file.size,
         target,
+        ...Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)),
       })
-      return response.created({ asset: record })
+      return response.created(out)
     } catch (err) {
       if (err instanceof AssetIngestError) {
         const status =
-          err.code === 'E_NO_PROJECT' ? 404 : err.code === 'E_UNSUPPORTED_TYPE' ? 415 : 500
+          err.code === 'E_NO_PROJECT'
+            ? 404
+            : err.code === 'E_UNSUPPORTED_TYPE'
+              ? 415
+              : err.code === 'E_INVALID_VALUE'
+                ? 400
+                : 500
         return response.status(status).send({
           error: { code: err.code, message: err.message, details: err.details },
         })
