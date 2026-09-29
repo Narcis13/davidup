@@ -47,6 +47,8 @@ const emit = defineEmits<{
   (event: 'apply', item: LibraryItem): void
   (event: 'add', item: LibraryItem): void
   (event: 'remove', item: LibraryItem): void
+  /** A record card was clicked: open its drawer (asset library E4). */
+  (event: 'open', item: LibraryItem): void
 }>()
 
 // Definitions promote when authored as standalone files (inline index.json
@@ -100,6 +102,14 @@ function onApply(event: Event): void {
 // drop targets can resolve it.
 const libraryDrag = useLibraryDrag()
 const isDragging = ref(false)
+
+// A record card opens the record drawer on click or Enter; its buttons stop
+// their own events, and a drag never clicks.
+function onOpen(event: Event): void {
+  if (!isShelved.value) return
+  if (event.target !== event.currentTarget && (event.target as HTMLElement).closest('button, a')) return
+  emit('open', props.item)
+}
 
 function onDragStart(event: DragEvent): void {
   libraryDrag.onDragStart(props.item, event)
@@ -464,8 +474,11 @@ function onRemove(event: Event): void {
     :data-dragging="isDragging ? 'true' : null"
     draggable="true"
     tabindex="0"
+    :title="isShelved ? 'Click to open the record' : undefined"
     @dragstart="onDragStart"
     @dragend="onDragEnd"
+    @click="onOpen"
+    @keydown.enter.self="onOpen"
   >
     <div class="thumb-wrap">
       <div

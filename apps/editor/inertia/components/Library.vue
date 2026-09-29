@@ -22,7 +22,7 @@
 // too, searched by assetlib; the search's facets (record kind, shelf, licence,
 // tags) render as chips under the tabs, and a chip narrows the search.
 
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   useLibrary,
   FACET_GROUPS,
@@ -37,6 +37,7 @@ import {
 import { useAssetUpload, isUploadableFile } from '~/composables/useAssetUpload'
 import { LIBRARY_MIME } from '~/composables/useLibraryDrag'
 import LibraryCard from '~/components/LibraryCard.vue'
+import RecordDrawer from '~/components/RecordDrawer.vue'
 import SaveDefinitionDialog from '~/components/SaveDefinitionDialog.vue'
 import { useToasts } from '~/composables/useToasts'
 
@@ -47,8 +48,10 @@ import { useToasts } from '~/composables/useToasts'
 // in `composition.assets`. The remove button uses these to decide whether
 // to call `remove_asset` directly or to confirm with the user first.
 type CompositionLike = {
-  assets?: ReadonlyArray<{ id?: unknown; type?: unknown; credit?: unknown; licence?: unknown }>
+  assets?: ReadonlyArray<{ id?: unknown; type?: unknown; src?: unknown; credit?: unknown; licence?: unknown }>
   items?: Record<string, { type?: unknown; asset?: unknown; font?: unknown }>
+  // The record drawer lists the tracks playing a record (asset library E4).
+  audio?: ReadonlyArray<{ id?: unknown; asset?: unknown }>
   // Read by "behavior from selection" (v1.1 S19) — the selected item's tweens
   // become an executable behavior body.
   tweens?: ReadonlyArray<Record<string, unknown>>
@@ -198,6 +201,35 @@ function onRemoveAsset(item: LibraryItem): void {
     if (!ok) return
   }
   emit('remove-asset', { id: item.id, cascade: false })
+}
+
+// ─── The record drawer (asset library E4) ─────────────────────────────────
+//
+// A record card's click opens the drawer over the grid. It holds the card's
+// item; after an edit the catalog is re-read, and the drawer follows the
+// refreshed item so its preview and src stay current. A record named in the
+// drawer (made from / into) opens in its place: the listed item when the
+// panel has it, else a bare one the drawer reads by id.
+const drawerItem = ref<LibraryItem | null>(null)
+
+function openRecord(item: LibraryItem): void {
+  drawerItem.value = item
+}
+
+function openRecordById(id: string): void {
+  const listed = lib.items.value.find((i) => i.shelf !== undefined && i.id === id)
+  drawerItem.value = listed ?? { kind: 'asset', id, source: 'asset library', scope: 'global' }
+}
+
+// The drawer belongs to the Assets and Fonts tabs.
+watch(lib.tab, () => {
+  drawerItem.value = null
+})
+
+async function onRecordChanged(id: string): Promise<void> {
+  await lib.refresh()
+  const fresh = lib.items.value.find((i) => i.shelf !== undefined && i.id === id)
+  if (fresh && drawerItem.value?.id === id) drawerItem.value = fresh
 }
 
 // ─── Save-definition dialog (target picker for new templates/scenes/behaviors) ───
@@ -785,6 +817,7 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         @apply="onApply"
         @add="onAdd"
         @remove="onRemoveAsset"
+        @open="openRecord"
       />
     </div>
 
@@ -810,6 +843,15 @@ function removeKey(set: Set<string>, key: string): Set<string> {
         <p class="drop-sub">Images, video, audio or fonts — added to the asset library</p>
       </div>
     </div>
+
+    <RecordDrawer
+      :item="drawerItem"
+      :composition="composition"
+      :generation="lib.generation.value"
+      @close="drawerItem = null"
+      @changed="onRecordChanged"
+      @open="openRecordById"
+    />
 
     <SaveDefinitionDialog
       :open="saveDialogOpen"

@@ -5,6 +5,7 @@ import commandBus from '#services/command_bus'
 import projectStore from '#services/project_store'
 import { promoteLibraryItem, PromoteError } from '#services/promote_library_item'
 import { useLibraryAsset, UseAssetError } from '#services/library_use'
+import { editLibraryRecord, readLibraryRecord, LibraryRecordError } from '#services/library_record'
 import {
   saveLibraryDefinition,
   SaveDefinitionError,
@@ -266,6 +267,46 @@ export default class LibraryController {
   }
 
   /**
+   * GET /api/library/record?id=<id> — one asset library record for the record
+   * drawer (asset library E4): the MCP `get_asset` — `{ record, shelf, shelves,
+   * path, thumb, same, made: { from, into }, use }`. 404 for an id no shelf
+   * holds.
+   */
+  async record({ request, response }: HttpContext) {
+    const qsRaw = request.qs() as Record<string, unknown>
+    const id = typeof qsRaw.id === 'string' ? qsRaw.id : ''
+    if (!id) {
+      return response.badRequest({
+        error: { code: 'E_BAD_REQUEST', message: 'Query param `id` is required.' },
+      })
+    }
+    try {
+      return response.ok(await readLibraryRecord(id))
+    } catch (err) {
+      return recordError(response, err)
+    }
+  }
+
+  /**
+   * POST /api/library/record — edit what search reads on a record (asset
+   * library E4): the MCP `tag_asset`. Body: `{ id, add?, remove?, name?,
+   * desc?, credit?, source?, licence?, shelf? }` (`desc: ""` removes it). The
+   * blob is untouched, so every `asset:` src keeps resolving; the edit writes
+   * the shelf, not the composition, so it is no undo step. Answers `{ edit,
+   * detail }`: tag_asset's result (`added`, `removed`, `warnings`) and the
+   * record as `GET` reads it now. 400 for a bad field or value, 404 for an id
+   * no shelf holds.
+   */
+  async editRecord({ request, response }: HttpContext) {
+    const body = request.body() as Record<string, unknown>
+    try {
+      return response.ok(await editLibraryRecord(body))
+    } catch (err) {
+      return recordError(response, err)
+    }
+  }
+
+  /**
    * POST /api/library/definitions — write a user-authored template /
    * behavior / scene to disk under either the project library or the
    * global library. The body shape:
@@ -351,4 +392,13 @@ export default class LibraryController {
       throw err
     }
   }
+}
+
+function recordError(response: HttpContext['response'], err: unknown) {
+  if (err instanceof LibraryRecordError) {
+    return response.status(err.status).send({
+      error: { code: err.code, message: err.message, ...(err.hint ? { hint: err.hint } : {}) },
+    })
+  }
+  throw err
 }

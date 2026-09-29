@@ -397,6 +397,87 @@ describe.skipIf(!chromiumAvailable)(
       },
       120_000,
     );
+
+    // Asset library E4 — the record drawer: a click on a record card opens it,
+    // a tag typed there is written to the shelf (tag_asset), and the panel's
+    // search finds the record by that tag within its debounce.
+    it(
+      "edits a record's tag in the drawer and the search finds it by the tag",
+      async () => {
+        const projectDir = await mkdtemp(join(tmpdir(), "davidup-editor-smoke-drawer-"));
+        cleanups.push(() => rm(projectDir, { recursive: true, force: true }));
+        await cp(DEMO_PROJECT_DIR, projectDir, { recursive: true });
+        const pools = await mkdtemp(join(tmpdir(), "davidup-smoke-pools-"));
+        const prev = { assets: process.env.DAVIDUP_ASSETS, house: process.env.DAVIDUP_HOUSE };
+        process.env.DAVIDUP_ASSETS = join(pools, "user");
+        process.env.DAVIDUP_HOUSE = join(pools, "house");
+        cleanups.push(async () => {
+          for (const [k, v] of [["DAVIDUP_ASSETS", prev.assets], ["DAVIDUP_HOUSE", prev.house]] as const) {
+            if (v === undefined) delete process.env[k];
+            else process.env[k] = v;
+          }
+          await rm(pools, { recursive: true, force: true });
+        });
+        const shelf = join(projectDir, "assets");
+        readShelf(shelf).put(
+          { id: "red-square", kind: "image", name: "Red square", tags: ["test"], licence: "own", credit: "", source: "" },
+          solidPng([255, 0, 0], 16, 16),
+        );
+
+        const port = await getFreePort();
+        const handle: EditHandle = await runEdit({
+          projectDir,
+          editorAppDir: EDITOR_APP_DIR,
+          port,
+          host: "127.0.0.1",
+          noOpen: true,
+          noWatch: true,
+          readyTimeoutMs: 30_000,
+        });
+        cleanups.push(() => handle.close());
+
+        const page = await browser!.newPage({ viewport: { width: 1440, height: 900 } });
+        cleanups.push(() => page.close());
+        await openEditor(page, handle.url);
+
+        const panel = page.locator('[data-panel-name="library"]');
+        await panel.locator('[data-tab="asset"]').click();
+        const card = panel.locator('.library-card[data-item-id="red-square"][data-shelf="project"]');
+        const search = panel.locator('[data-testid="library-search"]');
+
+        // Nothing is tagged "lunar" yet.
+        await card.waitFor({ state: "visible", timeout: 10_000 });
+        await search.fill("lunar");
+        await card.waitFor({ state: "detached", timeout: 5_000 });
+        await search.fill("");
+        await card.waitFor({ state: "visible", timeout: 5_000 });
+
+        await card.click();
+        const drawer = panel.locator('[data-testid="record-drawer"][data-record-id="red-square"]');
+        await drawer.waitFor({ state: "visible", timeout: 5_000 });
+        await drawer.locator('[data-testid="record-drawer-name"]').waitFor({ state: "visible", timeout: 5_000 });
+        expect(await drawer.locator('[data-testid="record-drawer-name"]').inputValue()).toBe("Red square");
+
+        await drawer.locator('[data-testid="record-drawer-tag-input"]').fill("lunar");
+        await drawer.locator('[data-testid="record-drawer-tag-input"]').press("Enter");
+        await drawer.locator('[data-tag="lunar"]').waitFor({ state: "visible", timeout: 5_000 });
+        await drawer.locator('[data-testid="record-drawer-close"]').click();
+        await drawer.waitFor({ state: "detached", timeout: 5_000 });
+
+        // The search box finds it by the new tag within the query debounce.
+        const t0 = Date.now();
+        await search.fill("lunar");
+        await card.waitFor({ state: "visible", timeout: 2_000 });
+        expect(Date.now() - t0).toBeLessThan(2_000);
+
+        const catalogue = JSON.parse(
+          (await readFile(join(shelf, "catalogue.json"), "utf8")),
+        ) as Record<string, { tags: string[] }>;
+        expect(catalogue["red-square"]?.tags).toEqual(["test", "lunar"]);
+        await page.screenshot({ path: join(projectDir, "record-drawer.png") });
+      },
+      120_000,
+    );
   },
 );
 

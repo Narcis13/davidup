@@ -777,6 +777,34 @@ desc` equivalents through the command bus. **Done when** a Playwright test
 edits a tag and the search box finds the asset by it within the watch
 debounce.
 
+*As built:* the drawer is `inertia/components/RecordDrawer.vue`, over the
+Library panel's grid; a record card (one with a `shelf`) opens it on click
+or Enter, and switching tabs closes it. The read is `GET
+/api/library/record?id=` and the edit `POST /api/library/record`
+(`app/services/library_record.ts`), the MCP `get_asset` and `tag_asset`
+dispatched in-process as E2's upload and E3's promote dispatch `add_asset`,
+not through the command bus: `tag_asset` writes the shelf, not the
+composition, so an edit has no command and no undo step (D3's rule). The
+edit names the shelf the record resolves on; a field `tag_asset` does not
+take is refused before it runs. The catalog is re-read (`reloadNow`) before
+the answer, so the search finds a new tag within the query debounce rather
+than the shelf's 250 ms poll. A text field is sent when it changes (Enter
+or blur; Escape drops the typing), a tag or the licence at once; a cleared
+name is not sent (a record keeps its name), a cleared desc removes it. The
+licence select is assetlib's `LICENCES` (a unit test holds the lists
+equal). "Used here" is read off the open composition on the page
+(`recordDrawerMath.ts recordUses`): the assets whose src is `asset:<id>`
+with or without a pin, a pin naming other bytes marked stale, the sprites
+and videos (`asset`), texts (`font`) and audio tracks using each, and a
+note when the composition's copied credit or licence is no longer the
+record's (re-registering takes the new one; the drawer does not do it).
+Made-from and made-into entries open in the drawer, including kinds the
+tab does not list (a puppet), read by id. An audio or video record plays
+in the preview from `/asset-files/`. The Playwright case is in
+`tests/e2e/editorSmoke.integration.test.ts`: the search misses "lunar",
+the drawer adds it, the search finds the card within 2 s and the
+catalogue holds the tag.
+
 ---
 
 ## 9. In-house assets (I)
@@ -907,7 +935,7 @@ then D and E in parallel, I when D4 exists, S last.
 | E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [x] |
 | E2 | Upload and drop | 1 | D3 E1 | [x] |
 | E3 | Promote is move | 0.5 | E1 | [x] |
-| E4 | The record drawer | 1 | E1 D3 | [ ] |
+| E4 | The record drawer | 1 | E1 D3 | [x] |
 | H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [ ] |
 | I1 | `made` and `asset remake` | 1 | D4 | [ ] |
 | I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [ ] |

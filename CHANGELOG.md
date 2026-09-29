@@ -9,6 +9,30 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### The record drawer (asset library E4)
+
+- Clicking (or Enter on) a record card in the Library's Assets or Fonts tab
+  opens its drawer over the grid: the preview (an audio or video record
+  plays), name, description, tags as chips, licence, credit and source,
+  all editable in place, then the record's facts (id, kind, shelf and what
+  it hides, size, length, file, sha, when and how it was added), what it
+  was made from and what was made from it (each opens in the drawer), and
+  where the open composition uses it: the assets registered from it, the
+  items and audio tracks using each, a stale pin, and a credit or licence
+  the composition copied before the record changed.
+- A text field is saved when it changes (Enter or leaving it); a tag
+  (Enter or comma; Backspace in an empty box removes the last) and the
+  licence at once. An edit is the MCP `tag_asset`, so it writes the shelf,
+  not the composition: the bytes and every `asset:` src stay, and nothing
+  is added to undo. The catalog is re-read before the answer, so the
+  search box finds the record by a new tag straight away.
+- `GET /api/library/record?id=` is the MCP `get_asset`;
+  `POST /api/library/record` takes `tag_asset`'s fields (`add`, `remove`,
+  `name`, `desc`, `credit`, `source`, `licence`, `shelf`) and answers
+  `{ edit, detail }`. A field it does not edit (`kind`, say) or a licence
+  outside the list is a 400 with nothing written; an id no shelf holds, a
+  404.
+
 ### Promote moves a record to your asset shelf (asset library E3)
 
 - A card from the project's asset shelf (📁) has the promote button now:
