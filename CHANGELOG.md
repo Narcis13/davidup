@@ -9,6 +9,32 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### The Assets tab reads the asset library (asset library E1)
+
+- The editor's Assets and Fonts tabs list the records on the three asset
+  shelves (the open project's `assets/`, `~/.davidup/assets`, the house
+  shelf) next to the `index.json` entries they always showed. Every kind
+  davidup takes is listed (image, cutout, stock, video, audio, sample,
+  font); a card shows the record's own kind (`cutout`, `stock`, ...), its
+  licence and credit, and its shelf (📁 project, 👤 yours, 🏠 house), and
+  says when it hides another shelf's record of the same id. Puppets, hands,
+  clips and motifs stay hdf's.
+- Search on those tabs is assetlib's: ranked, with synonyms and prefixes,
+  and the matches' facets (kind, shelf, licence, tags) show as chips under
+  the tabs; a chip narrows the search, a second click lets go.
+  `GET /api/library` takes them as `?assetKind= &shelf= &licence= &tag=`
+  and returns `facets`, `facetsOf` and `shelves`.
+- A record's thumbnail is its asset library preview (hdf draws a cutout,
+  stock or sample; a video or audio record shows its card); a plain image
+  is rendered as its picture and a font as "Aa" in its face.
+- An uploaded video shows its ▶ badge and drops on the stage as a video:
+  the badge read the entry's `type`, which uploads never wrote (they write
+  `kind`). Items carry `assetType` for that now.
+- A seeded font listed in `index.json` as an `asset:` pointer is listed
+  once, as its record. Uploads still land in `library/` until E2; promoting
+  a shelf record is E3.
+- `davidup/assetlib` is a package export.
+
 ### Palette and text-room facts (asset library D6)
 
 - Every raster and every video put on an asset shelf (`add_asset`,

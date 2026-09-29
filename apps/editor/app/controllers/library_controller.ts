@@ -21,14 +21,29 @@ function isAllowedScope(value: string): value is LibraryScope {
   return (ALLOWED_SCOPES as readonly string[]).includes(value)
 }
 
+/** A facet filter from the query string: `?tag=a,b` or `?tag=a&tag=b`; undefined when absent. */
+function listParam(value: unknown): string[] | undefined {
+  const parts = (Array.isArray(value) ? value : [value])
+    .filter((v): v is string => typeof v === 'string')
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0)
+  return parts.length > 0 ? parts : undefined
+}
+
 export default class LibraryController {
   /**
    * GET /api/library — returns the current library catalog the Library
    * panel renders. Query string supports `?q=` (substring match over
-   * id/name/description) and `?kind=` (one of template|behavior|scene|asset|font).
+   * id/name/description; the asset library's records are ranked by
+   * assetlib's search) and `?kind=` (one of template|behavior|scene|asset|font).
+   * The asset library's facets narrow with `?assetKind=`, `?shelf=`,
+   * `?licence=` and `?tag=` (each comma-separated or repeated); the response
+   * carries the matches' `facets` for asset / font searches (asset library E1).
    *
-   * Watches `library/index.json` + `library/**\/*.{behavior,template,scene}.json`;
-   * the in-memory catalog refreshes within ~1s of any change on disk.
+   * Watches `library/index.json` + `library/**\/*.{behavior,template,scene}.json`
+   * and each asset shelf's `catalogue.json`; the in-memory catalog refreshes
+   * within ~1s of any change on disk.
    */
   async index({ request, response }: HttpContext) {
     const qsRaw = request.qs() as Record<string, unknown>
@@ -52,8 +67,20 @@ export default class LibraryController {
       })
     }
 
+    const filters = {
+      assetKind: listParam(qsRaw.assetKind),
+      shelf: listParam(qsRaw.shelf),
+      licence: listParam(qsRaw.licence),
+      tags: listParam(qsRaw.tag),
+    }
+
     const catalog = libraryIndex.getCatalog()
-    const items = libraryIndex.search({ q, kind: kindRaw, scope: scopeRaw })
+    const { items, facets, facetsOf } = libraryIndex.query({
+      q,
+      kind: kindRaw,
+      scope: scopeRaw,
+      ...filters,
+    })
 
     return response.ok({
       root: catalog.root,
@@ -64,8 +91,19 @@ export default class LibraryController {
       projectRoot: projectStore.project?.root ?? null,
       count: items.length,
       total: catalog.items.length,
-      query: { q: q ?? null, kind: kindRaw ?? null, scope: scopeRaw ?? null },
+      query: {
+        q: q ?? null,
+        kind: kindRaw ?? null,
+        scope: scopeRaw ?? null,
+        assetKind: filters.assetKind ?? [],
+        shelf: filters.shelf ?? [],
+        licence: filters.licence ?? [],
+        tags: filters.tags ?? [],
+      },
       items,
+      facets,
+      facetsOf,
+      shelves: catalog.shelves,
       errors: catalog.errors,
     })
   }
@@ -106,7 +144,9 @@ export default class LibraryController {
     }
     libraryThumbnail.invalidateOn(libraryIndex.getCatalog().loadedAt)
     const root = libraryIndex.root
-    const thumb = await libraryThumbnail.forItem(match, root)
+    const thumb = await libraryThumbnail.forItem(match, root, {
+      assetProject: libraryIndex.assetProject,
+    })
     response.header('content-type', thumb.mimeType)
     response.header('cache-control', 'public, max-age=60')
     if (thumb.placeholder) response.header('x-thumbnail-placeholder', '1')

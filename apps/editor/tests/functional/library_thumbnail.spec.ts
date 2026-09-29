@@ -294,6 +294,48 @@ test.group('Library thumbnails · HTTP', (group) => {
     }
   })
 
+  test('a shelf record is drawn by the asset library: an image as its picture, a video as its card (E1)', async ({
+    client,
+    assert,
+  }) => {
+    const dir = await makeLibraryProject()
+    try {
+      const ball = await readFile(BALL_PNG)
+      const clip = Buffer.from('not really an mp4')
+      const ballSha = createHash('sha256').update(ball).digest('hex')
+      const clipSha = createHash('sha256').update(clip).digest('hex')
+      await mkdir(join(dir, 'assets', 'blobs'), { recursive: true })
+      await writeFile(join(dir, 'assets', 'blobs', `${ballSha}.png`), ball)
+      await writeFile(join(dir, 'assets', 'blobs', `${clipSha}.mp4`), clip)
+      const base = { tags: [], licence: 'own', credit: '', source: '' }
+      await writeFile(
+        join(dir, 'assets', 'catalogue.json'),
+        JSON.stringify({
+          'shelf-ball': { ...base, kind: 'image', name: 'Ball', sha: ballSha, ext: 'png', bytes: ball.length },
+          'shelf-clip': { ...base, kind: 'video', name: 'Clip', sha: clipSha, ext: 'mp4', bytes: clip.length, sec: 2 },
+        })
+      )
+      await client.post('/api/project').json({ directory: dir })
+      await libraryIndex.flush()
+
+      const picture = await client.get('/api/library/thumbnail').qs({ kind: 'asset', id: 'shelf-ball' })
+      picture.assertStatus(200)
+      assert.isUndefined(picture.header('x-thumbnail-placeholder'))
+      assert.isTrue(isPng(picture.response.body))
+
+      const card = await client.get('/api/library/thumbnail').qs({ kind: 'asset', id: 'shelf-clip' })
+      card.assertStatus(200)
+      assert.equal(card.header('x-thumbnail-placeholder'), '1')
+      assert.isTrue(isPng(card.response.body))
+      // A4's cache: the card is the shelf's thumb for that sha.
+      const thumb = await readFile(join(dir, 'assets', 'thumbs', `${clipSha}.png`))
+      assert.isTrue(isPng(thumb))
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('template item renders via engine (no placeholder)', async ({ client, assert }) => {
     const dir = await makeLibraryProject()
     try {

@@ -111,7 +111,9 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
   // Resolve the winning (kind,id) within the project scope only — the
   // merged catalog already discriminates by scope, so this picks the
   // project file even if a global copy exists with the same id.
-  const candidates = libraryIndex.search({ kind: promotableKind, scope: 'project' })
+  // index.json entries only: a record on the project's asset shelf moves
+  // with `asset mv` (E3 makes promote that move).
+  const candidates = libraryIndex.search({ kind: promotableKind, scope: 'project', shelves: false })
   const item = candidates.find((c) => c.id === id)
   if (!item) {
     throw new PromoteError(

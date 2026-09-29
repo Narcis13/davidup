@@ -1242,7 +1242,10 @@ the global `library/`.
 ## Global library (`~/.davidup/library`)
 
 The Library panel in the editor reads from a **shared pool** layered with a
-project-local override: project-local wins when ids collide.
+project-local override: project-local wins when ids collide. Its Assets and
+Fonts tabs also list the asset library's shelves (the project's `assets/`,
+`~/.davidup/assets`, the house shelf), searched as `search_assets` searches
+them, with the matches' kinds, shelves, licences and tags as filter chips.
 
 ```bash
 bun run seed:library                  # full seed (network needed for fonts)

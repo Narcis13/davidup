@@ -9,9 +9,11 @@
 import { test } from '@japa/runner'
 import type { LibraryItem } from '../../inertia/composables/useLibrary.js'
 import {
+  __resetLibraryDragForTests,
   buildCommandsForNewTrackDrop,
   buildCommandsForStageDrop,
   buildCommandsForTrackDrop,
+  useLibraryDrag,
   type LibraryDragPayload,
 } from '../../inertia/composables/useLibraryDrag.js'
 
@@ -328,5 +330,47 @@ test.group('useLibraryDrag · brand defaults resolution', () => {
       }
     }
     assert.deepEqual(defaults, { title: 'Title card', subtitle: '' })
+  })
+})
+
+test.group('useLibraryDrag · media type of a dragged asset (asset library E1)', (group) => {
+  group.each.teardown(() => __resetLibraryDragForTests())
+
+  function dragStart(item: LibraryItem): LibraryDragPayload | null {
+    const data = new Map<string, string>()
+    const event = {
+      dataTransfer: { setData: (k: string, v: string) => data.set(k, v), effectAllowed: 'none' },
+    } as unknown as DragEvent
+    const drag = useLibraryDrag()
+    drag.onDragStart(item, event)
+    return drag.payload.value
+  }
+
+  test('an uploaded video (its entry says kind, not type) drags as a video', ({ assert }) => {
+    const payload = dragStart({
+      kind: 'asset',
+      id: 'ab12',
+      source: 'index.json',
+      scope: 'project',
+      assetType: 'video',
+      raw: { id: 'ab12', kind: 'video', mediaType: 'video/mp4', duration: 3 },
+    })
+    assert.equal(payload?.mediaType, 'video')
+    assert.equal(payload?.duration, 3)
+  })
+
+  test('a shelf record drags as its type', ({ assert }) => {
+    const payload = dragStart({
+      kind: 'asset',
+      id: 'pop',
+      source: '/shelf/blobs/x.wav',
+      scope: 'global',
+      shelf: 'house',
+      assetKind: 'sample',
+      assetType: 'audio',
+      duration: 0.4,
+    })
+    assert.equal(payload?.mediaType, 'audio')
+    assert.equal(payload?.duration, 0.4)
   })
 })

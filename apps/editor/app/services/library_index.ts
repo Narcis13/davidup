@@ -23,11 +23,21 @@
 // `bun run seed:library` again (see scripts/seed-global-library.ts). A
 // definition's authored `version` is carried through to `LibraryItem.version`
 // so the panel can tell which pack a template came from.
+//
+// The Assets and Fonts tabs also list the asset library (asset library plan
+// E1): the records on the project's `assets/` shelf, the user's pool and the
+// house shelf, read and watched by `LibraryShelves` and searched with
+// assetlib's ranker. An `index.json` asset or font that is only an `asset:`
+// pointer to a listed record (the seed's fonts, D5) is listed once, as the
+// record. Other `index.json` assets and fonts (uploads, until E2) stay.
 
 import { promises as fs } from 'node:fs'
 import { watch, type FSWatcher } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import logger from '@adonisjs/core/services/logger'
+import { parseAssetSrc } from 'davidup/assets'
+import type { Facets } from 'davidup/assetlib'
+import { LibraryShelves, type ShelfFilters } from '#services/library_shelves'
 import {
   readSceneDefinition,
   registerBehavior,
@@ -74,9 +84,28 @@ export interface LibraryItem {
   duration?: number
   url?: string
   thumbnail?: string
-  /** Raw JSON object as authored. Clients can introspect further if needed. */
+  /**
+   * What davidup takes an `asset` / `font` item as: image, video, audio or
+   * font. From the record's kind on a shelf item; from the entry's `type`
+   * (hand-written) or `kind` (an upload) on an `index.json` one.
+   */
+  assetType?: AssetType
+  /** The asset library shelf a record is on (`project`, `user`, `house`); absent on `index.json` items. */
+  shelf?: string
+  /** Later shelves holding a record of the same id, which this one hides. */
+  shadowed?: string[]
+  /** The record's own kind (`cutout`, `sample`, `stock`, ...). */
+  assetKind?: string
+  licence?: string
+  credit?: string
+  tags?: string[]
+  /** The field hits a search matched the record on ("name: paper"). */
+  why?: string[]
+  /** Raw JSON object as authored (a shelf item: its record). Clients can introspect further if needed. */
   raw?: unknown
 }
+
+export type AssetType = 'image' | 'video' | 'audio' | 'font'
 
 export interface LibraryRootInfo {
   scope: LibraryScope
@@ -91,12 +120,24 @@ export interface LibraryCatalog {
   loadedAt: number
   items: LibraryItem[]
   errors: { file: string; message: string; scope: LibraryScope }[]
+  /** The asset library shelves read, in search order (none while nothing is attached). */
+  shelves: { name: string; root: string }[]
 }
 
-export interface LibrarySearch {
+export interface LibrarySearch extends ShelfFilters {
   q?: string
   kind?: LibraryItemKind
   scope?: LibraryScope
+  /** False leaves the asset library's records out (the MCP bridge: list_library adds them itself). */
+  shelves?: boolean
+}
+
+export interface LibraryQueryResult {
+  items: LibraryItem[]
+  /** The shelves' facets for an asset / font search; null for templates, behaviors and scenes. */
+  facets: Facets | null
+  /** 'all' when nothing on the shelves matched and the facets count what is listed there. */
+  facetsOf: 'hits' | 'all' | null
 }
 
 const DEFAULT_DEBOUNCE_MS = 100
@@ -201,6 +242,11 @@ function readAssetItem(raw: unknown, source: string, scope: LibraryScope): Libra
   if (url) item.url = url
   const thumbnail = asString(obj.thumbnail) ?? asString(obj.preview)
   if (thumbnail) item.thumbnail = thumbnail
+  // A hand-written entry says `type`; the upload pipeline writes `kind`.
+  const type = asString(obj.type) ?? asString(obj.kind)
+  if (type === 'image' || type === 'video' || type === 'audio' || type === 'font') {
+    item.assetType = type
+  }
   return item
 }
 
@@ -216,7 +262,27 @@ function readFontItem(raw: unknown, source: string, scope: LibraryScope): Librar
   if (description) item.description = description
   const url = asString(obj.url) ?? asString(obj.src) ?? asString(obj.path)
   if (url) item.url = url
+  item.assetType = 'font'
   return item
+}
+
+/** True for an `index.json` asset or font whose src is `asset:<id>` for an id in `ids`. */
+function pointsAtShelf(item: LibraryItem, ids: ReadonlySet<string>): boolean {
+  if ((item.kind !== 'asset' && item.kind !== 'font') || !item.url) return false
+  try {
+    const ref = parseAssetSrc(item.url)
+    return ref !== null && ids.has(ref.id)
+  } catch {
+    return false
+  }
+}
+
+function byKindIdScope(a: LibraryItem, b: LibraryItem): number {
+  if (a.kind !== b.kind) return a.kind.localeCompare(b.kind)
+  if (a.id !== b.id) return a.id.localeCompare(b.id)
+  // Stable scope order: global before project, so an overridden global
+  // appears just above its project shadow.
+  return a.scope.localeCompare(b.scope)
 }
 
 async function walkLibrary(root: string): Promise<string[]> {
@@ -258,11 +324,17 @@ interface ScopeState {
  *     stays attached.
  *   * `detachGlobal()` — drop the global pool (used by tests).
  *
- * `getCatalog()` and `search()` return the merged view of every attached root.
+ *   * `setAssetProject(projectDir)` — the project whose `assets/` shelf is
+ *     listed first (asset library E1); cleared by `detachProject()`.
+ *
+ * `getCatalog()` and `search()` return the merged view of every attached root
+ * and, while anything is attached, of the asset library's shelves.
  */
 export class LibraryIndex {
   #projectState: ScopeState | null = null
   #globalState: ScopeState | null = null
+  #assetProject: string | null = null
+  #shelves = new LibraryShelves(() => this.#scheduleReload())
   #catalog: LibraryCatalog
   #debounceMs: number
 
@@ -302,6 +374,22 @@ export class LibraryIndex {
   /** True iff the global root is currently attached. */
   get isGlobalAttached(): boolean {
     return this.#globalState !== null
+  }
+
+  /** The project whose `assets/` shelf is read first, or `null`. */
+  get assetProject(): string | null {
+    return this.#assetProject
+  }
+
+  /**
+   * Name the project whose `assets/` is the first asset shelf (null: none).
+   * The project store calls it on every load, library or not.
+   */
+  async setAssetProject(projectDir: string | null): Promise<LibraryCatalog> {
+    if (this.#assetProject === projectDir) return this.#catalog
+    this.#assetProject = projectDir
+    await this.reloadNow()
+    return this.#catalog
   }
 
   getCatalog(): LibraryCatalog {
@@ -368,6 +456,7 @@ export class LibraryIndex {
 
   async detachProject(): Promise<void> {
     await this.#detachState('project')
+    this.#assetProject = null
     await this.#reload()
   }
 
@@ -447,19 +536,53 @@ export class LibraryIndex {
 
   /** Filtered view over the merged catalog. Filters are AND-combined. */
   search(opts: LibrarySearch = {}): LibraryItem[] {
-    let items = this.#catalog.items
-    if (opts.kind) items = items.filter((i) => i.kind === opts.kind)
-    if (opts.scope) items = items.filter((i) => i.scope === opts.scope)
+    return this.query(opts).items
+  }
+
+  /**
+   * {@link search} with the shelves' facets. Library items are matched by
+   * substring over id / name / description; shelf records by assetlib's
+   * ranked search. With `q` the `index.json` items come first, then the
+   * records by rank; without, everything is by kind, then id. A facet filter
+   * (`assetKind`, `shelf`, `licence`, `tags`) narrows to shelf records.
+   */
+  query(opts: LibrarySearch = {}): LibraryQueryResult {
+    const shelved =
+      opts.shelves !== false &&
+      (opts.kind === undefined || opts.kind === 'asset' || opts.kind === 'font')
+    const faceted = !!(
+      opts.assetKind?.length ||
+      opts.shelf?.length ||
+      opts.licence?.length ||
+      opts.tags?.length
+    )
+
+    let own = this.#catalog.items.filter((i) => i.shelf === undefined)
+    if (opts.kind) own = own.filter((i) => i.kind === opts.kind)
+    if (opts.scope) own = own.filter((i) => i.scope === opts.scope)
     if (opts.q) {
       const q = opts.q.toLowerCase()
-      items = items.filter((i) => {
+      own = own.filter((i) => {
         if (i.id.toLowerCase().includes(q)) return true
         if (i.name && i.name.toLowerCase().includes(q)) return true
         if (i.description && i.description.toLowerCase().includes(q)) return true
         return false
       })
     }
-    return items
+    if (faceted) own = own.filter((i) => i.kind !== 'asset' && i.kind !== 'font')
+    if (!shelved) return { items: own, facets: null, facetsOf: null }
+
+    const found = this.#shelves.search({
+      ...(opts.q ? { q: opts.q } : {}),
+      ...(opts.kind === 'asset' || opts.kind === 'font' ? { kind: opts.kind } : {}),
+      ...(opts.scope ? { scope: opts.scope } : {}),
+      ...(opts.assetKind ? { assetKind: opts.assetKind } : {}),
+      ...(opts.shelf ? { shelf: opts.shelf } : {}),
+      ...(opts.licence ? { licence: opts.licence } : {}),
+      ...(opts.tags ? { tags: opts.tags } : {}),
+    })
+    const items = opts.q ? [...own, ...found.items] : [...own, ...found.items].sort(byKindIdScope)
+    return { items, facets: found.facets, facetsOf: found.facetsOf }
   }
 
   #startWatcher(state: ScopeState): void {
@@ -522,13 +645,7 @@ export class LibraryIndex {
     }
     for (const item of perScope.project) merged.push(item)
 
-    merged.sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind.localeCompare(b.kind)
-      if (a.id !== b.id) return a.id.localeCompare(b.id)
-      // Stable scope order: global before project, so an overridden global
-      // appears just above its project shadow.
-      return a.scope.localeCompare(b.scope)
-    })
+    merged.sort(byKindIdScope)
 
     // Pick the winning definition per (kind, id) and (re-)register it with
     // the engine. The winner is the project entry when present; otherwise
@@ -588,12 +705,27 @@ export class LibraryIndex {
     }
     this.#registered = nextRegistered
 
+    // The asset library, while anything is attached (a bare index lists
+    // nothing, as it always has). An index.json pointer to a listed record is
+    // dropped in favour of the record.
+    let items = merged
+    if (this.#globalState || this.#projectState || this.#assetProject) {
+      const shelfItems = this.#shelves.read(this.#assetProject, errors)
+      const listed = new Set(shelfItems.map((i) => i.id))
+      items = [...merged.filter((i) => !pointsAtShelf(i, listed)), ...shelfItems].sort(
+        byKindIdScope
+      )
+    } else {
+      this.#shelves.close()
+    }
+
     this.#catalog = {
       root: this.#projectState?.path ?? null,
       roots: this.#rootsInfo(),
       loadedAt: Date.now(),
-      items: merged,
+      items,
       errors,
+      shelves: this.#shelves.shelves,
     }
   }
 
@@ -606,7 +738,7 @@ export class LibraryIndex {
 }
 
 function emptyCatalog(): LibraryCatalog {
-  return { root: null, roots: [], loadedAt: 0, items: [], errors: [] }
+  return { root: null, roots: [], loadedAt: 0, items: [], errors: [], shelves: [] }
 }
 
 async function readRoot(

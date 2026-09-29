@@ -115,6 +115,10 @@
       "types": "./dist/cli/scaffold.d.ts",
       "bun": "./src/cli/scaffold.ts",
       "default": "./dist/cli/scaffold.js"
+    },
+    "./assetlib": {
+      "types": "./assetlib/index.d.ts",
+      "default": "./assetlib/index.js"
     }
   },
   "engines": {

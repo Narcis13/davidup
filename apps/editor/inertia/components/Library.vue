@@ -17,12 +17,18 @@
 // drop the files are POSTed to `/api/assets` via `useAssetUpload`. The
 // library_index watcher picks the new files up within ~1s and the panel's
 // 2-second poll refreshes the catalog so the new card appears.
+//
+// Asset library E1: the Assets and Fonts tabs list the asset shelves' records
+// too, searched by assetlib; the search's facets (record kind, shelf, licence,
+// tags) render as chips under the tabs, and a chip narrows the search.
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   useLibrary,
+  FACET_GROUPS,
   LIBRARY_TABS,
   LIBRARY_SCOPES,
+  type FacetGroup,
   type LibraryItem,
   type LibraryItemKind,
   type LibraryTab,
@@ -312,7 +318,7 @@ const visibleTabs = computed<LibraryItemKind[]>(() => LIBRARY_TABS as LibraryIte
 // ─── U1: asset media-type sub-filter (All / Images / Audio / Video) ─────
 //
 // `LibraryItem.kind: 'asset'` covers images, audio, and video alike — the
-// underlying media type only lives on `item.raw.type`. The server doesn't
+// underlying media type is the server's `item.assetType`. The server doesn't
 // support filtering by it (still one flat `asset` kind), so this is a
 // client-side pass over the already-fetched `lib.items` list, shown only
 // while the Assets tab is active.
@@ -327,8 +333,54 @@ const assetMediaLabels: Record<AssetMediaFilter, string> = {
 }
 
 function assetMediaTypeOf(item: LibraryItem): string | undefined {
-  const raw = item.raw as { type?: unknown } | undefined
-  return typeof raw?.type === 'string' ? raw.type : undefined
+  return item.assetType
+}
+
+// ─── E1: facet chips ─────────────────────────────────────────────────────
+//
+// The response's facets, as chips: each group's values by count (tags capped
+// at a dozen), the ones in the filters marked active. A chip in the filters
+// stays shown even when the narrowed search no longer counts it, so it can
+// always be clicked off.
+const facetLabels: Record<FacetGroup, string> = {
+  kind: 'Kind',
+  shelf: 'Shelf',
+  licence: 'Licence',
+  tags: 'Tags',
+}
+const FACET_CAP: Record<FacetGroup, number> = { kind: 12, shelf: 3, licence: 7, tags: 12 }
+
+interface FacetChip {
+  value: string
+  count: number | null
+  active: boolean
+}
+
+const facetRows = computed<{ group: FacetGroup; chips: FacetChip[] }[]>(() => {
+  const t = lib.tab.value
+  if (t !== 'asset' && t !== 'font') return []
+  const facets = lib.facets.value
+  if (!facets) return []
+  const rows: { group: FacetGroup; chips: FacetChip[] }[] = []
+  for (const group of FACET_GROUPS) {
+    const counts = facets[group] ?? {}
+    const on = lib.facetFilters.value[group]
+    const chips: FacetChip[] = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, FACET_CAP[group])
+      .map(([value, count]) => ({ value, count, active: on.includes(value) }))
+    for (const value of on) {
+      if (!chips.some((c) => c.value === value)) chips.unshift({ value, count: null, active: true })
+    }
+    // One value that every match shares says nothing, unless it is a filter.
+    if (chips.length === 1 && !chips[0].active && group !== 'tags') continue
+    if (chips.length > 0) rows.push({ group, chips })
+  }
+  return rows
+})
+
+function onFacetChip(group: FacetGroup, value: string): void {
+  lib.toggleFacet(group, value)
 }
 
 const visibleItems = computed<LibraryItem[]>(() => {
@@ -373,7 +425,11 @@ const emptyHint = computed(() => {
     return 'Library is empty. Drop a `*.template.json`, `*.behavior.json`, or `*.scene.json` into the project library directory.'
   }
   if (lib.query.value) {
-    return `No ${lib.tab.value === 'all' ? 'items' : lib.tab.value + 's'} match "${lib.query.value}".`
+    const narrowed = lib.facetCount.value > 0 ? ' with these filters' : ''
+    return `No ${lib.tab.value === 'all' ? 'items' : lib.tab.value + 's'} match "${lib.query.value}"${narrowed}.`
+  }
+  if (lib.facetCount.value > 0) {
+    return `No ${lib.tab.value}s match these filters.`
   }
   return `No ${lib.tab.value}s in this library yet.`
 })
@@ -648,6 +704,40 @@ function removeKey(set: Set<string>, key: string): Set<string> {
       </button>
     </nav>
 
+    <div
+      v-if="facetRows.length > 0"
+      class="facets"
+      data-testid="library-facets"
+      :data-facets-of="lib.facetsOf.value ?? null"
+    >
+      <div v-for="row in facetRows" :key="row.group" class="facet-row" :data-facet-group="row.group">
+        <span class="facet-label">{{ facetLabels[row.group] }}</span>
+        <button
+          v-for="chip in row.chips"
+          :key="chip.value"
+          type="button"
+          class="facet-chip"
+          :data-facet="row.group"
+          :data-value="chip.value"
+          :data-active="chip.active ? 'true' : 'false'"
+          :aria-pressed="chip.active"
+          :title="chip.active ? `Stop filtering by ${chip.value}` : `Only ${chip.value}`"
+          @click="onFacetChip(row.group, chip.value)"
+        >
+          {{ chip.value }}<span v-if="chip.count !== null" class="facet-count">{{ chip.count }}</span>
+        </button>
+      </div>
+      <button
+        v-if="lib.facetCount.value > 0"
+        type="button"
+        class="facet-clear"
+        data-testid="library-facets-clear"
+        @click="lib.clearFacets()"
+      >
+        Clear filters
+      </button>
+    </div>
+
     <div v-if="lib.error.value" class="error" role="alert">
       {{ lib.error.value }}
     </div>
@@ -912,6 +1002,82 @@ function removeKey(set: Set<string>, key: string): Set<string> {
   color: #e5e5e5;
   background: rgba(91, 124, 250, 0.15);
   border-color: rgba(91, 124, 250, 0.35);
+}
+
+.facets {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 132px;
+  overflow: auto;
+}
+
+.facet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.facet-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #606060;
+  min-width: 52px;
+}
+
+.facet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #b0b0b0;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1.3;
+  padding: 1px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.facet-chip:hover {
+  color: #e5e5e5;
+  border-color: rgba(91, 124, 250, 0.45);
+}
+
+.facet-chip[data-active='true'] {
+  color: #e5e5e5;
+  background: rgba(91, 124, 250, 0.2);
+  border-color: rgba(91, 124, 250, 0.55);
+}
+
+.facet-count {
+  color: #707070;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.facet-chip[data-active='true'] .facet-count {
+  color: #a9b8ff;
+}
+
+.facet-clear {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: #8a9cf5;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.facet-clear:hover {
+  color: #c9d4ff;
+  text-decoration: underline;
 }
 
 .grid {

@@ -52,6 +52,11 @@ export const runnerHooks: Required<Pick<Config, 'setup' | 'teardown'>> = {
       if (libDir && libDir.includes('davidup-test-library-')) {
         await rm(libDir, { recursive: true, force: true })
       }
+      // The throwaway asset shelves minted there too.
+      const userShelf = process.env.DAVIDUP_ASSETS
+      if (userShelf && userShelf.includes('davidup-test-shelves-')) {
+        await rm(join(userShelf, '..'), { recursive: true, force: true })
+      }
     },
   ],
 }

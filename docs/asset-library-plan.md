@@ -669,6 +669,33 @@ shelf, thumb from A4. Search box calls A3 with facets rendered as chips.
 a fixture shelf, an uploaded video shows a video badge, and typing "paper"
 shows facet chips.
 
+*As built:* the shelf half is `app/services/library_shelves.ts`;
+`LibraryIndex` reads it on every reload while anything is attached, next to
+the `index.json` items (uploads still write there until E2), and drops an
+`index.json` asset or font that is only an `asset:` pointer to a listed
+record (D5's rule). The project shelf is named by
+`libraryIndex.setAssetProject(root)`, which the project store calls on every
+load, so a project with no `library/` still lists its `assets/`. Listed are
+the kinds davidup takes (`DAVIDUP_TYPE` not null); items carry `shelf`,
+`shadowed`, `assetKind`, `assetType` (image / video / audio / font, also on
+`index.json` items from `type` or `kind`: the badge fix), `licence`,
+`credit`, `tags`, the pinned `asset:` src as `url`, and `why` under a query.
+The catalogues are watched by stat polling (`fs.watchFile`, 250 ms) rather
+than `fs.watch`: on macOS libuv shares one FSEvents stream among a process's
+watchers and restarts it when one is added or closed, which lost the
+library directory's events. `GET /api/library` takes `assetKind`, `shelf`,
+`licence`, `tag` (comma-separated or repeated; any of them leaves
+`index.json` assets out) and returns `facets` / `facetsOf` / `shelves`; with
+no hits the facets count what the tab lists (assetlib's own `'all'` would
+count puppets). Thumbnails are `lib.preview` with the hosts' previewers
+(placeholder when it is the card), except an image or font no host draws,
+rendered as before (sprite, "Aa") so the card is not what an upload shows.
+The MCP bridge asks the index with `shelves: false`: `list_library` and
+`get_library_thumbnail` add the shelves themselves (D2), unchanged.
+Promote skips shelf records (E3). `davidup/assetlib` is exported for the
+editor. The editor's tests run against empty user / house shelves
+(`bin/test.ts`).
+
 ### E2. Upload and drop
 
 *Drop a file, get a record; drop a card, get an item.*
@@ -830,7 +857,7 @@ then D and E in parallel, I when D4 exists, S last.
 | D4 | Derived assets land in the library | 1 | A2 D1 H1 | [x] |
 | D5 | The seed writes the user shelf | 0.5 | A2 D1 | [x] |
 | D6 | Palette and text-room facts | 1 | A2 | [x] |
-| E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [ ] |
+| E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [x] |
 | E2 | Upload and drop | 1 | D3 E1 | [ ] |
 | E3 | Promote is move | 0.5 | E1 | [ ] |
 | E4 | The record drawer | 1 | E1 D3 | [ ] |

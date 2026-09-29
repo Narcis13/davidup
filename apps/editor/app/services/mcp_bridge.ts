@@ -338,7 +338,10 @@ export function buildLibraryControls(
   return {
     list: (args: LibraryListArgs): MCPLibraryCatalog => {
       const catalog = library.getCatalog()
-      const items = library.search(args)
+      // list_library adds the asset library's records itself (D2), so the
+      // editor's half is its own library: templates, behaviors, scenes and
+      // index.json assets / fonts.
+      const items = library.search({ ...args, shelves: false })
       const projectRoot = store.project?.root ?? null
       return {
         root: catalog.root,
@@ -348,7 +351,7 @@ export function buildLibraryControls(
         globalAttached: library.isGlobalAttached,
         projectRoot,
         count: items.length,
-        total: catalog.items.length,
+        total: catalog.items.filter((i) => i.shelf === undefined).length,
         query: {
           q: args.q ?? null,
           kind: args.kind ?? null,
@@ -359,7 +362,9 @@ export function buildLibraryControls(
       }
     },
     thumbnail: async (args: LibraryThumbnailArgs): Promise<MCPLibraryThumbnail> => {
-      const items = library.search({ kind: args.kind })
+      // Shelf records are get_library_thumbnail's own (it draws them as
+      // get_asset_preview does), as list_library's are.
+      const items = library.search({ kind: args.kind, shelves: false })
       const match = items.find((i) => i.id === args.id)
       if (!match) {
         throw new MCPToolError(

@@ -15,6 +15,13 @@
 //   - behavior:      a sample shape with the behavior applied as a tween.
 //   - other / failure: deterministic placeholder PNG showing the kind + id.
 //
+// A record on an asset library shelf (asset library E1) is drawn by assetlib's
+// preview (A4): its cached thumb, else the previewer a host registered for its
+// kind (hdf's for a cutout, stock or sample), else its fallback card, which is
+// reported as a placeholder. A plain image or a font has no host previewer, so
+// it is rendered as an index.json one is (a sprite, "Aa" in the face) rather
+// than shown as a card.
+//
 // The thumbnail is cached in-memory keyed by `${kind}::${id}::${source}` so
 // repeat requests are free; the cache is cleared when `clear()` is called
 // (the library_index reload path invokes this).
@@ -22,7 +29,8 @@
 import { resolve, dirname, join, isAbsolute } from 'node:path'
 import { promises as fs } from 'node:fs'
 import logger from '@adonisjs/core/services/logger'
-import { resolveLibraryAsset } from 'davidup/assets'
+import { imageInfo, loadHosts, type Previewers } from 'davidup/assetlib'
+import { openAssetLibrary, resolveLibraryAsset } from 'davidup/assets'
 import { renderPreviewFrame } from 'davidup/mcp'
 import globalLibraryRoot from '#services/global_library_root'
 import type { LibraryItem } from '#services/library_index'
@@ -180,6 +188,10 @@ async function synthAssetComposition(
   if (typeof url !== 'string') return null
   const path = await resolveSourceFile(libraryRoot, url, item.scope)
   if (!path) return null
+  return spriteComposition(path)
+}
+
+function spriteComposition(path: string): SynthComposition {
   return {
     version: '0.1',
     composition: compMeta(),
@@ -208,6 +220,10 @@ async function synthFontComposition(
   if (typeof url !== 'string') return null
   const path = await resolveSourceFile(libraryRoot, url, item.scope)
   if (!path) return null
+  return glyphComposition(path, family)
+}
+
+function glyphComposition(path: string, family: string): SynthComposition {
   return {
     version: '0.1',
     composition: compMeta(),
@@ -498,6 +514,69 @@ function wrapText(
   if (line.length > 0) ctx.fillText(line, x, cursorY)
 }
 
+let hostsPromise: Promise<Previewers> | null = null
+
+/** The previewers of the hosts beside assetlib (hdf's, H3), loaded once per process. */
+function hostPreviewers(): Promise<Previewers> {
+  hostsPromise ??= loadHosts().then(
+    ({ previewers, warnings }) => {
+      for (const w of warnings) logger.warn({ warning: w }, 'library_thumbnail: asset host')
+      return previewers
+    },
+    (err: unknown) => {
+      logger.warn({ err }, 'library_thumbnail: asset hosts not loaded')
+      return {}
+    }
+  )
+  return hostsPromise
+}
+
+/** A shelf record's preview (A4), or null when the shelves no longer hold it. */
+async function shelfThumbnail(
+  item: LibraryItem,
+  assetProject: string | null | undefined
+): Promise<ThumbnailResult | null> {
+  const previewers = await hostPreviewers()
+  const lib = openAssetLibrary({ project: assetProject ?? undefined, previewers })
+  if (!lib.has(item.id)) return null
+  const record = lib.get(item.id)
+  const drawn = !!previewers[record.kind]
+  if (!drawn && (record.kind === 'image' || record.kind === 'font')) {
+    const path = lib.locate(item.id).path
+    const stat = await fs.stat(path).catch(() => null)
+    if (stat?.isFile()) {
+      const family = typeof record.family === 'string' && record.family ? record.family : record.id
+      const synth =
+        record.kind === 'image' ? spriteComposition(path) : glyphComposition(path, family)
+      try {
+        const preview = await renderPreviewFrame(
+          synth as unknown as Parameters<typeof renderPreviewFrame>[0],
+          0.5
+        )
+        return {
+          buffer: Buffer.from(preview.image, 'base64'),
+          mimeType: 'image/png',
+          width: preview.width,
+          height: preview.height,
+          placeholder: false,
+        }
+      } catch (err) {
+        logger.warn({ err, id: item.id }, 'library_thumbnail: render failed, using its card')
+      }
+    }
+  }
+  const p = await lib.preview(item.id)
+  for (const w of p.warnings) logger.warn({ warning: w, id: item.id }, 'library_thumbnail: preview')
+  const info = imageInfo(p.png)
+  return {
+    buffer: Buffer.from(p.png),
+    mimeType: 'image/png',
+    width: info?.w ?? 0,
+    height: info?.h ?? 0,
+    placeholder: p.by.startsWith('card:'),
+  }
+}
+
 export class LibraryThumbnailService {
   #cache = new Map<string, ThumbnailResult>()
   #generation = 0
@@ -522,10 +601,29 @@ export class LibraryThumbnailService {
     return `${item.kind}::${item.id}::${item.source}`
   }
 
-  async forItem(item: LibraryItem, libraryRoot: string | null): Promise<ThumbnailResult> {
+  async forItem(
+    item: LibraryItem,
+    libraryRoot: string | null,
+    opts: { assetProject?: string | null } = {}
+  ): Promise<ThumbnailResult> {
     const key = this.cacheKey(item)
     const cached = this.#cache.get(key)
     if (cached) return cached
+
+    if (item.shelf !== undefined) {
+      let shelved: ThumbnailResult | null = null
+      try {
+        shelved = await shelfThumbnail(item, opts.assetProject)
+      } catch (err) {
+        logger.warn(
+          { err, item: key },
+          'library_thumbnail: shelf preview failed, using placeholder'
+        )
+      }
+      const result = shelved ?? (await renderPlaceholder(item))
+      this.#cache.set(key, result)
+      return result
+    }
 
     let synth: SynthComposition | null = null
     try {

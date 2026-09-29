@@ -269,6 +269,11 @@ export class ProjectStore {
     } else {
       await libraryIndex.detach()
     }
+    // The project's `assets/` shelf heads the asset library in the Library
+    // panel (asset library E1), whether or not the project has a `library/`.
+    await libraryIndex.setAssetProject(root).catch((err) => {
+      logger.warn({ err }, 'project_store: asset library read failed')
+    })
 
     // Best-effort recents bump. A failure to update ~/.davidup/recents.json
     // must not block the load — the editor stays usable even if the picker's

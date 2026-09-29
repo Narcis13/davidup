@@ -9,8 +9,13 @@
 //
 // Refresh strategy:
 //   - first mount: fetch immediately
-//   - filter change (kind / q): refetch (debounced 150ms for `q`)
+//   - filter change (kind / q / a facet): refetch (debounced 150ms for `q`)
 //   - manual refresh(): explicit, used by a tiny ⟳ button + tests
+//
+// The Assets and Fonts tabs also list the asset library's records (asset
+// library E1); their search is assetlib's, and the response's `facets` are
+// the chips that narrow it (`toggleFacet`). The facet filters reset when the
+// tab changes.
 
 import { computed, ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useToasts } from './useToasts.js'
@@ -37,7 +42,34 @@ export interface LibraryItem {
   duration?: number
   url?: string
   thumbnail?: string
+  /** What davidup takes an asset / font item as (the server reads it off the record or entry). */
+  assetType?: 'image' | 'video' | 'audio' | 'font'
+  /** The asset library shelf a record is on; absent on index.json items. */
+  shelf?: string
+  /** Later shelves holding a record of the same id, which this one hides. */
+  shadowed?: string[]
+  /** The record's own kind (`cutout`, `stock`, `sample`, ...). */
+  assetKind?: string
+  licence?: string
+  credit?: string
+  tags?: string[]
+  /** The field hits a search matched the record on. */
+  why?: string[]
   raw?: unknown
+}
+
+/** The facet groups the chips come from (assetlib's search facets). */
+export type FacetGroup = 'kind' | 'shelf' | 'licence' | 'tags'
+export const FACET_GROUPS: FacetGroup[] = ['kind', 'shelf', 'licence', 'tags']
+
+export type LibraryFacets = Record<FacetGroup | 'media', Record<string, number>>
+
+/** The query parameter each facet group filters by. */
+const FACET_PARAM: Record<FacetGroup, string> = {
+  kind: 'assetKind',
+  shelf: 'shelf',
+  licence: 'licence',
+  tags: 'tag',
 }
 
 export interface LibraryResponse {
@@ -50,6 +82,11 @@ export interface LibraryResponse {
   total: number
   query: { q: string | null; kind: string | null; scope?: string | null }
   items: LibraryItem[]
+  /** The shelves' facets for an asset / font search; null for the other tabs. */
+  facets?: LibraryFacets | null
+  /** 'all' when nothing matched and the facets count everything listed. */
+  facetsOf?: 'hits' | 'all' | null
+  shelves?: { name: string; root: string }[]
   errors: { file: string; message: string }[]
 }
 
@@ -86,6 +123,7 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
   const tab = ref<LibraryTab>(opts.initialTab ?? 'template')
   const scope = ref<LibraryScopeFilter>(opts.initialScope ?? 'all')
   const query = ref('')
+  const facetFilters = ref<Record<FacetGroup, string[]>>(emptyFacetFilters())
   const response = shallowRef<LibraryResponse | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -105,6 +143,10 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
       if (tab.value !== 'all') params.set('kind', tab.value)
       if (scope.value !== 'all') params.set('scope', scope.value)
       if (query.value) params.set('q', query.value)
+      for (const group of FACET_GROUPS) {
+        const values = facetFilters.value[group]
+        if (values.length > 0) params.set(FACET_PARAM[group], values.join(','))
+      }
       const url = params.toString().length > 0 ? `${endpoint}?${params}` : endpoint
       const res = await fetch(url, {
         headers: { accept: 'application/json' },
@@ -150,8 +192,27 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
   }
 
   watch(tab, () => {
+    // A chip names a record kind or shelf of the tab it was picked on.
+    facetFilters.value = emptyFacetFilters()
     void fetchCatalog()
   })
+
+  watch(facetFilters, () => {
+    void fetchCatalog()
+  })
+
+  /** Add a facet value to the filters, or take it off when it is on. */
+  function toggleFacet(group: FacetGroup, value: string): void {
+    const on = facetFilters.value[group]
+    facetFilters.value = {
+      ...facetFilters.value,
+      [group]: on.includes(value) ? on.filter((v) => v !== value) : [...on, value],
+    }
+  }
+
+  function clearFacets(): void {
+    facetFilters.value = emptyFacetFilters()
+  }
 
   watch(scope, () => {
     void fetchCatalog()
@@ -184,11 +245,20 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
   const total = computed(() => response.value?.total ?? 0)
   const root = computed(() => response.value?.root ?? null)
   const errors = computed(() => response.value?.errors ?? [])
+  const facets = computed(() => response.value?.facets ?? null)
+  const facetsOf = computed(() => response.value?.facetsOf ?? null)
+  const facetCount = computed(() => FACET_GROUPS.reduce((n, g) => n + facetFilters.value[g].length, 0))
 
   return {
     tab,
     scope,
     query,
+    facetFilters,
+    facets,
+    facetsOf,
+    facetCount,
+    toggleFacet,
+    clearFacets,
     items,
     attached,
     total,
@@ -200,4 +270,8 @@ export function useLibrary(opts: UseLibraryOptions = {}) {
     refresh: fetchCatalog,
     response,
   }
+}
+
+function emptyFacetFilters(): Record<FacetGroup, string[]> {
+  return { kind: [], shelf: [], licence: [], tags: [] }
 }

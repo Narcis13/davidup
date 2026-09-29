@@ -1,7 +1,8 @@
 import { test } from '@japa/runner'
-import { mkdtemp, mkdir, writeFile, rm, unlink } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, mkdir, readFile, writeFile, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import libraryIndex, { LibraryIndex } from '#services/library_index'
 import projectStore from '#services/project_store'
 
@@ -775,6 +776,292 @@ test.group('LibraryIndex · HTTP', (group) => {
         }
       }
       assert.isTrue(found, '/api/library should pick up the new template within 1s')
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// ─── The asset library in the panel (asset library plan E1) ───────────────
+
+const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex')
+
+interface ShelfRecord {
+  kind: string
+  ext: string
+  tags?: string[]
+  licence?: string
+  name?: string
+  desc?: string
+  credit?: string
+  bytes?: Buffer
+  extra?: Record<string, unknown>
+}
+
+/** One shelf as assetlib writes it: `catalogue.json` + `blobs/<sha>.<ext>`. */
+async function writeShelf(root: string, records: Record<string, ShelfRecord>): Promise<void> {
+  await mkdir(join(root, 'blobs'), { recursive: true })
+  const catalogue: Record<string, unknown> = {}
+  for (const [id, r] of Object.entries(records)) {
+    const bytes = r.bytes ?? Buffer.from(`${id}-bytes`)
+    await writeFile(join(root, 'blobs', `${sha256(bytes)}.${r.ext}`), bytes)
+    catalogue[id] = {
+      kind: r.kind,
+      name: r.name ?? id,
+      ...(r.desc ? { desc: r.desc } : {}),
+      tags: r.tags ?? [],
+      licence: r.licence ?? 'own',
+      credit: r.credit ?? '',
+      source: '',
+      sha: sha256(bytes),
+      ext: r.ext,
+      bytes: bytes.length,
+      ...(r.extra ?? {}),
+    }
+  }
+  await writeFile(join(root, 'catalogue.json'), JSON.stringify(catalogue))
+}
+
+const shelfEnvBefore = { assets: process.env.DAVIDUP_ASSETS, house: process.env.DAVIDUP_HOUSE }
+let shelfBase = ''
+
+test.group('LibraryIndex · asset library (E1)', (group) => {
+  group.each.setup(async () => {
+    await libraryIndex.detach()
+    await libraryIndex.detachGlobal()
+    await projectStore.unload()
+    shelfBase = await mkdtemp(join(tmpdir(), 'davidup-e1-shelves-'))
+    process.env.DAVIDUP_ASSETS = join(shelfBase, 'user')
+    process.env.DAVIDUP_HOUSE = join(shelfBase, 'house')
+    await writeShelf(join(shelfBase, 'house'), {
+      'paper-warm': { kind: 'stock', ext: 'png', tags: ['paper', 'warm'], desc: 'Warm cream paper' },
+      'kraft': { kind: 'image', ext: 'png', tags: ['paper', 'brown'], licence: 'CC0', credit: 'A. Maker' },
+      'teapot': { kind: 'image', ext: 'png', tags: ['met', 'object'], licence: 'CC0' },
+      'fox': { kind: 'puppet', ext: 'json', tags: ['fox', 'animal'] },
+      'pop': { kind: 'audio', ext: 'wav', tags: ['sfx'], extra: { sec: 0.4 } },
+      'hand-face': { kind: 'font', ext: 'ttf', tags: ['handwritten'], licence: 'OFL', extra: { family: 'Hand Face' } },
+    })
+  })
+  group.each.teardown(async () => {
+    await libraryIndex.detach()
+    await projectStore.unload()
+    await rm(shelfBase, { recursive: true, force: true })
+    for (const [key, v] of [['DAVIDUP_ASSETS', shelfEnvBefore.assets], ['DAVIDUP_HOUSE', shelfEnvBefore.house]] as const) {
+      if (v === undefined) delete process.env[key]
+      else process.env[key] = v
+    }
+  })
+
+  test('the shelves list as asset and font items: kind, type, shelf, licence, pinned src', async ({ assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      const dot = Buffer.from('project-dot')
+      await writeShelf(join(dir, 'assets'), {
+        dot: { kind: 'cutout', ext: 'png', tags: ['dot'] },
+        // Shadows the house's teapot.
+        teapot: { kind: 'image', ext: 'png', bytes: dot },
+      })
+      await idx.attach(join(dir, 'library'))
+      await idx.setAssetProject(dir)
+      const items = idx.getCatalog().items
+      const shelved = items.filter((i) => i.shelf !== undefined)
+      assert.deepEqual(
+        shelved.map((i) => [i.kind, i.id, i.shelf, i.assetKind, i.assetType, i.scope]),
+        [
+          ['asset', 'dot', 'project', 'cutout', 'image', 'project'],
+          ['asset', 'kraft', 'house', 'image', 'image', 'global'],
+          ['asset', 'paper-warm', 'house', 'stock', 'image', 'global'],
+          ['asset', 'pop', 'house', 'audio', 'audio', 'global'],
+          ['asset', 'teapot', 'project', 'image', 'image', 'project'],
+          ['font', 'hand-face', 'house', 'font', 'font', 'global'],
+        ]
+      )
+      // hdf's alone: a puppet is not a card.
+      assert.notInclude(items.map((i) => i.id), 'fox')
+      const teapot = shelved.find((i) => i.id === 'teapot')!
+      assert.equal(teapot.url, `asset:teapot@${sha256(dot).slice(0, 12)}`)
+      assert.deepEqual(teapot.shadowed, ['house'])
+      const kraft = shelved.find((i) => i.id === 'kraft')!
+      assert.equal(kraft.licence, 'CC0')
+      assert.equal(kraft.credit, 'A. Maker')
+      assert.deepEqual(kraft.tags, ['paper', 'brown'])
+      assert.equal(shelved.find((i) => i.id === 'pop')!.duration, 0.4)
+      assert.equal(shelved.find((i) => i.id === 'paper-warm')!.description, 'Warm cream paper')
+      // index.json items stay, typed from their entries.
+      assert.equal(items.find((i) => i.id === 'logo-png')?.shelf, undefined)
+      assert.equal(items.find((i) => i.id === 'inter')?.assetType, 'font')
+      assert.deepEqual(
+        idx.getCatalog().shelves.map((s) => s.name),
+        ['project', 'user', 'house']
+      )
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('an index.json entry that only points at a listed record is listed once, as the record', async ({ assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      const index = JSON.parse(await readFile(join(dir, 'library', 'index.json'), 'utf8'))
+      index.fonts.push({ id: 'hand-face', family: 'Hand Face', src: 'asset:hand-face' })
+      index.assets.push({ id: 'nowhere', src: 'asset:no-such-record' })
+      await writeFile(join(dir, 'library', 'index.json'), JSON.stringify(index))
+      await idx.attach(join(dir, 'library'))
+      const faces = idx.getCatalog().items.filter((i) => i.id === 'hand-face')
+      assert.lengthOf(faces, 1)
+      assert.equal(faces[0].shelf, 'house')
+      // A pointer at nothing listed is kept, so its breakage shows.
+      assert.include(idx.getCatalog().items.map((i) => i.id), 'nowhere')
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('nothing attached lists no shelves', async ({ assert }) => {
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    await idx.detach()
+    assert.lengthOf(idx.getCatalog().items, 0)
+    assert.lengthOf(idx.getCatalog().shelves, 0)
+  })
+
+  test('a shelf written after attach is listed within 1s, one that did not exist included', async ({ assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    const idx = new LibraryIndex()
+    try {
+      await idx.attach(join(dir, 'library'))
+      assert.notInclude(idx.getCatalog().items.map((i) => i.id), 'mine')
+      // The user shelf's directory does not exist yet.
+      await writeShelf(join(shelfBase, 'user'), { mine: { kind: 'image', ext: 'png' } })
+      const deadline = Date.now() + 1000
+      let found = false
+      while (Date.now() < deadline) {
+        await delay(50)
+        if (idx.getCatalog().items.some((i) => i.id === 'mine' && i.shelf === 'user')) {
+          found = true
+          break
+        }
+      }
+      assert.isTrue(found, 'the user shelf record should be listed within 1s')
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a catalogue that cannot be read is reported; the other shelves still list', async ({ assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    const idx = new LibraryIndex({ debounceMs: 20 })
+    try {
+      await mkdir(join(shelfBase, 'user'), { recursive: true })
+      await writeFile(join(shelfBase, 'user', 'catalogue.json'), '{not json')
+      await idx.attach(join(dir, 'library'))
+      const catalog = idx.getCatalog()
+      assert.include(catalog.items.map((i) => i.id), 'kraft')
+      const err = catalog.errors.find((e) => e.file.endsWith(join('user', 'catalogue.json')))
+      assert.exists(err)
+      assert.equal(err!.scope, 'global')
+      assert.deepEqual(catalog.shelves.map((s) => s.name), ['house'])
+    } finally {
+      await idx.detach()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('GET /api/library ranks the shelves with assetlib and returns facets for "paper"', async ({ client, assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    try {
+      await client.post('/api/project').json({ directory: dir })
+      await libraryIndex.flush()
+      const res = await client.get('/api/library').qs({ kind: 'asset', q: 'paper' })
+      res.assertStatus(200)
+      const body = res.body()
+      assert.deepEqual(
+        body.items.map((i: { id: string }) => i.id),
+        ['paper-warm', 'kraft']
+      )
+      assert.deepEqual(body.items[0].why, ['id: paper'])
+      assert.equal(body.facetsOf, 'hits')
+      assert.deepEqual(body.facets.kind, { stock: 1, image: 1 })
+      assert.deepEqual(body.facets.shelf, { house: 2 })
+      assert.deepEqual(body.facets.licence, { own: 1, CC0: 1 })
+      assert.deepEqual(body.facets.tags, { paper: 2, warm: 1, brown: 1 })
+      assert.deepEqual(body.shelves.map((s: { name: string }) => s.name), ['project', 'user', 'house'])
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('GET /api/library narrows by facet: assetKind, tag, licence, shelf', async ({ client, assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    try {
+      await client.post('/api/project').json({ directory: dir })
+      await libraryIndex.flush()
+      const ids = async (qs: Record<string, string>) =>
+        (await client.get('/api/library').qs({ kind: 'asset', ...qs })).body().items.map((i: { id: string }) => i.id)
+      assert.deepEqual(await ids({ assetKind: 'stock' }), ['paper-warm'])
+      assert.deepEqual(await ids({ tag: 'paper,warm' }), ['paper-warm'])
+      assert.deepEqual(await ids({ licence: 'CC0' }), ['kraft', 'teapot'])
+      // A facet filter leaves index.json items out.
+      assert.deepEqual(await ids({ shelf: 'house' }), ['kraft', 'paper-warm', 'pop', 'teapot'])
+      assert.include(await ids({}), 'logo-png')
+      const scoped = await client.get('/api/library').qs({ kind: 'asset', q: 'paper', scope: 'project' })
+      assert.deepEqual(scoped.body().items, [])
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a search with no hits returns the facets of what is listed', async ({ client, assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    try {
+      await client.post('/api/project').json({ directory: dir })
+      await libraryIndex.flush()
+      const body = (await client.get('/api/library').qs({ kind: 'asset', q: 'zebra' })).body()
+      assert.deepEqual(body.items, [])
+      assert.equal(body.facetsOf, 'all')
+      // The puppet is not counted: the panel never lists it.
+      assert.deepEqual(body.facets.kind, { image: 2, stock: 1, audio: 1 })
+    } finally {
+      await projectStore.unload()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('templates carry no facets', async ({ client, assert }) => {
+    const res = await client.get('/api/library').qs({ kind: 'template' })
+    assert.isNull(res.body().facets)
+  })
+
+  test('an uploaded video is typed video (the badge), an uploaded image image', async ({ client, assert }) => {
+    const dir = await makeProject({ withLibrary: true })
+    try {
+      await client.post('/api/project').json({ directory: dir })
+      const video = await readFile(resolve(import.meta.dirname, '../../../../tests/drivers/fixtures/video/small.mp4'))
+      const up = await client
+        .post('/api/assets')
+        .file('file', video, { filename: 'clip.mp4', contentType: 'video/mp4' })
+      up.assertStatus(201)
+      await libraryIndex.reloadNow()
+      const items = (await client.get('/api/library').qs({ kind: 'asset' })).body().items as {
+        id: string
+        assetType?: string
+        raw?: { kind?: string; type?: string }
+      }[]
+      const clip = items.find((i) => i.id === sha256(video))
+      assert.exists(clip)
+      // The pipeline writes `kind`, not `type`; the item's type reads either.
+      assert.equal(clip!.raw?.kind, 'video')
+      assert.isUndefined(clip!.raw?.type)
+      assert.equal(clip!.assetType, 'video')
+      assert.equal(items.find((i) => i.id === 'logo-png')?.assetType, undefined)
+      assert.equal(items.find((i) => i.id === 'kraft')?.assetType, 'image')
     } finally {
       await projectStore.unload()
       await rm(dir, { recursive: true, force: true })

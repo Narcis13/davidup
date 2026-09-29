@@ -11,6 +11,10 @@
 //
 // IntersectionObserver gates the fetch so cards below the fold don't
 // trigger renders until they scroll into view.
+//
+// A record from the asset library (asset library E1) carries its shelf, its
+// own kind (`cutout`, `stock`, ...) and licence; the card shows them in place
+// of the index.json provenance. Its thumbnail is assetlib's preview.
 
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import type { LibraryItem } from '~/composables/useLibrary'
@@ -51,8 +55,12 @@ const emit = defineEmits<{
 const DEFINITION_KINDS = new Set(['template', 'behavior', 'scene'])
 const INDEX_KINDS = new Set(['asset', 'font'])
 
+const isShelved = computed(() => props.item.shelf !== undefined)
+
 const canPromote = computed(() => {
   if (props.item.scope !== 'project') return false
+  // A shelf record moves between shelves (`asset mv`; promote becomes that in E3).
+  if (isShelved.value) return false
   if (INDEX_KINDS.has(props.item.kind)) return true
   if (!DEFINITION_KINDS.has(props.item.kind)) return false
   if (!props.item.source || props.item.source === 'index.json') return false
@@ -135,16 +143,16 @@ const isFontKind = computed(() => props.item.kind === 'font')
 // ─── U1: audio/video media-type badge + preview ──────────────────────────
 //
 // `LibraryItem.kind` is always `'asset'` for images/audio/video — the actual
-// media type only lives on `item.raw.type` (the composition-asset record).
-// Distinct icon + duration surface here so audio/video are visually
-// distinguishable from images in the grid without a dedicated tab (the tab
-// filter lives in Library.vue).
+// media type is the server's `assetType` (from a record's kind, or an
+// index.json entry's `type` or the `kind` an upload writes). Distinct icon +
+// duration surface here so audio/video are visually distinguishable from
+// images in the grid without a dedicated tab (the tab filter lives in
+// Library.vue).
 type MediaType = 'image' | 'font' | 'audio' | 'video' | undefined
 
 const mediaType = computed<MediaType>(() => {
   if (props.item.kind !== 'asset') return undefined
-  const raw = props.item.raw as { type?: unknown } | undefined
-  const t = raw?.type
+  const t = props.item.assetType
   return t === 'image' || t === 'audio' || t === 'video' ? t : undefined
 })
 
@@ -157,13 +165,16 @@ const creditLine = computed<string | null>(() => {
   if (props.item.kind !== 'asset' && props.item.kind !== 'font') return null
   const raw = props.item.raw as { credit?: unknown; licence?: unknown } | undefined
   const pick = (a: unknown, b: unknown) => (typeof a === 'string' && a ? a : typeof b === 'string' && b ? b : '')
-  const credit = pick(props.assetUsage?.credit, raw?.credit)
-  const licence = pick(props.assetUsage?.licence, raw?.licence)
+  const credit = pick(props.assetUsage?.credit, props.item.credit ?? raw?.credit)
+  const licence = pick(props.assetUsage?.licence, props.item.licence ?? raw?.licence)
   if (!credit && (!licence || licence === 'own')) return null
   return [credit, licence].filter(Boolean).join(' · ')
 })
 
 const mediaDuration = computed<number | undefined>(() => {
+  if (typeof props.item.duration === 'number' && Number.isFinite(props.item.duration)) {
+    return props.item.duration
+  }
   const raw = props.item.raw as { duration?: unknown } | undefined
   return typeof raw?.duration === 'number' && Number.isFinite(raw.duration) ? raw.duration : undefined
 })
@@ -223,6 +234,8 @@ function libraryAssetUrl(item: LibraryItem): string | null {
   const raw = (item.raw as { url?: string; src?: string } | null) ?? {}
   const src = item.url ?? raw.url ?? raw.src
   if (typeof src !== 'string' || src.length === 0) return null
+  // A library record: the editor serves `/asset-files/<id>[@sha12]` from the shelves (D1).
+  if (src.startsWith('asset:')) return `/asset-files/${src.slice('asset:'.length)}`
   if (src.startsWith('global:')) {
     return `/library-files/${src.slice('global:'.length).replace(/^\/+/, '')}`
   }
@@ -289,10 +302,24 @@ const fontPreviewStyle = computed(() => {
   return { fontFamily: family }
 })
 
+const SHELF_LABELS: Record<string, string> = {
+  project: 'project shelf',
+  user: 'your shelf',
+  house: 'house shelf',
+}
+
 const provenance = computed(() => {
+  if (isShelved.value) {
+    const shelf = props.item.shelf!
+    return `${props.item.assetKind ?? props.item.kind} · ${SHELF_LABELS[shelf] ?? shelf}`
+  }
   if (props.item.source && props.item.source !== 'index.json') return props.item.source
   return 'inline'
 })
+
+const shadowNote = computed(() =>
+  props.item.shadowed?.length ? `hides the ${props.item.shadowed.join(', ')} shelf's "${props.item.id}"` : ''
+)
 
 const displayName = computed(() => props.item.name ?? props.item.id)
 const subtitle = computed(() => {
@@ -300,7 +327,8 @@ const subtitle = computed(() => {
   return props.item.id
 })
 
-const kindLabel = computed(() => props.item.kind)
+// A record says what it is (cutout, stock, sample), not just "asset".
+const kindLabel = computed(() => props.item.assetKind ?? props.item.kind)
 
 // "Add" button: discoverable click-path for fonts / behaviors / scenes so the
 // library is usable without prior drag-and-drop knowledge (UX_FINDINGS §6).
@@ -340,10 +368,26 @@ function onAdd(event: Event): void {
 }
 
 const scope = computed(() => props.item.scope ?? 'project')
-const scopeChip = computed(() => (scope.value === 'global' ? '🌐' : '📁'))
-const scopeChipTitle = computed(() =>
-  scope.value === 'global' ? 'Global library (~/.davidup/library)' : 'Project library'
-)
+const SHELF_CHIPS: Record<string, string> = { project: '📁', user: '👤', house: '🏠' }
+const scopeChip = computed(() => {
+  if (isShelved.value) return SHELF_CHIPS[props.item.shelf!] ?? '🗄'
+  return scope.value === 'global' ? '🌐' : '📁'
+})
+const scopeChipTitle = computed(() => {
+  if (isShelved.value) {
+    const shelf = props.item.shelf!
+    const where =
+      shelf === 'project'
+        ? "the project's assets/"
+        : shelf === 'user'
+          ? 'your pool (~/.davidup/assets)'
+          : shelf === 'house'
+            ? "the house shelf (davidup's own)"
+            : shelf
+    return `Asset library · ${where}`
+  }
+  return scope.value === 'global' ? 'Global library (~/.davidup/library)' : 'Project library'
+})
 const isOverridden = computed(() => props.item.overridden === true)
 const overrideTitle = computed(() =>
   isOverridden.value ? 'Shadowed by a project entry with the same id' : ''
@@ -408,6 +452,8 @@ function onRemove(event: Event): void {
     :data-kind="item.kind"
     :data-item-id="item.id"
     :data-scope="scope"
+    :data-shelf="item.shelf ?? null"
+    :data-asset-kind="item.assetKind ?? null"
     :data-overridden="isOverridden ? 'true' : null"
     :data-dragging="isDragging ? 'true' : null"
     draggable="true"
@@ -454,7 +500,7 @@ function onRemove(event: Event): void {
         aria-hidden="true"
       />
 
-      <span class="kind-badge" :data-kind="item.kind">{{ kindLabel }}</span>
+      <span class="kind-badge" :data-kind="item.kind" data-testid="library-kind-badge">{{ kindLabel }}</span>
       <span
         v-if="mediaTypeGlyph"
         class="media-type-badge"
@@ -546,11 +592,13 @@ function onRemove(event: Event): void {
       <p
         class="prov"
         :class="{ 'prov-overridden': isOverridden }"
-        :title="isOverridden ? overrideTitle : provenance"
+        :title="isOverridden ? overrideTitle : shadowNote || provenance"
+        data-testid="library-provenance"
       >
         <span class="prov-dot" />
         <span class="prov-text">{{ provenance }}</span>
         <span v-if="isOverridden" class="prov-note">overridden</span>
+        <span v-else-if="shadowNote" class="prov-note">shadows</span>
       </p>
       <p
         v-if="usageBadge"

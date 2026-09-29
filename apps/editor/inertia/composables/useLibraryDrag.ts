@@ -42,8 +42,8 @@ export interface LibraryDragPayload {
   /** Library item duration in seconds (scenes only, or asset media duration). */
   duration?: number
   /**
-   * U1/U3 — underlying media type for `kind: 'asset'` cards (sourced from
-   * `item.raw.type`). Stage/Timeline drop handlers branch on this to decide
+   * U1/U3 — underlying media type for `kind: 'asset'` cards (the server's
+   * `item.assetType`). Stage/Timeline drop handlers branch on this to decide
    * between `add_sprite` (image), `add_video` (video), and `add_audio_track`
    * (audio) — a plain asset drop no longer always means "sprite".
    */
@@ -169,8 +169,9 @@ function isMediaType(v: unknown): v is 'image' | 'font' | 'audio' | 'video' {
 
 function libraryItemToPayload(item: LibraryItem): LibraryDragPayload {
   const defaults = resolveDefaultParams(item)
-  const raw = item.raw as { type?: unknown; duration?: unknown } | undefined
-  const mediaType = item.kind === 'asset' && isMediaType(raw?.type) ? raw!.type : undefined
+  const raw = item.raw as { duration?: unknown } | undefined
+  const mediaType =
+    item.kind === 'asset' && isMediaType(item.assetType) ? item.assetType : undefined
   const rawDuration = typeof raw?.duration === 'number' ? raw.duration : undefined
   return {
     kind: item.kind,

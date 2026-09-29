@@ -19,6 +19,12 @@ process.env.NODE_ENV = 'test'
 // (e.g. a personal `fadeIn.behavior.json`) leak into the engine registry and
 // break tests that rely on built-in behaviors after a detach.
 process.env.DAVIDUP_LIBRARY = mkdtempSync(join(tmpdir(), 'davidup-test-library-'))
+// Same for the asset library's user pool and house shelf (asset library E1):
+// the Library panel lists them, so a test sees only the shelves it writes.
+// Groups that need their own point the variables elsewhere and restore these.
+const shelvesDir = mkdtempSync(join(tmpdir(), 'davidup-test-shelves-'))
+process.env.DAVIDUP_ASSETS = join(shelvesDir, 'user')
+process.env.DAVIDUP_HOUSE = join(shelvesDir, 'house')
 
 import 'reflect-metadata'
 import { mkdtempSync } from 'node:fs'
