@@ -9,6 +9,22 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Promote moves a record to your asset shelf (asset library E3)
+
+- A card from the project's asset shelf (📁) has the promote button now:
+  it moves the record to your pool (`~/.davidup/assets`), blob, thumb and
+  entry, through the MCP `add_asset { id, shelf: 'user', from: 'project' }`.
+  The sha stays, so the open composition's `asset:<id>@<sha12>` src
+  resolves on your shelf to the same bytes: nothing on the stage changes
+  and nothing is added to undo. A pre-sha256 (sha1) record is rehashed on
+  the way and the composition's pins on it are rewritten, as one undo step.
+- `POST /api/library/promote` answers a shelf record with `shelf`, the
+  pinned `src` and `repinned` (plus the composition when that is not
+  empty). Your shelf holding the id with other bytes is a 409
+  `E_TARGET_EXISTS` that `force` does not override, since another project
+  may use that record; `index.json` assets, fonts and definitions promote
+  as before.
+
 ### Upload and drop go through the asset library (asset library E2)
 
 - A file dropped on the editor is put on an asset shelf: the project's

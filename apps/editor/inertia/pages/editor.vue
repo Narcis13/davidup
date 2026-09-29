@@ -19,7 +19,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Head, router } from '@inertiajs/vue3'
 import { useStage } from '~/composables/useStage'
-import { useCommandBus, type Composition } from '~/composables/useCommandBus'
+import {
+  rewriteAssetsForBrowser,
+  useCommandBus,
+  type Composition,
+} from '~/composables/useCommandBus'
 import { provideSelection } from '~/composables/useSelection'
 import { provideValidation } from '~/composables/useValidation'
 import { useAssetUpload } from '~/composables/useAssetUpload'
@@ -662,6 +666,16 @@ function addLibraryScene(item: LibraryItem): void {
 // any risk. We forward the call straight to the same command bus the
 // Inspector uses; the server's `remove_asset` handler will still reject
 // with E_ASSET_IN_USE if items reference it, and StatusBar surfaces that.
+// A promote re-pinned the composition's `asset:` srcs on the server (a
+// legacy sha1 record rehashed by the move): adopt it with the server's stacks.
+function onLibraryCompositionChanged(payload: {
+  composition: unknown
+  undoStackSize?: number
+  redoStackSize?: number
+}): void {
+  bus.resync(rewriteAssetsForBrowser(payload.composition as Composition), payload)
+}
+
 function onLibraryRemoveAsset(payload: { id: string; cascade: boolean }): void {
   void bus.apply({
     kind: 'remove_asset',
@@ -909,6 +923,7 @@ onBeforeUnmount(() => {
         @apply-template="onLibraryApply"
         @add-item="onLibraryAdd"
         @remove-asset="onLibraryRemoveAsset"
+        @composition-changed="onLibraryCompositionChanged"
       />
     </template>
 

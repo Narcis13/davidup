@@ -50,8 +50,9 @@ const emit = defineEmits<{
 }>()
 
 // Definitions promote when authored as standalone files (inline index.json
-// definitions don't); assets and fonts always live in index.json and
-// promote with their binary (v1.1 S29).
+// definitions don't); index.json assets and fonts promote with their binary
+// (v1.1 S29); a record on the project's asset shelf moves to the user's
+// shelf (asset library E3).
 const DEFINITION_KINDS = new Set(['template', 'behavior', 'scene'])
 const INDEX_KINDS = new Set(['asset', 'font'])
 
@@ -59,13 +60,18 @@ const isShelved = computed(() => props.item.shelf !== undefined)
 
 const canPromote = computed(() => {
   if (props.item.scope !== 'project') return false
-  // A shelf record moves between shelves (`asset mv`; promote becomes that in E3).
-  if (isShelved.value) return false
+  if (isShelved.value) return props.item.shelf === 'project'
   if (INDEX_KINDS.has(props.item.kind)) return true
   if (!DEFINITION_KINDS.has(props.item.kind)) return false
   if (!props.item.source || props.item.source === 'index.json') return false
   return true
 })
+
+const promoteTitle = computed(() =>
+  isShelved.value
+    ? 'Promote to your asset shelf (move to ~/.davidup/assets; the composition keeps the same bytes)'
+    : 'Promote to global library (move to ~/.davidup/library)'
+)
 
 function onPromote(event: Event): void {
   event.stopPropagation()
@@ -524,8 +530,8 @@ function onRemove(event: Event): void {
         type="button"
         class="promote-btn"
         :disabled="promoteBusy"
-        :title="`Promote to global library (move to ~/.davidup/library)`"
-        :aria-label="`Promote ${displayName} to global library`"
+        :title="promoteTitle"
+        :aria-label="`Promote ${displayName} to ${isShelved ? 'your asset shelf' : 'global library'}`"
         data-testid="library-promote"
         draggable="false"
         @mousedown.stop

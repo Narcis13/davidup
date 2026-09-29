@@ -91,7 +91,15 @@ const emit = defineEmits<{
   (event: 'apply-template', item: LibraryItem): void
   (event: 'add-item', item: LibraryItem): void
   (event: 'remove-asset', payload: { id: string; cascade: boolean }): void
+  /** A promote rewrote the composition's pins server-side (asset library E3). */
+  (event: 'composition-changed', payload: PromotedComposition): void
 }>()
+
+interface PromotedComposition {
+  composition: unknown
+  undoStackSize?: number
+  redoStackSize?: number
+}
 
 function onApply(item: LibraryItem): void {
   emit('apply-template', item)
@@ -492,7 +500,8 @@ function onDrop(event: DragEvent): void {
 // ─── Promote (project → global) ───────────────────────────────────────────
 //
 // The card emits `promote` for templates/behaviors/scenes that came from a
-// standalone JSON file inside the project library. We post to
+// standalone JSON file inside the project library, for index.json assets and
+// fonts, and for records on the project's asset shelf. We post to
 // `/api/library/promote`, then refresh so the merged catalog reflects the
 // move (the file watcher would converge within ~1s anyway, but explicit
 // refresh keeps the UI in lockstep with the response).
@@ -517,12 +526,14 @@ async function onPromote(item: LibraryItem): Promise<void> {
   promoting.value = removeKey(promoting.value, key)
   const body = (await res.json().catch(() => null)) as
     | { error?: { code?: string; message?: string } }
-    | { kind: string; id: string; toRelative: string }
+    | ({ kind: string; id: string; toRelative: string; repinned?: string[] } & Partial<PromotedComposition>)
     | null
   if (!res.ok) {
     const err = (body as { error?: { code?: string; message?: string } } | null)?.error
     const code = err?.code
-    if (code === 'E_TARGET_EXISTS') {
+    // A shelf record's refusal is final: the user shelf's record may be
+    // another project's, so there is no overwrite to offer.
+    if (code === 'E_TARGET_EXISTS' && item.shelf === undefined) {
       const proceed = window.confirm(
         `Global library already has "${item.id}". Overwrite the existing global copy with the project version?`,
       )
@@ -534,7 +545,15 @@ async function onPromote(item: LibraryItem): Promise<void> {
     })
     return
   }
-  toasts.success(`Promoted ${item.kind} "${item.id}" to global library`, {
+  if (body && 'composition' in body && body.composition) {
+    emit('composition-changed', {
+      composition: body.composition,
+      undoStackSize: body.undoStackSize,
+      redoStackSize: body.redoStackSize,
+    })
+  }
+  const where = item.shelf !== undefined ? 'your asset shelf' : 'global library'
+  toasts.success(`Promoted ${item.kind} "${item.id}" to ${where}`, {
     dedupeKey: `library:promote:${key}:ok`,
   })
   await lib.refresh()

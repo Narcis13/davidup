@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import libraryIndex, { type LibraryItemKind, type LibraryScope } from '#services/library_index'
 import libraryThumbnail from '#services/library_thumbnail'
+import commandBus from '#services/command_bus'
 import projectStore from '#services/project_store'
 import { promoteLibraryItem, PromoteError } from '#services/promote_library_item'
 import { useLibraryAsset, UseAssetError } from '#services/library_use'
@@ -159,7 +160,10 @@ export default class LibraryController {
    * the global pool, then delete it from the project. Body:
    *   { kind: 'template'|'behavior'|'scene'|'asset'|'font', id: string, force?: boolean }
    *
-   * Assets and fonts move their index.json entry plus binary (v1.1 S29).
+   * Assets and fonts move their index.json entry plus binary (v1.1 S29); a
+   * record on the project's asset shelf moves to the user's shelf (asset
+   * library E3: `shelf`, the pinned `src`, and `repinned` with the
+   * composition when a legacy sha1 record's pins were rewritten).
    * Out of scope: inline (index.json) template/behavior/scene definitions.
    * The library watcher picks the file move up on its own; this handler
    * also calls `libraryIndex.flush()` so the response already reflects
@@ -194,6 +198,15 @@ export default class LibraryController {
 
     try {
       const result = await promoteLibraryItem({ kind: kindRaw, id, force })
+      // A repinned composition changed server-side: the page adopts it.
+      if (result.repinned?.length) {
+        return response.ok({
+          ...result,
+          composition: projectStore.composition,
+          undoStackSize: commandBus.undoStackSize,
+          redoStackSize: commandBus.redoStackSize,
+        })
+      }
       return response.ok({ ...result })
     } catch (err) {
       if (err instanceof PromoteError) {

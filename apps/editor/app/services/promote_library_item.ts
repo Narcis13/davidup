@@ -6,6 +6,15 @@
 //     as `<id>.template.json` / `<id>.behavior.json` / `<id>.scene.json`.
 //     Read the project file's bytes, write them under the global root, then
 //     unlink the project copy.
+//   * `asset`, `font` on the project's asset shelf (asset library E3) — the
+//     record moves to the user's shelf (`~/.davidup/assets`): assetlib's
+//     `move`, run as the MCP `add_asset { id, shelf: 'user', from: 'project' }`.
+//     Blob, thumb and entry go; the sha stays, so an `asset:<id>@<sha12>` src
+//     in the open composition now resolves on the user shelf to the same bytes
+//     (no visible change). A legacy sha1 record is rehashed on the way, and
+//     the composition's pins on it are rewritten to the new sha (one `ui`
+//     undo step). The user shelf holding the id with other bytes refuses
+//     (E_TARGET_EXISTS, no force: another project may name that record).
 //   * `asset`, `font` (v1.1 S29) — `index.json` entries. The entry moves from
 //     the project index to the global one; its binary (when the src is a local
 //     file) is copied to `<global>/{assets,fonts}/<basename>` and the src is
@@ -21,11 +30,16 @@
 
 import { promises as fs } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { assetSrc, openLibrary, standardShelves, type Library } from 'davidup/assetlib'
+import { CompositionStore, TOOLS, dispatchTool } from 'davidup/mcp'
+import commandBus from '#services/command_bus'
 import libraryIndex, {
   indexEntryId,
   type LibraryItem,
   type LibraryItemKind,
 } from '#services/library_index'
+import { buildDeps, buildRouter } from '#services/mcp_bridge'
 import projectStore from '#services/project_store'
 
 export type PromotableKind = 'template' | 'behavior' | 'scene' | 'asset' | 'font'
@@ -68,6 +82,12 @@ export interface PromoteResult {
   to: string
   /** Path relative to the global library root — used by the UI for hints. */
   toRelative: string
+  /** A shelf record's: the shelf it moved to (`user`). */
+  shelf?: string
+  /** A shelf record's pinned `asset:` src after the move. */
+  src?: string
+  /** Composition asset ids whose stale pin was rewritten (a legacy sha1 record). */
+  repinned?: string[]
 }
 
 export interface PromoteOptions {
@@ -93,6 +113,15 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
   }
   const promotableKind = kind as PromotableKind
 
+  // A record on the project's asset shelf moves to the user's shelf; it needs
+  // neither library/ root.
+  if (promotableKind === 'asset' || promotableKind === 'font') {
+    const record = libraryIndex
+      .search({ kind: promotableKind, scope: 'project' })
+      .find((c) => c.id === id && c.shelf === 'project')
+    if (record) return promoteShelfRecord(promotableKind, id)
+  }
+
   const projectRoot = libraryIndex.root
   if (!projectRoot) {
     throw new PromoteError(
@@ -111,8 +140,7 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
   // Resolve the winning (kind,id) within the project scope only — the
   // merged catalog already discriminates by scope, so this picks the
   // project file even if a global copy exists with the same id.
-  // index.json entries only: a record on the project's asset shelf moves
-  // with `asset mv` (E3 makes promote that move).
+  // index.json entries only: a record on the project's asset shelf moved above.
   const candidates = libraryIndex.search({ kind: promotableKind, scope: 'project', shelves: false })
   const item = candidates.find((c) => c.id === id)
   if (!item) {
@@ -184,7 +212,98 @@ export async function promoteLibraryItem(opts: PromoteOptions): Promise<PromoteR
   }
 }
 
+const ADD_ASSET = TOOLS.find((t) => t.name === 'add_asset')
+
 type IndexKind = 'asset' | 'font'
+
+/** The record `id` on the project shelf moved to the user shelf (asset library E3). */
+async function promoteShelfRecord(kind: IndexKind, id: string): Promise<PromoteResult> {
+  const project = libraryIndex.assetProject
+  if (!project) {
+    throw new PromoteError('E_NO_PROJECT_LIBRARY', 'No project is open. Open a project first.')
+  }
+  const lib: Library = openLibrary({ shelves: standardShelves({ project }) })
+  const source = lib.shelf('project')
+  const user = lib.shelf('user')
+  if (!source.has(id)) {
+    throw new PromoteError(
+      'E_ITEM_NOT_FOUND',
+      `No ${kind} with id "${id}" on the project's asset shelf.`
+    )
+  }
+  const before = source.entry(id)
+  const from = source.blobPath(before)
+  const there = user.has(id) ? user.entry(id) : null
+  if (there && there.sha !== before.sha) {
+    throw new PromoteError(
+      'E_TARGET_EXISTS',
+      `Your asset shelf already has "${id}" with other bytes (${there.sha.slice(0, 12)}, not ${before.sha.slice(0, 12)}). Remove it there, or upload this one under another id.`,
+      { shelf: 'user', existingPath: user.blobPath(there), overwritable: false }
+    )
+  }
+  if (!ADD_ASSET) throw new PromoteError('E_PROMOTE_FAILED', 'This davidup has no add_asset tool.')
+  const out = await dispatchTool(
+    ADD_ASSET,
+    { id, shelf: 'user', from: 'project' },
+    { store: new CompositionStore(), assetProject: project }
+  )
+  if (!out.ok) throw new PromoteError('E_PROMOTE_FAILED', out.error.message)
+  const moved = out.result as { path: string; record: { id: string; sha: string } }
+  const src = assetSrc(moved.record)
+  const repinned = await repin(id, before.sha, moved.record.sha)
+
+  await libraryIndex.reloadNow()
+
+  return {
+    kind,
+    id,
+    from,
+    to: moved.path,
+    toRelative: relative(user.root, moved.path).split('\\').join('/'),
+    shelf: 'user',
+    src,
+    repinned,
+  }
+}
+
+/**
+ * The open composition's `asset:<id>@<pin>` srcs that named `oldSha` and no
+ * longer name the record's sha (a legacy sha1 record rehashed by the move),
+ * re-registered with the new pin as one `ui` undo step. The ids rewritten.
+ */
+async function repin(id: string, oldSha: string, newSha: string): Promise<string[]> {
+  if (oldSha === newSha || !projectStore.isLoaded) return []
+  const assets = (projectStore.composition as { assets?: unknown } | null)?.assets
+  if (!Array.isArray(assets)) return []
+  const stale = (assets as Record<string, unknown>[]).filter((a) => {
+    const m = typeof a?.src === 'string' ? /^asset:([^@]+)@([0-9a-f]+)$/.exec(a.src) : null
+    return !!m && m[1] === id && oldSha.startsWith(m[2]!) && !newSha.startsWith(m[2]!)
+  })
+  if (stale.length === 0) return []
+  const register = TOOLS.find((t) => t.name === 'register_asset')
+  if (!register) return []
+  const router = buildRouter(commandBus, projectStore, {
+    source: 'ui',
+    coalesceKey: `promote:${randomUUID()}`,
+  })
+  const src = assetSrc({ id, sha: newSha })
+  const done: string[] = []
+  for (const a of stale) {
+    const args: Record<string, unknown> = { id: a.id, type: a.type, src, replace: true }
+    for (const k of ['family', 'sheet', 'credit', 'licence'] as const) {
+      if (a[k] !== undefined) args[k] = a[k]
+    }
+    const out = await dispatchTool(register, args, buildDeps(projectStore), router)
+    if (!out.ok) {
+      throw new PromoteError(
+        'E_PROMOTE_FAILED',
+        `Moved "${id}" to your asset shelf, but re-pinning composition asset "${String(a.id)}" to ${src} failed: ${out.error.message}`
+      )
+    }
+    done.push(String(a.id))
+  }
+  return done
+}
 type IndexDoc = Record<string, unknown>
 
 const INDEX_KEY: Record<IndexKind, 'assets' | 'fonts'> = { asset: 'assets', font: 'fonts' }

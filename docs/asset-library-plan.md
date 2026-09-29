@@ -692,7 +692,7 @@ count puppets). Thumbnails are `lib.preview` with the hosts' previewers
 rendered as before (sprite, "Aa") so the card is not what an upload shows.
 The MCP bridge asks the index with `shelves: false`: `list_library` and
 `get_library_thumbnail` add the shelves themselves (D2), unchanged.
-Promote skips shelf records (E3). `davidup/assetlib` is exported for the
+Promote skipped shelf records until E3. `davidup/assetlib` is exported for the
 editor. The editor's tests run against empty user / house shelves
 (`bin/test.ts`).
 
@@ -745,6 +745,26 @@ keeps its template/behavior/scene half. **Done when** `library_promote.spec.ts`
 passes and a promoted asset's src in the open composition is rewritten from
 `asset:<id>` on the project shelf to the same id on the user shelf with the
 same sha (no visible change).
+
+*As built:* `promoteLibraryItem` takes a record the panel lists on the
+project shelf (`scope: 'project'`, `shelf: 'project'`) before it looks at
+`library/`, so a project with no `library/` promotes too; the move is the
+MCP `add_asset { id, shelf: 'user', from: 'project' }` dispatched
+in-process, as E2's upload is. The src text does not change: the pinned
+`asset:<id>@<sha12>` (or an unpinned `asset:<id>`) resolves on the user
+shelf once the project shelf no longer holds the id, to the same bytes, so
+there is no command and no undo step. The one case with a rewrite is a
+legacy sha1 record, which `move` rehashes as sha256: the composition's
+assets pinned to the old sha are re-registered (`register_asset` with
+`replace`) with the new pin through the bus as one `ui` undo step, and the
+response carries `repinned` and the composition, which the page adopts
+(`bus.resync`). The user shelf holding the id with other bytes is
+`E_TARGET_EXISTS` (409) with `overwritable: false`, checked before the
+move; `force` does not override it (another project may name that record),
+and the panel toasts it instead of offering to overwrite. The response adds
+`shelf: 'user'`, the pinned `src`, and `toRelative` as `blobs/<sha>.<ext>`
+under the user shelf. The card's promote button shows on project shelf
+records only (a user or house record is already global).
 
 ### E4. The record drawer
 
@@ -886,7 +906,7 @@ then D and E in parallel, I when D4 exists, S last.
 | D6 | Palette and text-room facts | 1 | A2 | [x] |
 | E1 | The Assets tab reads the library | 1 | A3 A4 D1 | [x] |
 | E2 | Upload and drop | 1 | D3 E1 | [x] |
-| E3 | Promote is move | 0.5 | E1 | [ ] |
+| E3 | Promote is move | 0.5 | E1 | [x] |
 | E4 | The record drawer | 1 | E1 D3 | [ ] |
 | H4 | The house shelf moves to `<repo>/assets/` | 0.5 | H1 H2 H3 D1 | [ ] |
 | I1 | `made` and `asset remake` | 1 | D4 | [ ] |
