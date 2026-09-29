@@ -7,6 +7,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type Anthropic from "@anthropic-ai/sdk";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { REPO_ROOT } from "./assets.js";
@@ -18,11 +20,17 @@ export interface McpSession {
   close(): Promise<void>;
 }
 
+// The server inherits only the SDK's default variables (HOME, PATH, ...), so
+// no project shelf; the user's pool is pointed at an empty directory so the
+// asset library an agent searches is the house shelf alone, the same on
+// every machine.
 export async function openMcpSession(): Promise<McpSession> {
+  const userShelf = mkdtempSync(join(tmpdir(), "davidup-eval-assets-"));
   const transport = new StdioClientTransport({
     command: "bun",
     args: ["run", BIN_PATH],
     cwd: REPO_ROOT,
+    env: { DAVIDUP_ASSETS: userShelf },
     stderr: "pipe",
   });
   const client = new Client({ name: "davidup-agent-eval", version: "0.0.0" });
@@ -40,6 +48,7 @@ export async function openMcpSession(): Promise<McpSession> {
       } catch {
         // ignore
       }
+      rmSync(userShelf, { recursive: true, force: true });
     },
   };
 }

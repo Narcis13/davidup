@@ -996,6 +996,27 @@ The eval-agent runner (`scripts/eval-agents`) gets one task that must use
 the library. **Done when** the eval task passes with the tool trace showing
 a search before the first `register_asset`.
 
+*As built:* README gains "Bring in an asset" (after "Discovery first") and
+the walk in the quickstart's canonical sequence; `examples/mcp-demo.md`
+gains Recipe E with outputs from the house shelf. The brief is
+`library-opener` (no paths: paper, the fox walking in, a handwritten title,
+a pop); `scripts/eval-agents/libraryCheck.ts` scores it from the tool trace
+the loop now records (a successful `search_assets` before the first
+`register_asset` / `use_asset`) and from the composition (every asset a
+pinned `asset:` src); the server's user pool is an empty temp dir, so the
+agent sees the house shelf alone, and the system prompt says find before
+placing. `runner.ts --only` runs one brief. With no API key here, the
+done-when is shown by `tests/eval/libraryBrief.integration.test.ts`: a
+scripted model plays the walk through the real `runBrief` (spawned server,
+render, frame checks, trace check) and the entry passes;
+`agentEval.integration.test.ts` runs the brief on the live model when a
+credential is set. Writing the walk found two gaps, both fixed here: an
+`image` or `font` record had no previewer (§2 gave that to davidup, no
+session built it), so the contact sheet showed cards; davidup now draws
+both (`src/mcp/assetPreviews.ts`, merged under the hosts' in
+`src/mcp/assets.ts`). And `use_asset { place: { x: 0, y: 0, width, height } }`
+puts a sprite's centre in the corner; the tool description now says so.
+
 ### S2. Architecture and design docs
 
 *The docs say what the code does.*
@@ -1066,7 +1087,7 @@ then D and E in parallel, I when D4 exists, S last.
 | I2 | The first house pack | 1.5 | I1 H3 H4 D6 | [x] |
 | I3 | Packs as tarballs | 0.5 | A2 | [x] |
 | H5 | The skill and the README | 0.5 | H2 H4 I2 | [x] |
-| S1 | The davidup agent story | 0.5 | D3 I2 | [ ] |
+| S1 | The davidup agent story | 0.5 | D3 I2 | [x] |
 | S2 | Architecture and design docs | 0.5 | all | [ ] |
 
 Twenty-six sessions, about 21 days. The spine (what the acceptance piece

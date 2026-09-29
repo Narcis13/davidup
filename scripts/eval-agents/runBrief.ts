@@ -10,8 +10,9 @@ import { join } from "node:path";
 
 import { runAgentLoop } from "./agentLoop.js";
 import { REPO_ROOT } from "./assets.js";
+import { checkLibraryUse } from "./libraryCheck.js";
 import { callMcpTool, listClaudeTools, openMcpSession } from "./mcpSession.js";
-import type { BriefFixture, FrameCheck, RenderCheck, ScorecardEntry, ValidateCheck } from "./types.js";
+import type { BriefFixture, FrameCheck, LibraryCheck, RenderCheck, ScorecardEntry, ValidateCheck } from "./types.js";
 import { extractFrameRgba, frameStats, isNonBlank, probeVideo, resolveFfmpegPaths } from "./videoInspect.js";
 
 const RENDER_DIR = join(REPO_ROOT, "eval-results", "renders");
@@ -40,17 +41,32 @@ async function checkValidate(client: Awaited<ReturnType<typeof openMcpSession>>[
   }
 }
 
+interface CompositionMeta {
+  width: number;
+  height: number;
+  duration: number;
+  assets: Array<{ id: string; src: string }>;
+}
+
 async function getCompositionMeta(
   client: Awaited<ReturnType<typeof openMcpSession>>["client"],
-): Promise<{ width: number; height: number; duration: number } | undefined> {
+): Promise<CompositionMeta | undefined> {
   try {
     const outcome = await callMcpTool(client, "get_composition", {});
-    const body = outcome.structured as { json?: { composition?: { width?: number; height?: number; duration?: number } } } | undefined;
+    const body = outcome.structured as
+      | {
+          json?: {
+            composition?: { width?: number; height?: number; duration?: number };
+            assets?: Array<{ id: string; src: string }>;
+          };
+        }
+      | undefined;
     const meta = body?.json?.composition;
     if (!meta || meta.width === undefined || meta.height === undefined || meta.duration === undefined) {
       return undefined;
     }
-    return { width: meta.width, height: meta.height, duration: meta.duration };
+    const assets = (body?.json?.assets ?? []).map((a) => ({ id: a.id, src: a.src }));
+    return { width: meta.width, height: meta.height, duration: meta.duration, assets };
   } catch {
     return undefined;
   }
@@ -59,9 +75,10 @@ async function getCompositionMeta(
 async function renderBrief(
   client: Awaited<ReturnType<typeof openMcpSession>>["client"],
   briefId: string,
+  renderDir: string,
 ): Promise<RenderCheck> {
-  mkdirSync(RENDER_DIR, { recursive: true });
-  const outputPath = join(RENDER_DIR, `${briefId}.mp4`);
+  mkdirSync(renderDir, { recursive: true });
+  const outputPath = join(renderDir, `${briefId}.mp4`);
   try {
     const outcome = await callMcpTool(client, "render_to_video", { outputPath });
     if (outcome.isError) {
@@ -91,7 +108,16 @@ async function renderBrief(
   }
 }
 
-export async function runBrief(brief: BriefFixture, anthropic: Anthropic): Promise<ScorecardEntry> {
+export interface RunBriefOptions {
+  /** Where the render lands (default `eval-results/renders`). */
+  renderDir?: string;
+}
+
+export async function runBrief(
+  brief: BriefFixture,
+  anthropic: Anthropic,
+  options: RunBriefOptions = {},
+): Promise<ScorecardEntry> {
   const startedAt = Date.now();
   const errors: string[] = [];
   const session = await openMcpSession();
@@ -100,6 +126,7 @@ export async function runBrief(brief: BriefFixture, anthropic: Anthropic): Promi
   let validate: ValidateCheck = { ran: false, valid: false, errors: [], warnings: [] };
   let render: RenderCheck = { ran: false, succeeded: false };
   let frames: ScorecardEntry["frames"] = { ran: false, frames: [], allFramesNonBlank: false };
+  let library: LibraryCheck | undefined;
 
   try {
     const tools = await listClaudeTools(session.client);
@@ -117,7 +144,11 @@ export async function runBrief(brief: BriefFixture, anthropic: Anthropic): Promi
     }
 
     const compMeta = await getCompositionMeta(session.client);
-    render = await renderBrief(session.client, brief.id);
+    if (brief.library) {
+      library = checkLibraryUse(agent.toolTrace, compMeta?.assets ?? []);
+      errors.push(...library.errors);
+    }
+    render = await renderBrief(session.client, brief.id, options.renderDir ?? RENDER_DIR);
     if (!render.succeeded) {
       errors.push(`render: ${render.error ?? "unknown failure"}`);
     }
@@ -171,7 +202,12 @@ export async function runBrief(brief: BriefFixture, anthropic: Anthropic): Promi
     await session.close();
   }
 
-  const passed = validate.valid && render.succeeded && frames.allFramesNonBlank && errors.length === 0;
+  const passed =
+    validate.valid &&
+    render.succeeded &&
+    frames.allFramesNonBlank &&
+    (library === undefined || library.passed) &&
+    errors.length === 0;
 
   return {
     id: brief.id,
@@ -181,6 +217,7 @@ export async function runBrief(brief: BriefFixture, anthropic: Anthropic): Promi
     validate,
     render,
     frames,
+    ...(library ? { library } : {}),
     errors,
     wallClockMs: Date.now() - startedAt,
   };

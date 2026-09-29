@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { decodePng, readShelf, type EntryInput } from "../../assetlib/index.js";
+import { decodePng, encodePng, readShelf, type EntryInput } from "../../assetlib/index.js";
 import {
   CompositionStore,
   TOOLS,
@@ -16,7 +16,7 @@ import {
   type ToolDef,
   type ToolDeps,
 } from "../../src/mcp/index.js";
-import { BLUE_PNG, RED_PNG, makeShelves, put, putFont, repoRoot, type Shelves } from "../assets/libraryShelves.js";
+import { BLUE_PNG, RED_PNG, makeShelves, put, putFont, repoRoot, solidPng, type Shelves } from "../assets/libraryShelves.js";
 
 function tool(name: string): ToolDef {
   const t = TOOLS.find((x) => x.name === name);
@@ -47,6 +47,9 @@ function putTeapot(root: string): string {
   return put(root, { ...entry, id: "teapot" } as EntryInput, readShelf(HOUSE).payload("teapot"));
 }
 
+// Bytes of its own: a thumb is per blob, so a paper sharing the dot's bytes would share the dot's thumb.
+const CREAM_PNG = solidPng([247, 233, 204]);
+
 const envBefore = { ...process.env };
 let sh: Shelves;
 let teapot: string;
@@ -58,7 +61,7 @@ beforeEach(() => {
   teapot = putTeapot(sh.house);
   put(join(sh.project, "assets"), { id: "dot", kind: "image", name: "Red dot", tags: ["dot", "red"] }, RED_PNG);
   put(sh.user, { id: "dot", kind: "image", name: "Blue dot", tags: ["dot", "blue"] }, BLUE_PNG);
-  put(sh.user, { id: "paper-warm", kind: "stock", name: "Warm paper", desc: "Cream paper, warm", tags: ["paper", "warm"], box: [0, 0, 2, 2] }, BLUE_PNG);
+  put(sh.user, { id: "paper-warm", kind: "stock", name: "Warm paper", desc: "Cream paper, warm", tags: ["paper", "warm"], box: [0, 0, 2, 2] }, CREAM_PNG);
   put(sh.house, { id: "fox", kind: "puppet", name: "Fox", tags: ["animal"], units: 1, box: [0, 0, 10, 10] }, JSON.stringify({ parts: [] }));
   put(
     sh.house,
@@ -213,11 +216,42 @@ describe("get_asset_preview", () => {
   it("sheet: false gives one image per id", async () => {
     const out = await ok("get_asset_preview", { ids: ["dot", "paper-warm"], sheet: false }, standalone());
     expect(out.previews.map((p: { id: string; by: string }) => p.id)).toEqual(["dot", "paper-warm"]);
-    // hdf draws paper; nothing draws an image, so it is the fallback card.
-    expect(out.previews.map((p: { by: string }) => p.by.replace(/:.*/, ""))).toEqual(["card", "hdf@1"]);
+    // davidup draws an image, hdf draws paper.
+    expect(out.previews.map((p: { by: string }) => p.by)).toEqual(["davidup@1", "hdf@1"]);
     const split = tool("get_asset_preview").toImages!(out);
     expect(split.images).toHaveLength(2);
     expect((split.metadata as { previews: object[] }).previews[0]).not.toHaveProperty("image");
+  });
+
+  it("draws an image, a sprite sheet's cycles and a font with davidup's previewers", async () => {
+    const dot = await ok("get_asset_preview", { id: "dot" }, standalone());
+    expect(dot).toMatchObject({ by: "davidup@1", width: 480 });
+    const dotPx = png(dot.image);
+    const at = (img: { width: number; data: Uint8Array }, x: number, y: number) => [...img.data.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+    expect(at(dotPx, 240, 160)).toEqual([0, 0, 255]); // the user's blue dot (the project's red one needs a project), fitted
+
+    // Two 10×10 frames side by side, red then blue: one cell per cycle, in order.
+    const sheet = new Uint8Array(20 * 10 * 4);
+    for (let i = 0; i < 200; i++) sheet.set(i % 20 < 10 ? [255, 0, 0, 255] : [0, 0, 255, 255], i * 4);
+    put(
+      sh.house,
+      {
+        id: "blink",
+        kind: "image",
+        name: "Blink",
+        sheet: { frameWidth: 10, frameHeight: 10, columns: 2, count: 2, fps: 12, cycles: { on: { start: 0, count: 1 }, off: { start: 1, count: 1 } } },
+      } as EntryInput,
+      encodePng({ data: sheet, width: 20, height: 10 }),
+    );
+    const blink = png((await ok("get_asset_preview", { id: "blink" }, standalone())).image);
+    expect(at(blink, 123, 147)).toEqual([255, 0, 0]);
+    expect(at(blink, 357, 147)).toEqual([0, 0, 255]);
+
+    const font = await ok("get_asset_preview", { id: "inter" }, standalone());
+    expect(font.by).toBe("davidup@1");
+    const letters = png(font.image);
+    const inked = [...Array(letters.width * letters.height).keys()].filter((i) => letters.data[i * 4]! < 128).length;
+    expect(inked).toBeGreaterThan(1000); // lettered, not a blank page
   });
 
   it("uses injected previewers", async () => {
@@ -332,7 +366,7 @@ describe("list_library and get_library_thumbnail over the asset library", () => 
 
   it("get_library_thumbnail draws a library record on the standalone server", async () => {
     const card = await ok("get_library_thumbnail", { kind: "font", id: "inter" }, standalone());
-    expect(card).toMatchObject({ mimeType: "image/png", placeholder: true });
+    expect(card).toMatchObject({ mimeType: "image/png", placeholder: false }); // davidup letters a font
     await fails("get_library_thumbnail", { kind: "font", id: "dot" }, standalone(), "E_NOT_FOUND");
     await fails("get_library_thumbnail", { kind: "template", id: "x" }, standalone(), "E_FEATURE_UNAVAILABLE");
   });

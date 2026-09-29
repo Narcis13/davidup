@@ -337,7 +337,12 @@ list_engine_capabilities         (one-shot discovery: easings, item types,
                                   shape kinds, blend modes, tweenable props,
                                   server flavor)
 create_composition
-register_asset × N               (image / font / audio / video)
+search_assets                    (find before placing: the asset library's
+                                  paper, sprite sheets, cut-outs, fonts,
+                                  sound effects; each hit is a ready call)
+get_asset_preview { ids }        (the candidates on one contact sheet)
+use_asset × N                    (register a record, pinned, and place it)
+register_asset × N               (a file you were given a path to)
 add_layer
 add_sprite / add_text / add_shape / add_group / add_video   (one call per item)
   └── or use higher-level shortcuts:
@@ -625,8 +630,10 @@ dark background with a quiet top third for a headline) and every hit carries `us
 exact `register_asset` call, pinned `asset:` src and the record's credit and
 licence included. `get_asset` returns the whole record with what it was made
 from and into; `get_asset_preview` returns its thumb (`id`) or one contact
-sheet (`ids`) as MCP images, drawn by hdf when `handdrawn/` sits beside
-davidup, else as a card. All three work on the standalone `davidup mcp`
+sheet (`ids`) as MCP images: davidup draws an image (a sprite sheet as the
+first frame of each cycle, named) and a font (lettered in its own face), hdf
+draws its kinds when `handdrawn/` sits beside davidup, and anything else is
+a card. All three work on the standalone `davidup mcp`
 server; `list_library` lists the same records as its `asset` and `font` items.
 
 **Adding and placing from an agent.** `add_asset { path, kind, name, licence,
@@ -1074,6 +1081,40 @@ accepted audio/video extensions, `tweenable{}`, and `server: { flavor:
 Follow up with `list_behaviors`, `list_templates`, `list_scenes`,
 `list_fonts` only when you need their detailed descriptors.
 
+### Bring in an asset
+
+Find before placing. Anything the brief does not hand you as a file is
+looked for in the asset library first: the house shelf ships paper
+textures, the fox and octopus as sprite sheets, the Met cut-outs,
+handwriting fonts, sound effects and music beds, and the user's pool and
+the project's shelf sit in front of it. Three calls take a hit to a placed
+item:
+
+```
+search_assets     { q: "warm paper", media: "raster" }      → hits[0].id "paper-warm", why ["id: warm", "id: paper"]
+search_assets     { q: "fox walk", kind: ["image"] }         → "fox-sprite" (a sheet: idle, walk, wave)
+search_assets     { q: "handwritten", kind: ["font"] }       → "hershey-script-font" (family "hdf-hershey-script")
+search_assets     { q: "pop", media: "audio" }               → "sfx-pop" (0.14 s)
+get_asset_preview { ids: ["paper-warm", "fox-sprite", "hershey-script-font", "sfx-pop"] }
+                                                             → one contact sheet, captioned by id
+use_asset         { id: "paper-warm", place: { layerId: "bg", width: 960, height: 540 } }
+use_asset         { id: "fox-sprite", place: { layerId: "main", id: "fox", x: -120, y: 470, cycle: "walk" } }
+use_asset         { id: "hershey-script-font" }              → registered; pass it as add_text's `font`
+use_asset         { id: "sfx-pop", place: { start: 3 } }     → an audio track at 3 s
+```
+
+Each `use_asset` registers the record as `asset:<id>@<sha12>` with its
+credit and licence (the hit's `use.davidup` is the same call, for an agent
+that wants `register_asset` itself) and places it through `add_sprite`,
+`add_video` or `add_audio_track`. A sprite is anchored at its centre (a
+sheet at its feet), so `x`/`y` in `place` move that point: a full-frame
+background is `{ width, height }`, centred. The whole walk with outputs
+is Recipe E in [`examples/mcp-demo.md`](./examples/mcp-demo.md); the
+`library-opener` brief in `scripts/eval-agents` scores it on a live model
+(`bun run eval:agents --only library-opener`), passing only when a
+`search_assets` comes before the first `register_asset` / `use_asset` and
+every asset is a pinned `asset:` src.
+
 ### Session state
 
 User-defined templates, scenes, and behaviors (`define_user_template`,
@@ -1469,7 +1510,7 @@ scripts/
   build-editor.mjs         builds editor-dist/ with a vendored davidup copy
   copy-templates.mjs       copies CLI scaffold templates into dist/
   regenerate-goldens.ts    rewrites this platform's golden frame hashes
-  eval-agents/             nightly agent benchmark (10 briefs, needs ANTHROPIC_API_KEY)
+  eval-agents/             nightly agent benchmark (11 briefs, needs ANTHROPIC_API_KEY)
 
 tests/            Vitest unit + integration tests: schema, engine, compose,
                   drivers (real ffmpeg), mcp, cli, determinism, e2e editor smoke

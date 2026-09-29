@@ -14,6 +14,19 @@ export interface BriefFixture {
   prompt: string;
   /** Hard cap on agent↔tool round trips before the harness gives up and scores whatever exists. */
   maxIterations: number;
+  /**
+   * The brief gives no file paths: everything comes from the asset library.
+   * Scored by {@link LibraryCheck} — a `search_assets` before the first
+   * `register_asset` / `use_asset`, and every composition asset a pinned
+   * `asset:<id>@<sha12>` src.
+   */
+  library?: boolean;
+}
+
+/** One tool call the agent made, in order. */
+export interface ToolTraceEntry {
+  name: string;
+  isError: boolean;
 }
 
 export interface AgentLoopResult {
@@ -24,6 +37,8 @@ export interface AgentLoopResult {
   finishedNaturally: boolean;
   toolErrorCount: number;
   toolErrors: string[];
+  /** Every tool call, in the order the agent made them. */
+  toolTrace: ToolTraceEntry[];
   inputTokens: number;
   outputTokens: number;
   /** Last assistant text, truncated — kept for debugging a scorecard entry, not scored. */
@@ -65,6 +80,21 @@ export interface FrameInspectionCheck {
   allFramesNonBlank: boolean;
 }
 
+/** "Find before placing" (asset-library plan S1), for a brief with `library: true`. */
+export interface LibraryCheck {
+  ran: boolean;
+  passed: boolean;
+  /** 0-based index in the tool trace of the first successful `search_assets`, or null. */
+  firstSearch: number | null;
+  /** 0-based index of the first `register_asset` / `use_asset`, or null. */
+  firstPlace: number | null;
+  /** Composition assets whose src is a pinned `asset:` src. */
+  libraryAssets: string[];
+  /** Composition assets that are not, as `id (src)`. */
+  otherAssets: string[];
+  errors: string[];
+}
+
 export interface ScorecardEntry {
   id: string;
   title: string;
@@ -73,6 +103,8 @@ export interface ScorecardEntry {
   validate: ValidateCheck;
   render: RenderCheck;
   frames: FrameInspectionCheck;
+  /** Present for a `library` brief. */
+  library?: LibraryCheck;
   errors: string[];
   wallClockMs: number;
 }

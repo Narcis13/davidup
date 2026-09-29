@@ -1,5 +1,5 @@
 // End-to-end smoke test for the agent eval harness (v1 plan Session 27):
-// runs ONE brief through the real pipeline — spawn the standalone MCP
+// runs two briefs through the real pipeline — spawn the standalone MCP
 // server, drive it with a real Claude Opus 4.8 authoring agent, validate,
 // render, inspect frames — and asserts the scorecard entry has the shape
 // the runner depends on.
@@ -42,6 +42,28 @@ describe.skipIf(!HAS_CREDENTIAL)("agent eval harness — live smoke (requires AN
         expect(entry.frames.ran).toBe(true);
         expect(entry.frames.frames.length).toBe(3);
       }
+    },
+    10 * 60 * 1000,
+  );
+
+  it(
+    "runs the library-opener brief: a search_assets before the first register_asset / use_asset (asset-library plan S1)",
+    async () => {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const { BRIEFS } = await import("../../scripts/eval-agents/briefs.js");
+      const { runBrief } = await import("../../scripts/eval-agents/runBrief.js");
+
+      const brief = BRIEFS.find((b) => b.id === "library-opener");
+      if (!brief) throw new Error("library-opener brief fixture not found");
+
+      const entry = await runBrief(brief, new Anthropic());
+
+      expect(entry.library?.ran).toBe(true);
+      // The habit S1 is about is asserted; the rest of the pass is the metric
+      // (see the product-promo case above).
+      expect(entry.library?.firstSearch).not.toBeNull();
+      expect(entry.library?.firstPlace).not.toBeNull();
+      expect(entry.library!.firstSearch!).toBeLessThan(entry.library!.firstPlace!);
     },
     10 * 60 * 1000,
   );

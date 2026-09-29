@@ -60,7 +60,7 @@ MCP registries.
 | 4.7 Project lifecycle | `current_project`, `list_projects`, `open_project`, `create_project` |
 | 4.8 Library | `list_library`, `get_library_thumbnail` |
 | 4.8a Asset library | `search_assets`, `get_asset`, `get_asset_preview` |
-| 4.8b Asset library: write and use | `add_asset`, `tag_asset`, `use_asset` |
+| 4.8b Asset library: write and use | `add_asset`, `tag_asset`, `use_asset` (see Recipe E) |
 | 4.9 Engine discovery | `list_easings`, `list_fonts`, `list_engine_capabilities`, `get_source_map` |
 | 4.10 Hand-drawn clips | `render_hdf_clip` (see Recipe D) |
 
@@ -584,6 +584,133 @@ The rest of the tool:
   (or `DAVIDUP_HDF_ROOT`) and node on `PATH`; otherwise it returns
   `E_FEATURE_UNAVAILABLE`, and a failed render is `E_RENDER_FAILED` with
   hdf's last lines.
+
+### Recipe E — "bring in an asset" (find before placing)
+
+The brief says *warm paper, the fox walks in, a title in a handwriting face,
+a pop when it lands* and gives no files. Everything is in the asset library:
+the open project's `assets/`, the user's pool (`~/.davidup/assets`) and the
+house shelf the package ships, searched in that order. This runs on the
+plain standalone server; no editor.
+
+```
+search → look → use → compose
+```
+
+**1. Search.** Free text, ranked, with filters; `why` says which fields
+matched, and every hit carries the call that brings it in.
+
+```jsonc
+// → search_assets
+{ "q": "warm paper", "media": "raster", "limit": 3 }
+// ←
+{
+  "count": 6, "total": 99,
+  "facets": { "kind": { "stock": 6 }, "shelf": { "house": 6 }, "tags": { "paper": 6, "warm": 2, ... } },
+  "hits": [
+    {
+      "id": "paper-warm", "shelf": "house", "score": 12, "why": ["id: warm", "id: paper"],
+      "record": { "kind": "stock", "name": "Warm paper", "w": 2048, "h": 2048, "licence": "own",
+                  "desc": "Warm cream paper with soft diagonal light bands and a fine grain (the paperInk stock)",
+                  "dark": false, "room": { "tl": 0, "t": 0, ... }, "made": { "tool": "paper", ... }, ... },
+      "use": {
+        "davidup": { "tool": "register_asset",
+                     "args": { "id": "paper-warm", "type": "image", "src": "asset:paper-warm@9ea61d248f38", "licence": "own" } },
+        "hdf": { "code": "fromStore(['paper-warm'])", ... }
+      }
+    },
+    { "id": "paper-kraft", "why": ["tags: warm", "id: paper"], ... }
+  ]
+}
+```
+
+The other three:
+
+```
+search_assets { q: "fox walk", kind: ["image"] }    → fox-sprite: a sheet (idle 24, walk 8, wave 1 frames, 12 fps,
+                                                      anchor at the feet), made by `hdf sprite` from the fox puppet
+search_assets { q: "handwritten", kind: ["font"] }  → hershey-script-font, family "hdf-hershey-script", licence PD
+search_assets { q: "pop", media: "audio" }          → sfx-pop, a 0.14 s sample
+```
+
+Filters narrow without words: `{ media: "raster", dark: true, room: "top" }`
+is a dark background with a quiet top third for a headline, quietest first.
+When nothing matches, `facets` count the whole library so the next call can
+narrow from there.
+
+**2. Look.** One contact sheet for the candidates:
+
+```jsonc
+// → get_asset_preview
+{ "ids": ["paper-warm", "fox-sprite", "hershey-script-font", "sfx-pop"] }
+// ← one MCP image block (PNG), plus:
+{ "ids": [...], "mimeType": "image/png", "width": 516, "height": 412, "cols": 2, "rows": 2,
+  "cells": [{ "id": "paper-warm", "shelf": "house", "x": 12, "y": 12, "w": 240, "h": 160 }, ...], "warnings": [] }
+```
+
+The paper is drawn at 1:1 with a pen stroke over it, the sprite sheet as the
+first frame of each cycle (idle, walk, wave), the font lettered in its own
+face, the sample as its waveform. Previews are cached by sha on the shelf.
+
+**3. Use.** `use_asset` registers the record (the hit's `use.davidup`: a
+pinned `asset:` src, its credit and licence) and places it through the same
+calls an agent would make:
+
+```jsonc
+// → use_asset
+{ "id": "paper-warm", "place": { "layerId": "bg", "width": 960, "height": 540 } }
+// ←
+{ "as": "sprite", "assetId": "paper-warm", "src": "asset:paper-warm@9ea61d248f38", "registered": "new",
+  "record": { "id": "paper-warm", "kind": "stock", "shelf": "house" }, "itemId": "item-1", "width": 960, "height": 540 }
+
+// → use_asset
+{ "id": "fox-sprite", "place": { "layerId": "main", "id": "fox", "x": -120, "y": 470, "cycle": "walk" } }
+// ← { "as": "sprite", "src": "asset:fox-sprite@a8b6b8cb4e6b", "itemId": "fox", "width": 210.6, "height": 270, ... }
+
+// → use_asset
+{ "id": "hershey-script-font" }
+// ← { "as": "font", "assetId": "hershey-script-font", "src": "asset:hershey-script-font@972c93ced7b2",
+//     "family": "hdf-hershey-script", ... }                     (registered only: add_text's `font`)
+
+// → use_asset
+{ "id": "sfx-pop", "place": { "start": 3 } }
+// ← { "as": "audio", "src": "asset:sfx-pop@0b05b28e3261", "audioTrackId": "audio-1", ... }
+```
+
+A sprite is anchored at its centre (a sheet at its `anchor`, the fox's
+feet), so `x`/`y` in `place` move that point. The background above has no
+`x`/`y` and is centred; `{ x: 0, y: 0, width: 960, height: 540 }` would put
+its centre in the top-left corner and cover a quarter of the frame. Pass
+`anchorX: 0, anchorY: 0` in `place` to position by the top-left instead.
+
+**4. Compose.** The rest is the usual tools:
+
+```
+add_tween  { target: "fox", property: "transform.x", from: -120, to: 330, start: 0, duration: 2.5 }
+add_text   { layerId: "main", id: "title", text: "How foxes learn", font: "hershey-script-font",
+             fontSize: 64, color: "#2b2622", x: 470, y: 270, opacity: 0 }
+add_tween  { target: "title", property: "transform.opacity", from: 0, to: 1, start: 2.6, duration: 0.4 }
+validate   → { valid: true, errors: [], warnings: [] }
+```
+
+`get_composition` shows four assets, every one `asset:<id>@<sha12>` with
+the licence copied in (the Hershey font's credit too), so `W_ASSET_CREDIT`
+and a credits card need nothing typed by hand. The pins make the render
+repeatable: if a shelf's record moves to other bytes, the render stops with
+`E_ASSET_STALE` instead of drawing something else.
+
+- A file you *were* given is still `register_asset { src: "/abs/path" }`; to
+  keep it for next time, `add_asset { path, kind, name, licence, credit }`
+  puts it on the project's shelf (the user's pool on a standalone server)
+  and it is searchable at once.
+- `get_asset { id }` is the whole record: what it was made from
+  (`made.from`), what was made from it (`made.into`: the fox puppet lists
+  `fox-sprite`), every shelf holding the id.
+- The eval harness checks this habit: the `library-opener` brief in
+  `scripts/eval-agents/briefs.ts` gives no paths and passes only when a
+  `search_assets` comes before the first `register_asset` / `use_asset` and
+  every asset is a pinned `asset:` src
+  (`bun run eval:agents --only library-opener`).
 
 ---
 

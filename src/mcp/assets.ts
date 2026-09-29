@@ -8,7 +8,8 @@
 // the user's pool and the house shelf, read on every call (a catalogue is a
 // few KB; a record `asset add` just wrote is seen at once). Previews are drawn
 // by the hosts found next to assetlib (hdf's previewers when `handdrawn/` is
-// in the checkout, H3), else by assetlib's fallback card; the same hosts add
+// in the checkout, H3) and by davidup's own for images and fonts
+// (assetPreviews.ts), else by assetlib's fallback card; the same hosts add
 // what only they can read off a payload (hdf traces a cutout's silhouette).
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -39,6 +40,7 @@ import {
 import { parseAssetSrc } from "../assets/assetSrc.js";
 import { resolveFfmpeg } from "../drivers/node/ffmpeg.js";
 import { openAssetLibrary } from "../assets/library.js";
+import { previewers as davidupPreviewers } from "./assetPreviews.js";
 import { MCPToolError } from "./errors.js";
 
 /** The standard shelves for `project`, or the MCP error saying which catalogue could not be read. */
@@ -69,11 +71,15 @@ export function requireAsset(lib: Library, ref: string): void {
 
 let hosts: Promise<{ previewers: Previewers; adds: Adds; warnings: string[] }> | null = null;
 
-/** The hosts beside assetlib (`loadHosts()`, H3), loaded once per process. */
+/** The hosts beside assetlib (`loadHosts()`, H3) over davidup's own previewers, loaded once per process. */
 function assetHosts(): Promise<{ previewers: Previewers; adds: Adds; warnings: string[] }> {
   hosts ??= loadHosts().then(
-    ({ previewers, adds, warnings }) => ({ previewers, adds, warnings }),
-    (err: unknown) => ({ previewers: {}, adds: {}, warnings: [`asset hosts not loaded: ${(err as Error)?.message ?? err}`] }),
+    ({ previewers, adds, warnings }) => ({ previewers: { ...davidupPreviewers, ...previewers }, adds, warnings }),
+    (err: unknown) => ({
+      previewers: { ...davidupPreviewers },
+      adds: {},
+      warnings: [`asset hosts not loaded: ${(err as Error)?.message ?? err}`],
+    }),
   );
   return hosts;
 }

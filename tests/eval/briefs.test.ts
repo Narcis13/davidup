@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { EVAL_ASSETS } from "../../scripts/eval-agents/assets.js";
+import { EVAL_ASSETS, REPO_ROOT } from "../../scripts/eval-agents/assets.js";
 import { BRIEFS } from "../../scripts/eval-agents/briefs.js";
 
 describe("agent eval briefs", () => {
@@ -27,6 +27,15 @@ describe("agent eval briefs", () => {
       expect(brief.prompt.length).toBeGreaterThan(50);
       expect(brief.maxIterations).toBeGreaterThanOrEqual(10);
       expect(brief.maxIterations).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("has a library brief that gives no paths (asset-library plan S1)", () => {
+    const library = BRIEFS.filter((b) => b.library);
+    expect(library.map((b) => b.id)).toEqual(["library-opener"]);
+    for (const brief of library) {
+      expect(brief.prompt).not.toContain(REPO_ROOT);
+      expect(brief.prompt).not.toMatch(/\.(png|ttf|otf|wav|mp3|mp4|webp)\b/);
     }
   });
 

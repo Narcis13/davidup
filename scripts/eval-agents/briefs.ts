@@ -128,6 +128,22 @@ export const BRIEFS: BriefFixture[] = [
       "starts out by at least a few hundred milliseconds if you're unsure. Validate before finishing and fix any `E_TWEEN_OVERLAP` errors " +
       "by nudging start times.",
   },
+  {
+    // Asset-library plan S1: "find before placing". No paths — the agent has
+    // to search the library, and the harness checks the tool trace for a
+    // search_assets before the first register_asset / use_asset, and that
+    // every asset is a pinned `asset:` src (scripts/eval-agents/libraryCheck.ts).
+    id: "library-opener",
+    title: "Explainer opening from the asset library",
+    maxIterations: 45,
+    library: true,
+    prompt:
+      "Author a 6-second, 960x540, 24fps opening for an explainer video. No file paths are given: everything it needs is " +
+      "in davidup's asset library, so find each asset before you place it. A warm paper texture fills the whole frame as the " +
+      "background. The hand-drawn fox walks in from the left and stops a little left of centre (it comes as a sprite sheet " +
+      "with a walk cycle). Once the fox has stopped, a short title lettered in a handwritten font fades in beside it, and a " +
+      "pop sound effect plays the moment the title lands. Validate before finishing.",
+  },
 ];
 
 if (BRIEFS.length < 10) {

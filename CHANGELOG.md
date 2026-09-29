@@ -9,6 +9,31 @@ and cite the behavior/expansion version marker that moved
 
 ## Unreleased
 
+### Find before placing: the davidup agent story (asset library S1)
+
+- `get_asset_preview` draws images and fonts: an image fitted over a
+  checker when it has alpha, a sprite sheet as the first frame of each
+  cycle with its name, a font lettered in its own face (`by: davidup@1`,
+  `src/mcp/assetPreviews.ts`). They were the fallback card, so a contact
+  sheet of the fox and a handwriting font showed two labels. hdf still
+  draws its kinds; video and audio stay cards. Thumbs are cached by sha
+  as before, and a card cached for an image or font is redrawn.
+- `use_asset`'s description says what `x`/`y` in `place` mean for a sprite
+  (the anchor, its centre by default) and that a full-frame background is
+  `place: { width, height }`: `{ x: 0, y: 0, width, height }` covers a
+  quarter of the frame.
+- README ("Bring in an asset", and the quickstart's canonical sequence) and
+  `examples/mcp-demo.md` (Recipe E) walk `search_assets` →
+  `get_asset_preview` → `use_asset` with real outputs.
+- The agent eval has an eleventh brief, `library-opener`, that gives no
+  paths: it passes only when the tool trace has a `search_assets` before
+  the first `register_asset` / `use_asset` and every composition asset is
+  a pinned `asset:` src (`scripts/eval-agents/libraryCheck.ts`). The
+  harness records each brief's tool trace, points the server's user pool
+  at an empty directory (the house shelf alone, on every machine), and
+  takes `--only <ids>` (`bun run eval:agents --only library-opener`). The
+  system prompt tells the agent to find before placing.
+
 ### The record drawer (asset library E4)
 
 - Clicking (or Enter on) a record card in the Library's Assets or Fonts tab

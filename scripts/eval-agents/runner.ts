@@ -30,6 +30,7 @@ function summarizeLine(entry: ScorecardEntry): string {
     `render=${entry.render.succeeded ? "ok" : "FAIL"}`,
     `frames=${entry.frames.allFramesNonBlank ? "ok" : "FAIL"}`,
     entry.agent ? `tools=${entry.agent.toolCallCount}` : "tools=n/a",
+    entry.library ? `library=${entry.library.passed ? "ok" : "FAIL"}` : "",
     entry.agent && !entry.agent.finishedNaturally ? "(hit iteration cap)" : "",
   ]
     .filter(Boolean)
@@ -46,13 +47,22 @@ async function main(): Promise<void> {
     );
   }
 
+  // `--only a,b` runs just those briefs (`bun run eval:agents --only library-opener`).
+  const onlyAt = process.argv.indexOf("--only");
+  const only = onlyAt === -1 ? null : new Set((process.argv[onlyAt + 1] ?? "").split(",").filter(Boolean));
+  const briefs = only ? BRIEFS.filter((b) => only.has(b.id)) : BRIEFS;
+  if (only && briefs.length !== only.size) {
+    const known = new Set(BRIEFS.map((b) => b.id));
+    throw new Error(`--only names unknown briefs: ${[...only].filter((id) => !known.has(id)).join(", ")}`);
+  }
+
   const anthropic = new Anthropic();
   const results: ScorecardEntry[] = [];
 
   // eslint-disable-next-line no-console
-  console.log(`[eval:agents] running ${BRIEFS.length} briefs against ${EVAL_MODEL}...`);
+  console.log(`[eval:agents] running ${briefs.length} briefs against ${EVAL_MODEL}...`);
 
-  for (const brief of BRIEFS) {
+  for (const brief of briefs) {
     // eslint-disable-next-line no-console
     console.log(`[eval:agents] → ${brief.id}`);
     const entry = await runBrief(brief, anthropic);

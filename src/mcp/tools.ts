@@ -3789,6 +3789,7 @@ const useAsset = defineTool({
     "`as` follows the record: an image, cutout or stock is a `sprite` (add_sprite), a video a `video` (add_video), audio or a sample an `audio` track (add_audio_track), a font is only registered (pass the returned `assetId` as add_text's `font`); " +
     "a puppet, hand or motif is taken through the sprite sheet, image or font made from it (`record.via`); a record davidup cannot take errors E_ASSET_TYPE_MISMATCH. " +
     "`place` carries that tool's own fields (not `asset`); left out, defaults are used: a sprite goes on the topmost layer, centred on the stage, anchored at its centre (a sprite sheet at its anchor), sized to its frame or image but shrunk to fit a quarter of the stage (keeping its aspect when only `width` or `height` is given) and named after the record; " +
+      "`x`/`y` in `place` move that anchor, so they are the sprite's centre (a sheet's feet) unless `place` sets `anchorX`/`anchorY` too: a background filling a 1280x720 stage is `place: { width: 1280, height: 720 }`, not `{ x: 0, y: 0, ... }`, which puts its centre in the corner; " +
     "a video goes on the topmost layer at 0,0 filling the frame (add_video's defaults); an audio track starts at 0. `place: false` registers only. " +
     "The composition asset id is the record's id (`assetId` picks another); a record already registered from the same src is reused, and an id registered from another src errors E_DUPLICATE_ID unless `replace: true` repoints it. " +
     "If placing fails, a registration this call made is undone. " +

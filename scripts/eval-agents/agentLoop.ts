@@ -11,7 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 import { callMcpTool } from "./mcpSession.js";
-import type { AgentLoopResult } from "./types.js";
+import type { AgentLoopResult, ToolTraceEntry } from "./types.js";
 
 export const EVAL_MODEL = "claude-opus-4-8";
 
@@ -19,9 +19,13 @@ const MAX_TOOL_RESULT_TEXT_CHARS = 4000;
 const MAX_FINAL_MESSAGE_CHARS = 2000;
 
 export const SYSTEM_PROMPT = `You are authoring a short video using the davidup MCP tools. Every tool call \
-acts on one implicit "current" composition held in the server process — there is no filesystem access, so any \
-asset you need (fonts, images, audio, video) must be registered via \`register_asset\` using the exact absolute \
-paths given to you in the brief.
+acts on one implicit "current" composition held in the server process — there is no filesystem access. Assets \
+come from two places. A file the brief names by absolute path is registered with \`register_asset\` at that exact \
+path. Anything else comes from the asset library (paper textures, sprite sheets, cut-out objects, handwriting \
+fonts, sound effects and music beds): find before placing — \`search_assets\` first (free text plus filters such \
+as \`kind\`, \`media\`, \`dark\`, \`room\`), \`get_asset_preview { ids }\` to compare candidates on one contact \
+sheet, then \`use_asset { id }\`, which registers the record (a pinned \`asset:\` src with its credit and licence) \
+and places it as a sprite, video or audio track (a font is registered for \`add_text\`).
 
 Work through the brief using the tools available to you: start with \`create_composition\`, add layers and items, \
 register any assets the brief names, animate with \`add_tween\` and/or \`apply_behavior\`/\`apply_template\`, and use \
@@ -87,6 +91,7 @@ export async function runAgentLoop(options: {
   let inputTokens = 0;
   let outputTokens = 0;
   const toolErrors: string[] = [];
+  const toolTrace: ToolTraceEntry[] = [];
   let finalMessage = "";
 
   while (iterations < maxIterations) {
@@ -120,6 +125,7 @@ export async function runAgentLoop(options: {
       toolCallCount++;
       try {
         const outcome = await callMcpTool(mcpClient, block.name, (block.input ?? {}) as Record<string, unknown>);
+        toolTrace.push({ name: block.name, isError: outcome.isError });
         if (outcome.isError) {
           toolErrors.push(`${block.name}: ${outcome.textBlocks.join(" ").slice(0, 300)}`);
         }
@@ -131,6 +137,7 @@ export async function runAgentLoop(options: {
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        toolTrace.push({ name: block.name, isError: true });
         toolErrors.push(`${block.name}: ${message}`);
         toolResults.push({
           type: "tool_result",
@@ -150,6 +157,7 @@ export async function runAgentLoop(options: {
     finishedNaturally: stopReason === "end_turn",
     toolErrorCount: toolErrors.length,
     toolErrors,
+    toolTrace,
     inputTokens,
     outputTokens,
     finalMessage: truncate(finalMessage, MAX_FINAL_MESSAGE_CHARS),
