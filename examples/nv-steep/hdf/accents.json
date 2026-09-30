@@ -1,0 +1,62 @@
+{
+ "W": 1920,
+ "H": 1080,
+ "dur": 21,
+ "look": "chalkboard",
+ "ink": "#f5ecdf",
+ "colors": [
+  "#f5ecdf",
+  "#e9a23b",
+  "#d4654a",
+  "#8fbfa8"
+ ],
+ "w": 4.5,
+ "marks": [
+  {
+   "kind": "circle",
+   "dur": 0.7,
+   "of": "teapot",
+   "grow": 0.8,
+   "at": 7.6,
+   "color": 1,
+   "until": 10.5
+  },
+  {
+   "kind": "callout",
+   "dur": 1,
+   "text": "since 1755",
+   "of": "teapot",
+   "grow": 0.8,
+   "at": 8.3,
+   "dir": -0.7853981633974483,
+   "reach": 150,
+   "size": 56,
+   "color": 0,
+   "until": 10.5
+  },
+  {
+   "kind": "underline",
+   "dur": 0.45,
+   "of": "three",
+   "at": 11.7,
+   "color": 1,
+   "until": 15
+  },
+  {
+   "kind": "star",
+   "dur": 0.35,
+   "of": "cup",
+   "at": 16.953,
+   "color": 1,
+   "until": 18
+  },
+  {
+   "kind": "underline",
+   "dur": 0.45,
+   "of": "mark",
+   "at": 19.3,
+   "boxAt": 20,
+   "color": 1
+  }
+ ]
+}
