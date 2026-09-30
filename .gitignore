@@ -42,3 +42,6 @@ npm-debug.log*
 
 # hand-drawn films in progress (handdrawn/work/<film>/)
 handdrawn/work/
+
+# new-video projects in progress (videos/<slug>/)
+videos/
